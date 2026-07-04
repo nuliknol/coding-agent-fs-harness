@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 1 ]] || usage
+load_harness_env "$1"
+ensure_project
+"$HARNESS_BIN/worker-supervisor-stop" "$HARNESS_ENV_FILE"
+"$HARNESS_BIN/manager-supervisor-stop" "$HARNESS_ENV_FILE"
+printf 'Harness supervisors stopped. Active Codex child processes, if any, are not forcibly killed.\n'

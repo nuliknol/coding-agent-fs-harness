@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TASK_ID SESSION RESULT_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 4 ]] || usage
+load_harness_env "$1"
+task_id="$2"
+session="$3"
+result_file="$4"
+
+ensure_project
+ensure_session "$session"
+validate_task_id "$task_id"
+[[ -f "$result_file" ]] || die "result file does not exist: $result_file"
+acquire_project_lock
+
+dir="$(project_dir)"
+base="$(task_base "$task_id")"
+running="$dir/running/$base.running.md"
+lease="$dir/control/$base.lease"
+abort="$dir/control/$base.abort.md"
+result="$dir/results/$base.result.md"
+assignment_archive="$dir/archive/$base.assignment.md"
+
+[[ ! -f "$abort" ]] || {
+	printf 'Task %s has been aborted; completion refused.\n' "$task_id" >&2
+	exit 125
+}
+[[ -f "$running" ]] || die "task is not running: $task_id"
+[[ -f "$lease" ]] || die "lease is missing: $task_id"
+[[ ! -e "$result" ]] || die "result already exists: $task_id"
+
+owner="$(lease_value "$lease" owner)"
+[[ "$owner" == "$session" ]] || die "task is owned by $owner, not $session"
+
+tmp="$dir/results/$base.result.tmp.$$"
+install -m 600 "$result_file" "$tmp"
+mv "$running" "$assignment_archive"
+rm -f "$lease"
+mv "$tmp" "$result"
+
+log_event "TASK_COMPLETED task=$task_id owner=$session result=$result"
+printf '%s\n' "$result"

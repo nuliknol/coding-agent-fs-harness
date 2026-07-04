@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE SESSION [TIMEOUT_SECONDS]\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -ge 2 && $# -le 3 ]] || usage
+load_harness_env "$1"
+session="$2"
+timeout="${3:-$HARNESS_WAIT_SECONDS}"
+
+ensure_project
+ensure_session "$session"
+[[ "$timeout" =~ ^[0-9]+$ ]] || die 'timeout must be an integer'
+
+dir="$(project_dir)"
+deadline=$(( $(epoch_now) + timeout ))
+
+while true; do
+	ready_name=""
+	{
+		acquire_project_lock
+		ready_name="$(find "$dir/tasks" -maxdepth 1 -type f -name "$PROJECT-task-*.ready.md" -printf '%f\n' | LC_ALL=C sort | head -n 1 || true)"
+		if [[ -n "$ready_name" ]]; then
+			task_id="$(task_id_from_filename "$ready_name")"
+			base="$(task_base "$task_id")"
+			ready="$dir/tasks/$ready_name"
+			running="$dir/running/$base.running.md"
+			lease="$dir/control/$base.lease"
+			now="$(epoch_now)"
+			lease_tmp="$lease.tmp.$$"
+			{
+				printf 'project=%s\n' "$PROJECT"
+				printf 'task_id=%s\n' "$task_id"
+				printf 'owner=%s\n' "$session"
+				printf 'env_file=%s\n' "$HARNESS_ENV_FILE"
+				printf 'claimed_at=%s\n' "$(timestamp_utc)"
+				printf 'claimed_epoch=%s\n' "$now"
+				printf 'heartbeat_at=%s\n' "$(timestamp_utc)"
+				printf 'heartbeat_epoch=%s\n' "$now"
+			} > "$lease_tmp"
+			chmod 600 "$lease_tmp"
+			mv "$lease_tmp" "$lease"
+			mv "$ready" "$running"
+			log_event "TASK_CLAIMED task=$task_id owner=$session"
+			printf 'TASK_ID=%s\n' "$task_id"
+			printf 'TASK_FILE=%s\n' "$running"
+			exit 0
+		fi
+	}
+
+	if (( $(epoch_now) >= deadline )); then
+		printf 'No ready task appeared within %s seconds.\n' "$timeout" >&2
+		exit 124
+	fi
+	sleep "$HARNESS_POLL_SECONDS"
+done

@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 1 ]] || usage
+load_harness_env "$1"
+require_manager_configuration
+
+umask 077
+mkdir -p "$HARNESS_ROOT"
+chmod 700 "$HARNESS_ROOT"
+mkdir -p "$(project_dir)"/{tasks,running,results,archive,control/sessions,logs}
+chmod 700 "$(project_dir)" "$(project_dir)"/{tasks,running,results,archive,control,control/sessions,logs}
+
+write_project_snapshot
+write_manager_snapshot
+write_worker_snapshot
+
+log_event "PROJECT_INITIALIZED repository=$REPOSITORY env_file=$HARNESS_ENV_FILE"
+printf 'Initialized project %s\n' "$PROJECT"
+printf 'Environment file: %s\n' "$HARNESS_ENV_FILE"
+printf 'Harness root: %s\n' "$HARNESS_ROOT"
+printf 'Repository: %s\n' "$REPOSITORY"
+printf 'Specification: %s\n' "$SPECIFICATION"
+printf 'Manager model: %s (%s)\n' "$MANAGER_MODEL" "$MANAGER_REASONING_EFFORT"
+printf 'Worker model: %s (%s)\n' "$WORKER_MODEL" "$WORKER_REASONING_EFFORT"

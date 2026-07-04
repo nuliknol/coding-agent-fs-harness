@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 1 ]] || usage
+load_harness_env "$1"
+ensure_project
+require_manager_configuration
+write_manager_snapshot
+
+log_event "MANAGER_CONFIGURED specification=$SPECIFICATION model=$MANAGER_MODEL effort=$MANAGER_REASONING_EFFORT env_file=$HARNESS_ENV_FILE"
+printf 'Configured manager for project %s\n' "$PROJECT"
+printf 'Environment file: %s\n' "$HARNESS_ENV_FILE"
+printf 'Specification: %s\n' "$SPECIFICATION"
+printf 'Model: %s\n' "$MANAGER_MODEL"
+printf 'Reasoning effort: %s\n' "$MANAGER_REASONING_EFFORT"
+printf 'Sandbox: %s\n' "$MANAGER_SANDBOX"

@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TASK_ID [TIMEOUT_SECONDS] [STALE_SECONDS]\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -ge 2 && $# -le 4 ]] || usage
+load_harness_env "$1"
+task_id="$2"
+timeout="${3:-$HARNESS_WAIT_SECONDS}"
+stale="${4:-$HARNESS_STALE_SECONDS}"
+
+ensure_project
+validate_task_id "$task_id"
+[[ "$timeout" =~ ^[0-9]+$ ]] || die 'timeout must be an integer'
+[[ "$stale" =~ ^[0-9]+$ ]] || die 'stale interval must be an integer'
+
+dir="$(project_dir)"
+base="$(task_base "$task_id")"
+ready="$dir/tasks/$base.ready.md"
+running="$dir/running/$base.running.md"
+result="$dir/results/$base.result.md"
+lease="$dir/control/$base.lease"
+abort="$dir/control/$base.abort.md"
+accepted="$dir/archive/$base.accepted.md"
+deadline=$(( $(epoch_now) + timeout ))
+
+while true; do
+	if [[ -f "$result" ]]; then
+		printf '%s\n' "$result"
+		exit 0
+	fi
+	if [[ -f "$abort" ]]; then
+		printf 'Task %s is aborted. Marker: %s\n' "$task_id" "$abort" >&2
+		exit 125
+	fi
+	if [[ -f "$accepted" ]]; then
+		printf 'Task %s is already accepted. Marker: %s\n' "$task_id" "$accepted"
+		exit 0
+	fi
+	if [[ -f "$running" && -f "$lease" ]]; then
+		heartbeat_epoch="$(lease_value "$lease" heartbeat_epoch)"
+		heartbeat_epoch="${heartbeat_epoch:-0}"
+		age=$(( $(epoch_now) - heartbeat_epoch ))
+		if (( age > stale )); then
+			owner="$(lease_value "$lease" owner)"
+			printf 'Task %s has a stale lease: owner=%s age=%ss threshold=%ss\n' "$task_id" "$owner" "$age" "$stale" >&2
+			exit 75
+		fi
+	fi
+	if [[ ! -f "$ready" && ! -f "$running" && ! -f "$result" && ! -f "$accepted" ]]; then
+		printf 'Task %s has no active state.\n' "$task_id" >&2
+		exit 66
+	fi
+	if (( $(epoch_now) >= deadline )); then
+		printf 'No result for task %s within %s seconds.\n' "$task_id" "$timeout" >&2
+		exit 124
+	fi
+	sleep "$HARNESS_POLL_SECONDS"
+done

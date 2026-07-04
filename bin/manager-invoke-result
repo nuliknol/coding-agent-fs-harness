@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TASK_ID\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 2 ]] || usage
+load_harness_env "$1"
+task_id="$2"
+ensure_project
+require_manager_configuration
+require_manager_codex
+validate_task_id "$task_id"
+write_manager_snapshot
+
+project_path="$(project_dir)"
+thread_file="$project_path/control/manager.thread"
+[[ -f "$thread_file" ]] || die 'manager thread is not registered; run manager-bootstrap'
+thread_id="$(kv_file_value "$thread_file" thread_id)"
+base="$(task_base "$task_id")"
+result="$project_path/results/$base.result.md"
+running="$project_path/running/$base.running.md"
+lease="$project_path/control/$base.lease"
+assignment_archive="$project_path/archive/$base.assignment.md"
+accepted="$project_path/archive/$base.accepted.md"
+rejected="$project_path/archive/$base.rejected.md"
+[[ -f "$result" ]] || die "result file does not exist: $result"
+[[ ! -e "$running" ]] || die "result is not committed; running assignment still exists: $running"
+[[ ! -e "$lease" ]] || die "result is not committed; worker lease still exists: $lease"
+[[ -f "$assignment_archive" ]] || die "result is not committed; archived assignment is missing: $assignment_archive"
+
+prompt_file="$project_path/control/$base.manager-review.prompt.md"
+cat > "$prompt_file.tmp.$$" <<PROMPT
+A worker result is ready for review.
+
+ENV_FILE=$HARNESS_ENV_FILE
+PROJECT=$PROJECT
+TASK_ID=$task_id
+RESULT_FILE=$result
+SPECIFICATION=$SPECIFICATION
+REPOSITORY=$REPOSITORY
+HARNESS_BIN=$HARNESS_BIN
+
+Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and follow it. Review this result and the actual repository now. Every harness command must receive ENV_FILE as its first argument. Accept the task or reject it and publish one bounded revision/next task as appropriate. Then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or call manager-wait-result.
+PROMPT
+chmod 600 "$prompt_file.tmp.$$"
+mv "$prompt_file.tmp.$$" "$prompt_file"
+
+attempt=1
+capacity_retries=0
+status=0
+json_log=""
+last_message=""
+
+manager_action_committed()
+{
+	[[ -f "$accepted" || -f "$rejected" || ! -e "$result" ]]
+}
+
+while true; do
+	stamp="$(date -u '+%Y%m%dT%H%M%SZ')"
+	attempt_label="$(printf '%03d' "$attempt")"
+	json_log="$project_path/logs/manager-review-$task_id-$stamp-attempt-$attempt_label.jsonl"
+	last_message="$project_path/logs/manager-review-$task_id-$stamp-attempt-$attempt_label.md"
+
+	log_event "MANAGER_REVIEW_STARTED task=$task_id thread_id=$thread_id attempt=$attempt"
+	set +e
+	env CODEX_HOME="$MANAGER_CODEX_HOME" "$MANAGER_CODEX_BIN" exec --json --model "$MANAGER_MODEL" --sandbox "$MANAGER_SANDBOX" --add-dir "$HARNESS_ROOT" --cd "$REPOSITORY" -c "model_reasoning_effort=\"$MANAGER_REASONING_EFFORT\"" --output-last-message "$last_message" resume "$thread_id" - < "$prompt_file" | tee "$json_log"
+	status=${PIPESTATUS[0]}
+	set -e
+
+	if (( status == 0 )); then
+		log_event "MANAGER_REVIEW_FINISHED task=$task_id attempt=$attempt"
+		printf 'Manager review turn completed and exited for task %s.\n' "$task_id"
+		exit 0
+	fi
+
+	# A manager command may have committed an accept/reject immediately before
+	# the API stream failed. Never repeat a committed manager action.
+	if manager_action_committed; then
+		log_event "MANAGER_REVIEW_FINISHED task=$task_id attempt=$attempt outcome=action_committed_before_process_failure status=$status"
+		printf 'Manager action for task %s was committed before the Codex process failed.\n' "$task_id"
+		exit 0
+	fi
+
+	if codex_log_has_capacity_error "$json_log" && capacity_retry_allowed "$capacity_retries"; then
+		capacity_retries=$((capacity_retries + 1))
+		log_event "MANAGER_CAPACITY_RETRY_SCHEDULED task=$task_id thread_id=$thread_id attempt=$attempt retry=$capacity_retries delay_seconds=$HARNESS_CAPACITY_RETRY_SECONDS"
+		printf 'Manager model is at capacity for task %s; retrying in %s seconds.\n' "$task_id" "$HARNESS_CAPACITY_RETRY_SECONDS" >&2
+		sleep "$HARNESS_CAPACITY_RETRY_SECONDS"
+
+		# Recheck the authoritative state after the delay. A human or another
+		# recovery action may have resolved the result while this process slept.
+		if manager_action_committed; then
+			log_event "MANAGER_REVIEW_FINISHED task=$task_id attempt=$attempt outcome=action_committed_during_capacity_wait"
+			exit 0
+		fi
+		[[ ! -e "$running" ]] || die "cannot retry manager review; running assignment appeared: $running"
+		[[ ! -e "$lease" ]] || die "cannot retry manager review; worker lease appeared: $lease"
+		[[ -f "$assignment_archive" ]] || die "cannot retry manager review; archived assignment disappeared: $assignment_archive"
+
+		attempt=$((attempt + 1))
+		log_event "MANAGER_CAPACITY_RETRY_STARTED task=$task_id thread_id=$thread_id attempt=$attempt retry=$capacity_retries"
+		continue
+	fi
+
+	log_event "MANAGER_REVIEW_FAILED task=$task_id status=$status attempts=$attempt"
+	exit "$status"
+done

@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE [--reset-stale]\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -ge 1 && $# -le 2 ]] || usage
+load_harness_env "$1"
+mode="${2:-}"
+[[ -z "$mode" || "$mode" == '--reset-stale' ]] || usage
+ensure_project
+
+dir="$(project_dir)"
+shopt -s nullglob
+problems=0
+
+for file in "$dir/running/$PROJECT-task-"*.running.md; do
+	task_id="$(task_id_from_filename "$file")"
+	base="$(task_base "$task_id")"
+	lease="$dir/control/$base.lease"
+
+	if [[ ! -f "$lease" ]]; then
+		printf 'ORPHAN_RUNNING task=%s reason=missing-lease\n' "$task_id"
+		problems=$((problems + 1))
+		if [[ "$mode" == '--reset-stale' ]]; then
+			"$HARNESS_BIN/harness-reset-task" "$HARNESS_ENV_FILE" "$task_id" --force
+		fi
+		continue
+	fi
+
+	heartbeat_epoch="$(lease_value "$lease" heartbeat_epoch)"
+	heartbeat_epoch="${heartbeat_epoch:-0}"
+	age=$(( $(epoch_now) - heartbeat_epoch ))
+	if (( age > HARNESS_STALE_SECONDS )); then
+		owner="$(lease_value "$lease" owner)"
+		printf 'STALE_RUNNING task=%s owner=%s age=%ss\n' "$task_id" "$owner" "$age"
+		problems=$((problems + 1))
+		if [[ "$mode" == '--reset-stale' ]]; then
+			"$HARNESS_BIN/harness-reset-task" "$HARNESS_ENV_FILE" "$task_id" --force
+		fi
+	fi
+done
+
+for file in "$dir/tasks/"*.tmp.* "$dir/results/"*.tmp.* "$dir/control/"*.tmp.*; do
+	[[ -e "$file" ]] || continue
+	mtime="$(stat -c '%Y' "$file")"
+	age=$(( $(epoch_now) - mtime ))
+	if (( age > HARNESS_STALE_SECONDS )); then
+		printf 'STALE_TEMP file=%s age=%ss\n' "$file" "$age"
+		problems=$((problems + 1))
+	fi
+done
+
+if (( problems == 0 )); then
+	printf 'No recoverable problems found.\n'
+fi

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TASK_ID\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 2 ]] || usage
+load_harness_env "$1"
+task_id="$2"
+ensure_project
+validate_task_id "$task_id"
+base="$(task_base "$task_id")"
+marker="$(project_dir)/control/$base.reviewed-event"
+rm -f "$marker"
+log_event "RESULT_REQUEUED task=$task_id"
+printf 'Result %s is eligible for manager invocation again.\n' "$task_id"

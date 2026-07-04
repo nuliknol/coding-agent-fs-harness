@@ -1,0 +1,199 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	cat >&2 <<USAGE
+Usage: ${0##*/} ENV_FILE [--new-only]
+
+Watch worker and manager natural-language messages for the currently active
+harness task. The watcher automatically follows new tasks and capacity-retry
+attempt logs.
+
+Options:
+  --new-only   Do not replay existing messages from logs that are active when
+               the watcher starts. New tasks and retry attempts are shown from
+               their beginning.
+USAGE
+	exit 2
+}
+
+[[ $# -ge 1 && $# -le 2 ]] || usage
+ENV_FILE="$1"
+NEW_ONLY=0
+if [[ $# -eq 2 ]]; then
+	[[ "$2" == "--new-only" ]] || usage
+	NEW_ONLY=1
+fi
+
+load_harness_env "$ENV_FILE"
+ensure_project
+command -v jq >/dev/null 2>&1 || die 'jq is required'
+
+dir="$(project_dir)"
+logs_dir="$dir/logs"
+watch_seconds="${HARNESS_WATCH_POLL_SECONDS:-1}"
+[[ "$watch_seconds" =~ ^[0-9]+([.][0-9]+)?$ ]] || die 'HARNESS_WATCH_POLL_SECONDS must be numeric'
+
+shopt -s nullglob
+
+declare -A next_line=()
+declare -A initialized=()
+worker_log=""
+manager_log=""
+startup=1
+
+latest_matching_log()
+{
+	local pattern="$1"
+	local file newest="" newest_epoch=""
+	for file in $pattern; do
+		[[ -f "$file" ]] || continue
+		local epoch
+		epoch="$(stat -c '%Y' "$file" 2>/dev/null || printf '0')"
+		if [[ -z "$newest" || "$epoch" -gt "$newest_epoch" || ( "$epoch" -eq "$newest_epoch" && "$file" > "$newest" ) ]]; then
+			newest="$file"
+			newest_epoch="$epoch"
+		fi
+	done
+	printf '%s' "$newest"
+}
+
+current_worker_log()
+{
+	local running task_id candidate="" candidate_epoch="" log epoch
+	for running in "$dir/running/$PROJECT-task-"*.running.md; do
+		[[ -f "$running" ]] || continue
+		task_id="$(task_id_from_filename "$running")"
+		log="$(latest_matching_log "$logs_dir/worker-task-$task_id-*.jsonl")"
+		[[ -n "$log" ]] || continue
+		epoch="$(stat -c '%Y' "$log" 2>/dev/null || printf '0')"
+		if [[ -z "$candidate" || "$epoch" -gt "$candidate_epoch" || ( "$epoch" -eq "$candidate_epoch" && "$log" > "$candidate" ) ]]; then
+			candidate="$log"
+			candidate_epoch="$epoch"
+		fi
+	done
+	printf '%s' "$candidate"
+}
+
+current_manager_log()
+{
+	local result task_id candidate="" candidate_epoch="" log epoch
+	for result in "$dir/results/$PROJECT-task-"*.result.md; do
+		[[ -f "$result" ]] || continue
+		task_id="$(task_id_from_filename "$result")"
+		log="$(latest_matching_log "$logs_dir/manager-review-$task_id-*.jsonl")"
+		[[ -n "$log" ]] || continue
+		epoch="$(stat -c '%Y' "$log" 2>/dev/null || printf '0')"
+		if [[ -z "$candidate" || "$epoch" -gt "$candidate_epoch" || ( "$epoch" -eq "$candidate_epoch" && "$log" > "$candidate" ) ]]; then
+			candidate="$log"
+			candidate_epoch="$epoch"
+		fi
+	done
+
+	# Before the persistent manager thread exists, expose bootstrap messages too.
+	if [[ -z "$candidate" && ! -f "$dir/control/manager.thread" ]]; then
+		candidate="$(latest_matching_log "$logs_dir/manager-bootstrap-*-attempt-*.jsonl")"
+	fi
+	printf '%s' "$candidate"
+}
+
+role_and_task_from_log()
+{
+	local role="$1" file="$2" name task
+	name="${file##*/}"
+	case "$role:$name" in
+		WORKER:worker-task-*.jsonl)
+			task="${name#worker-task-}"
+			task="${task%-????????T??????Z-attempt-???.jsonl}"
+			;;
+		MANAGER:manager-review-*.jsonl)
+			task="${name#manager-review-}"
+			task="${task%-????????T??????Z-attempt-???.jsonl}"
+			;;
+		MANAGER:manager-bootstrap-*.jsonl)
+			task="bootstrap"
+			;;
+		*)
+			task="unknown"
+			;;
+	esac
+	printf '%s' "$task"
+}
+
+initialize_log()
+{
+	local log="$1" replay_existing="$2" total
+	[[ -n "${initialized[$log]:-}" ]] && return 0
+	total="$(wc -l < "$log")"
+	if (( replay_existing == 1 )); then
+		next_line[$log]=1
+	else
+		next_line[$log]=$((total + 1))
+	fi
+	initialized[$log]=1
+}
+
+print_new_messages()
+{
+	local role="$1" log="$2" start total task
+	[[ -n "$log" && -f "$log" ]] || return 0
+	start="${next_line[$log]:-1}"
+	total="$(wc -l < "$log")"
+	(( total >= start )) || return 0
+	task="$(role_and_task_from_log "$role" "$log")"
+
+	sed -n "${start},${total}p" "$log" | jq --unbuffered -r --arg role "$role" --arg task "$task" '
+		if .type == "item.completed" and .item.type == "agent_message" then
+			"\n[" + $role + " task=" + $task + "]\n" + (.item.text // "")
+		elif .type == "error" then
+			"\n[" + $role + " ERROR task=" + $task + "]\n" + (.message // .error.message // "unknown error")
+		elif .type == "turn.failed" then
+			"\n[" + $role + " TURN FAILED task=" + $task + "]\n" + (.error.message // .message // "unknown error")
+		else empty end
+	'
+	next_line[$log]=$((total + 1))
+}
+
+announce_switch()
+{
+	local role="$1" log="$2" task
+	task="$(role_and_task_from_log "$role" "$log")"
+	printf '\n=== %s task=%s log=%s ===\n' "$role" "$task" "${log##*/}"
+}
+
+printf 'Watching natural-language agent output for project %s. Press Ctrl+C to stop.\n' "$PROJECT"
+printf 'State: %s\n' "$dir"
+
+while true; do
+	new_worker="$(current_worker_log)"
+	new_manager="$(current_manager_log)"
+
+	if [[ -n "$new_worker" && "$new_worker" != "$worker_log" ]]; then
+		worker_log="$new_worker"
+		replay=1
+		if (( startup == 1 && NEW_ONLY == 1 )); then replay=0; fi
+		initialize_log "$worker_log" "$replay"
+		announce_switch WORKER "$worker_log"
+	fi
+
+	if [[ -n "$new_manager" && "$new_manager" != "$manager_log" ]]; then
+		manager_log="$new_manager"
+		replay=1
+		if (( startup == 1 && NEW_ONLY == 1 )); then replay=0; fi
+		initialize_log "$manager_log" "$replay"
+		announce_switch MANAGER "$manager_log"
+	fi
+
+	# Continue draining the previous log after its status file disappears. This
+	# captures final messages emitted just after accept/reject or completion.
+	print_new_messages WORKER "$worker_log"
+	print_new_messages MANAGER "$manager_log"
+
+	startup=0
+	sleep "$watch_seconds"
+done

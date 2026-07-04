@@ -1,0 +1,191 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TASK_ID\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 2 ]] || usage
+load_harness_env "$1"
+task_id="$2"
+ensure_project
+require_repository
+require_worker_codex
+validate_task_id "$task_id"
+write_worker_snapshot
+
+dir="$(project_dir)"
+base="$(task_base "$task_id")"
+ready="$dir/tasks/$base.ready.md"
+[[ -f "$ready" ]] || die "task is not ready: $task_id"
+
+session="$("$HARNESS_BIN/harness-new-session" "$HARNESS_ENV_FILE" worker)"
+claim_output="$("$HARNESS_BIN/worker-claim-task" "$HARNESS_ENV_FILE" "$task_id" "$session")"
+task_file="$(printf '%s\n' "$claim_output" | awk -F= '$1 == "TASK_FILE" {sub(/^[^=]*=/, ""); print; exit}')"
+[[ -f "$task_file" ]] || die "claimed task file is missing: $task_file"
+
+prompt_file="$dir/control/$base.worker.prompt.md"
+cat > "$prompt_file.tmp.$$" <<PROMPT
+Read $HARNESS_HOME/prompts/worker-agent-event-driven.md and follow it.
+
+HARNESS_BIN=$HARNESS_BIN
+ENV_FILE=$HARNESS_ENV_FILE
+PROJECT=$PROJECT
+REPOSITORY=$REPOSITORY
+TASK_ID=$task_id
+TASK_FILE=$task_file
+SESSION=$session
+
+The task is already claimed by this launcher. Read TASK_FILE completely, implement exactly that assignment, validate it, publish the result with worker-complete-task, and terminate. Do not wait for another task. Do not create, stage, or commit Git changes.
+PROMPT
+chmod 600 "$prompt_file.tmp.$$"
+mv "$prompt_file.tmp.$$" "$prompt_file"
+
+result="$dir/results/$base.result.md"
+running="$dir/running/$base.running.md"
+lease="$dir/control/$base.lease"
+assignment_archive="$dir/archive/$base.assignment.md"
+staged_result="$dir/control/$base.direct-result.$$"
+protocol_reason=""
+json_log=""
+last_message=""
+status=0
+attempt=1
+capacity_retries=0
+heartbeat_pid=""
+
+completion_committed()
+{
+	[[ -f "$result" && ! -e "$running" && ! -e "$lease" && -f "$assignment_archive" ]]
+}
+
+normalize_direct_result()
+{
+	local normalize_status
+	if [[ -f "$result" && -f "$running" && -f "$lease" && ! -e "$assignment_archive" ]]; then
+		mv "$result" "$staged_result"
+		set +e
+		"$HARNESS_BIN/worker-complete-task" "$HARNESS_ENV_FILE" "$task_id" "$session" "$staged_result" >/dev/null
+		normalize_status=$?
+		set -e
+		if (( normalize_status == 0 )); then
+			rm -f "$staged_result"
+			log_event "WORKER_DIRECT_RESULT_NORMALIZED task=$task_id session=$session"
+		else
+			if [[ ! -e "$result" && -f "$staged_result" ]]; then
+				mv "$staged_result" "$result"
+			fi
+			protocol_reason="direct_result_normalization_failed:$normalize_status"
+		fi
+	fi
+}
+
+heartbeat_loop()
+{
+	while true; do
+		sleep "$WORKER_HEARTBEAT_SECONDS"
+		"$HARNESS_BIN/worker-heartbeat" "$HARNESS_ENV_FILE" "$task_id" "$session" >/dev/null 2>&1 || break
+	done
+}
+
+cleanup_heartbeat()
+{
+	if [[ -n "$heartbeat_pid" ]]; then
+		kill "$heartbeat_pid" 2>/dev/null || true
+		wait "$heartbeat_pid" 2>/dev/null || true
+		heartbeat_pid=""
+	fi
+}
+trap cleanup_heartbeat EXIT
+trap 'cleanup_heartbeat; exit 130' INT
+trap 'cleanup_heartbeat; exit 143' TERM
+
+heartbeat_loop &
+heartbeat_pid=$!
+
+while true; do
+	stamp="$(date -u '+%Y%m%dT%H%M%SZ')"
+	attempt_label="$(printf '%03d' "$attempt")"
+	json_log="$dir/logs/worker-task-$task_id-$stamp-attempt-$attempt_label.jsonl"
+	last_message="$dir/logs/worker-task-$task_id-$stamp-attempt-$attempt_label.md"
+
+	log_event "WORKER_INVOCATION_STARTED task=$task_id session=$session model=$WORKER_MODEL attempt=$attempt"
+	set +e
+	env CODEX_HOME="$WORKER_CODEX_HOME" "$WORKER_CODEX_BIN" exec --json --model "$WORKER_MODEL" --sandbox "$WORKER_SANDBOX" --add-dir "$HARNESS_ROOT" --cd "$REPOSITORY" -c "model_reasoning_effort=\"$WORKER_REASONING_EFFORT\"" --output-last-message "$last_message" - < "$prompt_file" | tee "$json_log"
+	status=${PIPESTATUS[0]}
+	set -e
+
+	normalize_direct_result
+	if completion_committed; then
+		cleanup_heartbeat
+		log_event "WORKER_INVOCATION_FINISHED task=$task_id session=$session status=$status result=published attempt=$attempt"
+		printf 'Worker completed task %s and published its result.\n' "$task_id"
+		exit 0
+	fi
+
+	if (( status != 0 )) && codex_log_has_capacity_error "$json_log" && capacity_retry_allowed "$capacity_retries"; then
+		capacity_retries=$((capacity_retries + 1))
+		log_event "WORKER_CAPACITY_RETRY_SCHEDULED task=$task_id session=$session attempt=$attempt retry=$capacity_retries delay_seconds=$HARNESS_CAPACITY_RETRY_SECONDS"
+		printf 'Worker model is at capacity for task %s; retrying in %s seconds.\n' "$task_id" "$HARNESS_CAPACITY_RETRY_SECONDS" >&2
+		sleep "$HARNESS_CAPACITY_RETRY_SECONDS"
+		attempt=$((attempt + 1))
+		log_event "WORKER_CAPACITY_RETRY_STARTED task=$task_id session=$session attempt=$attempt retry=$capacity_retries"
+		continue
+	fi
+
+	break
+done
+
+cleanup_heartbeat
+
+if [[ -z "$protocol_reason" ]]; then
+	if [[ ! -f "$result" ]]; then
+		protocol_reason="result_not_published"
+	else
+		protocol_reason="completion_state_inconsistent"
+	fi
+fi
+
+alert="$dir/control/$base.worker-failed.md"
+cat > "$alert.tmp.$$" <<ALERT
+# Worker Invocation Failed
+
+Project: $PROJECT
+
+Task-ID: $task_id
+
+Session: $session
+
+Environment-File: $HARNESS_ENV_FILE
+
+Failed-At: $(timestamp_utc)
+
+Codex-Exit-Status: $status
+
+Protocol-Reason: $protocol_reason
+
+JSONL-Log: $json_log
+
+Attempts: $attempt
+
+Capacity-Retries: $capacity_retries
+
+The completion transaction is not committed. A confirmed model-capacity error is retried automatically after $HARNESS_CAPACITY_RETRY_SECONDS seconds. This failure was either non-retryable or exceeded HARNESS_CAPACITY_MAX_RETRIES. Inspect the log and filesystem state, then reset, repair, or abort the task explicitly.
+ALERT
+chmod 600 "$alert.tmp.$$"
+mv "$alert.tmp.$$" "$alert"
+if (( status == 0 )); then
+	log_event "WORKER_PROTOCOL_FAILED task=$task_id session=$session status=$status reason=$protocol_reason attempts=$attempt"
+else
+	log_event "WORKER_PROCESS_FAILED task=$task_id session=$session status=$status reason=$protocol_reason attempts=$attempt"
+fi
+printf 'Worker invocation failed for task %s; see %s\n' "$task_id" "$alert" >&2
+if (( status == 0 )); then
+	exit 70
+fi
+exit "$status"

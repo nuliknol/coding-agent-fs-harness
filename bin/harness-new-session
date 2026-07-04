@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE ROLE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 2 ]] || usage
+load_harness_env "$1"
+role="$2"
+ensure_project
+[[ "$role" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "invalid role: $role"
+
+uuid="$(cat /proc/sys/kernel/random/uuid 2>/dev/null || printf '%s-%s' "$$" "$(epoch_now)")"
+session="${role}-$(date -u '+%Y%m%dT%H%M%SZ')-${uuid%%-*}"
+validate_session "$session"
+
+file="$(session_file "$session")"
+tmp="$file.tmp.$$"
+{
+	printf 'session=%s\n' "$session"
+	printf 'role=%s\n' "$role"
+	printf 'env_file=%s\n' "$HARNESS_ENV_FILE"
+	printf 'created_at=%s\n' "$(timestamp_utc)"
+	printf 'created_epoch=%s\n' "$(epoch_now)"
+} > "$tmp"
+chmod 600 "$tmp"
+mv "$tmp" "$file"
+
+log_event "SESSION_CREATED session=$session role=$role"
+printf '%s\n' "$session"

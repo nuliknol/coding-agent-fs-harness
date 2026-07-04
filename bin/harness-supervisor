@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 1 ]] || usage
+load_harness_env "$1"
+ensure_project
+dir="$(project_dir)"
+manager_invoker="${HARNESS_MANAGER_INVOKER:-$HARNESS_BIN/manager-invoke-result}"
+[[ -x "$manager_invoker" ]] || die "manager invoker is not executable: $manager_invoker"
+
+exec 8>"$dir/control/supervisor.lock"
+flock -n 8 || die "a supervisor is already running for project: $PROJECT"
+printf '%s\n' "$$" > "$dir/control/supervisor.pid"
+printf '%s\n' "$HARNESS_ENV_FILE" > "$dir/control/supervisor.env-file"
+watch_pid=""
+cleanup()
+{
+	if [[ -n "$watch_pid" ]]; then
+		kill "$watch_pid" 2>/dev/null || true
+	fi
+	rm -f "$dir/control/supervisor.pid" "$dir/control/supervisor.env-file"
+}
+trap 'cleanup; exit 0' INT TERM
+trap cleanup EXIT
+
+fingerprint()
+{
+	local file="$1"
+	stat -c '%i:%s:%Y' "$file"
+}
+
+process_results()
+{
+	local file task_id base marker current previous status alert tmp running lease assignment_archive
+	shopt -s nullglob
+	for file in "$dir/results/$PROJECT-task-"*.result.md; do
+		task_id="$(task_id_from_filename "$file")"
+		base="$(task_base "$task_id")"
+		running="$dir/running/$base.running.md"
+		lease="$dir/control/$base.lease"
+		assignment_archive="$dir/archive/$base.assignment.md"
+
+		# A result becomes reviewable only after the worker completion transaction
+		# has archived the assignment and removed the lease. An agent may write a
+		# result file directly before worker-complete-task finishes; ignore that
+		# intermediate state and reconcile it on a later scan.
+		if [[ -e "$running" || -e "$lease" || ! -f "$assignment_archive" ]]; then
+			continue
+		fi
+
+		marker="$dir/control/$base.reviewed-event"
+		current="$(fingerprint "$file")"
+		previous=""
+		[[ ! -f "$marker" ]] || previous="$(kv_file_value "$marker" fingerprint)"
+		[[ "$current" != "$previous" ]] || continue
+
+		log_event "SUPERVISOR_TRIGGER task=$task_id fingerprint=$current"
+		set +e
+		"$manager_invoker" "$HARNESS_ENV_FILE" "$task_id"
+		status=$?
+		set -e
+		if (( status == 0 )); then
+			if [[ -f "$file" ]]; then
+				tmp="$marker.tmp.$$"
+				{
+					printf 'fingerprint=%s\n' "$current"
+					printf 'handled_at=%s\n' "$(timestamp_utc)"
+					printf 'manager_exit_status=0\n'
+				} > "$tmp"
+				chmod 600 "$tmp"
+				mv "$tmp" "$marker"
+				log_event "SUPERVISOR_RESULT_LEFT_PENDING task=$task_id"
+			fi
+		else
+			alert="$dir/control/$base.manager-failed.md"
+			tmp="$alert.tmp.$$"
+			{
+				printf '# Manager Invocation Failed\n\n'
+				printf 'Project: %s\n\n' "$PROJECT"
+				printf 'Task-ID: %s\n\n' "$task_id"
+				printf 'Environment-File: %s\n\n' "$HARNESS_ENV_FILE"
+				printf 'Failed-At: %s\n\n' "$(timestamp_utc)"
+				printf 'Exit-Status: %s\n\n' "$status"
+				printf 'Confirmed model-capacity errors are retried inside manager-invoke-result. This failure was non-retryable or exhausted the configured retry limit.\n'
+			} > "$tmp"
+			chmod 600 "$tmp"
+			mv "$tmp" "$alert"
+			printf 'Manager invocation failed for task %s; see %s\n' "$task_id" "$alert" >&2
+			tmp="$marker.tmp.$$"
+			{
+				printf 'fingerprint=%s\n' "$current"
+				printf 'handled_at=%s\n' "$(timestamp_utc)"
+				printf 'manager_exit_status=%s\n' "$status"
+			} > "$tmp"
+			chmod 600 "$tmp"
+			mv "$tmp" "$marker"
+		fi
+	done
+}
+
+log_event "SUPERVISOR_STARTED pid=$$ env_file=$HARNESS_ENV_FILE"
+printf 'Supervisor started for %s with PID %s. No LLM is running while idle.\n' "$PROJECT" "$$"
+
+while true; do
+	process_results
+	if [[ "$HARNESS_USE_INOTIFY" == "1" ]] && command -v inotifywait >/dev/null 2>&1; then
+		inotifywait -q -t "$HARNESS_POLL_SECONDS" -e moved_to -e delete "$dir/results" "$dir/control" >/dev/null 2>&1 &
+		watch_pid=$!
+		wait "$watch_pid" || true
+		watch_pid=""
+	else
+		sleep "$HARNESS_POLL_SECONDS"
+	fi
+done

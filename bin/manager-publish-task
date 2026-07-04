@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TASK_ID TASK_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 3 ]] || usage
+load_harness_env "$1"
+task_id="$2"
+task_file="$3"
+ensure_project
+validate_task_id "$task_id"
+[[ -f "$task_file" ]] || die "task file does not exist: $task_file"
+acquire_project_lock
+
+dir="$(project_dir)"
+base="$(task_base "$task_id")"
+ready="$dir/tasks/$base.ready.md"
+running="$dir/running/$base.running.md"
+result="$dir/results/$base.result.md"
+accepted="$dir/archive/$base.accepted.md"
+aborted="$dir/control/$base.abort.md"
+
+[[ ! -e "$ready" ]] || die "task already ready: $task_id"
+[[ ! -e "$running" ]] || die "task already running: $task_id"
+[[ ! -e "$result" ]] || die "task already has a result: $task_id"
+[[ ! -e "$accepted" ]] || die "task already accepted: $task_id"
+[[ ! -e "$aborted" ]] || die "task is aborted: $task_id"
+
+tmp="$dir/tasks/$base.ready.tmp.$$"
+install -m 600 "$task_file" "$tmp"
+mv "$tmp" "$ready"
+
+log_event "TASK_PUBLISHED task=$task_id file=$ready"
+printf '%s\n' "$ready"

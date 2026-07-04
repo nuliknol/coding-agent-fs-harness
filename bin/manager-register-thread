@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE CODEX_THREAD_ID\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 2 ]] || usage
+load_harness_env "$1"
+thread_id="$2"
+ensure_project
+[[ "$thread_id" =~ ^[A-Za-z0-9-]+$ ]] || die "invalid Codex thread id: $thread_id"
+
+file="$(project_dir)/control/manager.thread"
+tmp="$file.tmp.$$"
+{
+	printf 'thread_id=%s\n' "$thread_id"
+	printf 'registered_at=%s\n' "$(timestamp_utc)"
+	printf 'env_file=%s\n' "$HARNESS_ENV_FILE"
+} > "$tmp"
+chmod 600 "$tmp"
+mv "$tmp" "$file"
+log_event "MANAGER_THREAD_REGISTERED thread_id=$thread_id"
+printf '%s\n' "$thread_id"

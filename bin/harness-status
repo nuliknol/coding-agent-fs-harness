@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 1 ]] || usage
+load_harness_env "$1"
+ensure_project
+
+dir="$(project_dir)"
+
+printf 'Environment file: %s\n' "$HARNESS_ENV_FILE"
+printf 'Project: %s\n' "$PROJECT"
+printf 'Repository: %s\n' "$REPOSITORY"
+printf 'Harness root: %s\n' "$HARNESS_ROOT"
+manager_supervisor='stopped'
+worker_supervisor='stopped'
+if [[ -f "$dir/control/supervisor.pid" ]]; then
+	pid="$(cat "$dir/control/supervisor.pid")"
+	if kill -0 "$pid" 2>/dev/null; then manager_supervisor="running (PID $pid)"; fi
+fi
+if [[ -f "$dir/control/worker-supervisor.pid" ]]; then
+	pid="$(cat "$dir/control/worker-supervisor.pid")"
+	if kill -0 "$pid" 2>/dev/null; then worker_supervisor="running (PID $pid)"; fi
+fi
+printf 'Manager supervisor: %s\n' "$manager_supervisor"
+printf 'Worker supervisor: %s\n\n' "$worker_supervisor"
+printf '%-28s %-12s %-28s %-10s\n' 'TASK' 'STATE' 'OWNER' 'AGE'
+printf '%-28s %-12s %-28s %-10s\n' '----------------------------' '------------' '----------------------------' '----------'
+
+shopt -s nullglob
+found=0
+
+for file in "$dir/tasks/$PROJECT-task-"*.ready.md; do
+	found=1
+	task_id="$(task_id_from_filename "$file")"
+	printf '%-28s %-12s %-28s %-10s\n' "$task_id" 'READY' '-' '-'
+done
+
+for file in "$dir/running/$PROJECT-task-"*.running.md; do
+	found=1
+	task_id="$(task_id_from_filename "$file")"
+	base="$(task_base "$task_id")"
+	lease="$dir/control/$base.lease"
+	owner='unknown'
+	age='unknown'
+	if [[ -f "$lease" ]]; then
+		owner="$(lease_value "$lease" owner)"
+		heartbeat_epoch="$(lease_value "$lease" heartbeat_epoch)"
+		if [[ -n "$heartbeat_epoch" ]]; then
+			age="$(( $(epoch_now) - heartbeat_epoch ))s"
+		fi
+	fi
+	printf '%-28s %-12s %-28s %-10s\n' "$task_id" 'RUNNING' "$owner" "$age"
+done
+
+for file in "$dir/results/$PROJECT-task-"*.result.md; do
+	found=1
+	task_id="$(task_id_from_filename "$file")"
+	printf '%-28s %-12s %-28s %-10s\n' "$task_id" 'REVIEW' '-' '-'
+done
+
+for file in "$dir/archive/$PROJECT-task-"*.accepted.md; do
+	found=1
+	name="${file##*/}"
+	task_id="${name#${PROJECT}-task-}"
+	task_id="${task_id%.accepted.md}"
+	printf '%-28s %-12s %-28s %-10s\n' "$task_id" 'ACCEPTED' '-' '-'
+done
+
+for file in "$dir/control/$PROJECT-task-"*.abort.md; do
+	found=1
+	name="${file##*/}"
+	task_id="${name#${PROJECT}-task-}"
+	task_id="${task_id%.abort.md}"
+	printf '%-28s %-12s %-28s %-10s\n' "$task_id" 'ABORTED' '-' '-'
+done
+
+if (( found == 0 )); then
+	printf '%s\n' '(no tasks)'
+fi

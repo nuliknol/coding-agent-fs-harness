@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 1 ]] || usage
+load_harness_env "$1"
+ensure_project
+dir="$(project_dir)"
+
+# Bootstrap before starting the worker watcher so a newly published first task
+# cannot finish before the manager thread ID has been registered.
+if [[ ! -f "$dir/control/manager.thread" ]]; then
+	"$HARNESS_BIN/manager-bootstrap" "$HARNESS_ENV_FILE"
+else
+	printf 'Manager thread already exists; bootstrap was not repeated.\n'
+fi
+
+"$HARNESS_BIN/manager-supervisor-start" "$HARNESS_ENV_FILE"
+"$HARNESS_BIN/worker-supervisor-start" "$HARNESS_ENV_FILE"
+
+printf '\nHarness is active.\n'
+printf 'Manager watcher: %s\n' "$dir/logs/supervisor.log"
+printf 'Worker watcher: %s\n' "$dir/logs/worker-supervisor.log"
+printf 'Events: %s\n' "$dir/logs/events.log"

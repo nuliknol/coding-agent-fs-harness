@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TASK_ID SESSION\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 3 ]] || usage
+load_harness_env "$1"
+task_id="$2"
+session="$3"
+
+ensure_project
+ensure_session "$session"
+validate_task_id "$task_id"
+acquire_project_lock
+
+dir="$(project_dir)"
+base="$(task_base "$task_id")"
+running="$dir/running/$base.running.md"
+lease="$dir/control/$base.lease"
+abort="$dir/control/$base.abort.md"
+
+[[ ! -f "$abort" ]] || {
+	printf 'Task %s has been aborted.\n' "$task_id" >&2
+	exit 125
+}
+[[ -f "$running" ]] || die "task is not running: $task_id"
+[[ -f "$lease" ]] || die "lease is missing: $task_id"
+
+owner="$(lease_value "$lease" owner)"
+[[ "$owner" == "$session" ]] || die "task is owned by $owner, not $session"
+
+claimed_at="$(lease_value "$lease" claimed_at)"
+claimed_epoch="$(lease_value "$lease" claimed_epoch)"
+now="$(epoch_now)"
+tmp="$lease.tmp.$$"
+{
+	printf 'project=%s\n' "$PROJECT"
+	printf 'task_id=%s\n' "$task_id"
+	printf 'owner=%s\n' "$session"
+	printf 'env_file=%s\n' "$HARNESS_ENV_FILE"
+	printf 'claimed_at=%s\n' "$claimed_at"
+	printf 'claimed_epoch=%s\n' "$claimed_epoch"
+	printf 'heartbeat_at=%s\n' "$(timestamp_utc)"
+	printf 'heartbeat_epoch=%s\n' "$now"
+} > "$tmp"
+chmod 600 "$tmp"
+mv "$tmp" "$lease"
+
+printf 'Heartbeat updated for %s at %s\n' "$task_id" "$(timestamp_utc)"

@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TASK_ID [--force]\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -ge 2 && $# -le 3 ]] || usage
+load_harness_env "$1"
+task_id="$2"
+force="${3:-}"
+
+[[ -z "$force" || "$force" == '--force' ]] || usage
+ensure_project
+validate_task_id "$task_id"
+acquire_project_lock
+
+dir="$(project_dir)"
+base="$(task_base "$task_id")"
+ready="$dir/tasks/$base.ready.md"
+running="$dir/running/$base.running.md"
+result="$dir/results/$base.result.md"
+lease="$dir/control/$base.lease"
+abort="$dir/control/$base.abort.md"
+assignment_archive="$dir/archive/$base.assignment.md"
+aborted_assignment="$dir/archive/$base.aborted.assignment.md"
+
+[[ ! -f "$result" ]] || die 'task already has a result; review or abort it instead'
+
+if [[ -f "$ready" ]]; then
+	if [[ "$force" == '--force' ]]; then
+		rm -f "$dir/control/$base.worker-triggered" "$dir/control/$base.worker-failed.md" "$dir/control/$base.worker-supervisor-failed.md"
+		log_event "TASK_REQUEUED task=$task_id state=ready"
+		printf '%s
+' "$ready"
+		exit 0
+	fi
+	printf 'Task %s is already ready. Use --force to clear a failed worker trigger and invoke it again.
+' "$task_id"
+	exit 0
+fi
+
+if [[ -f "$abort" && "$force" != '--force' ]]; then
+	die 'task is aborted; use --force to restore it'
+fi
+
+if [[ -f "$running" ]]; then
+	if [[ -f "$lease" && "$force" != '--force' ]]; then
+		heartbeat_epoch="$(lease_value "$lease" heartbeat_epoch)"
+		heartbeat_epoch="${heartbeat_epoch:-0}"
+		age=$(( $(epoch_now) - heartbeat_epoch ))
+		if (( age <= HARNESS_STALE_SECONDS )); then
+			die "lease is still fresh (${age}s); use --force only after verifying the worker is gone"
+		fi
+	fi
+	mv "$running" "$ready"
+elif [[ -f "$assignment_archive" ]]; then
+	mv "$assignment_archive" "$ready"
+elif [[ -f "$aborted_assignment" && "$force" == '--force' ]]; then
+	mv "$aborted_assignment" "$ready"
+else
+	die "no recoverable assignment found for task: $task_id"
+fi
+
+rm -f "$lease" "$dir/control/$base.worker-triggered" "$dir/control/$base.worker-failed.md" "$dir/control/$base.worker-supervisor-failed.md"
+if [[ "$force" == '--force' ]]; then
+	rm -f "$abort"
+fi
+
+log_event "TASK_RESET task=$task_id force=${force:-no}"
+printf '%s\n' "$ready"

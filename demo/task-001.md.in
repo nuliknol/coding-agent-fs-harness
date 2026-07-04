@@ -1,0 +1,44 @@
+# Task Assignment
+
+Project: demo-calc
+Task-ID: 001
+Revision: 0
+Repository: @REPOSITORY@
+Status: READY
+
+## Objective
+
+Implement `calc_add()` so that it returns the mathematical sum of two `int` values.
+
+## Required behavior
+
+1. `calc_add(2, 3)` returns `5`.
+2. `calc_add(-7, 4)` returns `-3`.
+3. The existing public function signature remains unchanged.
+
+## Acceptance criteria
+
+- `make test` succeeds.
+- No unrelated file is modified.
+- No Git command that writes repository state is used.
+
+## Relevant files
+
+- include/calc.h
+- src/calc.c
+- tests/test_calc.c
+
+## Constraints
+
+- Use C.
+- Do not make Git commits.
+
+## Validation commands
+
+```text
+make test
+```
+
+## Completion protocol
+
+Write a result report and publish it with `worker-complete-task`.

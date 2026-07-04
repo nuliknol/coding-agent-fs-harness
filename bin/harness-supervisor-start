@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 1 ]] || usage
+load_harness_env "$1"
+ensure_project
+dir="$(project_dir)"
+pid_file="$dir/control/supervisor.pid"
+
+if [[ -f "$pid_file" ]]; then
+	pid="$(cat "$pid_file")"
+	if kill -0 "$pid" 2>/dev/null; then
+		printf 'Supervisor is already running with PID %s.\n' "$pid"
+		exit 0
+	fi
+	rm -f "$pid_file"
+fi
+
+log_file="$dir/logs/supervisor.log"
+nohup "$HARNESS_BIN/harness-supervisor" "$HARNESS_ENV_FILE" >> "$log_file" 2>&1 &
+pid=$!
+for _ in $(seq 1 50); do
+	if [[ -f "$pid_file" ]]; then
+		printf 'Supervisor started with PID %s.\n' "$(cat "$pid_file")"
+		printf 'Environment file: %s\n' "$HARNESS_ENV_FILE"
+		printf 'Log: %s\n' "$log_file"
+		exit 0
+	fi
+	kill -0 "$pid" 2>/dev/null || break
+	sleep 0.1
+done
+printf 'Supervisor failed to start; inspect %s\n' "$log_file" >&2
+exit 1

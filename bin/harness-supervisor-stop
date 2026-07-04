@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 1 ]] || usage
+load_harness_env "$1"
+ensure_project
+pid_file="$(project_dir)/control/supervisor.pid"
+[[ -f "$pid_file" ]] || {
+	printf 'Supervisor is not running.\n'
+	exit 0
+}
+pid="$(cat "$pid_file")"
+if kill -0 "$pid" 2>/dev/null; then
+	kill "$pid"
+	for _ in $(seq 1 50); do
+		kill -0 "$pid" 2>/dev/null || break
+		sleep 0.1
+	done
+fi
+rm -f "$pid_file" "$(project_dir)/control/supervisor.env-file"
+printf 'Supervisor stopped.\n'

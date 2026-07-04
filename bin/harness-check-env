@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 1 ]] || usage
+load_harness_env "$1"
+require_manager_configuration
+require_manager_codex
+require_worker_codex
+
+printf 'Environment file: %s\n' "$HARNESS_ENV_FILE"
+printf 'Project: %s\n' "$PROJECT"
+printf 'Repository: %s\n' "$REPOSITORY"
+printf 'Specification: %s\n' "$SPECIFICATION"
+printf 'Harness home: %s\n' "$HARNESS_HOME"
+printf 'Harness bin: %s\n' "$HARNESS_BIN"
+printf 'Harness state root: %s\n' "$HARNESS_ROOT"
+printf 'Manager Codex: %s\n' "$MANAGER_CODEX_BIN"
+printf 'Manager Codex home: %s\n' "$MANAGER_CODEX_HOME"
+printf 'Manager model: %s (%s)\n' "$MANAGER_MODEL" "$MANAGER_REASONING_EFFORT"
+printf 'Manager sandbox: %s\n' "$MANAGER_SANDBOX"
+printf 'Worker Codex: %s\n' "$WORKER_CODEX_BIN"
+printf 'Worker Codex home: %s\n' "$WORKER_CODEX_HOME"
+printf 'Worker model: %s (%s)\n' "$WORKER_MODEL" "$WORKER_REASONING_EFFORT"
+printf 'Worker sandbox: %s\n' "$WORKER_SANDBOX"
+printf 'Worker heartbeat seconds: %s\n' "$WORKER_HEARTBEAT_SECONDS"
+printf 'Poll seconds: %s\n' "$HARNESS_POLL_SECONDS"
+printf 'Wait seconds: %s\n' "$HARNESS_WAIT_SECONDS"
+printf 'Stale seconds: %s\n' "$HARNESS_STALE_SECONDS"
+printf 'Use inotify: %s\n' "$HARNESS_USE_INOTIFY"

@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TASK_ID REASON\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 3 ]] || usage
+load_harness_env "$1"
+task_id="$2"
+reason="$3"
+
+ensure_project
+validate_task_id "$task_id"
+acquire_project_lock
+
+dir="$(project_dir)"
+base="$(task_base "$task_id")"
+abort="$dir/control/$base.abort.md"
+
+tmp="$abort.tmp.$$"
+{
+	printf '# Aborted Task\n\n'
+	printf 'Project: %s\n\n' "$PROJECT"
+	printf 'Task-ID: %s\n\n' "$task_id"
+	printf 'Environment-File: %s\n\n' "$HARNESS_ENV_FILE"
+	printf 'Aborted-At: %s\n\n' "$(timestamp_utc)"
+	printf 'Reason: %s\n' "$reason"
+} > "$tmp"
+chmod 600 "$tmp"
+mv "$tmp" "$abort"
+
+if [[ -f "$dir/tasks/$base.ready.md" ]]; then
+	mv "$dir/tasks/$base.ready.md" "$dir/archive/$base.aborted.assignment.md"
+fi
+if [[ -f "$dir/running/$base.running.md" ]]; then
+	mv "$dir/running/$base.running.md" "$dir/archive/$base.aborted.assignment.md"
+fi
+if [[ -f "$dir/results/$base.result.md" ]]; then
+	mv "$dir/results/$base.result.md" "$dir/archive/$base.aborted.result.md"
+fi
+rm -f "$dir/control/$base.lease"
+
+log_event "TASK_ABORTED task=$task_id reason=$reason"
+printf '%s\n' "$abort"

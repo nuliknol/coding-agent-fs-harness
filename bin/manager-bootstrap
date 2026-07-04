@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 1 ]] || usage
+load_harness_env "$1"
+ensure_project
+require_manager_configuration
+require_manager_codex
+write_manager_snapshot
+
+project_path="$(project_dir)"
+last_message="$project_path/logs/manager-bootstrap-last-message.md"
+prompt_file="$project_path/control/manager-bootstrap.prompt.md"
+cat > "$prompt_file.tmp.$$" <<PROMPT
+Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and follow it.
+
+HARNESS_BIN=$HARNESS_BIN
+ENV_FILE=$HARNESS_ENV_FILE
+PROJECT=$PROJECT
+SPECIFICATION=$SPECIFICATION
+REPOSITORY=$REPOSITORY
+
+This is the bootstrap turn. Inspect the specification and repository, publish exactly one bounded initial task, and then terminate. Every harness command must receive ENV_FILE as its first argument. Do not wait for the worker and do not run any polling command.
+PROMPT
+chmod 600 "$prompt_file.tmp.$$"
+mv "$prompt_file.tmp.$$" "$prompt_file"
+
+extract_thread_id()
+{
+	local log_file="$1"
+	if command -v jq >/dev/null 2>&1; then
+		jq -r 'select(.type == "thread.started") | .thread_id' "$log_file" | head -n 1
+	else
+		sed -n 's/.*"type"[[:space:]]*:[[:space:]]*"thread.started".*"thread_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$log_file" | head -n 1
+	fi
+}
+
+bootstrap_task_published()
+{
+	compgen -G "$project_path/tasks/$PROJECT-task-*.ready.md" >/dev/null
+}
+
+attempt=1
+capacity_retries=0
+resume_thread_id=""
+status=0
+json_log=""
+
+while true; do
+	stamp="$(date -u '+%Y%m%dT%H%M%SZ')"
+	attempt_label="$(printf '%03d' "$attempt")"
+	json_log="$project_path/logs/manager-bootstrap-$stamp-attempt-$attempt_label.jsonl"
+	attempt_last_message="$project_path/logs/manager-bootstrap-$stamp-attempt-$attempt_label.md"
+
+	log_event "MANAGER_BOOTSTRAP_STARTED attempt=$attempt"
+	set +e
+	if [[ -n "$resume_thread_id" ]]; then
+		env CODEX_HOME="$MANAGER_CODEX_HOME" "$MANAGER_CODEX_BIN" exec --json --model "$MANAGER_MODEL" --sandbox "$MANAGER_SANDBOX" --add-dir "$HARNESS_ROOT" --cd "$REPOSITORY" -c "model_reasoning_effort=\"$MANAGER_REASONING_EFFORT\"" --output-last-message "$attempt_last_message" resume "$resume_thread_id" - < "$prompt_file" | tee "$json_log"
+	else
+		env CODEX_HOME="$MANAGER_CODEX_HOME" "$MANAGER_CODEX_BIN" exec --json --model "$MANAGER_MODEL" --sandbox "$MANAGER_SANDBOX" --add-dir "$HARNESS_ROOT" --cd "$REPOSITORY" -c "model_reasoning_effort=\"$MANAGER_REASONING_EFFORT\"" --output-last-message "$attempt_last_message" - < "$prompt_file" | tee "$json_log"
+	fi
+	status=${PIPESTATUS[0]}
+	set -e
+
+	thread_id="$(extract_thread_id "$json_log")"
+	if [[ -n "$thread_id" && "$thread_id" != "null" ]]; then
+		resume_thread_id="$thread_id"
+	fi
+
+	if (( status == 0 )); then
+		[[ -n "$resume_thread_id" ]] || die "could not extract Codex thread id from $json_log"
+		cp -f "$attempt_last_message" "$last_message" 2>/dev/null || true
+		"$HARNESS_BIN/manager-register-thread" "$HARNESS_ENV_FILE" "$resume_thread_id" >/dev/null
+		log_event "MANAGER_BOOTSTRAPPED thread_id=$resume_thread_id attempts=$attempt"
+		printf 'Manager bootstrap completed and exited.\n'
+		printf 'Thread ID: %s\n' "$resume_thread_id"
+		exit 0
+	fi
+
+	# If the manager published the first task immediately before the API stream
+	# failed, registering the captured thread is safer than replaying bootstrap
+	# and potentially publishing a duplicate first task.
+	if bootstrap_task_published; then
+		[[ -n "$resume_thread_id" ]] || die "manager published an initial task but no thread id could be recovered from $json_log"
+		cp -f "$attempt_last_message" "$last_message" 2>/dev/null || true
+		"$HARNESS_BIN/manager-register-thread" "$HARNESS_ENV_FILE" "$resume_thread_id" >/dev/null
+		log_event "MANAGER_BOOTSTRAPPED thread_id=$resume_thread_id attempts=$attempt outcome=task_published_before_process_failure status=$status"
+		printf 'Manager bootstrap task was published before the Codex process failed; recovered thread %s.\n' "$resume_thread_id"
+		exit 0
+	fi
+
+	if codex_log_has_capacity_error "$json_log" && capacity_retry_allowed "$capacity_retries"; then
+		capacity_retries=$((capacity_retries + 1))
+		log_event "MANAGER_BOOTSTRAP_CAPACITY_RETRY_SCHEDULED attempt=$attempt retry=$capacity_retries delay_seconds=$HARNESS_CAPACITY_RETRY_SECONDS"
+		printf 'Manager model is at capacity during bootstrap; retrying in %s seconds.\n' "$HARNESS_CAPACITY_RETRY_SECONDS" >&2
+		sleep "$HARNESS_CAPACITY_RETRY_SECONDS"
+		attempt=$((attempt + 1))
+		log_event "MANAGER_BOOTSTRAP_CAPACITY_RETRY_STARTED attempt=$attempt retry=$capacity_retries"
+		continue
+	fi
+
+	die "Codex manager bootstrap failed with exit status $status; see $json_log"
+done
