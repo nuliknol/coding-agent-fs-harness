@@ -85,6 +85,23 @@ normalize_direct_result()
 	fi
 }
 
+normalize_last_message_result()
+{
+	local normalize_status
+	if (( status == 0 )) &&
+		[[ -s "$last_message" && ! -f "$result" && -f "$running" && -f "$lease" && ! -e "$assignment_archive" ]]; then
+		set +e
+		"$HARNESS_BIN/worker-complete-task" "$HARNESS_ENV_FILE" "$task_id" "$session" "$last_message" >/dev/null
+		normalize_status=$?
+		set -e
+		if (( normalize_status == 0 )); then
+			log_event "WORKER_LAST_MESSAGE_RESULT_NORMALIZED task=$task_id session=$session"
+		else
+			protocol_reason="last_message_result_normalization_failed:$normalize_status"
+		fi
+	fi
+}
+
 heartbeat_loop()
 {
 	while true; do
@@ -121,6 +138,7 @@ while true; do
 	set -e
 
 	normalize_direct_result
+	normalize_last_message_result
 	if completion_committed; then
 		cleanup_heartbeat
 		log_event "WORKER_INVOCATION_FINISHED task=$task_id session=$session status=$status result=published attempt=$attempt"

@@ -14,6 +14,18 @@ cat > "$TEST_ROOT/mock-codex" <<'MOCK'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 prompt="$(cat)"
+last_message_file=""
+capture_next=0
+for arg in "$@"; do
+	if [[ "$capture_next" == 1 ]]; then
+		last_message_file="$arg"
+		capture_next=0
+		continue
+	fi
+	if [[ "$arg" == "--output-last-message" ]]; then
+		capture_next=1
+	fi
+done
 value()
 {
 	local key="$1"
@@ -52,6 +64,7 @@ fi
 printf '{"type":"thread.started","thread_id":"mock-thread-001"}\n'
 printf '{"type":"turn.started"}\n'
 HARNESS_BIN="$(value HARNESS_BIN)"
+final_message="done"
 if [[ "$kind" == bootstrap ]]; then
 	tmp="$(mktemp)"
 	printf '# Task\n\nTask-ID: 001\n\nMock first task.\n' > "$tmp"
@@ -72,13 +85,19 @@ elif [[ "$kind" == review ]]; then
 elif [[ "$kind" == worker ]]; then
 	TASK_ID="$(value TASK_ID)"
 	SESSION="$(value SESSION)"
-	# Deliberately expose a result directly. worker-invoke-task must normalize
-	# it through worker-complete-task before manager review can begin.
-	result="$HARNESS_ROOT/projects/$PROJECT/results/$PROJECT-task-$TASK_ID.result.md"
-	printf '# Task Result\n\nTask-ID: %s\nStatus: COMPLETED\n' "$TASK_ID" > "$result"
+	final_message="$(printf '# Task Result\n\nTask-ID: %s\nStatus: COMPLETED\n' "$TASK_ID")"
+	if [[ "$TASK_ID" == 001 ]]; then
+		# Deliberately expose a result directly. worker-invoke-task must normalize
+		# it through worker-complete-task before manager review can begin.
+		result="$HARNESS_ROOT/projects/$PROJECT/results/$PROJECT-task-$TASK_ID.result.md"
+		printf '%s\n' "$final_message" > "$result"
+	fi
 	sleep 0.5
 else
 	exit 9
+fi
+if [[ -n "$last_message_file" ]]; then
+	printf '%s\n' "$final_message" > "$last_message_file"
 fi
 printf '{"type":"item.completed","item":{"type":"agent_message","text":"done"}}\n'
 printf '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n'
@@ -135,7 +154,7 @@ grep -q 'MANAGER_CAPACITY_RETRY_SCHEDULED task=001' "$EVENTS"
 grep -q 'MANAGER_CAPACITY_RETRY_STARTED task=001' "$EVENTS"
 grep -q 'WORKER_SUPERVISOR_TRIGGER task=001' "$EVENTS"
 grep -q 'WORKER_DIRECT_RESULT_NORMALIZED task=001' "$EVENTS"
-grep -q 'WORKER_DIRECT_RESULT_NORMALIZED task=002' "$EVENTS"
+grep -q 'WORKER_LAST_MESSAGE_RESULT_NORMALIZED task=002' "$EVENTS"
 grep -q 'TASK_PUBLISHED task=002' "$EVENTS"
 grep -q 'TASK_ACCEPTED task=002' "$EVENTS"
 [[ -f "$TEST_ROOT/state/projects/testproj/archive/testproj-task-001.assignment.md" ]]
