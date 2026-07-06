@@ -26,7 +26,9 @@ if [[ -f "$pid_file" ]]; then
 fi
 
 log_file="$dir/logs/supervisor.log"
-nohup "$HARNESS_BIN/harness-supervisor" "$HARNESS_ENV_FILE" >> "$log_file" 2>&1 &
+# Launch in a fresh session so the watcher survives the launcher shell exiting
+# under stricter PTY/process-tree cleanup environments.
+setsid "$HARNESS_BIN/harness-supervisor" "$HARNESS_ENV_FILE" </dev/null >> "$log_file" 2>&1 &
 pid=$!
 for _ in $(seq 1 50); do
 	if [[ -f "$pid_file" ]]; then
