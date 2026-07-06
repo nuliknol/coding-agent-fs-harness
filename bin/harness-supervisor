@@ -23,13 +23,30 @@ flock -n 8 || die "a supervisor is already running for project: $PROJECT"
 printf '%s\n' "$$" > "$dir/control/supervisor.pid"
 printf '%s\n' "$HARNESS_ENV_FILE" > "$dir/control/supervisor.env-file"
 watch_pid=""
+supervisor_exit_status=0
+current_command=""
+
+log_supervisor_failure()
+{
+	local status="$1"
+	local line="$2"
+	local command="$3"
+	log_event "SUPERVISOR_FATAL status=$status line=$line command=$(printf '%q' "$command")"
+	printf 'Supervisor fatal error for %s: status=%s line=%s command=%s\n' \
+		"$PROJECT" "$status" "$line" "$command" >&2
+}
+
 cleanup()
 {
 	if [[ -n "$watch_pid" ]]; then
 		kill "$watch_pid" 2>/dev/null || true
 	fi
 	rm -f "$dir/control/supervisor.pid" "$dir/control/supervisor.env-file"
+	if (( supervisor_exit_status != 0 )); then
+		log_event "SUPERVISOR_EXIT status=$supervisor_exit_status"
+	fi
 }
+trap 'supervisor_exit_status=$?; current_command=$BASH_COMMAND; if (( supervisor_exit_status != 0 )); then log_supervisor_failure "$supervisor_exit_status" "$LINENO" "$current_command"; fi' ERR
 trap 'cleanup; exit 0' INT TERM
 trap cleanup EXIT
 
