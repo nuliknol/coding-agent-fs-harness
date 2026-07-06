@@ -41,7 +41,7 @@ fingerprint()
 
 process_results()
 {
-	local file task_id base marker current previous status alert tmp running lease assignment_archive
+	local file task_id base marker current previous status alert tmp running lease assignment_archive accepted rejected
 	shopt -s nullglob
 	for file in "$dir/results/$PROJECT-task-"*.result.md; do
 		task_id="$(task_id_from_filename "$file")"
@@ -49,6 +49,8 @@ process_results()
 		running="$dir/running/$base.running.md"
 		lease="$dir/control/$base.lease"
 		assignment_archive="$dir/archive/$base.assignment.md"
+		accepted="$dir/archive/$base.accepted.md"
+		rejected="$dir/archive/$base.rejected.md"
 
 		# A result becomes reviewable only after the worker completion transaction
 		# has archived the assignment and removed the lease. An agent may write a
@@ -71,6 +73,7 @@ process_results()
 		set -e
 		if (( status == 0 )); then
 			if [[ -f "$file" ]]; then
+				log_event "SUPERVISOR_RESULT_STILL_PRESENT task=$task_id accepted=$([[ -f "$accepted" ]] && printf 1 || printf 0) rejected=$([[ -f "$rejected" ]] && printf 1 || printf 0)"
 				tmp="$marker.tmp.$$"
 				{
 					printf 'fingerprint=%s\n' "$current"

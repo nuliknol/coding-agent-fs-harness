@@ -180,4 +180,16 @@ review_002_count="$(grep -c 'MANAGER_REVIEW_STARTED task=002' "$EVENTS")"
 [[ "$review_002_count" -ge 2 ]]
 [[ ! -e "$TEST_ROOT/state/projects/testproj/control/testproj-task-002.manager-failed.md" ]]
 
+task_id=002
+base="testproj-task-$task_id"
+result="$TEST_ROOT/state/projects/testproj/results/$base.result.md"
+accepted="$TEST_ROOT/state/projects/testproj/archive/$base.accepted.md"
+stale_result_archive="$TEST_ROOT/state/projects/testproj/archive/$base.accepted-stale-result.md"
+printf '# Duplicate Result\n' > "$result"
+"$HARNESS_BIN/manager-accept-task" "$TEST_ROOT/harness.env" "$task_id" >/dev/null
+[[ -f "$accepted" ]]
+[[ ! -e "$result" ]]
+[[ -f "$stale_result_archive" ]]
+grep -q 'TASK_ACCEPTED_STALE_RESULT_ARCHIVED task=002' "$EVENTS"
+
 printf 'All v4.2 harness tests passed.\n'

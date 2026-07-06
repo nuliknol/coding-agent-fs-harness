@@ -25,8 +25,24 @@ base="$(task_base "$task_id")"
 result="$dir/results/$base.result.md"
 result_archive="$dir/archive/$base.result.md"
 accepted="$dir/archive/$base.accepted.md"
+stale_result_archive="$dir/archive/$base.accepted-stale-result.md"
+
+archive_lingering_result()
+{
+	if [[ ! -f "$result" ]]; then
+		return 0
+	fi
+	if [[ -f "$result_archive" ]]; then
+		mv "$result" "$stale_result_archive"
+		log_event "TASK_ACCEPTED_STALE_RESULT_ARCHIVED task=$task_id file=$stale_result_archive"
+	else
+		mv "$result" "$result_archive"
+		log_event "TASK_ACCEPTED_RESULT_RECOVERED task=$task_id file=$result_archive"
+	fi
+}
 
 if [[ -f "$accepted" ]]; then
+	archive_lingering_result
 	printf '%s\n' "$accepted"
 	exit 0
 fi
