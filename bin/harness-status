@@ -37,15 +37,20 @@ printf '%-28s %-12s %-28s %-10s\n' '----------------------------' '------------'
 
 shopt -s nullglob
 found=0
+accepted_count=0
+active_count=0
+aborted_count=0
 
 for file in "$dir/tasks/$PROJECT-task-"*.ready.md; do
 	found=1
+	active_count=$((active_count + 1))
 	task_id="$(task_id_from_filename "$file")"
 	printf '%-28s %-12s %-28s %-10s\n' "$task_id" 'READY' '-' '-'
 done
 
 for file in "$dir/running/$PROJECT-task-"*.running.md; do
 	found=1
+	active_count=$((active_count + 1))
 	task_id="$(task_id_from_filename "$file")"
 	base="$(task_base "$task_id")"
 	lease="$dir/control/$base.lease"
@@ -63,12 +68,14 @@ done
 
 for file in "$dir/results/$PROJECT-task-"*.result.md; do
 	found=1
+	active_count=$((active_count + 1))
 	task_id="$(task_id_from_filename "$file")"
 	printf '%-28s %-12s %-28s %-10s\n' "$task_id" 'REVIEW' '-' '-'
 done
 
 for file in "$dir/archive/$PROJECT-task-"*.accepted.md; do
 	found=1
+	accepted_count=$((accepted_count + 1))
 	name="${file##*/}"
 	task_id="${name#${PROJECT}-task-}"
 	task_id="${task_id%.accepted.md}"
@@ -77,6 +84,7 @@ done
 
 for file in "$dir/control/$PROJECT-task-"*.abort.md; do
 	found=1
+	aborted_count=$((aborted_count + 1))
 	name="${file##*/}"
 	task_id="${name#${PROJECT}-task-}"
 	task_id="${task_id%.abort.md}"
@@ -85,4 +93,6 @@ done
 
 if (( found == 0 )); then
 	printf '%s\n' '(no tasks)'
+elif (( accepted_count > 0 && active_count == 0 && aborted_count == 0 )); then
+	printf '\nProject status: complete. All published tasks are ACCEPTED; no agents are working.\n'
 fi
