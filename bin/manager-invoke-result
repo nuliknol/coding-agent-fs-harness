@@ -30,6 +30,7 @@ lease="$project_path/control/$base.lease"
 assignment_archive="$project_path/archive/$base.assignment.md"
 accepted="$project_path/archive/$base.accepted.md"
 rejected="$project_path/archive/$base.rejected.md"
+pending_exit_status=3
 [[ -f "$result" ]] || die "result file does not exist: $result"
 [[ ! -e "$running" ]] || die "result is not committed; running assignment still exists: $running"
 [[ ! -e "$lease" ]] || die "result is not committed; worker lease still exists: $lease"
@@ -76,9 +77,15 @@ while true; do
 	set -e
 
 	if (( status == 0 )); then
-		log_event "MANAGER_REVIEW_FINISHED task=$task_id attempt=$attempt"
-		printf 'Manager review turn completed and exited for task %s.\n' "$task_id"
-		exit 0
+		if manager_action_committed; then
+			log_event "MANAGER_REVIEW_FINISHED task=$task_id attempt=$attempt"
+			printf 'Manager review turn completed and exited for task %s.\n' "$task_id"
+			exit 0
+		fi
+
+		log_event "MANAGER_REVIEW_LEFT_PENDING task=$task_id attempt=$attempt"
+		printf 'Manager review exited without accepting or rejecting task %s.\n' "$task_id" >&2
+		exit "$pending_exit_status"
 	fi
 
 	# A manager command may have committed an accept/reject immediately before

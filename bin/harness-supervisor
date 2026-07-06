@@ -15,6 +15,7 @@ load_harness_env "$1"
 ensure_project
 dir="$(project_dir)"
 manager_invoker="${HARNESS_MANAGER_INVOKER:-$HARNESS_BIN/manager-invoke-result}"
+manager_pending_exit_status=3
 [[ -x "$manager_invoker" ]] || die "manager invoker is not executable: $manager_invoker"
 
 exec 8>"$dir/control/supervisor.lock"
@@ -80,6 +81,8 @@ process_results()
 				mv "$tmp" "$marker"
 				log_event "SUPERVISOR_RESULT_LEFT_PENDING task=$task_id"
 			fi
+		elif (( status == manager_pending_exit_status )); then
+			log_event "SUPERVISOR_REVIEW_LEFT_UNCOMMITTED task=$task_id"
 		else
 			alert="$dir/control/$base.manager-failed.md"
 			tmp="$alert.tmp.$$"

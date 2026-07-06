@@ -72,10 +72,19 @@ if [[ "$kind" == bootstrap ]]; then
 	rm -f "$tmp"
 elif [[ "$kind" == review ]]; then
 	TASK_ID="$(value TASK_ID)"
+	if [[ "$TASK_ID" == 002 && "$count" == 1 ]]; then
+		final_message="review-left-pending"
+	elif [[ "$TASK_ID" == 002 && "$count" == 2 ]]; then
+		note="$(mktemp)"
+		printf 'Mock accepted after a pending review turn.\n' > "$note"
+		"$HARNESS_BIN/manager-accept-task" "$ENV_FILE" "$TASK_ID" "$note" >/dev/null
+		rm -f "$note"
+	else
 	note="$(mktemp)"
 	printf 'Mock accepted.\n' > "$note"
 	"$HARNESS_BIN/manager-accept-task" "$ENV_FILE" "$TASK_ID" "$note" >/dev/null
 	rm -f "$note"
+	fi
 	if [[ "$TASK_ID" == 001 ]]; then
 		tmp="$(mktemp)"
 		printf '# Task\n\nTask-ID: 002\n\nMock second task.\n' > "$tmp"
@@ -152,6 +161,8 @@ grep -q 'WORKER_CAPACITY_RETRY_SCHEDULED task=001' "$EVENTS"
 grep -q 'WORKER_CAPACITY_RETRY_STARTED task=001' "$EVENTS"
 grep -q 'MANAGER_CAPACITY_RETRY_SCHEDULED task=001' "$EVENTS"
 grep -q 'MANAGER_CAPACITY_RETRY_STARTED task=001' "$EVENTS"
+grep -q 'MANAGER_REVIEW_LEFT_PENDING task=002' "$EVENTS"
+grep -q 'SUPERVISOR_REVIEW_LEFT_UNCOMMITTED task=002' "$EVENTS"
 grep -q 'WORKER_SUPERVISOR_TRIGGER task=001' "$EVENTS"
 grep -q 'WORKER_DIRECT_RESULT_NORMALIZED task=001' "$EVENTS"
 grep -q 'WORKER_LAST_MESSAGE_RESULT_NORMALIZED task=002' "$EVENTS"
@@ -165,5 +176,8 @@ first_complete_line="$(grep -n 'TASK_COMPLETED task=001' "$EVENTS" | head -n 1 |
 first_review_line="$(grep -n 'MANAGER_REVIEW_STARTED task=001' "$EVENTS" | head -n 1 | cut -d: -f1)"
 [[ -n "$first_complete_line" && -n "$first_review_line" ]]
 (( first_complete_line < first_review_line ))
+review_002_count="$(grep -c 'MANAGER_REVIEW_STARTED task=002' "$EVENTS")"
+[[ "$review_002_count" -ge 2 ]]
+[[ ! -e "$TEST_ROOT/state/projects/testproj/control/testproj-task-002.manager-failed.md" ]]
 
 printf 'All v4.2 harness tests passed.\n'
