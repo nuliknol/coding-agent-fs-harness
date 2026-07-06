@@ -14,6 +14,9 @@ usage()
 load_harness_env "$1"
 role="$2"
 ensure_project
+trace_init harness_new_session
+trace_script_start "$@"
+trap 'trace_script_exit $?' EXIT
 [[ "$role" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "invalid role: $role"
 
 uuid="$(cat /proc/sys/kernel/random/uuid 2>/dev/null || printf '%s-%s' "$$" "$(epoch_now)")"
@@ -33,4 +36,5 @@ chmod 600 "$tmp"
 mv "$tmp" "$file"
 
 log_event "SESSION_CREATED session=$session role=$role"
+trace_event SESSION_CREATED "session=$session" "role=$role" "file=$file"
 printf '%s\n' "$session"

@@ -16,6 +16,9 @@ task_id="$2"
 ensure_project
 require_repository
 require_worker_codex
+trace_init worker_invoke_task
+trace_script_start "$@"
+trap 'trace_script_exit $?' EXIT
 validate_task_id "$task_id"
 write_worker_snapshot
 
@@ -25,9 +28,11 @@ ready="$dir/tasks/$base.ready.md"
 [[ -f "$ready" ]] || die "task is not ready: $task_id"
 
 session="$("$HARNESS_BIN/harness-new-session" "$HARNESS_ENV_FILE" worker)"
+trace_event WORKER_SESSION_CREATED "task_id=$task_id" "session=$session"
 claim_output="$("$HARNESS_BIN/worker-claim-task" "$HARNESS_ENV_FILE" "$task_id" "$session")"
 task_file="$(printf '%s\n' "$claim_output" | awk -F= '$1 == "TASK_FILE" {sub(/^[^=]*=/, ""); print; exit}')"
 [[ -f "$task_file" ]] || die "claimed task file is missing: $task_file"
+trace_event WORKER_TASK_CLAIMED "task_id=$task_id" "session=$session" "task_file=$task_file"
 
 prompt_file="$dir/control/$base.worker.prompt.md"
 cat > "$prompt_file.tmp.$$" <<PROMPT
@@ -124,6 +129,7 @@ trap 'cleanup_heartbeat; exit 143' TERM
 
 heartbeat_loop &
 heartbeat_pid=$!
+trace_event WORKER_HEARTBEAT_STARTED "task_id=$task_id" "session=$session" "heartbeat_pid=$heartbeat_pid" "interval=$WORKER_HEARTBEAT_SECONDS"
 
 while true; do
 	stamp="$(date -u '+%Y%m%dT%H%M%SZ')"
@@ -132,16 +138,20 @@ while true; do
 	last_message="$dir/logs/worker-task-$task_id-$stamp-attempt-$attempt_label.md"
 
 	log_event "WORKER_INVOCATION_STARTED task=$task_id session=$session model=$WORKER_MODEL attempt=$attempt"
+	trace_event WORKER_INVOCATION_ATTEMPT "task_id=$task_id" "session=$session" "attempt=$attempt" "json_log=$json_log" "last_message=$last_message"
 	set +e
+	trace_event CODEX_EXEC_START "role=worker" "task_id=$task_id" "session=$session" "attempt=$attempt" "json_log=$json_log" "last_message=$last_message" "model=$WORKER_MODEL"
 	env CODEX_HOME="$WORKER_CODEX_HOME" "$WORKER_CODEX_BIN" exec --json --model "$WORKER_MODEL" --sandbox "$WORKER_SANDBOX" --add-dir "$HARNESS_ROOT" --cd "$REPOSITORY" -c "model_reasoning_effort=\"$WORKER_REASONING_EFFORT\"" --output-last-message "$last_message" - < "$prompt_file" | tee "$json_log"
 	status=${PIPESTATUS[0]}
 	set -e
+	trace_event CODEX_EXEC_END "role=worker" "task_id=$task_id" "session=$session" "attempt=$attempt" "status=$status" "json_log=$json_log" "last_message=$last_message"
 
 	normalize_direct_result
 	normalize_last_message_result
 	if completion_committed; then
 		cleanup_heartbeat
 		log_event "WORKER_INVOCATION_FINISHED task=$task_id session=$session status=$status result=published attempt=$attempt"
+		trace_event WORKER_RESULT_PUBLISHED "task_id=$task_id" "session=$session" "attempt=$attempt" "status=$status" "result=$result"
 		printf 'Worker completed task %s and published its result.\n' "$task_id"
 		exit 0
 	fi
@@ -153,6 +163,7 @@ while true; do
 		sleep "$HARNESS_CAPACITY_RETRY_SECONDS"
 		attempt=$((attempt + 1))
 		log_event "WORKER_CAPACITY_RETRY_STARTED task=$task_id session=$session attempt=$attempt retry=$capacity_retries"
+		trace_event WORKER_RETRY "task_id=$task_id" "session=$session" "attempt=$attempt" "retry=$capacity_retries"
 		continue
 	fi
 
@@ -199,8 +210,10 @@ chmod 600 "$alert.tmp.$$"
 mv "$alert.tmp.$$" "$alert"
 if (( status == 0 )); then
 	log_event "WORKER_PROTOCOL_FAILED task=$task_id session=$session status=$status reason=$protocol_reason attempts=$attempt"
+	trace_event WORKER_PROTOCOL_FAILED "task_id=$task_id" "session=$session" "status=$status" "reason=$protocol_reason" "attempts=$attempt" "json_log=$json_log"
 else
 	log_event "WORKER_PROCESS_FAILED task=$task_id session=$session status=$status reason=$protocol_reason attempts=$attempt"
+	trace_event WORKER_PROCESS_FAILED "task_id=$task_id" "session=$session" "status=$status" "reason=$protocol_reason" "attempts=$attempt" "json_log=$json_log"
 fi
 printf 'Worker invocation failed for task %s; see %s\n' "$task_id" "$alert" >&2
 if (( status == 0 )); then

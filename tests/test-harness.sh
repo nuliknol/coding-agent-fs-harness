@@ -150,6 +150,7 @@ for _ in $(seq 1 300); do
 done
 
 EVENTS="$TEST_ROOT/state/projects/testproj/logs/events.log"
+TRACE="$TEST_ROOT/state/projects/testproj/logs/trace.log"
 [[ -f "$TEST_ROOT/state/projects/testproj/archive/testproj-task-001.accepted.md" ]]
 [[ -f "$TEST_ROOT/state/projects/testproj/archive/testproj-task-002.accepted.md" ]]
 [[ ! -e "$TEST_ROOT/state/projects/testproj/tasks/testproj-task-002.ready.md" ]]
@@ -168,6 +169,11 @@ grep -q 'WORKER_DIRECT_RESULT_NORMALIZED task=001' "$EVENTS"
 grep -q 'WORKER_LAST_MESSAGE_RESULT_NORMALIZED task=002' "$EVENTS"
 grep -q 'TASK_PUBLISHED task=002' "$EVENTS"
 grep -q 'TASK_ACCEPTED task=002' "$EVENTS"
+grep -q 'event=SCRIPT_START' "$TRACE"
+grep -q 'event=CODEX_EXEC_START' "$TRACE"
+grep -q 'event=CODEX_EXEC_END' "$TRACE"
+grep -q 'event=TASK_COMPLETED' "$TRACE"
+grep -q 'event=TASK_ACCEPTED' "$TRACE"
 [[ -f "$TEST_ROOT/state/projects/testproj/archive/testproj-task-001.assignment.md" ]]
 [[ -f "$TEST_ROOT/state/projects/testproj/archive/testproj-task-002.assignment.md" ]]
 [[ ! -e "$TEST_ROOT/state/projects/testproj/control/testproj-task-001.lease" ]]

@@ -13,12 +13,16 @@ usage()
 [[ $# -eq 1 ]] || usage
 load_harness_env "$1"
 ensure_project
+trace_init worker_supervisor_start
+trace_script_start "$@"
+trap 'trace_script_exit $?' EXIT
 dir="$(project_dir)"
 pid_file="$dir/control/worker-supervisor.pid"
 
 if [[ -f "$pid_file" ]]; then
 	pid="$(cat "$pid_file")"
 	if kill -0 "$pid" 2>/dev/null; then
+		trace_event WORKER_SUPERVISOR_START_SKIPPED "pid=$pid" "reason=already_running"
 		printf 'Worker supervisor is already running with PID %s.\n' "$pid"
 		exit 0
 	fi
@@ -30,8 +34,10 @@ log_file="$dir/logs/worker-supervisor.log"
 # under stricter PTY/process-tree cleanup environments.
 setsid "$HARNESS_BIN/worker-supervisor" "$HARNESS_ENV_FILE" </dev/null >> "$log_file" 2>&1 &
 pid=$!
+trace_event WORKER_SUPERVISOR_LAUNCH "pid=$pid" "log_file=$log_file" "command=$HARNESS_BIN/worker-supervisor"
 for _ in $(seq 1 50); do
 	if [[ -f "$pid_file" ]]; then
+		trace_event WORKER_SUPERVISOR_STARTED_CONFIRMED "pid=$(cat "$pid_file")"
 		printf 'Worker supervisor started with PID %s.\n' "$(cat "$pid_file")"
 		printf 'Environment file: %s\n' "$HARNESS_ENV_FILE"
 		printf 'Log: %s\n' "$log_file"

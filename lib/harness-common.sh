@@ -289,6 +289,52 @@ log_event()
 	printf '%s\t%s\n' "$(timestamp_utc)" "$*" >> "$dir/logs/events.log"
 }
 
+trace_log_file()
+{
+	printf '%s/logs/trace.log' "$(project_dir)"
+}
+
+trace_init()
+{
+	local component="$1"
+	local parent_trace_id="${HARNESS_TRACE_ID:-}"
+	local nonce
+	nonce="$(cat /proc/sys/kernel/random/uuid 2>/dev/null || printf '%s-%s' "$$" "$(epoch_now)")"
+	HARNESS_TRACE_PARENT_ID="$parent_trace_id"
+	HARNESS_TRACE_COMPONENT="$component"
+	HARNESS_TRACE_ID="${component}-$(date -u '+%Y%m%dT%H%M%SZ')-${nonce%%-*}"
+	export HARNESS_TRACE_PARENT_ID HARNESS_TRACE_COMPONENT HARNESS_TRACE_ID
+}
+
+trace_event()
+{
+	local event="$1"
+	shift || true
+	local line
+	line="$(timestamp_utc)"
+	line+=" trace_id=$(printf '%q' "${HARNESS_TRACE_ID:-unknown}")"
+	line+=" parent_trace_id=$(printf '%q' "${HARNESS_TRACE_PARENT_ID:-}")"
+	line+=" component=$(printf '%q' "${HARNESS_TRACE_COMPONENT:-unknown}")"
+	line+=" pid=$(printf '%q' "$$")"
+	line+=" ppid=$(printf '%q' "$PPID")"
+	line+=" event=$(printf '%q' "$event")"
+	for field in "$@"; do
+		line+=" $(printf '%q' "$field")"
+	done
+	printf '%s\n' "$line" >> "$(trace_log_file)"
+}
+
+trace_script_start()
+{
+	trace_event SCRIPT_START "argv_count=$#"
+}
+
+trace_script_exit()
+{
+	local status="$1"
+	trace_event SCRIPT_EXIT "status=$status"
+}
+
 acquire_project_lock()
 {
 	local dir

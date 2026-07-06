@@ -14,6 +14,8 @@ usage()
 load_harness_env "$1"
 ensure_project
 require_worker_codex
+trace_init worker_supervisor
+trace_script_start "$@"
 dir="$(project_dir)"
 worker_invoker="${HARNESS_WORKER_INVOKER:-$HARNESS_BIN/worker-invoke-task}"
 [[ -x "$worker_invoker" ]] || die "worker invoker is not executable: $worker_invoker"
@@ -25,13 +27,15 @@ printf '%s\n' "$HARNESS_ENV_FILE" > "$dir/control/worker-supervisor.env-file"
 watch_pid=""
 cleanup()
 {
+	local status="${worker_supervisor_exit_status:-0}"
 	if [[ -n "$watch_pid" ]]; then
 		kill "$watch_pid" 2>/dev/null || true
 	fi
 	rm -f "$dir/control/worker-supervisor.pid" "$dir/control/worker-supervisor.env-file"
+	trace_script_exit "$status"
 }
 trap 'cleanup; exit 0' INT TERM
-trap cleanup EXIT
+trap 'worker_supervisor_exit_status=$?; cleanup' EXIT
 
 fingerprint()
 {
@@ -60,11 +64,13 @@ process_tasks()
 		chmod 600 "$tmp"
 		mv "$tmp" "$marker"
 		log_event "WORKER_SUPERVISOR_TRIGGER task=$task_id fingerprint=$current"
+		trace_event WORKER_SUPERVISOR_INVOKE "task_id=$task_id" "fingerprint=$current" "worker_invoker=$worker_invoker"
 
 		set +e
 		"$worker_invoker" "$HARNESS_ENV_FILE" "$task_id"
 		status=$?
 		set -e
+		trace_event WORKER_SUPERVISOR_INVOKE_EXIT "task_id=$task_id" "status=$status"
 		if (( status != 0 )); then
 			alert="$dir/control/$base.worker-supervisor-failed.md"
 			tmp="$alert.tmp.$$"
@@ -90,11 +96,18 @@ printf 'Worker supervisor started for %s with PID %s. No worker LLM is running w
 while true; do
 	process_tasks
 	if [[ "$HARNESS_USE_INOTIFY" == "1" ]] && command -v inotifywait >/dev/null 2>&1; then
+		trace_event WORKER_SUPERVISOR_WATCH_WAIT_BEGIN "mode=inotify" "timeout=$HARNESS_POLL_SECONDS"
 		inotifywait -q -t "$HARNESS_POLL_SECONDS" -e moved_to -e create -e delete "$dir/tasks" "$dir/control" >/dev/null 2>&1 &
 		watch_pid=$!
-		wait "$watch_pid" || true
+		set +e
+		wait "$watch_pid"
+		watch_status=$?
+		set -e
+		trace_event WORKER_SUPERVISOR_WATCH_WAIT_END "mode=inotify" "watch_pid=$watch_pid" "status=$watch_status"
 		watch_pid=""
 	else
+		trace_event WORKER_SUPERVISOR_WATCH_WAIT_BEGIN "mode=poll" "timeout=$HARNESS_POLL_SECONDS"
 		sleep "$HARNESS_POLL_SECONDS"
+		trace_event WORKER_SUPERVISOR_WATCH_WAIT_END "mode=poll" "status=0"
 	fi
 done

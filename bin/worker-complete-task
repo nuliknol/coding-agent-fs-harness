@@ -18,6 +18,9 @@ result_file="$4"
 
 ensure_project
 ensure_session "$session"
+trace_init worker_complete_task
+trace_script_start "$@"
+trap 'trace_script_exit $?' EXIT
 validate_task_id "$task_id"
 [[ -f "$result_file" ]] || die "result file does not exist: $result_file"
 acquire_project_lock
@@ -48,4 +51,5 @@ rm -f "$lease"
 mv "$tmp" "$result"
 
 log_event "TASK_COMPLETED task=$task_id owner=$session result=$result"
+trace_event TASK_COMPLETED "task_id=$task_id" "session=$session" "input_result=$result_file" "stored_result=$result" "assignment_archive=$assignment_archive"
 printf '%s\n' "$result"

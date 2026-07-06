@@ -16,6 +16,9 @@ task_id="$2"
 session="$3"
 ensure_project
 ensure_session "$session"
+trace_init worker_claim_task
+trace_script_start "$@"
+trap 'trace_script_exit $?' EXIT
 validate_task_id "$task_id"
 acquire_project_lock
 
@@ -43,5 +46,6 @@ chmod 600 "$lease_tmp"
 mv "$lease_tmp" "$lease"
 mv "$ready" "$running"
 log_event "TASK_CLAIMED task=$task_id owner=$session"
+trace_event TASK_CLAIMED "task_id=$task_id" "session=$session" "ready=$ready" "running=$running" "lease=$lease"
 printf 'TASK_ID=%s\n' "$task_id"
 printf 'TASK_FILE=%s\n' "$running"

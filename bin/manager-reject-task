@@ -16,6 +16,9 @@ task_id="$2"
 note_file="$3"
 
 ensure_project
+trace_init manager_reject_task
+trace_script_start "$@"
+trap 'trace_script_exit $?' EXIT
 validate_task_id "$task_id"
 [[ -f "$note_file" ]] || die "review note file does not exist: $note_file"
 acquire_project_lock
@@ -43,6 +46,7 @@ archive_lingering_result()
 
 if [[ -f "$rejected" ]]; then
 	archive_lingering_result
+	trace_event TASK_REJECT_IDEMPOTENT "task_id=$task_id" "rejected_file=$rejected"
 	printf '%s\n' "$rejected"
 	exit 0
 fi
@@ -64,4 +68,5 @@ tmp="$rejected.tmp.$$"
 chmod 600 "$tmp"
 mv "$tmp" "$rejected"
 log_event "TASK_REJECTED task=$task_id"
+trace_event TASK_REJECTED "task_id=$task_id" "rejected_file=$rejected" "result_archive=$result_archive" "note_file=$note_file"
 printf '%s\n' "$rejected"

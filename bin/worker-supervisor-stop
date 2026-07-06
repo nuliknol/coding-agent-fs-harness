@@ -13,14 +13,19 @@ usage()
 [[ $# -eq 1 ]] || usage
 load_harness_env "$1"
 ensure_project
+trace_init worker_supervisor_stop
+trace_script_start "$@"
+trap 'trace_script_exit $?' EXIT
 dir="$(project_dir)"
 pid_file="$dir/control/worker-supervisor.pid"
 [[ -f "$pid_file" ]] || {
+	trace_event WORKER_SUPERVISOR_STOP_SKIPPED "reason=not_running"
 	printf 'Worker supervisor is not running.\n'
 	exit 0
 }
 pid="$(cat "$pid_file")"
 if kill -0 "$pid" 2>/dev/null; then
+	trace_event WORKER_SUPERVISOR_STOP_SIGNAL "pid=$pid" "signal=TERM"
 	kill "$pid"
 	for _ in $(seq 1 50); do
 		kill -0 "$pid" 2>/dev/null || break
@@ -29,4 +34,5 @@ if kill -0 "$pid" 2>/dev/null; then
 fi
 rm -f "$pid_file" "$dir/control/worker-supervisor.env-file"
 log_event "WORKER_SUPERVISOR_STOPPED pid=$pid"
+trace_event WORKER_SUPERVISOR_STOPPED "pid=$pid"
 printf 'Worker supervisor stopped.\n'

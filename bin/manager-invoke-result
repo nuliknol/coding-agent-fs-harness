@@ -16,6 +16,9 @@ task_id="$2"
 ensure_project
 require_manager_configuration
 require_manager_codex
+trace_init manager_invoke_result
+trace_script_start "$@"
+trap 'trace_script_exit $?' EXIT
 validate_task_id "$task_id"
 write_manager_snapshot
 
@@ -71,19 +74,24 @@ while true; do
 	last_message="$project_path/logs/manager-review-$task_id-$stamp-attempt-$attempt_label.md"
 
 	log_event "MANAGER_REVIEW_STARTED task=$task_id thread_id=$thread_id attempt=$attempt"
+	trace_event MANAGER_REVIEW_ATTEMPT "task_id=$task_id" "attempt=$attempt" "thread_id=$thread_id" "json_log=$json_log" "last_message=$last_message"
 	set +e
+	trace_event CODEX_EXEC_START "role=manager_review" "task_id=$task_id" "attempt=$attempt" "thread_id=$thread_id" "json_log=$json_log" "last_message=$last_message" "model=$MANAGER_MODEL"
 	env CODEX_HOME="$MANAGER_CODEX_HOME" "$MANAGER_CODEX_BIN" exec --json --model "$MANAGER_MODEL" --sandbox "$MANAGER_SANDBOX" --add-dir "$HARNESS_ROOT" --cd "$REPOSITORY" -c "model_reasoning_effort=\"$MANAGER_REASONING_EFFORT\"" --output-last-message "$last_message" resume "$thread_id" - < "$prompt_file" | tee "$json_log"
 	status=${PIPESTATUS[0]}
 	set -e
+	trace_event CODEX_EXEC_END "role=manager_review" "task_id=$task_id" "attempt=$attempt" "status=$status" "json_log=$json_log" "last_message=$last_message"
 
 	if (( status == 0 )); then
 		if manager_action_committed; then
 			log_event "MANAGER_REVIEW_FINISHED task=$task_id attempt=$attempt"
+			trace_event MANAGER_REVIEW_COMMITTED "task_id=$task_id" "attempt=$attempt" "status=$status"
 			printf 'Manager review turn completed and exited for task %s.\n' "$task_id"
 			exit 0
 		fi
 
 		log_event "MANAGER_REVIEW_LEFT_PENDING task=$task_id attempt=$attempt"
+		trace_event MANAGER_REVIEW_PENDING "task_id=$task_id" "attempt=$attempt"
 		printf 'Manager review exited without accepting or rejecting task %s.\n' "$task_id" >&2
 		exit "$pending_exit_status"
 	fi
@@ -92,6 +100,7 @@ while true; do
 	# the API stream failed. Never repeat a committed manager action.
 	if manager_action_committed; then
 		log_event "MANAGER_REVIEW_FINISHED task=$task_id attempt=$attempt outcome=action_committed_before_process_failure status=$status"
+		trace_event MANAGER_REVIEW_COMMITTED_AFTER_FAILURE "task_id=$task_id" "attempt=$attempt" "status=$status"
 		printf 'Manager action for task %s was committed before the Codex process failed.\n' "$task_id"
 		exit 0
 	fi
@@ -106,6 +115,7 @@ while true; do
 		# recovery action may have resolved the result while this process slept.
 		if manager_action_committed; then
 			log_event "MANAGER_REVIEW_FINISHED task=$task_id attempt=$attempt outcome=action_committed_during_capacity_wait"
+			trace_event MANAGER_REVIEW_COMMITTED_DURING_RETRY_WAIT "task_id=$task_id" "attempt=$attempt"
 			exit 0
 		fi
 		[[ ! -e "$running" ]] || die "cannot retry manager review; running assignment appeared: $running"
@@ -114,9 +124,11 @@ while true; do
 
 		attempt=$((attempt + 1))
 		log_event "MANAGER_CAPACITY_RETRY_STARTED task=$task_id thread_id=$thread_id attempt=$attempt retry=$capacity_retries"
+		trace_event MANAGER_REVIEW_RETRY "task_id=$task_id" "attempt=$attempt" "retry=$capacity_retries"
 		continue
 	fi
 
 	log_event "MANAGER_REVIEW_FAILED task=$task_id status=$status attempts=$attempt"
+	trace_event MANAGER_REVIEW_FAILED "task_id=$task_id" "status=$status" "attempts=$attempt" "json_log=$json_log"
 	exit "$status"
 done

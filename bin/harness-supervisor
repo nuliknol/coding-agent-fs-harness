@@ -13,6 +13,8 @@ usage()
 [[ $# -eq 1 ]] || usage
 load_harness_env "$1"
 ensure_project
+trace_init manager_supervisor
+trace_script_start "$@"
 dir="$(project_dir)"
 manager_invoker="${HARNESS_MANAGER_INVOKER:-$HARNESS_BIN/manager-invoke-result}"
 manager_pending_exit_status=3
@@ -42,6 +44,7 @@ cleanup()
 		kill "$watch_pid" 2>/dev/null || true
 	fi
 	rm -f "$dir/control/supervisor.pid" "$dir/control/supervisor.env-file"
+	trace_script_exit "$supervisor_exit_status"
 	if (( supervisor_exit_status != 0 )); then
 		log_event "SUPERVISOR_EXIT status=$supervisor_exit_status"
 	fi
@@ -84,10 +87,12 @@ process_results()
 		[[ "$current" != "$previous" ]] || continue
 
 		log_event "SUPERVISOR_TRIGGER task=$task_id fingerprint=$current"
+		trace_event SUPERVISOR_INVOKE_MANAGER "task_id=$task_id" "fingerprint=$current" "manager_invoker=$manager_invoker"
 		set +e
 		"$manager_invoker" "$HARNESS_ENV_FILE" "$task_id"
 		status=$?
 		set -e
+		trace_event SUPERVISOR_MANAGER_EXIT "task_id=$task_id" "status=$status"
 		if (( status == 0 )); then
 			if [[ -f "$file" ]]; then
 				log_event "SUPERVISOR_RESULT_STILL_PRESENT task=$task_id accepted=$([[ -f "$accepted" ]] && printf 1 || printf 0) rejected=$([[ -f "$rejected" ]] && printf 1 || printf 0)"
@@ -136,11 +141,18 @@ printf 'Supervisor started for %s with PID %s. No LLM is running while idle.\n' 
 while true; do
 	process_results
 	if [[ "$HARNESS_USE_INOTIFY" == "1" ]] && command -v inotifywait >/dev/null 2>&1; then
+		trace_event SUPERVISOR_WATCH_WAIT_BEGIN "mode=inotify" "timeout=$HARNESS_POLL_SECONDS"
 		inotifywait -q -t "$HARNESS_POLL_SECONDS" -e moved_to -e delete "$dir/results" "$dir/control" >/dev/null 2>&1 &
 		watch_pid=$!
-		wait "$watch_pid" || true
+		set +e
+		wait "$watch_pid"
+		watch_status=$?
+		set -e
+		trace_event SUPERVISOR_WATCH_WAIT_END "mode=inotify" "watch_pid=$watch_pid" "status=$watch_status"
 		watch_pid=""
 	else
+		trace_event SUPERVISOR_WATCH_WAIT_BEGIN "mode=poll" "timeout=$HARNESS_POLL_SECONDS"
 		sleep "$HARNESS_POLL_SECONDS"
+		trace_event SUPERVISOR_WATCH_WAIT_END "mode=poll" "status=0"
 	fi
 done
