@@ -34,6 +34,26 @@ worker-supervisor
 
 The interactive Codex TUI is not used for automated workers. A fresh non-interactive worker thread is created for each task. This prevents an idle worker prompt and avoids accumulating the entire project history in one worker context.
 
+
+
+## Watch the agents working
+
+`harness-watch-agents refactoring-whatever.env`
+
+[MANAGER task=039-phase8-gpu-proof-device-buffer-descriptor]
+I’ll review task 039 against the archived assignment and actual code, run focused and full validation, then accept or reject and publish one bounded follow-up.
+
+[MANAGER task=039-phase8-gpu-proof-device-buffer-descriptor]
+The result claims the descriptor layer is host-only and validates alignment, row strides, ordering, and spans. I’m inspecting the descriptor structs, builder, tests, and status note now.
+
+[MANAGER task=039-phase8-gpu-proof-device-buffer-descriptor]
+The status note limits the scope correctly. I’m reading the descriptor builder and tests for span validation, relative host pointers, and malformed-plan handling.
+
+[MANAGER task=039-phase8-gpu-proof-device-buffer-descriptor]
+The descriptor builder reuses the private plan validator, so it inherits the fixed 16-byte alignment and region-order checks before constructing descriptors. I’m verifying the validation helper and then running the required validation.
+
+
+
 ## Requirements
 
 - Linux
