@@ -131,6 +131,7 @@ Start the complete system:
 4. Return to the shell.
 
 After that, no manual prompt pushes are required.
+When the manager accepts the final task with `--complete-project`, the harness records a completion event, terminates any harness-owned child processes if needed, and both supervisors exit automatically.
 
 ## Stop and restart
 

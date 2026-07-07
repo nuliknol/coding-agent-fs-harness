@@ -135,11 +135,30 @@ process_results()
 	done
 }
 
+handle_project_completion()
+{
+	local completion_file completed_task
+	completion_file="$(project_complete_file)"
+	[[ -f "$completion_file" ]] || return 1
+	completed_task="$(kv_file_value "$completion_file" task_id)"
+	log_event "SUPERVISOR_PROJECT_COMPLETED task=$completed_task file=$completion_file"
+	trace_event SUPERVISOR_PROJECT_COMPLETED "task_id=$completed_task" "completion_file=$completion_file"
+	terminate_descendants_of_pid "$$"
+	supervisor_exit_status=0
+	return 0
+}
+
 log_event "SUPERVISOR_STARTED pid=$$ env_file=$HARNESS_ENV_FILE"
 printf 'Supervisor started for %s with PID %s. No LLM is running while idle.\n' "$PROJECT" "$$"
 
 while true; do
+	if handle_project_completion; then
+		break
+	fi
 	process_results
+	if handle_project_completion; then
+		break
+	fi
 	if [[ "$HARNESS_USE_INOTIFY" == "1" ]] && command -v inotifywait >/dev/null 2>&1; then
 		trace_event SUPERVISOR_WATCH_WAIT_BEGIN "mode=inotify" "timeout=$HARNESS_POLL_SECONDS"
 		inotifywait -q -t "$HARNESS_POLL_SECONDS" -e moved_to -e delete "$dir/results" "$dir/control" >/dev/null 2>&1 &

@@ -6,14 +6,20 @@ source "$SCRIPT_DIR/../lib/harness-common.sh"
 
 usage()
 {
-	printf 'Usage: %s ENV_FILE TASK_ID [REVIEW_NOTE_FILE]\n' "${0##*/}" >&2
+	printf 'Usage: %s ENV_FILE TASK_ID [REVIEW_NOTE_FILE] [--complete-project]\n' "${0##*/}" >&2
 	exit 2
 }
 
-[[ $# -ge 2 && $# -le 3 ]] || usage
+[[ $# -ge 2 && $# -le 4 ]] || usage
 load_harness_env "$1"
 task_id="$2"
 note_file="${3:-}"
+complete_flag="${4:-}"
+
+if [[ "$note_file" == '--complete-project' && -z "$complete_flag" ]]; then
+	complete_flag="$note_file"
+	note_file=""
+fi
 
 ensure_project
 trace_init manager_accept_task
@@ -21,6 +27,7 @@ trace_script_start "$@"
 trap 'trace_script_exit $?' EXIT
 validate_task_id "$task_id"
 [[ -z "$note_file" || -f "$note_file" ]] || die "review note file does not exist: $note_file"
+[[ -z "$complete_flag" || "$complete_flag" == '--complete-project' ]] || usage
 acquire_project_lock
 
 dir="$(project_dir)"
@@ -73,4 +80,7 @@ mv "$tmp" "$accepted"
 rm -f "$dir/control/$base.lease" "$dir/control/$base.abort.md" "$dir/control/$base.worker-triggered" "$dir/control/$base.worker-failed.md" "$dir/control/$base.worker-supervisor-failed.md"
 log_event "TASK_ACCEPTED task=$task_id"
 trace_event TASK_ACCEPTED "task_id=$task_id" "accepted_file=$accepted" "result_archive=$result_archive" "note_file=${note_file:-}"
+if [[ "$complete_flag" == '--complete-project' ]]; then
+	mark_project_complete "$task_id" "$note_file"
+fi
 printf '%s\n' "$accepted"

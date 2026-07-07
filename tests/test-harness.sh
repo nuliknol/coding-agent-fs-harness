@@ -77,7 +77,7 @@ elif [[ "$kind" == review ]]; then
 	elif [[ "$TASK_ID" == 002 && "$count" == 2 ]]; then
 		note="$(mktemp)"
 		printf 'Mock accepted after a pending review turn.\n' > "$note"
-		"$HARNESS_BIN/manager-accept-task" "$ENV_FILE" "$TASK_ID" "$note" >/dev/null
+		"$HARNESS_BIN/manager-accept-task" "$ENV_FILE" "$TASK_ID" "$note" --complete-project >/dev/null
 		rm -f "$note"
 	else
 	note="$(mktemp)"
@@ -145,7 +145,10 @@ chmod 600 "$TEST_ROOT/harness.env"
 "$HARNESS_BIN/harness-start" "$TEST_ROOT/harness.env" >/dev/null
 
 for _ in $(seq 1 300); do
-	[[ -f "$TEST_ROOT/state/projects/testproj/archive/testproj-task-002.accepted.md" ]] && break
+	if [[ -f "$TEST_ROOT/state/projects/testproj/archive/testproj-task-002.accepted.md" &&
+		-f "$TEST_ROOT/state/projects/testproj/control/project.complete" ]]; then
+		break
+	fi
 	sleep 0.1
 done
 
@@ -153,6 +156,7 @@ EVENTS="$TEST_ROOT/state/projects/testproj/logs/events.log"
 TRACE="$TEST_ROOT/state/projects/testproj/logs/trace.log"
 [[ -f "$TEST_ROOT/state/projects/testproj/archive/testproj-task-001.accepted.md" ]]
 [[ -f "$TEST_ROOT/state/projects/testproj/archive/testproj-task-002.accepted.md" ]]
+[[ -f "$TEST_ROOT/state/projects/testproj/control/project.complete" ]]
 [[ ! -e "$TEST_ROOT/state/projects/testproj/tasks/testproj-task-002.ready.md" ]]
 [[ ! -e "$TEST_ROOT/state/projects/testproj/running/testproj-task-002.running.md" ]]
 [[ ! -e "$TEST_ROOT/state/projects/testproj/results/testproj-task-002.result.md" ]]
@@ -169,11 +173,13 @@ grep -q 'WORKER_DIRECT_RESULT_NORMALIZED task=001' "$EVENTS"
 grep -q 'WORKER_LAST_MESSAGE_RESULT_NORMALIZED task=002' "$EVENTS"
 grep -q 'TASK_PUBLISHED task=002' "$EVENTS"
 grep -q 'TASK_ACCEPTED task=002' "$EVENTS"
+grep -q 'PROJECT_COMPLETED task=002' "$EVENTS"
 grep -q 'event=SCRIPT_START' "$TRACE"
 grep -q 'event=CODEX_EXEC_START' "$TRACE"
 grep -q 'event=CODEX_EXEC_END' "$TRACE"
 grep -q 'event=TASK_COMPLETED' "$TRACE"
 grep -q 'event=TASK_ACCEPTED' "$TRACE"
+grep -q 'event=PROJECT_COMPLETED' "$TRACE"
 [[ -f "$TEST_ROOT/state/projects/testproj/archive/testproj-task-001.assignment.md" ]]
 [[ -f "$TEST_ROOT/state/projects/testproj/archive/testproj-task-002.assignment.md" ]]
 [[ ! -e "$TEST_ROOT/state/projects/testproj/control/testproj-task-001.lease" ]]
@@ -185,6 +191,15 @@ first_review_line="$(grep -n 'MANAGER_REVIEW_STARTED task=001' "$EVENTS" | head 
 review_002_count="$(grep -c 'MANAGER_REVIEW_STARTED task=002' "$EVENTS")"
 [[ "$review_002_count" -ge 2 ]]
 [[ ! -e "$TEST_ROOT/state/projects/testproj/control/testproj-task-002.manager-failed.md" ]]
+
+for _ in $(seq 1 100); do
+	[[ ! -f "$TEST_ROOT/state/projects/testproj/control/supervisor.pid" && ! -f "$TEST_ROOT/state/projects/testproj/control/worker-supervisor.pid" ]] && break
+	sleep 0.1
+done
+[[ ! -f "$TEST_ROOT/state/projects/testproj/control/supervisor.pid" ]]
+[[ ! -f "$TEST_ROOT/state/projects/testproj/control/worker-supervisor.pid" ]]
+grep -q 'SUPERVISOR_PROJECT_COMPLETED task=002' "$EVENTS"
+grep -q 'WORKER_SUPERVISOR_PROJECT_COMPLETED task=002' "$EVENTS"
 
 task_id=002
 base="testproj-task-$task_id"
@@ -198,36 +213,66 @@ printf '# Duplicate Result\n' > "$result"
 [[ -f "$stale_result_archive" ]]
 grep -q 'TASK_ACCEPTED_STALE_RESULT_ARCHIVED task=002' "$EVENTS"
 
-LOCK_PATH="$TEST_ROOT/state/control/env-locks/$(printf '%s' "$TEST_ROOT/harness.env" | sha256sum | awk '{print $1}').lock"
+ACTIVE_ROOT="$TEST_ROOT/active"
+mkdir -p "$ACTIVE_ROOT/repo" "$ACTIVE_ROOT/manager-home" "$ACTIVE_ROOT/worker-home"
+printf 'test specification\n' > "$ACTIVE_ROOT/repo/spec.md"
+cat > "$ACTIVE_ROOT/harness.env" <<ENV
+export PROJECT="activeproj"
+export REPOSITORY="$ACTIVE_ROOT/repo"
+export SPECIFICATION="\$REPOSITORY/spec.md"
+export HARNESS_HOME="$HARNESS_HOME"
+export HARNESS_BIN="\$HARNESS_HOME/bin"
+export HARNESS_ROOT="$ACTIVE_ROOT/state"
+export MANAGER_CODEX_HOME="$ACTIVE_ROOT/manager-home"
+export MANAGER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export MANAGER_MODEL="gpt-5.5"
+export MANAGER_REASONING_EFFORT="high"
+export MANAGER_SANDBOX="danger-full-access"
+export WORKER_CODEX_HOME="$ACTIVE_ROOT/worker-home"
+export WORKER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export WORKER_MODEL="gpt-5.4-mini"
+export WORKER_REASONING_EFFORT="high"
+export WORKER_SANDBOX="danger-full-access"
+export HARNESS_POLL_SECONDS="0.2"
+export HARNESS_WAIT_SECONDS="5"
+export HARNESS_STALE_SECONDS="30"
+export HARNESS_USE_INOTIFY="0"
+export WORKER_HEARTBEAT_SECONDS="1"
+ENV
+chmod 600 "$ACTIVE_ROOT/harness.env"
+"$HARNESS_BIN/harness-init" "$ACTIVE_ROOT/harness.env" >/dev/null
+"$HARNESS_BIN/harness-supervisor-start" "$ACTIVE_ROOT/harness.env" >/dev/null
+"$HARNESS_BIN/worker-supervisor-start" "$ACTIVE_ROOT/harness.env" >/dev/null
+
+LOCK_PATH="$ACTIVE_ROOT/state/control/env-locks/$(printf '%s' "$ACTIVE_ROOT/harness.env" | sha256sum | awk '{print $1}').lock"
 sleep 2 &
 lock_pid=$!
 printf 'pid=%s\nstarted_at=%s\noperation=%s\nenv_file=%s\n' \
-	"$lock_pid" '1970-01-01T00:00:00Z' 'external-test-lock' "$TEST_ROOT/harness.env" > "$LOCK_PATH"
+	"$lock_pid" '1970-01-01T00:00:00Z' 'external-test-lock' "$ACTIVE_ROOT/harness.env" > "$LOCK_PATH"
 sleep 0.2
-if "$HARNESS_BIN/harness-start" "$TEST_ROOT/harness.env" >"$TEST_ROOT/lock.out" 2>"$TEST_ROOT/lock.err"; then
+if "$HARNESS_BIN/harness-start" "$ACTIVE_ROOT/harness.env" >"$ACTIVE_ROOT/lock.out" 2>"$ACTIVE_ROOT/lock.err"; then
 	printf 'Expected harness-start lock contention to fail.\n' >&2
 	exit 1
 fi
-grep -q 'harness-start is already running' "$TEST_ROOT/lock.err"
+grep -q 'harness-start is already running' "$ACTIVE_ROOT/lock.err"
 wait "$lock_pid"
 rm -f "$LOCK_PATH"
 
-if printf 'n\n' | "$HARNESS_BIN/harness-start" "$TEST_ROOT/harness.env" >"$TEST_ROOT/start-reset.out" 2>"$TEST_ROOT/start-reset.err"; then
+if printf 'n\n' | "$HARNESS_BIN/harness-start" "$ACTIVE_ROOT/harness.env" >"$ACTIVE_ROOT/start-reset.out" 2>"$ACTIVE_ROOT/start-reset.err"; then
 	printf 'Expected harness-start to reject repeated invocation without reset confirmation.\n' >&2
 	exit 1
 fi
-grep -q 'Reset current state for' "$TEST_ROOT/start-reset.err"
-grep -q 'harness-start aborted because state is already active' "$TEST_ROOT/start-reset.err"
-[[ -f "$TEST_ROOT/state/projects/testproj/control/manager.thread" ]]
+grep -q 'Reset current state for' "$ACTIVE_ROOT/start-reset.err"
+grep -q 'harness-start aborted because state is already active' "$ACTIVE_ROOT/start-reset.err"
+[[ -f "$ACTIVE_ROOT/state/projects/activeproj/control/supervisor.pid" ]]
 
-if ! printf 'yes\n' | "$HARNESS_BIN/harness-init" "$TEST_ROOT/harness.env" >"$TEST_ROOT/init-reset.out" 2>"$TEST_ROOT/init-reset.err"; then
+if ! printf 'yes\n' | "$HARNESS_BIN/harness-init" "$ACTIVE_ROOT/harness.env" >"$ACTIVE_ROOT/init-reset.out" 2>"$ACTIVE_ROOT/init-reset.err"; then
 	printf 'Expected harness-init reset confirmation to succeed.\n' >&2
 	exit 1
 fi
-grep -q 'Previous state moved to' "$TEST_ROOT/init-reset.err"
-[[ -d "$TEST_ROOT/state/resets" ]]
-[[ ! -f "$TEST_ROOT/state/projects/testproj/control/manager.thread" ]]
-[[ ! -e "$TEST_ROOT/state/projects/testproj/archive/testproj-task-001.accepted.md" ]]
-[[ ! -e "$TEST_ROOT/state/projects/testproj/archive/testproj-task-002.accepted.md" ]]
+grep -q 'Previous state moved to' "$ACTIVE_ROOT/init-reset.err"
+[[ -d "$ACTIVE_ROOT/state/resets" ]]
+[[ ! -f "$ACTIVE_ROOT/state/projects/activeproj/control/supervisor.pid" ]]
+[[ ! -f "$ACTIVE_ROOT/state/projects/activeproj/control/worker-supervisor.pid" ]]
 
 printf 'All v4.2 harness tests passed.\n'

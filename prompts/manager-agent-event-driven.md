@@ -67,6 +67,13 @@ $HARNESS_BIN/manager-accept-task "$ENV_FILE" TASK_ID REVIEW_NOTE_FILE
 ```
 
 When more specification work remains, publish exactly one next task. Then terminate.
+When the accepted task finishes the project and no further specification work remains, emit the terminal completion signal instead:
+
+```text
+$HARNESS_BIN/manager-accept-task "$ENV_FILE" TASK_ID REVIEW_NOTE_FILE --complete-project
+```
+
+That marks the project complete and causes the Unix supervisors to exit automatically. Do not publish another task after that.
 
 ### Reject
 

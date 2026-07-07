@@ -492,6 +492,67 @@ initialize_project_state()
 	write_worker_snapshot
 }
 
+project_complete_file()
+{
+	printf '%s/control/project.complete' "$(project_dir)"
+}
+
+project_completion_recorded()
+{
+	[[ -f "$(project_complete_file)" ]]
+}
+
+mark_project_complete()
+{
+	local task_id="$1"
+	local note_file="${2:-}"
+	local file tmp
+	file="$(project_complete_file)"
+	tmp="$file.tmp.$$"
+	{
+		printf 'project=%s\n' "$PROJECT"
+		printf 'task_id=%s\n' "$task_id"
+		printf 'env_file=%s\n' "$HARNESS_ENV_FILE"
+		printf 'completed_at=%s\n' "$(timestamp_utc)"
+		if [[ -n "$note_file" ]]; then
+			printf 'note_file=%s\n' "$note_file"
+		fi
+	} > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$file"
+	log_event "PROJECT_COMPLETED task=$task_id file=$file"
+	trace_event PROJECT_COMPLETED "task_id=$task_id" "completion_file=$file" "note_file=${note_file:-}"
+}
+
+list_descendants_of_pid()
+{
+	local root_pid="$1"
+	ps -eo pid=,ppid= | awk -v root="$root_pid" '
+		{ children[$2] = children[$2] " " $1 }
+		function walk(pid,    n, ids, i) {
+			n = split(children[pid], ids, /[[:space:]]+/)
+			for (i = 1; i <= n; i++) {
+				if (ids[i] != "") {
+					print ids[i]
+					walk(ids[i])
+				}
+			}
+		}
+		END { walk(root) }
+	'
+}
+
+terminate_descendants_of_pid()
+{
+	local root_pid="$1"
+	local descendants
+	descendants="$(list_descendants_of_pid "$root_pid" | tr '\n' ' ' | xargs -r printf '%s ')"
+	[[ -n "$descendants" ]] || return 0
+	kill $descendants 2>/dev/null || true
+	sleep 0.2
+	kill -9 $descendants 2>/dev/null || true
+}
+
 write_project_snapshot()
 {
 	local config tmp
