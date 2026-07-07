@@ -12,17 +12,18 @@ usage()
 
 [[ $# -eq 1 ]] || usage
 load_harness_env "$1"
+acquire_env_command_lock harness-init
 require_manager_configuration
 
-umask 077
-mkdir -p "$HARNESS_ROOT"
-chmod 700 "$HARNESS_ROOT"
-mkdir -p "$(project_dir)"/{tasks,running,results,archive,control/sessions,logs}
-chmod 700 "$(project_dir)" "$(project_dir)"/{tasks,running,results,archive,control,control/sessions,logs}
+if [[ -d "$(project_dir)" ]] && env_has_running_processes; then
+	if confirm_reset_state "Harness processes are already active for $HARNESS_ENV_FILE."; then
+		reset_project_state
+	else
+		die "harness-init aborted because state is already active for $HARNESS_ENV_FILE"
+	fi
+fi
 
-write_project_snapshot
-write_manager_snapshot
-write_worker_snapshot
+initialize_project_state
 
 log_event "PROJECT_INITIALIZED repository=$REPOSITORY env_file=$HARNESS_ENV_FILE"
 printf 'Initialized project %s\n' "$PROJECT"

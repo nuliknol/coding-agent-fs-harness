@@ -198,4 +198,36 @@ printf '# Duplicate Result\n' > "$result"
 [[ -f "$stale_result_archive" ]]
 grep -q 'TASK_ACCEPTED_STALE_RESULT_ARCHIVED task=002' "$EVENTS"
 
+LOCK_PATH="$TEST_ROOT/state/control/env-locks/$(printf '%s' "$TEST_ROOT/harness.env" | sha256sum | awk '{print $1}').lock"
+sleep 2 &
+lock_pid=$!
+printf 'pid=%s\nstarted_at=%s\noperation=%s\nenv_file=%s\n' \
+	"$lock_pid" '1970-01-01T00:00:00Z' 'external-test-lock' "$TEST_ROOT/harness.env" > "$LOCK_PATH"
+sleep 0.2
+if "$HARNESS_BIN/harness-start" "$TEST_ROOT/harness.env" >"$TEST_ROOT/lock.out" 2>"$TEST_ROOT/lock.err"; then
+	printf 'Expected harness-start lock contention to fail.\n' >&2
+	exit 1
+fi
+grep -q 'harness-start is already running' "$TEST_ROOT/lock.err"
+wait "$lock_pid"
+rm -f "$LOCK_PATH"
+
+if printf 'n\n' | "$HARNESS_BIN/harness-start" "$TEST_ROOT/harness.env" >"$TEST_ROOT/start-reset.out" 2>"$TEST_ROOT/start-reset.err"; then
+	printf 'Expected harness-start to reject repeated invocation without reset confirmation.\n' >&2
+	exit 1
+fi
+grep -q 'Reset current state for' "$TEST_ROOT/start-reset.err"
+grep -q 'harness-start aborted because state is already active' "$TEST_ROOT/start-reset.err"
+[[ -f "$TEST_ROOT/state/projects/testproj/control/manager.thread" ]]
+
+if ! printf 'yes\n' | "$HARNESS_BIN/harness-init" "$TEST_ROOT/harness.env" >"$TEST_ROOT/init-reset.out" 2>"$TEST_ROOT/init-reset.err"; then
+	printf 'Expected harness-init reset confirmation to succeed.\n' >&2
+	exit 1
+fi
+grep -q 'Previous state moved to' "$TEST_ROOT/init-reset.err"
+[[ -d "$TEST_ROOT/state/resets" ]]
+[[ ! -f "$TEST_ROOT/state/projects/testproj/control/manager.thread" ]]
+[[ ! -e "$TEST_ROOT/state/projects/testproj/archive/testproj-task-001.accepted.md" ]]
+[[ ! -e "$TEST_ROOT/state/projects/testproj/archive/testproj-task-002.accepted.md" ]]
+
 printf 'All v4.2 harness tests passed.\n'

@@ -13,6 +13,11 @@ timestamp_utc()
 	date -u '+%Y-%m-%dT%H:%M:%SZ'
 }
 
+timestamp_compact_utc()
+{
+	date -u '+%Y%m%dT%H%M%SZ'
+}
+
 epoch_now()
 {
 	date '+%s'
@@ -354,6 +359,137 @@ kv_file_value()
 env_sha256()
 {
 	sha256sum "$HARNESS_ENV_FILE" | awk '{print $1}'
+}
+
+env_path_sha256()
+{
+	printf '%s' "$HARNESS_ENV_FILE" | sha256sum | awk '{print $1}'
+}
+
+env_command_lock_path()
+{
+	local dir
+	dir="$HARNESS_ROOT/control/env-locks"
+	mkdir -p "$dir"
+	chmod 700 "$HARNESS_ROOT" "$HARNESS_ROOT/control" "$dir" 2>/dev/null || true
+	printf '%s/%s.lock' "$dir" "$(env_path_sha256)"
+}
+
+acquire_env_command_lock()
+{
+	local operation="$1"
+	local lock_file lock_pid
+	lock_file="$(env_command_lock_path)"
+	while true; do
+		if ( set -o noclobber; printf 'pid=%s\nstarted_at=%s\noperation=%s\nenv_file=%s\n' \
+			"${BASHPID:-$$}" "$(timestamp_utc)" "$operation" "$HARNESS_ENV_FILE" > "$lock_file" ) 2>/dev/null; then
+			chmod 600 "$lock_file"
+			export HARNESS_ENV_COMMAND_LOCK_FILE="$lock_file"
+			trap 'release_env_command_lock' EXIT
+			return 0
+		fi
+
+		lock_pid="$(kv_file_value "$lock_file" pid 2>/dev/null || true)"
+		if [[ -n "$lock_pid" ]] && kill -0 "$lock_pid" 2>/dev/null; then
+			die "$operation is already running for ENV_FILE $HARNESS_ENV_FILE"
+		fi
+		rm -f "$lock_file"
+	done
+}
+
+release_env_command_lock()
+{
+	local lock_file lock_pid
+	lock_file="${HARNESS_ENV_COMMAND_LOCK_FILE:-}"
+	[[ -n "$lock_file" && -f "$lock_file" ]] || return 0
+	lock_pid="$(kv_file_value "$lock_file" pid 2>/dev/null || true)"
+	if [[ "$lock_pid" == "${BASHPID:-$$}" ]]; then
+		rm -f "$lock_file"
+	fi
+}
+
+env_process_lines()
+{
+	local ignore_pids pid ppid
+	ignore_pids=""
+	pid="${BASHPID:-$$}"
+	while [[ -n "$pid" && "$pid" =~ ^[0-9]+$ && "$pid" -gt 1 ]]; do
+		ignore_pids+="${ignore_pids:+,}$pid"
+		ppid="$(ps -o ppid= -p "$pid" | tr -d '[:space:]')"
+		[[ -n "$ppid" && "$ppid" != "$pid" ]] || break
+		pid="$ppid"
+	done
+
+	ps -eo pid=,comm=,args= | awk -v env="$HARNESS_ENV_FILE" -v bin="$HARNESS_BIN/" -v ignore="$ignore_pids" '
+		BEGIN {
+			split(ignore, list, ",")
+			for (i in list) {
+				if (list[i] != "") {
+					skip[list[i]] = 1
+				}
+			}
+		}
+		($2 == "bash" || $2 == "sh") && index($0, bin) && index($0, env) && !($1 in skip) { print }
+	'
+}
+
+env_has_running_processes()
+{
+	[[ -n "$(env_process_lines)" ]]
+}
+
+confirm_reset_state()
+{
+	local reason="$1"
+	local reply
+	printf '%s\n' "$reason" >&2
+	printf 'Reset current state for %s? [y/N] ' "$HARNESS_ENV_FILE" >&2
+	if ! IFS= read -r reply; then
+		die 'reset confirmation was not provided'
+	fi
+	[[ "$reply" =~ ^[Yy]([Ee][Ss])?$ ]]
+}
+
+reset_project_state()
+{
+	local dir backup_root backup_dir
+	dir="$(project_dir)"
+
+	if [[ -d "$dir" ]]; then
+		if [[ -f "$dir/control/worker-supervisor.pid" || -f "$dir/control/supervisor.pid" ]]; then
+			"$HARNESS_BIN/worker-supervisor-stop" "$HARNESS_ENV_FILE" >/dev/null 2>&1 || true
+			"$HARNESS_BIN/manager-supervisor-stop" "$HARNESS_ENV_FILE" >/dev/null 2>&1 || true
+		fi
+		sleep 0.2
+	fi
+
+	if env_has_running_processes; then
+		printf 'Active processes still reference %s:\n' "$HARNESS_ENV_FILE" >&2
+		env_process_lines >&2
+		die 'refusing to reset while environment-bound processes are still running'
+	fi
+
+	[[ -d "$dir" ]] || return 0
+
+	backup_root="$HARNESS_ROOT/resets"
+	backup_dir="$backup_root/${PROJECT}-$(timestamp_compact_utc)-$$"
+	mkdir -p "$backup_root"
+	chmod 700 "$backup_root"
+	mv "$dir" "$backup_dir"
+	printf 'Previous state moved to %s\n' "$backup_dir" >&2
+}
+
+initialize_project_state()
+{
+	umask 077
+	mkdir -p "$HARNESS_ROOT"
+	chmod 700 "$HARNESS_ROOT"
+	mkdir -p "$(project_dir)"/{tasks,running,results,archive,control/sessions,logs}
+	chmod 700 "$(project_dir)" "$(project_dir)"/{tasks,running,results,archive,control,control/sessions,logs}
+
+	write_project_snapshot
+	write_manager_snapshot
+	write_worker_snapshot
 }
 
 write_project_snapshot()

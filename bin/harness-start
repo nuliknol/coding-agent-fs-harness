@@ -12,8 +12,20 @@ usage()
 
 [[ $# -eq 1 ]] || usage
 load_harness_env "$1"
+acquire_env_command_lock harness-start
 ensure_project
 dir="$(project_dir)"
+
+if env_has_running_processes; then
+	if confirm_reset_state "Harness processes are already active for $HARNESS_ENV_FILE."; then
+		require_manager_configuration
+		reset_project_state
+		initialize_project_state
+		dir="$(project_dir)"
+	else
+		die "harness-start aborted because state is already active for $HARNESS_ENV_FILE"
+	fi
+fi
 
 # Bootstrap before starting the worker watcher so a newly published first task
 # cannot finish before the manager thread ID has been registered.

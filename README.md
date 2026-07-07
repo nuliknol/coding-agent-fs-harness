@@ -121,6 +121,8 @@ Start the complete system:
 /opt/coding-agent-fs-harness-v4.2/bin/harness-start /path/to/repository/harness.env
 ```
 
+`harness-init` and `harness-start` serialize on the environment file path. A second concurrent invocation against the same `ENV_FILE` is rejected instead of racing.
+
 `harness-start` performs these operations:
 
 1. If no manager thread exists, run one manager bootstrap turn.
@@ -145,6 +147,7 @@ Restart them and preserve existing state:
 ```
 
 If `manager.thread` already exists, bootstrap is not repeated.
+If a harness process for the same `ENV_FILE` is already active, `harness-init` and `harness-start` prompt for confirmation before resetting the existing project state. Confirming the reset stops the supervisors, archives the previous project state under `$HARNESS_ROOT/resets/`, and recreates a fresh project directory.
 
 ## State location
 
