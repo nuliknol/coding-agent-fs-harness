@@ -275,4 +275,28 @@ grep -q 'Previous state moved to' "$ACTIVE_ROOT/init-reset.err"
 [[ ! -f "$ACTIVE_ROOT/state/projects/activeproj/control/supervisor.pid" ]]
 [[ ! -f "$ACTIVE_ROOT/state/projects/activeproj/control/worker-supervisor.pid" ]]
 
+INACTIVE_ROOT="$TEST_ROOT/inactive"
+mkdir -p "$INACTIVE_ROOT/repo" "$INACTIVE_ROOT/manager-home" "$INACTIVE_ROOT/worker-home"
+printf 'test specification\n' > "$INACTIVE_ROOT/repo/spec.md"
+cat > "$INACTIVE_ROOT/harness.env" <<ENV
+export PROJECT="inactiveproj"
+export REPOSITORY="$INACTIVE_ROOT/repo"
+export SPECIFICATION="\$REPOSITORY/spec.md"
+export HARNESS_HOME="$HARNESS_HOME"
+export HARNESS_BIN="\$HARNESS_HOME/bin"
+export HARNESS_ROOT="$INACTIVE_ROOT/state"
+export MANAGER_CODEX_HOME="$INACTIVE_ROOT/manager-home"
+export MANAGER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export WORKER_CODEX_HOME="$INACTIVE_ROOT/worker-home"
+export WORKER_CODEX_BIN="$TEST_ROOT/mock-codex"
+ENV
+chmod 600 "$INACTIVE_ROOT/harness.env"
+"$HARNESS_BIN/harness-init" "$INACTIVE_ROOT/harness.env" >/dev/null
+if "$HARNESS_BIN/harness-init" "$INACTIVE_ROOT/harness.env" >"$INACTIVE_ROOT/reinit.out" 2>"$INACTIVE_ROOT/reinit.err"; then
+	printf 'Expected harness-init to refuse overwriting inactive state.\n' >&2
+	exit 1
+fi
+grep -q 'project state already exists at' "$INACTIVE_ROOT/reinit.err"
+grep -q 'rm -rf' "$INACTIVE_ROOT/reinit.err"
+
 printf 'All v4.2 harness tests passed.\n'

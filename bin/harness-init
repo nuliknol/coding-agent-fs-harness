@@ -15,11 +15,15 @@ load_harness_env "$1"
 acquire_env_command_lock harness-init
 require_manager_configuration
 
-if [[ -d "$(project_dir)" ]] && env_has_running_processes; then
-	if confirm_reset_state "Harness processes are already active for $HARNESS_ENV_FILE."; then
-		reset_project_state
+if [[ -d "$(project_dir)" ]]; then
+	if env_has_running_processes; then
+		if confirm_reset_state "Harness processes are already active for $HARNESS_ENV_FILE."; then
+			reset_project_state
+		else
+			die "harness-init aborted because state is already active for $HARNESS_ENV_FILE"
+		fi
 	else
-		die "harness-init aborted because state is already active for $HARNESS_ENV_FILE"
+		die "project state already exists at $(project_dir); if this is incorrect, delete it first with: rm -rf $(project_dir)"
 	fi
 fi
 

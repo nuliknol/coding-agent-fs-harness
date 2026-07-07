@@ -38,6 +38,7 @@ The interactive Codex TUI is not used for automated workers. A fresh non-interac
 
 ## Watch the agents working
 
+```text
 `harness-watch-agents refactoring-whatever.env`
 
 [MANAGER task=039-phase8-gpu-proof-device-buffer-descriptor]
@@ -52,6 +53,7 @@ The status note limits the scope correctly. I’m reading the descriptor builder
 [MANAGER task=039-phase8-gpu-proof-device-buffer-descriptor]
 The descriptor builder reuses the private plan validator, so it inherits the fixed 16-byte alignment and region-order checks before constructing descriptors. I’m verifying the validation helper and then running the required validation.
 
+```
 
 
 ## Requirements
