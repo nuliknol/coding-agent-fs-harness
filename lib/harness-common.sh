@@ -78,8 +78,11 @@ load_harness_env()
 	unset HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
 	unset HARNESS_MANAGER_INVOKER HARNESS_WORKER_INVOKER
 	unset CODEX_BIN CODEX_HOME
+	unset CODEX_EXTRA_ARGS
 	unset MANAGER_CODEX_BIN MANAGER_CODEX_HOME MANAGER_MODEL MANAGER_REASONING_EFFORT MANAGER_SANDBOX
+	unset MANAGER_CODEX_EXTRA_ARGS
 	unset WORKER_CODEX_BIN WORKER_CODEX_HOME WORKER_MODEL WORKER_REASONING_EFFORT WORKER_SANDBOX
+	unset WORKER_CODEX_EXTRA_ARGS
 	unset WORKER_HEARTBEAT_SECONDS
 
 	# The environment file is trusted Bash input.
@@ -137,6 +140,21 @@ load_harness_env()
 		HARNESS_WORKER_INVOKER="$(resolve_command_path "$HARNESS_WORKER_INVOKER")"
 	fi
 
+	local -a shared_codex_extra_args manager_codex_extra_args worker_codex_extra_args
+	shared_codex_extra_args=()
+	manager_codex_extra_args=()
+	worker_codex_extra_args=()
+	load_codex_extra_args shared_codex_extra_args CODEX_EXTRA_ARGS
+	load_codex_extra_args manager_codex_extra_args MANAGER_CODEX_EXTRA_ARGS
+	load_codex_extra_args worker_codex_extra_args WORKER_CODEX_EXTRA_ARGS
+	MANAGER_CODEX_EXTRA_ARGS=("${shared_codex_extra_args[@]}" "${manager_codex_extra_args[@]}")
+	WORKER_CODEX_EXTRA_ARGS=("${shared_codex_extra_args[@]}" "${worker_codex_extra_args[@]}")
+	if (( ${#shared_codex_extra_args[@]} > 0 )); then
+		CODEX_EXTRA_ARGS=("${shared_codex_extra_args[@]}")
+	else
+		unset CODEX_EXTRA_ARGS
+	fi
+
 	validate_project "$PROJECT"
 	[[ "$HARNESS_POLL_SECONDS" =~ ^[0-9]+([.][0-9]+)?$ ]] || die 'HARNESS_POLL_SECONDS must be numeric'
 	[[ "$HARNESS_WAIT_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_WAIT_SECONDS must be an integer'
@@ -169,6 +187,25 @@ load_harness_env()
 	export MANAGER_CODEX_BIN MANAGER_CODEX_HOME MANAGER_MODEL MANAGER_REASONING_EFFORT MANAGER_SANDBOX
 	export WORKER_CODEX_BIN WORKER_CODEX_HOME WORKER_MODEL WORKER_REASONING_EFFORT WORKER_SANDBOX
 	export HARNESS_MANAGER_INVOKER HARNESS_WORKER_INVOKER
+}
+
+load_codex_extra_args()
+{
+	local dest_name="$1"
+	local source_name="$2"
+	local decl
+	declare -p "$source_name" >/dev/null 2>&1 || return 0
+	decl="$(declare -p "$source_name")"
+	case "$decl" in
+		"declare -a "*|"declare -ax "*)
+			local -n dest_ref="$dest_name"
+			local -n source_ref="$source_name"
+			dest_ref=("${source_ref[@]}")
+			;;
+		*)
+			die "$source_name must be a Bash array, for example: $source_name=(--config key=value)"
+			;;
+	esac
 }
 
 require_repository()

@@ -9,11 +9,14 @@ trap '"$HARNESS_BIN/harness-stop" "$TEST_ROOT/harness.env" >/dev/null 2>&1 || tr
 
 mkdir -p "$TEST_ROOT/repo" "$TEST_ROOT/manager-home" "$TEST_ROOT/worker-home"
 printf 'test specification\n' > "$TEST_ROOT/repo/spec.md"
+ARGS_LOG="$TEST_ROOT/mock-codex-args.log"
+export ARGS_LOG
 
 cat > "$TEST_ROOT/mock-codex" <<'MOCK'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 prompt="$(cat)"
+printf '%s\n' "$*" >> "$ARGS_LOG"
 last_message_file=""
 capture_next=0
 for arg in "$@"; do
@@ -122,11 +125,20 @@ export HARNESS_BIN="\$HARNESS_HOME/bin"
 export HARNESS_ROOT="$TEST_ROOT/state"
 export MANAGER_CODEX_HOME="$TEST_ROOT/manager-home"
 export MANAGER_CODEX_BIN="$TEST_ROOT/mock-codex"
+CODEX_EXTRA_ARGS=(
+  --config model_context_window=272000
+)
+MANAGER_CODEX_EXTRA_ARGS=(
+  --config model_auto_compact_token_limit=240000
+)
 export MANAGER_MODEL="gpt-5.5"
 export MANAGER_REASONING_EFFORT="high"
 export MANAGER_SANDBOX="danger-full-access"
 export WORKER_CODEX_HOME="$TEST_ROOT/worker-home"
 export WORKER_CODEX_BIN="$TEST_ROOT/mock-codex"
+WORKER_CODEX_EXTRA_ARGS=(
+  --config model_auto_compact_token_limit=240000
+)
 export WORKER_MODEL="gpt-5.4-mini"
 export WORKER_REASONING_EFFORT="high"
 export WORKER_SANDBOX="danger-full-access"
@@ -180,6 +192,8 @@ grep -q 'event=CODEX_EXEC_END' "$TRACE"
 grep -q 'event=TASK_COMPLETED' "$TRACE"
 grep -q 'event=TASK_ACCEPTED' "$TRACE"
 grep -q 'event=PROJECT_COMPLETED' "$TRACE"
+grep -q -- '--config model_context_window=272000' "$ARGS_LOG"
+grep -q -- '--config model_auto_compact_token_limit=240000' "$ARGS_LOG"
 [[ -f "$TEST_ROOT/state/projects/testproj/archive/testproj-task-001.assignment.md" ]]
 [[ -f "$TEST_ROOT/state/projects/testproj/archive/testproj-task-002.assignment.md" ]]
 [[ ! -e "$TEST_ROOT/state/projects/testproj/control/testproj-task-001.lease" ]]

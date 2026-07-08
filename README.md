@@ -54,7 +54,34 @@ The status note limits the scope correctly. I’m reading the descriptor builder
 The descriptor builder reuses the private plan validator, so it inherits the fixed 16-byte alignment and region-order checks before constructing descriptors. I’m verifying the validation helper and then running the required validation.
 
 ```
+## Codex CLI extra args
 
+The harness can append extra `codex exec` flags from your trusted `.env` file.
+
+Use Bash arrays so each argument stays correctly quoted:
+
+```bash
+MANAGER_CODEX_EXTRA_ARGS=(
+  --config model_context_window=272000
+  --config model_auto_compact_token_limit=240000
+)
+
+WORKER_CODEX_EXTRA_ARGS=(
+  --config model_context_window=272000
+  --config model_auto_compact_token_limit=240000
+)
+```
+
+If you want the same flags for both roles, you can also define one shared array:
+
+```bash
+CODEX_EXTRA_ARGS=(
+  --config model_context_window=272000
+  --config model_auto_compact_token_limit=240000
+)
+```
+
+Role-specific arrays are appended after `CODEX_EXTRA_ARGS`, so they can add more flags when needed.
 
 ## Requirements
 
@@ -80,12 +107,20 @@ export HARNESS_ROOT="$HOME/.local/state/coding-harness"
 
 export MANAGER_CODEX_HOME="$HOME/.codex/manager-account"
 export MANAGER_CODEX_BIN="$HOME/.local/bin/codex"
+MANAGER_CODEX_EXTRA_ARGS=(
+  --config model_context_window=272000
+  --config model_auto_compact_token_limit=240000
+)
 export MANAGER_MODEL="gpt-5.5"
 export MANAGER_REASONING_EFFORT="high"
 export MANAGER_SANDBOX="danger-full-access"
 
 export WORKER_CODEX_HOME="$HOME/.codex/worker-account"
 export WORKER_CODEX_BIN="$HOME/.local/bin/codex"
+WORKER_CODEX_EXTRA_ARGS=(
+  --config model_context_window=272000
+  --config model_auto_compact_token_limit=240000
+)
 export WORKER_MODEL="gpt-5.4-mini"
 export WORKER_REASONING_EFFORT="high"
 export WORKER_SANDBOX="danger-full-access"

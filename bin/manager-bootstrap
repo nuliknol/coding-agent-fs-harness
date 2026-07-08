@@ -69,10 +69,10 @@ while true; do
 	set +e
 	if [[ -n "$resume_thread_id" ]]; then
 		trace_event CODEX_EXEC_START "role=manager_bootstrap" "attempt=$attempt" "mode=resume" "thread_id=$resume_thread_id" "json_log=$json_log" "last_message=$attempt_last_message" "model=$MANAGER_MODEL"
-		env CODEX_HOME="$MANAGER_CODEX_HOME" "$MANAGER_CODEX_BIN" exec --json --model "$MANAGER_MODEL" --sandbox "$MANAGER_SANDBOX" --add-dir "$HARNESS_ROOT" --cd "$REPOSITORY" -c "model_reasoning_effort=\"$MANAGER_REASONING_EFFORT\"" --output-last-message "$attempt_last_message" resume "$resume_thread_id" - < "$prompt_file" | tee "$json_log"
+		env CODEX_HOME="$MANAGER_CODEX_HOME" "$MANAGER_CODEX_BIN" exec --json --model "$MANAGER_MODEL" --sandbox "$MANAGER_SANDBOX" --add-dir "$HARNESS_ROOT" --cd "$REPOSITORY" "${MANAGER_CODEX_EXTRA_ARGS[@]}" -c "model_reasoning_effort=\"$MANAGER_REASONING_EFFORT\"" --output-last-message "$attempt_last_message" resume "$resume_thread_id" - < "$prompt_file" | tee "$json_log"
 	else
 		trace_event CODEX_EXEC_START "role=manager_bootstrap" "attempt=$attempt" "mode=new" "json_log=$json_log" "last_message=$attempt_last_message" "model=$MANAGER_MODEL"
-		env CODEX_HOME="$MANAGER_CODEX_HOME" "$MANAGER_CODEX_BIN" exec --json --model "$MANAGER_MODEL" --sandbox "$MANAGER_SANDBOX" --add-dir "$HARNESS_ROOT" --cd "$REPOSITORY" -c "model_reasoning_effort=\"$MANAGER_REASONING_EFFORT\"" --output-last-message "$attempt_last_message" - < "$prompt_file" | tee "$json_log"
+		env CODEX_HOME="$MANAGER_CODEX_HOME" "$MANAGER_CODEX_BIN" exec --json --model "$MANAGER_MODEL" --sandbox "$MANAGER_SANDBOX" --add-dir "$HARNESS_ROOT" --cd "$REPOSITORY" "${MANAGER_CODEX_EXTRA_ARGS[@]}" -c "model_reasoning_effort=\"$MANAGER_REASONING_EFFORT\"" --output-last-message "$attempt_last_message" - < "$prompt_file" | tee "$json_log"
 	fi
 	status=${PIPESTATUS[0]}
 	set -e

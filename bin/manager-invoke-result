@@ -77,7 +77,7 @@ while true; do
 	trace_event MANAGER_REVIEW_ATTEMPT "task_id=$task_id" "attempt=$attempt" "thread_id=$thread_id" "json_log=$json_log" "last_message=$last_message"
 	set +e
 	trace_event CODEX_EXEC_START "role=manager_review" "task_id=$task_id" "attempt=$attempt" "thread_id=$thread_id" "json_log=$json_log" "last_message=$last_message" "model=$MANAGER_MODEL"
-	env CODEX_HOME="$MANAGER_CODEX_HOME" "$MANAGER_CODEX_BIN" exec --json --model "$MANAGER_MODEL" --sandbox "$MANAGER_SANDBOX" --add-dir "$HARNESS_ROOT" --cd "$REPOSITORY" -c "model_reasoning_effort=\"$MANAGER_REASONING_EFFORT\"" --output-last-message "$last_message" resume "$thread_id" - < "$prompt_file" | tee "$json_log"
+	env CODEX_HOME="$MANAGER_CODEX_HOME" "$MANAGER_CODEX_BIN" exec --json --model "$MANAGER_MODEL" --sandbox "$MANAGER_SANDBOX" --add-dir "$HARNESS_ROOT" --cd "$REPOSITORY" "${MANAGER_CODEX_EXTRA_ARGS[@]}" -c "model_reasoning_effort=\"$MANAGER_REASONING_EFFORT\"" --output-last-message "$last_message" resume "$thread_id" - < "$prompt_file" | tee "$json_log"
 	status=${PIPESTATUS[0]}
 	set -e
 	trace_event CODEX_EXEC_END "role=manager_review" "task_id=$task_id" "attempt=$attempt" "status=$status" "json_log=$json_log" "last_message=$last_message"
