@@ -41,12 +41,13 @@ Read $HARNESS_HOME/prompts/worker-agent-event-driven.md and follow it.
 HARNESS_BIN=$HARNESS_BIN
 ENV_FILE=$HARNESS_ENV_FILE
 PROJECT=$PROJECT
+PROJECT_TMP_DIR=$PROJECT_TMP_DIR
 REPOSITORY=$REPOSITORY
 TASK_ID=$task_id
 TASK_FILE=$task_file
 SESSION=$session
 
-The task is already claimed by this launcher. Read TASK_FILE completely, implement exactly that assignment, validate it, publish the result with worker-complete-task, and terminate. Do not wait for another task. Do not create, stage, or commit Git changes.
+The task is already claimed by this launcher. Read TASK_FILE completely, implement exactly that assignment, validate it, write any scratch files and the result report under PROJECT_TMP_DIR, publish the result with worker-complete-task, and terminate. Do not wait for another task. Do not create, stage, or commit Git changes.
 PROMPT
 chmod 600 "$prompt_file.tmp.$$"
 mv "$prompt_file.tmp.$$" "$prompt_file"
@@ -141,7 +142,7 @@ while true; do
 	trace_event WORKER_INVOCATION_ATTEMPT "task_id=$task_id" "session=$session" "attempt=$attempt" "json_log=$json_log" "last_message=$last_message"
 	set +e
 	trace_event CODEX_EXEC_START "role=worker" "task_id=$task_id" "session=$session" "attempt=$attempt" "json_log=$json_log" "last_message=$last_message" "model=$WORKER_MODEL"
-	env CODEX_HOME="$WORKER_CODEX_HOME" "$WORKER_CODEX_BIN" exec --json --model "$WORKER_MODEL" --sandbox "$WORKER_SANDBOX" --add-dir "$HARNESS_ROOT" --cd "$REPOSITORY" "${WORKER_CODEX_EXTRA_ARGS[@]}" -c "model_reasoning_effort=\"$WORKER_REASONING_EFFORT\"" --output-last-message "$last_message" - < "$prompt_file" | tee "$json_log"
+	env CODEX_HOME="$WORKER_CODEX_HOME" "$WORKER_CODEX_BIN" exec --json --model "$WORKER_MODEL" --sandbox "$WORKER_SANDBOX" --add-dir "$HARNESS_ROOT" --add-dir "$PROJECT_TMP_DIR" --cd "$REPOSITORY" "${WORKER_CODEX_EXTRA_ARGS[@]}" -c "model_reasoning_effort=\"$WORKER_REASONING_EFFORT\"" --output-last-message "$last_message" - < "$prompt_file" | tee "$json_log"
 	status=${PIPESTATUS[0]}
 	set -e
 	trace_event CODEX_EXEC_END "role=worker" "task_id=$task_id" "session=$session" "attempt=$attempt" "status=$status" "json_log=$json_log" "last_message=$last_message"

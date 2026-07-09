@@ -36,6 +36,7 @@ A separate local worker supervisor watches `tasks/` and launches a fresh non-int
 - `HARNESS_BIN`: absolute harness binary directory.
 - `ENV_FILE`: trusted project environment file.
 - `PROJECT`: project name.
+- `PROJECT_TMP_DIR`: dedicated scratch directory for this project at `/tmp/$PROJECT`.
 - `REPOSITORY`: source repository.
 - `TASK_ID`: exact task identifier.
 - `TASK_FILE`: claimed assignment file.
@@ -52,3 +53,5 @@ Include:
 - Modified files.
 - Validation commands and outcomes.
 - Known limitations or unresolved concerns.
+
+Write the result report in `PROJECT_TMP_DIR`, then publish it with `worker-complete-task`.

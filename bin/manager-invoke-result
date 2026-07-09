@@ -45,13 +45,14 @@ A worker result is ready for review.
 
 ENV_FILE=$HARNESS_ENV_FILE
 PROJECT=$PROJECT
+PROJECT_TMP_DIR=$PROJECT_TMP_DIR
 TASK_ID=$task_id
 RESULT_FILE=$result
 SPECIFICATION=$SPECIFICATION
 REPOSITORY=$REPOSITORY
 HARNESS_BIN=$HARNESS_BIN
 
-Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and follow it. Review this result and the actual repository now. Every harness command must receive ENV_FILE as its first argument. Accept the task or reject it and publish one bounded revision/next task as appropriate. Then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or call manager-wait-result.
+Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and follow it. Review this result and the actual repository now. Write any review note and any next or revision task file under PROJECT_TMP_DIR. Every harness command must receive ENV_FILE as its first argument. Accept the task or reject it and publish one bounded revision/next task as appropriate. Then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or call manager-wait-result.
 PROMPT
 chmod 600 "$prompt_file.tmp.$$"
 mv "$prompt_file.tmp.$$" "$prompt_file"
@@ -77,7 +78,7 @@ while true; do
 	trace_event MANAGER_REVIEW_ATTEMPT "task_id=$task_id" "attempt=$attempt" "thread_id=$thread_id" "json_log=$json_log" "last_message=$last_message"
 	set +e
 	trace_event CODEX_EXEC_START "role=manager_review" "task_id=$task_id" "attempt=$attempt" "thread_id=$thread_id" "json_log=$json_log" "last_message=$last_message" "model=$MANAGER_MODEL"
-	env CODEX_HOME="$MANAGER_CODEX_HOME" "$MANAGER_CODEX_BIN" exec --json --model "$MANAGER_MODEL" --sandbox "$MANAGER_SANDBOX" --add-dir "$HARNESS_ROOT" --cd "$REPOSITORY" "${MANAGER_CODEX_EXTRA_ARGS[@]}" -c "model_reasoning_effort=\"$MANAGER_REASONING_EFFORT\"" --output-last-message "$last_message" resume "$thread_id" - < "$prompt_file" | tee "$json_log"
+	env CODEX_HOME="$MANAGER_CODEX_HOME" "$MANAGER_CODEX_BIN" exec --json --model "$MANAGER_MODEL" --sandbox "$MANAGER_SANDBOX" --add-dir "$HARNESS_ROOT" --add-dir "$PROJECT_TMP_DIR" --cd "$REPOSITORY" "${MANAGER_CODEX_EXTRA_ARGS[@]}" -c "model_reasoning_effort=\"$MANAGER_REASONING_EFFORT\"" --output-last-message "$last_message" resume "$thread_id" - < "$prompt_file" | tee "$json_log"
 	status=${PIPESTATUS[0]}
 	set -e
 	trace_event CODEX_EXEC_END "role=manager_review" "task_id=$task_id" "attempt=$attempt" "status=$status" "json_log=$json_log" "last_message=$last_message"

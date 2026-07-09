@@ -33,6 +33,7 @@ log_event "PROJECT_INITIALIZED repository=$REPOSITORY env_file=$HARNESS_ENV_FILE
 printf 'Initialized project %s\n' "$PROJECT"
 printf 'Environment file: %s\n' "$HARNESS_ENV_FILE"
 printf 'Harness root: %s\n' "$HARNESS_ROOT"
+printf 'Project tmp dir: %s\n' "$PROJECT_TMP_DIR"
 printf 'Repository: %s\n' "$REPOSITORY"
 printf 'Specification: %s\n' "$SPECIFICATION"
 printf 'Manager model: %s (%s)\n' "$MANAGER_MODEL" "$MANAGER_REASONING_EFFORT"

@@ -154,6 +154,7 @@ chmod 600 "$TEST_ROOT/harness.env"
 
 "$HARNESS_BIN/harness-check-env" "$TEST_ROOT/harness.env" >/dev/null
 "$HARNESS_BIN/harness-init" "$TEST_ROOT/harness.env" >/dev/null
+[[ -d "/tmp/testproj" ]]
 "$HARNESS_BIN/harness-start" "$TEST_ROOT/harness.env" >/dev/null
 
 for _ in $(seq 1 300); do
@@ -194,6 +195,7 @@ grep -q 'event=TASK_ACCEPTED' "$TRACE"
 grep -q 'event=PROJECT_COMPLETED' "$TRACE"
 grep -q -- '--config model_context_window=272000' "$ARGS_LOG"
 grep -q -- '--config model_auto_compact_token_limit=240000' "$ARGS_LOG"
+grep -q -- '--add-dir /tmp/testproj' "$ARGS_LOG"
 [[ -f "$TEST_ROOT/state/projects/testproj/archive/testproj-task-001.assignment.md" ]]
 [[ -f "$TEST_ROOT/state/projects/testproj/archive/testproj-task-002.assignment.md" ]]
 [[ ! -e "$TEST_ROOT/state/projects/testproj/control/testproj-task-001.lease" ]]
@@ -255,6 +257,7 @@ export WORKER_HEARTBEAT_SECONDS="1"
 ENV
 chmod 600 "$ACTIVE_ROOT/harness.env"
 "$HARNESS_BIN/harness-init" "$ACTIVE_ROOT/harness.env" >/dev/null
+[[ -d "/tmp/activeproj" ]]
 "$HARNESS_BIN/harness-supervisor-start" "$ACTIVE_ROOT/harness.env" >/dev/null
 "$HARNESS_BIN/worker-supervisor-start" "$ACTIVE_ROOT/harness.env" >/dev/null
 
@@ -306,6 +309,7 @@ export WORKER_CODEX_BIN="$TEST_ROOT/mock-codex"
 ENV
 chmod 600 "$INACTIVE_ROOT/harness.env"
 "$HARNESS_BIN/harness-init" "$INACTIVE_ROOT/harness.env" >/dev/null
+[[ -d "/tmp/inactiveproj" ]]
 if "$HARNESS_BIN/harness-init" "$INACTIVE_ROOT/harness.env" >"$INACTIVE_ROOT/reinit.out" 2>"$INACTIVE_ROOT/reinit.err"; then
 	printf 'Expected harness-init to refuse overwriting inactive state.\n' >&2
 	exit 1

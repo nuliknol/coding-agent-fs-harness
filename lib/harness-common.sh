@@ -73,7 +73,7 @@ load_harness_env()
 	(( owner == UID || owner == 0 )) || die "environment file must be owned by UID $UID or root: $canonical_file"
 	(( (mode & 8#022) == 0 )) || die "environment file must not be group/world writable: $canonical_file"
 
-	unset PROJECT REPOSITORY SPECIFICATION HARNESS_HOME HARNESS_BIN HARNESS_ROOT
+	unset PROJECT REPOSITORY SPECIFICATION HARNESS_HOME HARNESS_BIN HARNESS_ROOT PROJECT_TMP_DIR
 	unset HARNESS_POLL_SECONDS HARNESS_WAIT_SECONDS HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY
 	unset HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
 	unset HARNESS_MANAGER_INVOKER HARNESS_WORKER_INVOKER
@@ -101,6 +101,7 @@ load_harness_env()
 	HARNESS_ROOT="${HARNESS_ROOT:-${XDG_RUNTIME_DIR:-/tmp}/coding-harness-${UID}}"
 	HARNESS_ROOT="$(resolve_from_env_dir "$HARNESS_ROOT")"
 	REPOSITORY="$(resolve_from_env_dir "$REPOSITORY")"
+	PROJECT_TMP_DIR="/tmp/$PROJECT"
 
 	SPECIFICATION="${SPECIFICATION:-}"
 	if [[ -n "$SPECIFICATION" ]]; then
@@ -180,7 +181,7 @@ load_harness_env()
 	invoked_bin="$(realpath -m "$(dirname "${BASH_SOURCE[1]}")")"
 	[[ "$invoked_bin" == "$HARNESS_BIN" ]] || die "this command was launched from $invoked_bin but ENV_FILE selects HARNESS_BIN=$HARNESS_BIN"
 
-	export HARNESS_ENV_FILE HARNESS_ENV_DIR PROJECT REPOSITORY SPECIFICATION
+	export HARNESS_ENV_FILE HARNESS_ENV_DIR PROJECT REPOSITORY SPECIFICATION PROJECT_TMP_DIR
 	export HARNESS_HOME HARNESS_BIN HARNESS_ROOT HARNESS_POLL_SECONDS HARNESS_WAIT_SECONDS
 	export HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
 	export WORKER_HEARTBEAT_SECONDS
@@ -261,6 +262,11 @@ validate_session()
 project_dir()
 {
 	printf '%s/projects/%s' "$HARNESS_ROOT" "$PROJECT"
+}
+
+project_tmp_dir()
+{
+	printf '%s\n' "$PROJECT_TMP_DIR"
 }
 
 ensure_project()
@@ -521,6 +527,8 @@ initialize_project_state()
 	umask 077
 	mkdir -p "$HARNESS_ROOT"
 	chmod 700 "$HARNESS_ROOT"
+	mkdir -p "$(project_tmp_dir)"
+	chmod 700 "$(project_tmp_dir)"
 	mkdir -p "$(project_dir)"/{tasks,running,results,archive,control/sessions,logs}
 	chmod 700 "$(project_dir)" "$(project_dir)"/{tasks,running,results,archive,control,control/sessions,logs}
 
@@ -600,6 +608,7 @@ write_project_snapshot()
 		printf 'repository=%s\n' "$REPOSITORY"
 		printf 'harness_home=%s\n' "$HARNESS_HOME"
 		printf 'harness_bin=%s\n' "$HARNESS_BIN"
+		printf 'project_tmp_dir=%s\n' "$(project_tmp_dir)"
 		printf 'env_file=%s\n' "$HARNESS_ENV_FILE"
 		printf 'env_sha256=%s\n' "$(env_sha256)"
 		printf 'updated_at=%s\n' "$(timestamp_utc)"

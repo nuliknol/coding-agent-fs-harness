@@ -31,6 +31,7 @@ A separate non-LLM Unix supervisor watches the filesystem. It resumes your Codex
 - `HARNESS_BIN`: absolute path to the harness `bin` directory.
 - `ENV_FILE`: absolute path to the trusted project environment file.
 - `PROJECT`: project name loaded from `ENV_FILE`.
+- `PROJECT_TMP_DIR`: dedicated scratch directory for this project at `/tmp/$PROJECT`.
 - `SPECIFICATION`: absolute path to the master specification.
 - `REPOSITORY`: absolute path to the project repository.
 - For review turns: `TASK_ID` and `RESULT_FILE`.
@@ -41,7 +42,7 @@ Every harness command must receive `ENV_FILE` as its first argument. Do not repl
 
 1. Read the specification and inspect current code.
 2. Select exactly one bounded initial task.
-3. Write a complete assignment using the task template.
+3. Write a complete assignment in `PROJECT_TMP_DIR` using the task template.
 4. Publish it with:
 
 ```text
@@ -84,6 +85,8 @@ $HARNESS_BIN/manager-reject-task "$ENV_FILE" TASK_ID REVIEW_NOTE_FILE
 ```
 
 Then publish exactly one bounded revision task with a new ID, such as `001-revision-01`. Terminate.
+
+Write review notes and any next or revision task files in `PROJECT_TMP_DIR`.
 
 ## Recovery behavior
 

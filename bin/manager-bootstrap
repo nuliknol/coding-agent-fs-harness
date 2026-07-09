@@ -29,10 +29,11 @@ Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and follow it.
 HARNESS_BIN=$HARNESS_BIN
 ENV_FILE=$HARNESS_ENV_FILE
 PROJECT=$PROJECT
+PROJECT_TMP_DIR=$PROJECT_TMP_DIR
 SPECIFICATION=$SPECIFICATION
 REPOSITORY=$REPOSITORY
 
-This is the bootstrap turn. Inspect the specification and repository, publish exactly one bounded initial task, and then terminate. Every harness command must receive ENV_FILE as its first argument. Do not wait for the worker and do not run any polling command.
+This is the bootstrap turn. Inspect the specification and repository, write the assignment file under PROJECT_TMP_DIR, publish exactly one bounded initial task, and then terminate. Every harness command must receive ENV_FILE as its first argument. Do not wait for the worker and do not run any polling command.
 PROMPT
 chmod 600 "$prompt_file.tmp.$$"
 mv "$prompt_file.tmp.$$" "$prompt_file"
@@ -69,10 +70,10 @@ while true; do
 	set +e
 	if [[ -n "$resume_thread_id" ]]; then
 		trace_event CODEX_EXEC_START "role=manager_bootstrap" "attempt=$attempt" "mode=resume" "thread_id=$resume_thread_id" "json_log=$json_log" "last_message=$attempt_last_message" "model=$MANAGER_MODEL"
-		env CODEX_HOME="$MANAGER_CODEX_HOME" "$MANAGER_CODEX_BIN" exec --json --model "$MANAGER_MODEL" --sandbox "$MANAGER_SANDBOX" --add-dir "$HARNESS_ROOT" --cd "$REPOSITORY" "${MANAGER_CODEX_EXTRA_ARGS[@]}" -c "model_reasoning_effort=\"$MANAGER_REASONING_EFFORT\"" --output-last-message "$attempt_last_message" resume "$resume_thread_id" - < "$prompt_file" | tee "$json_log"
+		env CODEX_HOME="$MANAGER_CODEX_HOME" "$MANAGER_CODEX_BIN" exec --json --model "$MANAGER_MODEL" --sandbox "$MANAGER_SANDBOX" --add-dir "$HARNESS_ROOT" --add-dir "$PROJECT_TMP_DIR" --cd "$REPOSITORY" "${MANAGER_CODEX_EXTRA_ARGS[@]}" -c "model_reasoning_effort=\"$MANAGER_REASONING_EFFORT\"" --output-last-message "$attempt_last_message" resume "$resume_thread_id" - < "$prompt_file" | tee "$json_log"
 	else
 		trace_event CODEX_EXEC_START "role=manager_bootstrap" "attempt=$attempt" "mode=new" "json_log=$json_log" "last_message=$attempt_last_message" "model=$MANAGER_MODEL"
-		env CODEX_HOME="$MANAGER_CODEX_HOME" "$MANAGER_CODEX_BIN" exec --json --model "$MANAGER_MODEL" --sandbox "$MANAGER_SANDBOX" --add-dir "$HARNESS_ROOT" --cd "$REPOSITORY" "${MANAGER_CODEX_EXTRA_ARGS[@]}" -c "model_reasoning_effort=\"$MANAGER_REASONING_EFFORT\"" --output-last-message "$attempt_last_message" - < "$prompt_file" | tee "$json_log"
+		env CODEX_HOME="$MANAGER_CODEX_HOME" "$MANAGER_CODEX_BIN" exec --json --model "$MANAGER_MODEL" --sandbox "$MANAGER_SANDBOX" --add-dir "$HARNESS_ROOT" --add-dir "$PROJECT_TMP_DIR" --cd "$REPOSITORY" "${MANAGER_CODEX_EXTRA_ARGS[@]}" -c "model_reasoning_effort=\"$MANAGER_REASONING_EFFORT\"" --output-last-message "$attempt_last_message" - < "$prompt_file" | tee "$json_log"
 	fi
 	status=${PIPESTATUS[0]}
 	set -e

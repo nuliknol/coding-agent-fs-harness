@@ -8,6 +8,7 @@ A local, event-driven two-agent coding harness for Linux.
 - No model remains alive while waiting.
 - Git commits remain manual.
 - One trusted `.env` file configures the complete project, harness installation, state directory, accounts, models, and timing.
+- Manager and worker scratch task/result markdown lives under `/tmp/$PROJECT`.
 
 ## Process model
 
@@ -134,6 +135,8 @@ export WORKER_HEARTBEAT_SECONDS="60"
 
 The manager and worker may use the same `CODEX_HOME`, but separate account directories make account selection explicit.
 
+The harness also reserves `/tmp/$PROJECT` as a dedicated scratch directory for manager task files, worker result reports, and manager review notes before those files are published through harness commands.
+
 Protect the file:
 
 ```bash
@@ -199,6 +202,12 @@ For the example configuration, it is:
 
 ```text
 $HOME/.local/state/coding-harness/projects/sample-project
+```
+
+The separate scratch directory for task and result markdown is:
+
+```text
+/tmp/sample-project
 ```
 
 Print the source repository path separately:
