@@ -91,7 +91,7 @@ Role-specific arrays are appended after `CODEX_EXTRA_ARGS`, so they can add more
 - `flock`, `realpath`, `sha256sum`, `stat`
 - Codex CLI
 - Optional: `inotifywait` from `inotify-tools`
-- Optional: `jq` for easier JSONL inspection
+- `jq` (required to validate and classify Codex JSON Lines)
 
 ## Project environment file
 
@@ -113,8 +113,9 @@ MANAGER_CODEX_EXTRA_ARGS=(
   --config model_auto_compact_token_limit=240000
 )
 export MANAGER_MODEL="gpt-5.5"
+export MANAGER_FALLBACK_MODEL="gpt-5.5"
 export MANAGER_REASONING_EFFORT="high"
-export MANAGER_SANDBOX="danger-full-access"
+export MANAGER_SANDBOX="workspace-write"
 
 export WORKER_CODEX_HOME="$HOME/.codex/worker-account"
 export WORKER_CODEX_BIN="$HOME/.local/bin/codex"
@@ -123,14 +124,18 @@ WORKER_CODEX_EXTRA_ARGS=(
   --config model_auto_compact_token_limit=240000
 )
 export WORKER_MODEL="gpt-5.4-mini"
+export WORKER_FALLBACK_MODEL="gpt-5.4-mini"
 export WORKER_REASONING_EFFORT="high"
-export WORKER_SANDBOX="danger-full-access"
+export WORKER_SANDBOX="workspace-write"
 
 export HARNESS_POLL_SECONDS="2"
 export HARNESS_WAIT_SECONDS="300"
 export HARNESS_STALE_SECONDS="900"
 export HARNESS_USE_INOTIFY="1"
 export WORKER_HEARTBEAT_SECONDS="60"
+export HARNESS_CODEX_WALL_TIMEOUT_SECONDS="1800"
+export HARNESS_CODEX_IDLE_TIMEOUT_SECONDS="300"
+export HARNESS_CODEX_KILL_GRACE_SECONDS="15"
 ```
 
 The manager and worker may use the same `CODEX_HOME`, but separate account directories make account selection explicit.

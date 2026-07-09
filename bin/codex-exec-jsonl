@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# Run one Codex CLI turn with isolated JSONL/stderr logs and bounded waits.
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage() { printf 'Usage: %s ENV_FILE ROLE MODEL PROMPT JSONL STDERR LAST_MESSAGE [resume THREAD_ID]\n' "${0##*/}" >&2; exit 2; }
+[[ $# -ge 7 && $# -le 9 ]] || usage
+env_file="$1" role="$2" model="$3" prompt="$4" json_log="$5" stderr_log="$6" last_message="$7"
+shift 7
+load_harness_env "$env_file"
+[[ -f "$prompt" ]] || die "prompt file does not exist: $prompt"
+umask 077
+mkdir -p "$(dirname "$json_log")" "$(dirname "$stderr_log")"
+: > "$json_log"; : > "$stderr_log"
+
+case "$role" in
+ manager_bootstrap|manager_review) bin="$MANAGER_CODEX_BIN"; home="$MANAGER_CODEX_HOME"; sandbox="$MANAGER_SANDBOX"; effort="$MANAGER_REASONING_EFFORT"; extras=("${MANAGER_CODEX_EXTRA_ARGS[@]}") ;;
+ worker) bin="$WORKER_CODEX_BIN"; home="$WORKER_CODEX_HOME"; sandbox="$WORKER_SANDBOX"; effort="$WORKER_REASONING_EFFORT"; extras=("${WORKER_CODEX_EXTRA_ARGS[@]}") ;;
+ *) die "invalid Codex role: $role" ;;
+esac
+
+cmd=(env "CODEX_HOME=$home" "$bin" exec --json --model "$model" --sandbox "$sandbox" --ask-for-approval never --add-dir "$HARNESS_ROOT" --add-dir "$PROJECT_TMP_DIR" --cd "$REPOSITORY" "${extras[@]}" -c "model_reasoning_effort=\"$effort\"" --output-last-message "$last_message")
+if [[ $# -eq 2 ]]; then
+ [[ "$1" == resume ]] || usage
+ cmd+=(resume "$2")
+elif [[ $# -ne 0 ]]; then usage
+fi
+cmd+=(-)
+
+# Keep only a hash of the pre-run Git state.  This lets failures report edits
+# made by the failed turn without logging filenames or proprietary diffs.
+git_state_before=""
+if git -C "$REPOSITORY" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+	git_state_before="$(git -C "$REPOSITORY" status --porcelain=v1 | sha256sum | awk '{print $1}')"
+fi
+
+# stdout is *only* Codex JSON Lines. stderr has its own log, so progress and
+# diagnostics cannot corrupt JSON parsing. GNU timeout bounds total runtime;
+# the loop additionally kills a process that has produced no stream activity.
+idle_timed_out=0
+if (( HARNESS_CODEX_WALL_TIMEOUT_SECONDS > 0 )); then
+ timeout --signal=TERM --kill-after="${HARNESS_CODEX_KILL_GRACE_SECONDS}s" "${HARNESS_CODEX_WALL_TIMEOUT_SECONDS}s" "${cmd[@]}" < "$prompt" > "$json_log" 2> "$stderr_log" &
+else
+ "${cmd[@]}" < "$prompt" > "$json_log" 2> "$stderr_log" &
+fi
+pid=$!
+last_activity="$(date +%s)"
+while kill -0 "$pid" 2>/dev/null; do
+ sleep 1
+	# The child may have exited while the monitor slept but is still waitable.
+	# Do not turn a completed short run into an idle timeout.
+	if ! kill -0 "$pid" 2>/dev/null || [[ "$(ps -o stat= -p "$pid" 2>/dev/null || true)" == Z* ]]; then break; fi
+ now="$(date +%s)"
+ newest="$last_activity"
+ for file in "$json_log" "$stderr_log"; do
+  mtime="$(stat -c %Y "$file" 2>/dev/null || printf 0)"
+  (( mtime > newest )) && newest="$mtime"
+ done
+ last_activity="$newest"
+ if (( HARNESS_CODEX_IDLE_TIMEOUT_SECONDS > 0 && now - last_activity >= HARNESS_CODEX_IDLE_TIMEOUT_SECONDS )); then
+  idle_timed_out=1
+  kill -TERM "$pid" 2>/dev/null || true
+  sleep "$HARNESS_CODEX_KILL_GRACE_SECONDS"
+  kill -KILL "$pid" 2>/dev/null || true
+  break
+ fi
+done
+set +e; wait "$pid"; status=$?; set -e
+git_state_changed=0
+if [[ -n "$git_state_before" ]]; then
+	git_state_after="$(git -C "$REPOSITORY" status --porcelain=v1 | sha256sum | awk '{print $1}')"
+	[[ "$git_state_before" == "$git_state_after" ]] || git_state_changed=1
+fi
+
+classification="success"
+if (( idle_timed_out )); then classification="idle_timeout"
+elif (( status == 124 )); then classification="wall_clock_timeout"
+elif (( status != 0 && git_state_changed )); then classification="partial_edit_failure"
+elif [[ ! -s "$json_log" ]]; then
+ if (( status == 0 )); then classification="empty_final_output"; else classification="process_nonzero_exit"; fi
+elif ! jq -e -s 'all(.[]; type == "object" and (.type | type == "string"))' "$json_log" >/dev/null 2>&1; then classification="json_event_parse_failure"
+elif grep -Eqi 'sandbox|ask.for.approval|approval.*denied|permission denied' "$json_log" "$stderr_log"; then classification="local_sandbox_or_approval_denial"
+elif jq -e 'select(.type == "turn.failed")' "$json_log" >/dev/null 2>&1; then classification="turn_failed"
+elif jq -e 'select(.type == "error")' "$json_log" >/dev/null 2>&1; then classification="error_event"
+elif grep -Eqi 'refus|blocked content|safety check|cannot assist' "$json_log" "$stderr_log"; then classification="model_refusal_or_blocked_content"
+elif (( status != 0 )); then classification="process_nonzero_exit"
+elif ! jq -e 'select(.type == "turn.completed")' "$json_log" >/dev/null 2>&1; then classification="json_event_parse_failure"
+elif [[ ! -s "$last_message" ]]; then classification="empty_final_output"
+fi
+classification_file="${json_log%.jsonl}.classification"
+printf 'classification=%s\nexit_status=%s\nidle_timeout=%s\npartial_edits=%s\njsonl=%s\nstderr=%s\nlast_message=%s\n' "$classification" "$status" "$idle_timed_out" "$git_state_changed" "$json_log" "$stderr_log" "$last_message" > "$classification_file"
+printf 'CODEX_CLASSIFICATION=%s\nCODEX_STDERR_LOG=%s\nCODEX_CLASSIFICATION_FILE=%s\n' "$classification" "$stderr_log" "$classification_file" >&2
+exit "$status"

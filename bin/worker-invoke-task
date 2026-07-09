@@ -49,6 +49,12 @@ SESSION=$session
 
 The task is already claimed by this launcher. Read TASK_FILE completely, implement exactly that assignment, validate it, write any scratch files and the result report under PROJECT_TMP_DIR, publish the result with worker-complete-task, and terminate. Do not wait for another task. Do not create, stage, or commit Git changes.
 PROMPT
+if codex_model_requires_narrow_prompt "$WORKER_MODEL"; then
+	cat >> "$prompt_file.tmp.$$" <<PROMPT
+
+Context: authorized local development in my own repository. Task type: benign software engineering. Do not perform offensive security, credential extraction, vulnerability exploitation, malware behavior, unauthorized access, network scanning, or bypassing security controls. Use only the listed local project files needed for the requested implementation: TASK_FILE and the files explicitly referenced by that bounded assignment.
+PROMPT
+fi
 chmod 600 "$prompt_file.tmp.$$"
 mv "$prompt_file.tmp.$$" "$prompt_file"
 
@@ -59,10 +65,14 @@ assignment_archive="$dir/archive/$base.assignment.md"
 staged_result="$dir/control/$base.direct-result.$$"
 protocol_reason=""
 json_log=""
+stderr_log=""
+classification=""
 last_message=""
 status=0
 attempt=1
 capacity_retries=0
+fallback_stage=0
+current_model="$WORKER_MODEL"
 heartbeat_pid=""
 
 completion_committed()
@@ -136,16 +146,18 @@ while true; do
 	stamp="$(date -u '+%Y%m%dT%H%M%SZ')"
 	attempt_label="$(printf '%03d' "$attempt")"
 	json_log="$dir/logs/worker-task-$task_id-$stamp-attempt-$attempt_label.jsonl"
+	stderr_log="$dir/logs/worker-task-$task_id-$stamp-attempt-$attempt_label.stderr.log"
 	last_message="$dir/logs/worker-task-$task_id-$stamp-attempt-$attempt_label.md"
 
 	log_event "WORKER_INVOCATION_STARTED task=$task_id session=$session model=$WORKER_MODEL attempt=$attempt"
 	trace_event WORKER_INVOCATION_ATTEMPT "task_id=$task_id" "session=$session" "attempt=$attempt" "json_log=$json_log" "last_message=$last_message"
 	set +e
-	trace_event CODEX_EXEC_START "role=worker" "task_id=$task_id" "session=$session" "attempt=$attempt" "json_log=$json_log" "last_message=$last_message" "model=$WORKER_MODEL"
-	env CODEX_HOME="$WORKER_CODEX_HOME" "$WORKER_CODEX_BIN" exec --json --model "$WORKER_MODEL" --sandbox "$WORKER_SANDBOX" --add-dir "$HARNESS_ROOT" --add-dir "$PROJECT_TMP_DIR" --cd "$REPOSITORY" "${WORKER_CODEX_EXTRA_ARGS[@]}" -c "model_reasoning_effort=\"$WORKER_REASONING_EFFORT\"" --output-last-message "$last_message" - < "$prompt_file" | tee "$json_log"
-	status=${PIPESTATUS[0]}
+	trace_event CODEX_EXEC_START "role=worker" "task_id=$task_id" "session=$session" "attempt=$attempt" "json_log=$json_log" "stderr_log=$stderr_log" "last_message=$last_message" "model=$current_model"
+	"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" worker "$current_model" "$prompt_file" "$json_log" "$stderr_log" "$last_message"
+	status=$?
 	set -e
-	trace_event CODEX_EXEC_END "role=worker" "task_id=$task_id" "session=$session" "attempt=$attempt" "status=$status" "json_log=$json_log" "last_message=$last_message"
+	classification="$(kv_file_value "${json_log%.jsonl}.classification" classification 2>/dev/null || true)"
+	trace_event CODEX_EXEC_END "role=worker" "task_id=$task_id" "session=$session" "attempt=$attempt" "status=$status" "classification=${classification:-unknown}" "json_log=$json_log" "stderr_log=$stderr_log" "last_message=$last_message"
 
 	normalize_direct_result
 	normalize_last_message_result
@@ -155,6 +167,25 @@ while true; do
 		trace_event WORKER_RESULT_PUBLISHED "task_id=$task_id" "session=$session" "attempt=$attempt" "status=$status" "result=$result"
 		printf 'Worker completed task %s and published its result.\n' "$task_id"
 		exit 0
+	fi
+
+	# Terra/GPT-5.6 gets exactly one narrowed retry, then one stable-model
+	# fallback. This deliberately does not replay a broad autonomous request.
+	if codex_model_requires_narrow_prompt "$current_model" && [[ "$classification" != success ]]; then
+		if (( fallback_stage == 0 )); then
+			fallback_stage=1
+			printf '\nRetry scope: perform only the single bounded assignment in TASK_FILE. Do not inspect unrelated directories or broaden the task.\n' >> "$prompt_file"
+			attempt=$((attempt + 1))
+			log_event "WORKER_TERRA_NARROW_RETRY task=$task_id session=$session classification=$classification"
+			continue
+		fi
+		if (( fallback_stage == 1 )) && [[ "$WORKER_FALLBACK_MODEL" != "$current_model" ]]; then
+			fallback_stage=2
+			current_model="$WORKER_FALLBACK_MODEL"
+			attempt=$((attempt + 1))
+			log_event "WORKER_MODEL_FALLBACK task=$task_id session=$session classification=$classification model=$current_model"
+			continue
+		fi
 	fi
 
 	if (( status != 0 )) && codex_log_has_capacity_error "$json_log" && capacity_retry_allowed "$capacity_retries"; then
@@ -200,6 +231,12 @@ Codex-Exit-Status: $status
 Protocol-Reason: $protocol_reason
 
 JSONL-Log: $json_log
+
+Stderr-Log: $stderr_log
+
+Classification: ${classification:-unknown}
+
+Partial-Edits: $(kv_file_value "${json_log%.jsonl}.classification" partial_edits 2>/dev/null || printf unknown)
 
 Attempts: $attempt
 
