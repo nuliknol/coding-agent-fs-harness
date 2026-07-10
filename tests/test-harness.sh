@@ -79,12 +79,58 @@ elif [[ "$kind" == review ]]; then
 		final_message="review-left-pending"
 	elif [[ "$TASK_ID" == 002 && "$count" == 2 ]]; then
 		note="$(mktemp)"
-		printf 'Mock accepted after a pending review turn.\n' > "$note"
+		cat > "$note" <<NOTE
+# Manager Review Record
+
+Task-ID: $TASK_ID
+Decision: ACCEPT
+
+## Specification comparison
+Mock specification comparison.
+
+## Acceptance-criteria verification
+- [PASS] mock criterion — mocked review evidence
+
+## Feature verification
+- [PASS] mock feature — mocked focused test evidence
+
+## Validation executed
+- [PASS] mock-test — exit status 0
+
+## Scope and regression review
+Mock scope review.
+
+## Conclusion
+All required behavior was independently verified. Accept.
+NOTE
 		"$HARNESS_BIN/manager-accept-task" "$ENV_FILE" "$TASK_ID" "$note" --complete-project >/dev/null
 		rm -f "$note"
 	else
 	note="$(mktemp)"
-	printf 'Mock accepted.\n' > "$note"
+	cat > "$note" <<NOTE
+# Manager Review Record
+
+Task-ID: $TASK_ID
+Decision: ACCEPT
+
+## Specification comparison
+Mock specification comparison.
+
+## Acceptance-criteria verification
+- [PASS] mock criterion — mocked review evidence
+
+## Feature verification
+- [PASS] mock feature — mocked focused test evidence
+
+## Validation executed
+- [PASS] mock-test — exit status 0
+
+## Scope and regression review
+Mock scope review.
+
+## Conclusion
+All required behavior was independently verified. Accept.
+NOTE
 	"$HARNESS_BIN/manager-accept-task" "$ENV_FILE" "$TASK_ID" "$note" >/dev/null
 	rm -f "$note"
 	fi
@@ -97,7 +143,7 @@ elif [[ "$kind" == review ]]; then
 elif [[ "$kind" == worker ]]; then
 	TASK_ID="$(value TASK_ID)"
 	SESSION="$(value SESSION)"
-	final_message="$(printf '# Task Result\n\nTask-ID: %s\nStatus: COMPLETED\n' "$TASK_ID")"
+	final_message="$(printf '# Task Result\n\nTask-ID: %s\nStatus: COMPLETED\n\n## Summary\n\nMock implementation.\n\n## Modified files\n\n- mock-file\n\n## Implemented behavior\n\n- Mock behavior.\n\n## Validation performed\n\nMock test passed.\n\n## Deviations from assignment\n\nNone.\n\n## Remaining concerns\n\nNone.\n\n## Worker assessment\n\nReady for manager review.\n' "$TASK_ID")"
 	if [[ "$TASK_ID" == 001 ]]; then
 		# Deliberately expose a result directly. worker-invoke-task must normalize
 		# it through worker-complete-task before manager review can begin.
@@ -228,6 +274,94 @@ printf '# Duplicate Result\n' > "$result"
 [[ ! -e "$result" ]]
 [[ -f "$stale_result_archive" ]]
 grep -q 'TASK_ACCEPTED_STALE_RESULT_ARCHIVED task=002' "$EVENTS"
+
+# A manager cannot accept a malformed worker report or an unstructured review
+# note, even when the result completion transaction itself is valid.
+task_id=003
+base="testproj-task-$task_id"
+result="$TEST_ROOT/state/projects/testproj/results/$base.result.md"
+assignment="$TEST_ROOT/state/projects/testproj/archive/$base.assignment.md"
+printf '# Task\n\nTask-ID: %s\n' "$task_id" > "$assignment"
+printf 'Task-ID: %s\nStatus: COMPLETED\n' "$task_id" > "$result"
+note="$TEST_ROOT/bad-review.md"
+printf 'Task-ID: %s\nDecision: ACCEPT\n' "$task_id" > "$note"
+if "$HARNESS_BIN/manager-accept-task" "$TEST_ROOT/harness.env" "$task_id" "$note" >/dev/null 2>&1; then
+	printf 'Expected malformed worker report to be rejected.\n' >&2
+	exit 1
+fi
+cat > "$result" <<RESULT
+Task-ID: $task_id
+Status: COMPLETED
+
+## Summary
+
+Mock implementation.
+
+## Modified files
+
+- mock-file
+
+## Implemented behavior
+
+- Mock behavior.
+
+## Validation performed
+
+Mock test passed.
+
+## Deviations from assignment
+
+None.
+
+## Remaining concerns
+
+None.
+
+## Worker assessment
+
+Ready for manager review.
+RESULT
+if "$HARNESS_BIN/manager-accept-task" "$TEST_ROOT/harness.env" "$task_id" "$note" >/dev/null 2>&1; then
+	printf 'Expected unstructured manager review record to be rejected.\n' >&2
+	exit 1
+fi
+cat > "$note" <<NOTE
+# Manager Review Record
+
+Task-ID: $task_id
+Decision: ACCEPT
+
+## Specification comparison
+Mock specification comparison.
+
+## Acceptance-criteria verification
+- [PASS] mock criterion — mocked review evidence
+
+## Feature verification
+- [PASS] mock feature — mocked focused test evidence
+
+## Validation executed
+- [PASS] mock-test — exit status 0
+
+## Scope and regression review
+Mock scope review.
+
+## Conclusion
+All required behavior was independently verified. Accept.
+NOTE
+"$HARNESS_BIN/manager-accept-task" "$TEST_ROOT/harness.env" "$task_id" "$note" >/dev/null
+
+# A task may receive unlimited improving revisions, but ten consecutive
+# zero-improvement rejections require human intervention.
+for revision in 01 02 03 04 05 06 07 08 09 10; do
+	printf 'Improvement-Percent: 0%%\n' > "$TEST_ROOT/state/projects/testproj/archive/testproj-task-004-revision-$revision.rejected.md"
+done
+revision_task="$TEST_ROOT/revision-task.md"
+printf '# Task\n' > "$revision_task"
+if "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" 004-revision-11 "$revision_task" >/dev/null 2>&1; then
+	printf 'Expected stagnation limit to require human intervention.\n' >&2
+	exit 1
+fi
 
 ACTIVE_ROOT="$TEST_ROOT/active"
 mkdir -p "$ACTIVE_ROOT/repo" "$ACTIVE_ROOT/manager-home" "$ACTIVE_ROOT/worker-home"

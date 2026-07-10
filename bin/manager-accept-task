@@ -36,6 +36,67 @@ result="$dir/results/$base.result.md"
 result_archive="$dir/archive/$base.result.md"
 accepted="$dir/archive/$base.accepted.md"
 stale_result_archive="$dir/archive/$base.accepted-stale-result.md"
+assignment_archive="$dir/archive/$base.assignment.md"
+running="$dir/running/$base.running.md"
+lease="$dir/control/$base.lease"
+
+require_line()
+{
+	local file="$1"
+	local line="$2"
+	grep -Fqx -- "$line" "$file" || die "required review evidence is missing: $line"
+}
+
+require_heading()
+{
+	local file="$1"
+	local heading="$2"
+	grep -Fqx -- "$heading" "$file" || die "required review section is missing: $heading"
+}
+
+require_pass_evidence()
+{
+	local file="$1"
+	local heading="$2"
+	awk -v heading="$heading" '
+		$0 == heading { in_section = 1; next }
+		in_section && /^## / { exit }
+		in_section && /^- \[PASS\] .+ — .+/ { found = 1 }
+		END { exit found ? 0 : 1 }
+	' "$file" || die "required PASS evidence is missing from: $heading"
+}
+
+validate_worker_result()
+{
+	local file="$1"
+	require_line "$file" "Task-ID: $task_id"
+	require_line "$file" 'Status: COMPLETED'
+	require_heading "$file" '## Summary'
+	require_heading "$file" '## Modified files'
+	require_heading "$file" '## Implemented behavior'
+	require_heading "$file" '## Validation performed'
+	require_heading "$file" '## Deviations from assignment'
+	require_heading "$file" '## Remaining concerns'
+	require_heading "$file" '## Worker assessment'
+}
+
+validate_acceptance_evidence()
+{
+	local file="$1"
+	[[ -n "$file" ]] || die 'acceptance requires a manager review record'
+	require_heading "$file" '# Manager Review Record'
+	require_line "$file" "Task-ID: $task_id"
+	require_line "$file" 'Decision: ACCEPT'
+	require_heading "$file" '## Specification comparison'
+	require_heading "$file" '## Acceptance-criteria verification'
+	require_heading "$file" '## Feature verification'
+	require_heading "$file" '## Validation executed'
+	require_heading "$file" '## Scope and regression review'
+	require_heading "$file" '## Conclusion'
+	require_pass_evidence "$file" '## Acceptance-criteria verification'
+	require_pass_evidence "$file" '## Feature verification'
+	require_pass_evidence "$file" '## Validation executed'
+}
 
 archive_lingering_result()
 {
@@ -59,6 +120,11 @@ if [[ -f "$accepted" ]]; then
 fi
 
 [[ -f "$result" ]] || die "result does not exist: $task_id"
+[[ -f "$assignment_archive" ]] || die "archived assignment is missing: $task_id"
+[[ ! -e "$running" ]] || die "task is still running: $task_id"
+[[ ! -e "$lease" ]] || die "worker lease still exists: $task_id"
+validate_worker_result "$result"
+validate_acceptance_evidence "$note_file"
 mv "$result" "$result_archive"
 
 tmp="$accepted.tmp.$$"

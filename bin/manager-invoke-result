@@ -75,7 +75,7 @@ current_model="$MANAGER_MODEL"
 
 manager_action_committed()
 {
-	[[ -f "$accepted" || -f "$rejected" || ! -e "$result" ]]
+	[[ -f "$accepted" || -f "$rejected" ]]
 }
 
 while true; do

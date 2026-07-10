@@ -21,6 +21,7 @@ trace_script_start "$@"
 trap 'trace_script_exit $?' EXIT
 validate_task_id "$task_id"
 [[ -f "$note_file" ]] || die "review note file does not exist: $note_file"
+grep -Eq '^Improvement-Percent: (100|[1-9]?[0-9])%$' "$note_file" || die 'review note must contain Improvement-Percent: N% (0 through 100)'
 acquire_project_lock
 
 dir="$(project_dir)"

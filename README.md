@@ -136,6 +136,7 @@ export WORKER_HEARTBEAT_SECONDS="60"
 export HARNESS_CODEX_WALL_TIMEOUT_SECONDS="1800"
 export HARNESS_CODEX_IDLE_TIMEOUT_SECONDS="300"
 export HARNESS_CODEX_KILL_GRACE_SECONDS="15"
+export HARNESS_MAX_STAGNANT_REVISIONS_PER_TASK="10"
 ```
 
 The manager and worker may use the same `CODEX_HOME`, but separate account directories make account selection explicit.

@@ -21,8 +21,39 @@ trap 'trace_script_exit $?' EXIT
 validate_task_id "$task_id"
 [[ -f "$task_file" ]] || die "task file does not exist: $task_file"
 acquire_project_lock
-
 dir="$(project_dir)"
+
+stagnant_revision_limit_reached()
+{
+	local root="$1"
+	local -a rejected_files
+	local file zero_count=0
+
+	shopt -s nullglob
+	rejected_files=("$dir/archive/$PROJECT-task-$root-revision-"*.rejected.md)
+	(( ${#rejected_files[@]} >= HARNESS_MAX_STAGNANT_REVISIONS_PER_TASK )) || return 1
+
+	# The standard NN revision suffix makes lexical ordering chronological.
+	for (( i=${#rejected_files[@]} - 1; i>=0 && zero_count < HARNESS_MAX_STAGNANT_REVISIONS_PER_TASK; i-- )); do
+		file="${rejected_files[i]}"
+		if grep -Fqx 'Improvement-Percent: 0%' "$file"; then
+			zero_count=$((zero_count + 1))
+		else
+			return 1
+		fi
+	done
+	(( zero_count == HARNESS_MAX_STAGNANT_REVISIONS_PER_TASK ))
+}
+
+# Revisions use ROOT-revision-NN. They may continue while a cheap worker is
+# improving; only a sustained zero-gain run requires human intervention.
+if [[ "$task_id" =~ ^(.+)-revision-([0-9]+)$ ]]; then
+	revision_root="${BASH_REMATCH[1]}"
+	if stagnant_revision_limit_reached "$revision_root"; then
+		die "no improvement in the last $HARNESS_MAX_STAGNANT_REVISIONS_PER_TASK revisions of $revision_root; human intervention required"
+	fi
+fi
+
 base="$(task_base "$task_id")"
 ready="$dir/tasks/$base.ready.md"
 running="$dir/running/$base.running.md"

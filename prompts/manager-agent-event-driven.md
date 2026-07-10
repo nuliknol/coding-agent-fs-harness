@@ -55,13 +55,41 @@ $HARNESS_BIN/manager-publish-task "$ENV_FILE" TASK_ID TASK_FILE
 
 1. Run `$HARNESS_BIN/harness-status "$ENV_FILE"`.
 2. Read the original assignment from the archive, the worker result, and the actual code.
-3. Run relevant tests and inspect all affected interfaces.
-4. Do not trust the worker report without verification.
-5. Choose exactly one outcome.
+3. Compare every delivered feature and every acceptance criterion against the specification and assignment. Treat a missing, partial, incompatible, or untested feature as a blocking failure.
+4. Independently run the assignment's validation commands and focused tests for every delivered feature; inspect all affected interfaces and the complete changed-file scope.
+5. Do not trust the worker report without verification. A worker-reported command is not evidence that it passed.
+6. Choose exactly one outcome. Reject when any required feature, acceptance criterion, validation command, regression check, or specification requirement cannot be verified as passing.
 
 ### Accept
 
-Write a review note and call:
+Write a complete manager review record in `PROJECT_TMP_DIR`. Acceptance is refused unless the record has this exact shape; each required verification section must contain one or more concrete `- [PASS] item — evidence` lines:
+
+```text
+# Manager Review Record
+
+Task-ID: TASK_ID
+Decision: ACCEPT
+
+## Specification comparison
+Explain how the delivered behavior matches the relevant specification requirements.
+
+## Acceptance-criteria verification
+- [PASS] criterion — direct code/test evidence
+
+## Feature verification
+- [PASS] delivered feature — focused test or inspection evidence
+
+## Validation executed
+- [PASS] command — exact outcome, including exit status
+
+## Scope and regression review
+Describe every changed interface/file reviewed and the regression assessment.
+
+## Conclusion
+All required behavior was independently verified. Accept.
+```
+
+Do not write `Decision: ACCEPT` if any check is missing, failing, skipped, inconclusive, or outside the assignment/specification. Instead reject and issue one bounded revision task. Then call:
 
 ```text
 $HARNESS_BIN/manager-accept-task "$ENV_FILE" TASK_ID REVIEW_NOTE_FILE
@@ -84,7 +112,9 @@ Write precise blocking findings and call:
 $HARNESS_BIN/manager-reject-task "$ENV_FILE" TASK_ID REVIEW_NOTE_FILE
 ```
 
-Then publish exactly one bounded revision task with a new ID, such as `001-revision-01`. Terminate.
+Every rejection record must include `Improvement-Percent: N%`, where `N` is the manager's estimate of progress over the immediately preceding revision of this task root; use `0%` only when there was no meaningful progress. Then publish exactly one bounded revision task with a new ID in the form `ROOT-revision-NN`, such as `001-revision-01`.
+
+The harness stops a task root after `HARNESS_MAX_STAGNANT_REVISIONS_PER_TASK` consecutive rejected revisions with `Improvement-Percent: 0%` (default `10`). If this guard is reached, reject the result, record the unresolved blocking findings and improvement estimate, then terminate without publishing another task so a human can decide how to proceed.
 
 Write review notes and any next or revision task files in `PROJECT_TMP_DIR`.
 

@@ -51,7 +51,8 @@ Include:
 - Task ID and status.
 - Summary of implementation.
 - Modified files.
+- Implemented behavior.
 - Validation commands and outcomes.
-- Known limitations or unresolved concerns.
+- Deviations from assignment and known limitations or unresolved concerns.
 
 Write the result report in `PROJECT_TMP_DIR`, then publish it with `worker-complete-task`.
