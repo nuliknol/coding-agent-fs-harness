@@ -362,6 +362,10 @@ if "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" 004-revision-11 
 	printf 'Expected stagnation limit to require human intervention.\n' >&2
 	exit 1
 fi
+watch_output="$TEST_ROOT/watch-agents.out"
+timeout 2 "$HARNESS_BIN/harness-watch-agents" "$TEST_ROOT/harness.env" > "$watch_output" 2>&1 || true
+grep -q 'MANAGER REJECTED task=004-revision-10' "$watch_output"
+grep -q 'Improvement: 0%' "$watch_output"
 
 ACTIVE_ROOT="$TEST_ROOT/active"
 mkdir -p "$ACTIVE_ROOT/repo" "$ACTIVE_ROOT/manager-home" "$ACTIVE_ROOT/worker-home"

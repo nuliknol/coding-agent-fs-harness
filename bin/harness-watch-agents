@@ -43,6 +43,7 @@ shopt -s nullglob
 
 declare -A next_line=()
 declare -A initialized=()
+declare -A announced_rejection=()
 worker_log=""
 manager_log=""
 startup=1
@@ -159,6 +160,32 @@ print_new_messages()
 	next_line[$log]=$((total + 1))
 }
 
+initialize_rejection_records()
+{
+	local record
+	(( NEW_ONLY == 1 )) || return 0
+	for record in "$dir/archive/$PROJECT-task-"*.rejected.md; do
+		[[ -f "$record" ]] || continue
+		announced_rejection[$record]=1
+	done
+}
+
+print_new_rejections()
+{
+	local record task improvement
+	for record in "$dir/archive/$PROJECT-task-"*.rejected.md; do
+		[[ -f "$record" ]] || continue
+		[[ -z "${announced_rejection[$record]:-}" ]] || continue
+		announced_rejection[$record]=1
+		task="${record##*/}"
+		task="${task#${PROJECT}-task-}"
+		task="${task%.rejected.md}"
+		improvement="$(awk -F': ' '$1 == "Improvement-Percent" {print $2; exit}' "$record")"
+		[[ -n "$improvement" ]] || improvement='not recorded'
+		printf '\n[MANAGER REJECTED task=%s]\nImprovement: %s\n' "$task" "$improvement"
+	done
+}
+
 announce_switch()
 {
 	local role="$1" log="$2" task
@@ -168,6 +195,7 @@ announce_switch()
 
 printf 'Watching natural-language agent output for project %s. Press Ctrl+C to stop.\n' "$PROJECT"
 printf 'State: %s\n' "$dir"
+initialize_rejection_records
 
 while true; do
 	new_worker="$(current_worker_log)"
@@ -193,6 +221,7 @@ while true; do
 	# captures final messages emitted just after accept/reject or completion.
 	print_new_messages WORKER "$worker_log"
 	print_new_messages MANAGER "$manager_log"
+	print_new_rejections
 
 	startup=0
 	sleep "$watch_seconds"
