@@ -31,9 +31,22 @@ if [[ -f "$dir/control/worker-supervisor.pid" ]]; then
 	if kill -0 "$pid" 2>/dev/null; then worker_supervisor="running (PID $pid)"; fi
 fi
 printf 'Manager supervisor: %s\n' "$manager_supervisor"
-printf 'Worker supervisor: %s\n\n' "$worker_supervisor"
-printf '%-28s %-12s %-28s %-10s\n' 'TASK' 'STATE' 'OWNER' 'AGE'
-printf '%-28s %-12s %-28s %-10s\n' '----------------------------' '------------' '----------------------------' '----------'
+printf 'Worker supervisor: %s\n' "$worker_supervisor"
+if project_plan_exists; then
+	printf 'Project progress: %s%% (%s/%s plan items complete)\n' \
+		"$(project_plan_progress_percent)" "$(project_plan_complete_count)" "$(project_plan_total_count)"
+	printf '\n%-24s %-12s %-16s %s\n' 'PLAN ITEM' 'STATE' 'TASK ROOT' 'TITLE'
+	printf '%-24s %-12s %-16s %s\n' '------------------------' '------------' '----------------' '-----'
+	awk -F '\t' '
+		NR == FNR {if ($0 !~ /^#/ && NF >= 2) title[$1] = $2; next}
+		$0 !~ /^#/ && NF >= 4 {printf "%-24s %-12s %-16s %s\n", $1, $2, $3, title[$1]}
+	' "$(project_plan_definition_file)" "$(project_plan_state_file)"
+else
+	printf 'Project progress: unavailable (project plan is missing)\n'
+fi
+printf '\n'
+printf '%-32s %-12s %-10s %-28s %-10s\n' 'TASK' 'STATE' 'PROGRESS' 'OWNER' 'AGE'
+printf '%-32s %-12s %-10s %-28s %-10s\n' '--------------------------------' '------------' '----------' '----------------------------' '----------'
 
 shopt -s nullglob
 found=0
@@ -45,7 +58,8 @@ for file in "$dir/tasks/$PROJECT-task-"*.ready.md; do
 	found=1
 	active_count=$((active_count + 1))
 	task_id="$(task_id_from_filename "$file")"
-	printf '%-28s %-12s %-28s %-10s\n' "$task_id" 'READY' '-' '-'
+	progress="$(task_progress_percent "$task_id")%"
+	printf '%-32s %-12s %-10s %-28s %-10s\n' "$task_id" 'READY' "$progress" '-' '-'
 done
 
 for file in "$dir/running/$PROJECT-task-"*.running.md; do
@@ -53,6 +67,7 @@ for file in "$dir/running/$PROJECT-task-"*.running.md; do
 	active_count=$((active_count + 1))
 	task_id="$(task_id_from_filename "$file")"
 	base="$(task_base "$task_id")"
+	progress="$(task_progress_percent "$task_id")%"
 	lease="$dir/control/$base.lease"
 	owner='unknown'
 	age='unknown'
@@ -63,14 +78,15 @@ for file in "$dir/running/$PROJECT-task-"*.running.md; do
 			age="$(( $(epoch_now) - heartbeat_epoch ))s"
 		fi
 	fi
-	printf '%-28s %-12s %-28s %-10s\n' "$task_id" 'RUNNING' "$owner" "$age"
+	printf '%-32s %-12s %-10s %-28s %-10s\n' "$task_id" 'RUNNING' "$progress" "$owner" "$age"
 done
 
 for file in "$dir/results/$PROJECT-task-"*.result.md; do
 	found=1
 	active_count=$((active_count + 1))
 	task_id="$(task_id_from_filename "$file")"
-	printf '%-28s %-12s %-28s %-10s\n' "$task_id" 'REVIEW' '-' '-'
+	progress="$(task_progress_percent "$task_id")%"
+	printf '%-32s %-12s %-10s %-28s %-10s\n' "$task_id" 'REVIEW' "$progress" '-' '-'
 done
 
 for file in "$dir/archive/$PROJECT-task-"*.accepted.md; do
@@ -79,7 +95,8 @@ for file in "$dir/archive/$PROJECT-task-"*.accepted.md; do
 	name="${file##*/}"
 	task_id="${name#${PROJECT}-task-}"
 	task_id="${task_id%.accepted.md}"
-	printf '%-28s %-12s %-28s %-10s\n' "$task_id" 'ACCEPTED' '-' '-'
+	progress="$(task_progress_percent "$task_id")%"
+	printf '%-32s %-12s %-10s %-28s %-10s\n' "$task_id" 'ACCEPTED' "$progress" '-' '-'
 done
 
 for file in "$dir/control/$PROJECT-task-"*.abort.md; do
@@ -88,11 +105,18 @@ for file in "$dir/control/$PROJECT-task-"*.abort.md; do
 	name="${file##*/}"
 	task_id="${name#${PROJECT}-task-}"
 	task_id="${task_id%.abort.md}"
-	printf '%-28s %-12s %-28s %-10s\n' "$task_id" 'ABORTED' '-' '-'
+	progress="$(task_progress_percent "$task_id")%"
+	printf '%-32s %-12s %-10s %-28s %-10s\n' "$task_id" 'ABORTED' "$progress" '-' '-'
 done
 
 if (( found == 0 )); then
 	printf '%s\n' '(no tasks)'
-elif (( accepted_count > 0 && active_count == 0 && aborted_count == 0 )); then
-	printf '\nProject status: complete. All published tasks are ACCEPTED; no agents are working.\n'
+fi
+
+if project_completion_recorded && project_plan_all_complete; then
+	printf '\nProject status: COMPLETE. Every project-plan item is accepted.\n'
+elif project_plan_exists && (( active_count == 0 && aborted_count == 0 )) && ! project_plan_all_complete; then
+	printf '\nProject status: INCOMPLETE. No task is active; manager planning is required for the next plan item.\n'
+elif project_completion_recorded; then
+	printf '\nProject status: INCOMPLETE. Ignoring an invalid legacy completion marker because the project plan is absent or unfinished.\n'
 fi

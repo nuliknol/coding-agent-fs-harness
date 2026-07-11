@@ -17,14 +17,7 @@ ensure_project
 dir="$(project_dir)"
 
 if env_has_running_processes; then
-	if confirm_reset_state "Harness processes are already active for $HARNESS_ENV_FILE."; then
-		require_manager_configuration
-		reset_project_state
-		initialize_project_state
-		dir="$(project_dir)"
-	else
-		die "harness-start aborted because state is already active for $HARNESS_ENV_FILE"
-	fi
+	printf 'Harness processes already reference this environment; preserving all state and progress.\n'
 fi
 
 # Bootstrap before starting the worker watcher so a newly published first task

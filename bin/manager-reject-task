@@ -26,6 +26,21 @@ acquire_project_lock
 
 dir="$(project_dir)"
 base="$(task_base "$task_id")"
+root="$(task_root_id "$task_id")"
+initialize_task_progress "$task_id" "$dir/archive/$base.assignment.md"
+current_progress="$(task_progress_percent "$root")"
+improvement_percent="$(review_percent "$note_file" Improvement-Percent)"
+progress_percent="$(review_percent "$note_file" Progress-Percent)"
+if [[ -z "$progress_percent" ]]; then
+	# Compatibility for an already-running pre-refactor manager turn. New turns
+	# must report cumulative progress explicitly.
+	progress_percent=$((current_progress + improvement_percent))
+	(( progress_percent < 100 )) || progress_percent=99
+	log_event "TASK_PROGRESS_MIGRATED task=$task_id inferred_progress=$progress_percent"
+fi
+validate_percent "$progress_percent" 'Progress-Percent'
+(( progress_percent >= current_progress )) || die "Progress-Percent cannot decrease from $current_progress% to $progress_percent%"
+(( progress_percent < 100 )) || die 'a rejected task must have Progress-Percent below 100%'
 result="$dir/results/$base.result.md"
 result_archive="$dir/archive/$base.rejected-result.md"
 rejected="$dir/archive/$base.rejected.md"
@@ -68,6 +83,7 @@ tmp="$rejected.tmp.$$"
 } > "$tmp"
 chmod 600 "$tmp"
 mv "$tmp" "$rejected"
+update_task_progress "$task_id" "$progress_percent" "$improvement_percent" REJECT "$note_file"
 log_event "TASK_REJECTED task=$task_id"
 trace_event TASK_REJECTED "task_id=$task_id" "rejected_file=$rejected" "result_archive=$result_archive" "note_file=$note_file"
 printf '%s\n' "$rejected"

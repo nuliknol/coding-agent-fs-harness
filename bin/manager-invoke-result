@@ -38,6 +38,16 @@ pending_exit_status=3
 [[ ! -e "$running" ]] || die "result is not committed; running assignment still exists: $running"
 [[ ! -e "$lease" ]] || die "result is not committed; worker lease still exists: $lease"
 [[ -f "$assignment_archive" ]] || die "result is not committed; archived assignment is missing: $assignment_archive"
+initialize_task_progress "$task_id" "$assignment_archive"
+task_root="$(task_root_id "$task_id")"
+progress_file="$(task_progress_file "$task_root")"
+root_assignment_file="$(task_root_assignment_file "$task_root")"
+current_progress="$(task_progress_percent "$task_root")"
+development_policy_file="$REPOSITORY/design/development-policy.txt"
+[[ -f "$development_policy_file" ]] || development_policy_file=""
+project_plan_definition="$(project_plan_definition_file)"
+project_plan_state="$(project_plan_state_file)"
+project_plan_exists || die 'project plan is missing; cannot review a task outside the specification plan'
 
 prompt_file="$project_path/control/$base.manager-review.prompt.md"
 cat > "$prompt_file.tmp.$$" <<PROMPT
@@ -48,11 +58,19 @@ PROJECT=$PROJECT
 PROJECT_TMP_DIR=$PROJECT_TMP_DIR
 TASK_ID=$task_id
 RESULT_FILE=$result
+TASK_ROOT=$task_root
+ROOT_ASSIGNMENT_FILE=$root_assignment_file
+PROGRESS_FILE=$progress_file
+CURRENT_PROGRESS_PERCENT=$current_progress
+PROJECT_PLAN_FILE=$project_plan_definition
+PROJECT_PLAN_STATE_FILE=$project_plan_state
+PROJECT_PROGRESS_PERCENT=$(project_plan_progress_percent)
+DEVELOPMENT_POLICY_FILE=$development_policy_file
 SPECIFICATION=$SPECIFICATION
 REPOSITORY=$REPOSITORY
 HARNESS_BIN=$HARNESS_BIN
 
-Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and follow it. Review this result and the actual repository now. Write any review note and any next or revision task file under PROJECT_TMP_DIR. Every harness command must receive ENV_FILE as its first argument. Accept the task or reject it and publish one bounded revision/next task as appropriate. Then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or call manager-wait-result.
+Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and follow it. Read DEVELOPMENT_POLICY_FILE when present, then PROJECT_PLAN_FILE, PROJECT_PLAN_STATE_FILE, ROOT_ASSIGNMENT_FILE, and PROGRESS_FILE before reviewing this result. Reconcile cumulative root progress and project progress against the actual repository; do not reset completed work after a restart. Write any review note and any next or revision task file under PROJECT_TMP_DIR. Every harness command must receive ENV_FILE as its first argument. Accept the task or reject it and publish one bounded continuation from the recorded progress as appropriate. Acceptance completes only the current project-plan item; if project items remain, publish exactly one task for the next item. Then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or call manager-wait-result.
 PROMPT
 if codex_model_requires_narrow_prompt "$MANAGER_MODEL"; then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT

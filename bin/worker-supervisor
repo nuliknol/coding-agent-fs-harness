@@ -95,6 +95,10 @@ handle_project_completion()
 	local completion_file completed_task
 	completion_file="$(project_complete_file)"
 	[[ -f "$completion_file" ]] || return 1
+	if ! project_plan_all_complete; then
+		log_event "WORKER_SUPERVISOR_IGNORED_INVALID_COMPLETION file=$completion_file reason=project_plan_incomplete"
+		return 1
+	fi
 	completed_task="$(kv_file_value "$completion_file" task_id)"
 	log_event "WORKER_SUPERVISOR_PROJECT_COMPLETED task=$completed_task file=$completion_file"
 	trace_event WORKER_SUPERVISOR_PROJECT_COMPLETED "task_id=$completed_task" "completion_file=$completion_file"
@@ -117,10 +121,11 @@ while true; do
 		trace_event WORKER_SUPERVISOR_WATCH_WAIT_BEGIN "mode=inotify" "timeout=$HARNESS_POLL_SECONDS"
 		inotifywait -q -t "$HARNESS_POLL_SECONDS" -e moved_to -e create -e delete "$dir/tasks" "$dir/control" >/dev/null 2>&1 &
 		watch_pid=$!
-		set +e
-		wait "$watch_pid"
-		watch_status=$?
-		set -e
+		if wait "$watch_pid"; then
+			watch_status=0
+		else
+			watch_status=$?
+		fi
 		trace_event WORKER_SUPERVISOR_WATCH_WAIT_END "mode=inotify" "watch_pid=$watch_pid" "status=$watch_status"
 		watch_pid=""
 	else

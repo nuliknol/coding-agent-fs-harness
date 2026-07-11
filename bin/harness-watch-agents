@@ -18,6 +18,9 @@ Options:
   --new-only   Do not replay existing messages from logs that are active when
                the watcher starts. New tasks and retry attempts are shown from
                their beginning.
+
+Archived rejection decisions are never replayed at startup. Rejections created
+while this watcher is running are announced once.
 USAGE
 	exit 2
 }
@@ -83,7 +86,7 @@ current_worker_log()
 
 current_manager_log()
 {
-	local result task_id candidate="" candidate_epoch="" log epoch
+	local result task_id candidate="" candidate_epoch="" log epoch planning_turn=0
 	for result in "$dir/results/$PROJECT-task-"*.result.md; do
 		[[ -f "$result" ]] || continue
 		task_id="$(task_id_from_filename "$result")"
@@ -99,6 +102,22 @@ current_manager_log()
 	# Before the persistent manager thread exists, expose bootstrap messages too.
 	if [[ -z "$candidate" && ! -f "$dir/control/manager.thread" ]]; then
 		candidate="$(latest_matching_log "$logs_dir/manager-bootstrap-*-attempt-*.jsonl")"
+	fi
+
+	# Planning turns have no result file to anchor them. Follow their latest log
+	# while the explicit running marker exists. The second condition supports a
+	# planning turn that was already running when this watcher version was
+	# installed: an incomplete plan with no active task is exactly a planning gap.
+	if [[ -f "$dir/control/manager-plan.running" ]]; then
+		planning_turn=1
+	elif [[ -f "$(project_plan_state_file)" && ! -f "$(project_complete_file)" ]] &&
+		! compgen -G "$dir/tasks/$PROJECT-task-*.ready.md" >/dev/null &&
+		! compgen -G "$dir/running/$PROJECT-task-*.running.md" >/dev/null &&
+		! compgen -G "$dir/results/$PROJECT-task-*.result.md" >/dev/null; then
+		planning_turn=1
+	fi
+	if [[ -z "$candidate" && "$planning_turn" == 1 ]]; then
+		candidate="$(latest_matching_log "$logs_dir/manager-plan-*-attempt-*.jsonl")"
 	fi
 	printf '%s' "$candidate"
 }
@@ -118,6 +137,9 @@ role_and_task_from_log()
 			;;
 		MANAGER:manager-bootstrap-*.jsonl)
 			task="bootstrap"
+			;;
+		MANAGER:manager-plan-*.jsonl)
+			task="planning-next-item"
 			;;
 		*)
 			task="unknown"
@@ -163,7 +185,6 @@ print_new_messages()
 initialize_rejection_records()
 {
 	local record
-	(( NEW_ONLY == 1 )) || return 0
 	for record in "$dir/archive/$PROJECT-task-"*.rejected.md; do
 		[[ -f "$record" ]] || continue
 		announced_rejection[$record]=1
@@ -172,7 +193,7 @@ initialize_rejection_records()
 
 print_new_rejections()
 {
-	local record task improvement
+	local record task improvement progress
 	for record in "$dir/archive/$PROJECT-task-"*.rejected.md; do
 		[[ -f "$record" ]] || continue
 		[[ -z "${announced_rejection[$record]:-}" ]] || continue
@@ -180,10 +201,12 @@ print_new_rejections()
 		task="${record##*/}"
 		task="${task#${PROJECT}-task-}"
 		task="${task%.rejected.md}"
-		improvement="$(awk -F': ' '$1 == "Improvement-Percent" {print $2; exit}' "$record")"
-		[[ -n "$improvement" ]] || improvement='not recorded'
-		printf '\n[MANAGER REJECTED task=%s]\nImprovement: %s\n' "$task" "$improvement"
-	done
+	improvement="$(awk -F': ' '$1 == "Improvement-Percent" {print $2; exit}' "$record")"
+	progress="$(awk -F': ' '$1 == "Progress-Percent" {print $2; exit}' "$record")"
+	[[ -n "$improvement" ]] || improvement='not recorded'
+	[[ -n "$progress" ]] || progress='not recorded'
+	printf '\n[MANAGER REJECTED task=%s]\nCumulative progress: %s\nImprovement: %s\n' "$task" "$progress" "$improvement"
+done
 }
 
 announce_switch()

@@ -17,8 +17,10 @@ trace_init manager_supervisor
 trace_script_start "$@"
 dir="$(project_dir)"
 manager_invoker="${HARNESS_MANAGER_INVOKER:-$HARNESS_BIN/manager-invoke-result}"
+manager_plan_invoker="${HARNESS_MANAGER_PLAN_INVOKER:-$HARNESS_BIN/manager-plan-next-task}"
 manager_pending_exit_status=3
 [[ -x "$manager_invoker" ]] || die "manager invoker is not executable: $manager_invoker"
+[[ -x "$manager_plan_invoker" ]] || die "manager plan invoker is not executable: $manager_plan_invoker"
 
 exec 8>"$dir/control/supervisor.lock"
 flock -n 8 || die "a supervisor is already running for project: $PROJECT"
@@ -135,11 +137,57 @@ process_results()
 	done
 }
 
+project_has_active_task()
+{
+	compgen -G "$dir/tasks/$PROJECT-task-*.ready.md" >/dev/null ||
+		compgen -G "$dir/running/$PROJECT-task-*.running.md" >/dev/null ||
+		compgen -G "$dir/results/$PROJECT-task-*.result.md" >/dev/null
+}
+
+process_planning_gap()
+{
+	local status alert tmp
+	project_plan_exists || return 0
+	project_plan_all_complete && return 0
+	project_has_active_task && return 0
+	log_event "SUPERVISOR_PLANNING_GAP progress=$(project_plan_progress_percent) pending=$(project_plan_pending_count)"
+	trace_event SUPERVISOR_INVOKE_MANAGER_PLAN "manager_plan_invoker=$manager_plan_invoker" "project_progress=$(project_plan_progress_percent)"
+	if "$manager_plan_invoker" "$HARNESS_ENV_FILE"; then
+		status=0
+	else
+		status=$?
+	fi
+	trace_event SUPERVISOR_MANAGER_PLAN_EXIT "status=$status"
+	if (( status == 0 )); then
+		rm -f "$dir/control/manager-plan-failed.md"
+		return 0
+	fi
+	if (( status == manager_pending_exit_status )); then
+		log_event "SUPERVISOR_PLAN_LEFT_UNCOMMITTED"
+		return 0
+	fi
+	alert="$dir/control/manager-plan-failed.md"
+	tmp="$alert.tmp.$$"
+	{
+		printf '# Manager Planning Invocation Failed\n\n'
+		printf 'Project: %s\n\n' "$PROJECT"
+		printf 'Environment-File: %s\n\n' "$HARNESS_ENV_FILE"
+		printf 'Failed-At: %s\n\n' "$(timestamp_utc)"
+		printf 'Exit-Status: %s\n' "$status"
+	} > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$alert"
+}
+
 handle_project_completion()
 {
 	local completion_file completed_task
 	completion_file="$(project_complete_file)"
 	[[ -f "$completion_file" ]] || return 1
+	if ! project_plan_all_complete; then
+		log_event "SUPERVISOR_IGNORED_INVALID_COMPLETION file=$completion_file reason=project_plan_incomplete"
+		return 1
+	fi
 	completed_task="$(kv_file_value "$completion_file" task_id)"
 	log_event "SUPERVISOR_PROJECT_COMPLETED task=$completed_task file=$completion_file"
 	trace_event SUPERVISOR_PROJECT_COMPLETED "task_id=$completed_task" "completion_file=$completion_file"
@@ -159,14 +207,21 @@ while true; do
 	if handle_project_completion; then
 		break
 	fi
+	process_planning_gap
+	if handle_project_completion; then
+		break
+	fi
 	if [[ "$HARNESS_USE_INOTIFY" == "1" ]] && command -v inotifywait >/dev/null 2>&1; then
 		trace_event SUPERVISOR_WATCH_WAIT_BEGIN "mode=inotify" "timeout=$HARNESS_POLL_SECONDS"
 		inotifywait -q -t "$HARNESS_POLL_SECONDS" -e moved_to -e delete "$dir/results" "$dir/control" >/dev/null 2>&1 &
 		watch_pid=$!
-		set +e
-		wait "$watch_pid"
-		watch_status=$?
-		set -e
+		if wait "$watch_pid"; then
+			watch_status=0
+		else
+			# inotifywait exits 2 when its short watch interval expires. That is
+			# an ordinary polling tick, not a supervisor failure.
+			watch_status=$?
+		fi
 		trace_event SUPERVISOR_WATCH_WAIT_END "mode=inotify" "watch_pid=$watch_pid" "status=$watch_status"
 		watch_pid=""
 	else

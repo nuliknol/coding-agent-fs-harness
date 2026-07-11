@@ -23,6 +23,8 @@ write_manager_snapshot
 project_path="$(project_dir)"
 last_message="$project_path/logs/manager-bootstrap-last-message.md"
 prompt_file="$project_path/control/manager-bootstrap.prompt.md"
+development_policy_file="$REPOSITORY/design/development-policy.txt"
+[[ -f "$development_policy_file" ]] || development_policy_file=""
 cat > "$prompt_file.tmp.$$" <<PROMPT
 Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and follow it.
 
@@ -32,8 +34,9 @@ PROJECT=$PROJECT
 PROJECT_TMP_DIR=$PROJECT_TMP_DIR
 SPECIFICATION=$SPECIFICATION
 REPOSITORY=$REPOSITORY
+DEVELOPMENT_POLICY_FILE=$development_policy_file
 
-This is the bootstrap turn. Inspect the specification and repository, write the assignment file under PROJECT_TMP_DIR, publish exactly one bounded initial task, and then terminate. Every harness command must receive ENV_FILE as its first argument. Do not wait for the worker and do not run any polling command.
+This is the bootstrap turn. Read DEVELOPMENT_POLICY_FILE when present and inspect the complete specification. First write a tab-separated project plan under PROJECT_TMP_DIR with one immutable line per specification phase or acceptance gate: ITEM_ID<TAB>TITLE. Include the full execution stack, not merely the first task. Register it with manager-init-project-plan. Then inspect the repository, write one bounded initial assignment under PROJECT_TMP_DIR, and publish it with manager-publish-task including the corresponding PROJECT_PLAN_ITEM_ID. Terminate after exactly one task is published. Every harness command must receive ENV_FILE as its first argument. Do not wait for the worker and do not run any polling command.
 PROMPT
 if codex_model_requires_narrow_prompt "$MANAGER_MODEL"; then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
@@ -97,6 +100,8 @@ while true; do
 	fi
 
 	if (( status == 0 )); then
+		project_plan_exists || die "manager bootstrap exited without initializing the project plan"
+		bootstrap_task_published || die "manager bootstrap exited without publishing the first task"
 		[[ -n "$resume_thread_id" ]] || die "could not extract Codex thread id from $json_log"
 		cp -f "$attempt_last_message" "$last_message" 2>/dev/null || true
 		"$HARNESS_BIN/manager-register-thread" "$HARNESS_ENV_FILE" "$resume_thread_id" >/dev/null
@@ -110,7 +115,7 @@ while true; do
 	# If the manager published the first task immediately before the API stream
 	# failed, registering the captured thread is safer than replaying bootstrap
 	# and potentially publishing a duplicate first task.
-	if bootstrap_task_published; then
+	if project_plan_exists && bootstrap_task_published; then
 		[[ -n "$resume_thread_id" ]] || die "manager published an initial task but no thread id could be recovered from $json_log"
 		cp -f "$attempt_last_message" "$last_message" 2>/dev/null || true
 		"$HARNESS_BIN/manager-register-thread" "$HARNESS_ENV_FILE" "$resume_thread_id" >/dev/null

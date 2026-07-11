@@ -80,10 +80,10 @@ load_harness_env()
 
 	unset PROJECT REPOSITORY SPECIFICATION HARNESS_HOME HARNESS_BIN HARNESS_ROOT PROJECT_TMP_DIR
 	unset HARNESS_POLL_SECONDS HARNESS_WAIT_SECONDS HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY
-	unset HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES HARNESS_MAX_STAGNANT_REVISIONS_PER_TASK
+	unset HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
 	unset HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_KILL_GRACE_SECONDS
 	unset MANAGER_FALLBACK_MODEL WORKER_FALLBACK_MODEL
-	unset HARNESS_MANAGER_INVOKER HARNESS_WORKER_INVOKER
+	unset HARNESS_MANAGER_INVOKER HARNESS_MANAGER_PLAN_INVOKER HARNESS_WORKER_INVOKER
 	unset CODEX_BIN CODEX_HOME
 	unset CODEX_EXTRA_ARGS
 	unset MANAGER_CODEX_BIN MANAGER_CODEX_HOME MANAGER_MODEL MANAGER_REASONING_EFFORT MANAGER_SANDBOX
@@ -121,12 +121,10 @@ load_harness_env()
 	HARNESS_USE_INOTIFY="${HARNESS_USE_INOTIFY:-1}"
 	HARNESS_CAPACITY_RETRY_SECONDS="${HARNESS_CAPACITY_RETRY_SECONDS:-60}"
 	HARNESS_CAPACITY_MAX_RETRIES="${HARNESS_CAPACITY_MAX_RETRIES:-0}"
-	HARNESS_MAX_STAGNANT_REVISIONS_PER_TASK="${HARNESS_MAX_STAGNANT_REVISIONS_PER_TASK:-10}"
-	# These watchdogs apply to one non-interactive Codex turn.  Zero disables a
-	# watchdog, but the safe defaults deliberately prevent an unattended run
-	# from waiting forever for server-side checks.
-	HARNESS_CODEX_WALL_TIMEOUT_SECONDS="${HARNESS_CODEX_WALL_TIMEOUT_SECONDS:-1800}"
-	HARNESS_CODEX_IDLE_TIMEOUT_SECONDS="${HARNESS_CODEX_IDLE_TIMEOUT_SECONDS:-300}"
+	# Correctly progressing tasks are allowed to run without an arbitrary turn
+	# deadline. Operators may opt back into either watchdog with a nonzero value.
+	HARNESS_CODEX_WALL_TIMEOUT_SECONDS="${HARNESS_CODEX_WALL_TIMEOUT_SECONDS:-0}"
+	HARNESS_CODEX_IDLE_TIMEOUT_SECONDS="${HARNESS_CODEX_IDLE_TIMEOUT_SECONDS:-0}"
 	HARNESS_CODEX_KILL_GRACE_SECONDS="${HARNESS_CODEX_KILL_GRACE_SECONDS:-15}"
 	WORKER_HEARTBEAT_SECONDS="${WORKER_HEARTBEAT_SECONDS:-60}"
 
@@ -149,9 +147,13 @@ load_harness_env()
 	WORKER_CODEX_HOME="$(resolve_from_env_dir "$WORKER_CODEX_HOME")"
 
 	HARNESS_MANAGER_INVOKER="${HARNESS_MANAGER_INVOKER:-}"
+	HARNESS_MANAGER_PLAN_INVOKER="${HARNESS_MANAGER_PLAN_INVOKER:-}"
 	HARNESS_WORKER_INVOKER="${HARNESS_WORKER_INVOKER:-}"
 	if [[ -n "$HARNESS_MANAGER_INVOKER" ]]; then
 		HARNESS_MANAGER_INVOKER="$(resolve_command_path "$HARNESS_MANAGER_INVOKER")"
+	fi
+	if [[ -n "$HARNESS_MANAGER_PLAN_INVOKER" ]]; then
+		HARNESS_MANAGER_PLAN_INVOKER="$(resolve_command_path "$HARNESS_MANAGER_PLAN_INVOKER")"
 	fi
 	if [[ -n "$HARNESS_WORKER_INVOKER" ]]; then
 		HARNESS_WORKER_INVOKER="$(resolve_command_path "$HARNESS_WORKER_INVOKER")"
@@ -182,7 +184,6 @@ load_harness_env()
 	[[ "$HARNESS_CAPACITY_RETRY_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_CAPACITY_RETRY_SECONDS must be an integer'
 	(( HARNESS_CAPACITY_RETRY_SECONDS > 0 )) || die 'HARNESS_CAPACITY_RETRY_SECONDS must be greater than zero'
 	[[ "$HARNESS_CAPACITY_MAX_RETRIES" =~ ^[0-9]+$ ]] || die 'HARNESS_CAPACITY_MAX_RETRIES must be an integer'
-	[[ "$HARNESS_MAX_STAGNANT_REVISIONS_PER_TASK" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_STAGNANT_REVISIONS_PER_TASK must be a positive integer'
 	[[ "$HARNESS_CODEX_WALL_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_CODEX_WALL_TIMEOUT_SECONDS must be an integer'
 	[[ "$HARNESS_CODEX_IDLE_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_CODEX_IDLE_TIMEOUT_SECONDS must be an integer'
 	[[ "$HARNESS_CODEX_KILL_GRACE_SECONDS" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_CODEX_KILL_GRACE_SECONDS must be a positive integer'
@@ -205,13 +206,13 @@ load_harness_env()
 
 	export HARNESS_ENV_FILE HARNESS_ENV_DIR PROJECT REPOSITORY SPECIFICATION PROJECT_TMP_DIR
 	export HARNESS_HOME HARNESS_BIN HARNESS_ROOT HARNESS_POLL_SECONDS HARNESS_WAIT_SECONDS
-	export HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES HARNESS_MAX_STAGNANT_REVISIONS_PER_TASK
+	export HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
 	export HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_KILL_GRACE_SECONDS
 	export WORKER_HEARTBEAT_SECONDS
 	export MANAGER_CODEX_BIN MANAGER_CODEX_HOME MANAGER_MODEL MANAGER_REASONING_EFFORT MANAGER_SANDBOX
 	export WORKER_CODEX_BIN WORKER_CODEX_HOME WORKER_MODEL WORKER_REASONING_EFFORT WORKER_SANDBOX
 	export MANAGER_FALLBACK_MODEL WORKER_FALLBACK_MODEL
-	export HARNESS_MANAGER_INVOKER HARNESS_WORKER_INVOKER
+	export HARNESS_MANAGER_INVOKER HARNESS_MANAGER_PLAN_INVOKER HARNESS_WORKER_INVOKER
 }
 
 load_codex_extra_args()
@@ -311,6 +312,124 @@ task_base()
 {
 	local task_id="$1"
 	printf '%s-task-%s' "$PROJECT" "$task_id"
+}
+
+task_root_id()
+{
+	local task_id="$1"
+	if [[ "$task_id" =~ ^(.+)-revision-[0-9]+$ ]]; then
+		printf '%s' "${BASH_REMATCH[1]}"
+	else
+		printf '%s' "$task_id"
+	fi
+}
+
+task_progress_file()
+{
+	local root
+	root="$(task_root_id "$1")"
+	printf '%s/control/progress/%s-task-%s.progress.md' "$(project_dir)" "$PROJECT" "$root"
+}
+
+task_root_assignment_file()
+{
+	local root
+	root="$(task_root_id "$1")"
+	printf '%s/control/progress/%s-task-%s.root-assignment.md' "$(project_dir)" "$PROJECT" "$root"
+}
+
+task_progress_percent()
+{
+	local file
+	file="$(task_progress_file "$1")"
+	if [[ -f "$file" ]]; then
+		awk -F': ' '$1 == "Progress-Percent" {gsub(/%/, "", $2); print $2; exit}' "$file"
+	else
+		printf '0\n'
+	fi
+}
+
+review_percent()
+{
+	local file="$1"
+	local field="$2"
+	awk -F': ' -v field="$field" '$1 == field {gsub(/%/, "", $2); print $2; exit}' "$file"
+}
+
+validate_percent()
+{
+	local value="$1"
+	local label="$2"
+	[[ "$value" =~ ^(100|[1-9]?[0-9])$ ]] || die "$label must be an integer from 0 through 100"
+}
+
+initialize_task_progress()
+{
+	local task_id="$1"
+	local assignment="$2"
+	local root progress root_assignment archived_root_assignment tmp
+	root="$(task_root_id "$task_id")"
+	progress="$(task_progress_file "$root")"
+	root_assignment="$(task_root_assignment_file "$root")"
+	mkdir -p "$(dirname "$progress")"
+	chmod 700 "$(dirname "$progress")"
+	if [[ ! -f "$root_assignment" ]]; then
+		archived_root_assignment="$(project_dir)/archive/$(task_base "$root").assignment.md"
+		if [[ -f "$archived_root_assignment" ]]; then
+			install -m 600 "$archived_root_assignment" "$root_assignment"
+		else
+			install -m 600 "$assignment" "$root_assignment"
+		fi
+	fi
+	if [[ ! -f "$progress" ]]; then
+		tmp="$progress.tmp.$$"
+		{
+			printf '# Root Task Progress\n\n'
+			printf 'Project: %s\n' "$PROJECT"
+			printf 'Task-Root: %s\n' "$root"
+			printf 'Progress-Percent: 0%%\n'
+			printf 'Improvement-Percent: 0%%\n'
+			printf 'Last-Reviewed-Task: none\n'
+			printf 'Updated-At: %s\n\n' "$(timestamp_utc)"
+			printf '## Evidence checkpoint\n\nNo reviewed implementation evidence yet.\n\n'
+			printf '## Remaining work\n\nReconcile the repository against the root assignment.\n'
+		} > "$tmp"
+		chmod 600 "$tmp"
+		mv "$tmp" "$progress"
+	fi
+}
+
+update_task_progress()
+{
+	local task_id="$1"
+	local progress_percent="$2"
+	local improvement_percent="$3"
+	local decision="$4"
+	local review_file="${5:-}"
+	local root progress tmp
+	root="$(task_root_id "$task_id")"
+	progress="$(task_progress_file "$root")"
+	validate_percent "$progress_percent" 'Progress-Percent'
+	validate_percent "$improvement_percent" 'Improvement-Percent'
+	tmp="$progress.tmp.$$"
+	{
+		printf '# Root Task Progress\n\n'
+		printf 'Project: %s\n' "$PROJECT"
+		printf 'Task-Root: %s\n' "$root"
+		printf 'Progress-Percent: %s%%\n' "$progress_percent"
+		printf 'Improvement-Percent: %s%%\n' "$improvement_percent"
+		printf 'Last-Reviewed-Task: %s\n' "$task_id"
+		printf 'Last-Decision: %s\n' "$decision"
+		printf 'Updated-At: %s\n' "$(timestamp_utc)"
+		if [[ -n "$review_file" && -f "$review_file" ]]; then
+			printf '\n## Evidence checkpoint\n\n'
+			cat "$review_file"
+			printf '\n'
+		fi
+	} > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$progress"
+	log_event "TASK_PROGRESS_UPDATED root=$root task=$task_id progress=$progress_percent improvement=$improvement_percent decision=$decision"
 }
 
 task_id_from_filename()
@@ -553,8 +672,8 @@ initialize_project_state()
 	chmod 700 "$HARNESS_ROOT"
 	mkdir -p "$(project_tmp_dir)"
 	chmod 700 "$(project_tmp_dir)"
-	mkdir -p "$(project_dir)"/{tasks,running,results,archive,control/sessions,logs}
-	chmod 700 "$(project_dir)" "$(project_dir)"/{tasks,running,results,archive,control,control/sessions,logs}
+	mkdir -p "$(project_dir)"/{tasks,running,results,archive,control/sessions,control/progress,logs}
+	chmod 700 "$(project_dir)" "$(project_dir)"/{tasks,running,results,archive,control,control/sessions,control/progress,logs}
 
 	write_project_snapshot
 	write_manager_snapshot
@@ -564,6 +683,202 @@ initialize_project_state()
 project_complete_file()
 {
 	printf '%s/control/project.complete' "$(project_dir)"
+}
+
+project_plan_definition_file()
+{
+	printf '%s/control/project-plan.tsv' "$(project_dir)"
+}
+
+project_plan_state_file()
+{
+	printf '%s/control/project-plan-state.tsv' "$(project_dir)"
+}
+
+project_plan_exists()
+{
+	[[ -f "$(project_plan_definition_file)" && -f "$(project_plan_state_file)" ]]
+}
+
+project_plan_total_count()
+{
+	local file
+	file="$(project_plan_state_file)"
+	[[ -f "$file" ]] || { printf '0\n'; return 0; }
+	awk -F '\t' '!/^#/ && NF >= 4 {count++} END {print count + 0}' "$file"
+}
+
+project_plan_complete_count()
+{
+	local file
+	file="$(project_plan_state_file)"
+	[[ -f "$file" ]] || { printf '0\n'; return 0; }
+	awk -F '\t' '!/^#/ && $2 == "COMPLETE" {count++} END {print count + 0}' "$file"
+}
+
+project_plan_pending_count()
+{
+	local file
+	file="$(project_plan_state_file)"
+	[[ -f "$file" ]] || { printf '0\n'; return 0; }
+	awk -F '\t' '!/^#/ && $2 != "COMPLETE" {count++} END {print count + 0}' "$file"
+}
+
+project_plan_progress_percent()
+{
+	local total complete
+	total="$(project_plan_total_count)"
+	complete="$(project_plan_complete_count)"
+	if (( total == 0 )); then
+		printf '0\n'
+	else
+		printf '%s\n' "$((complete * 100 / total))"
+	fi
+}
+
+project_plan_item_status()
+{
+	local item_id="$1"
+	awk -F '\t' -v item="$item_id" '!/^#/ && $1 == item {print $2; exit}' "$(project_plan_state_file)"
+}
+
+project_plan_item_root()
+{
+	local item_id="$1"
+	awk -F '\t' -v item="$item_id" '!/^#/ && $1 == item {print $3; exit}' "$(project_plan_state_file)"
+}
+
+project_plan_item_for_root()
+{
+	local root="$1"
+	awk -F '\t' -v root="$root" '!/^#/ && $3 == root {print $1; exit}' "$(project_plan_state_file)"
+}
+
+project_plan_all_complete()
+{
+	local total pending
+	project_plan_exists || return 1
+	total="$(project_plan_total_count)"
+	pending="$(project_plan_pending_count)"
+	(( total > 0 && pending == 0 ))
+}
+
+root_has_accepted_task()
+{
+	local root="$1"
+	local file task
+	shopt -s nullglob
+	for file in "$(project_dir)/archive/$PROJECT-task-$root.accepted.md" \
+		"$(project_dir)/archive/$PROJECT-task-$root-revision-"*.accepted.md; do
+		task="${file##*/}"
+		task="${task#${PROJECT}-task-}"
+		task="${task%.accepted.md}"
+		[[ "$(task_root_id "$task")" == "$root" ]] && return 0
+	done
+	return 1
+}
+
+initialize_project_plan()
+{
+	local source_file="$1"
+	local definition state definition_tmp state_tmp item_id title accepted_root extra
+	local seen_file
+	[[ -f "$source_file" ]] || die "project plan source does not exist: $source_file"
+	! project_plan_exists || die "project plan already exists: $(project_plan_definition_file)"
+	definition="$(project_plan_definition_file)"
+	state="$(project_plan_state_file)"
+	definition_tmp="$definition.tmp.$$"
+	state_tmp="$state.tmp.$$"
+	seen_file="$state.seen.$$"
+	: > "$seen_file"
+	{
+		printf '# coding-harness-project-plan-v1\n'
+		printf '# project=%s\n' "$PROJECT"
+		printf '# specification=%s\n' "$SPECIFICATION"
+		if [[ -n "$SPECIFICATION" && -f "$SPECIFICATION" ]]; then
+			printf '# specification_sha256=%s\n' "$(sha256sum "$SPECIFICATION" | awk '{print $1}')"
+		fi
+		printf '# created_at=%s\n' "$(timestamp_utc)"
+	} > "$definition_tmp"
+	{
+		printf '# coding-harness-project-plan-state-v1\n'
+		printf '# item_id\tstatus\ttask_root\tupdated_at\n'
+	} > "$state_tmp"
+	while IFS=$'\t' read -r item_id title accepted_root extra || [[ -n "${item_id:-}${title:-}${accepted_root:-}${extra:-}" ]]; do
+		[[ -n "${item_id:-}" ]] || continue
+		[[ "$item_id" != \#* ]] || continue
+		[[ -z "${extra:-}" ]] || die "project plan item has more than three tab-separated fields: $item_id"
+		[[ "$item_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "invalid project plan item ID: $item_id"
+		[[ -n "${title:-}" ]] || die "project plan item has no title: $item_id"
+		! grep -Fqx -- "$item_id" "$seen_file" || die "duplicate project plan item ID: $item_id"
+		printf '%s\n' "$item_id" >> "$seen_file"
+		printf '%s\t%s\n' "$item_id" "$title" >> "$definition_tmp"
+		if [[ -n "${accepted_root:-}" && "$accepted_root" != '-' ]]; then
+			validate_task_id "$accepted_root"
+			[[ "$(task_root_id "$accepted_root")" == "$accepted_root" ]] || die "accepted project plan task must be a root ID: $accepted_root"
+			root_has_accepted_task "$accepted_root" || die "cannot reconcile project plan item $item_id; no accepted task exists for root $accepted_root"
+			[[ "$(task_progress_percent "$accepted_root")" == 100 ]] || die "cannot reconcile project plan item $item_id; root $accepted_root is not at 100%"
+			printf '%s\tCOMPLETE\t%s\t%s\n' "$item_id" "$accepted_root" "$(timestamp_utc)" >> "$state_tmp"
+		else
+			printf '%s\tPENDING\t-\t%s\n' "$item_id" "$(timestamp_utc)" >> "$state_tmp"
+		fi
+	done < "$source_file"
+	rm -f "$seen_file"
+	(( $(awk -F '\t' '!/^#/ && NF == 2 {count++} END {print count + 0}' "$definition_tmp") > 0 )) || die 'project plan must contain at least one item'
+	chmod 600 "$definition_tmp" "$state_tmp"
+	mv "$definition_tmp" "$definition"
+	mv "$state_tmp" "$state"
+	log_event "PROJECT_PLAN_INITIALIZED items=$(project_plan_total_count) complete=$(project_plan_complete_count) file=$definition"
+	trace_event PROJECT_PLAN_INITIALIZED "items=$(project_plan_total_count)" "complete=$(project_plan_complete_count)" "definition_file=$definition" "state_file=$state"
+}
+
+activate_project_plan_item()
+{
+	local item_id="$1"
+	local root="$2"
+	local state status existing_root tmp
+	state="$(project_plan_state_file)"
+	project_plan_exists || die 'project plan is missing; initialize it before publishing tasks'
+	status="$(project_plan_item_status "$item_id")"
+	[[ -n "$status" ]] || die "unknown project plan item: $item_id"
+	existing_root="$(project_plan_item_root "$item_id")"
+	if [[ "$status" == ACTIVE && "$existing_root" == "$root" ]]; then
+		return 0
+	fi
+	[[ "$status" == PENDING ]] || die "project plan item is not pending: $item_id ($status)"
+	[[ -z "$(project_plan_item_for_root "$root")" ]] || die "task root is already assigned to a project plan item: $root"
+	[[ -z "$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" {print $1; exit}' "$state")" ]] || die 'another project plan item is already active'
+	tmp="$state.tmp.$$"
+	awk -F '\t' -v OFS='\t' -v item="$item_id" -v root="$root" -v now="$(timestamp_utc)" '
+		/^#/ {print; next}
+		$1 == item {$2 = "ACTIVE"; $3 = root; $4 = now}
+		{print}
+	' "$state" > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$state"
+	log_event "PROJECT_PLAN_ITEM_ACTIVATED item=$item_id root=$root"
+}
+
+complete_project_plan_item_for_task()
+{
+	local task_id="$1"
+	local root item_id state status tmp
+	root="$(task_root_id "$task_id")"
+	item_id="$(project_plan_item_for_root "$root")"
+	[[ -n "$item_id" ]] || die "task root is not assigned to the project plan: $root"
+	status="$(project_plan_item_status "$item_id")"
+	[[ "$status" == ACTIVE || "$status" == COMPLETE ]] || die "project plan item cannot be completed from state $status: $item_id"
+	[[ "$status" != COMPLETE ]] || return 0
+	state="$(project_plan_state_file)"
+	tmp="$state.tmp.$$"
+	awk -F '\t' -v OFS='\t' -v item="$item_id" -v now="$(timestamp_utc)" '
+		/^#/ {print; next}
+		$1 == item {$2 = "COMPLETE"; $4 = now}
+		{print}
+	' "$state" > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$state"
+	log_event "PROJECT_PLAN_ITEM_COMPLETED item=$item_id root=$root task=$task_id progress=$(project_plan_progress_percent)"
 }
 
 project_completion_recorded()
@@ -576,6 +891,8 @@ mark_project_complete()
 	local task_id="$1"
 	local note_file="${2:-}"
 	local file tmp
+	project_plan_exists || die 'refusing project completion without a persistent project plan'
+	project_plan_all_complete || die "refusing project completion with $(project_plan_pending_count) unfinished project plan item(s)"
 	file="$(project_complete_file)"
 	tmp="$file.tmp.$$"
 	{

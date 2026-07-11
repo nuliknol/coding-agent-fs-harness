@@ -125,6 +125,17 @@ fi
 [[ ! -e "$lease" ]] || die "worker lease still exists: $task_id"
 validate_worker_result "$result"
 validate_acceptance_evidence "$note_file"
+initialize_task_progress "$task_id" "$assignment_archive"
+current_progress="$(task_progress_percent "$task_id")"
+accept_improvement=$((100 - current_progress))
+
+project_plan_exists || die 'cannot accept a task without a persistent project plan'
+plan_item_id="$(project_plan_item_for_root "$(task_root_id "$task_id")")"
+[[ -n "$plan_item_id" ]] || die "task is not assigned to the project plan: $task_id"
+if [[ "$complete_flag" == '--complete-project' ]]; then
+	unfinished_other_items="$(awk -F '\t' -v item="$plan_item_id" '!/^#/ && $1 != item && $2 != "COMPLETE" {count++} END {print count + 0}' "$(project_plan_state_file)")"
+	(( unfinished_other_items == 0 )) || die "refusing --complete-project; $unfinished_other_items other project plan item(s) remain unfinished"
+fi
 mv "$result" "$result_archive"
 
 tmp="$accepted.tmp.$$"
@@ -142,11 +153,13 @@ tmp="$accepted.tmp.$$"
 } > "$tmp"
 chmod 600 "$tmp"
 mv "$tmp" "$accepted"
+update_task_progress "$task_id" 100 "$accept_improvement" ACCEPT "$note_file"
+complete_project_plan_item_for_task "$task_id"
 
 rm -f "$dir/control/$base.lease" "$dir/control/$base.abort.md" "$dir/control/$base.worker-triggered" "$dir/control/$base.worker-failed.md" "$dir/control/$base.worker-supervisor-failed.md"
 log_event "TASK_ACCEPTED task=$task_id"
 trace_event TASK_ACCEPTED "task_id=$task_id" "accepted_file=$accepted" "result_archive=$result_archive" "note_file=${note_file:-}"
-if [[ "$complete_flag" == '--complete-project' ]]; then
+if project_plan_all_complete; then
 	mark_project_complete "$task_id" "$note_file"
 fi
 printf '%s\n' "$accepted"

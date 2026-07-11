@@ -18,7 +18,9 @@ Every harness command must receive `ENV_FILE` as its first argument. Do not repl
 3. Inspect the repository and implement only that task.
 4. Do not create, stage, or commit Git changes.
 5. Send heartbeats after meaningful implementation checkpoints.
-6. Run all validation required by the assignment.
+6. Preserve the cumulative root-task progress checkpoint. Run the affected
+   build and one focused happy-path smoke; run one regression only for a bug
+   fix. Do not run or repair unrelated aggregate tests.
 7. Write and publish the result with `worker-complete-task`.
 8. Terminate after publishing the result. Do not wait for another task in this same turn.
 

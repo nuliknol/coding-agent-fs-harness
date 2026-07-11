@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE PLAN_TSV_FILE\n' "${0##*/}" >&2
+	printf 'Each non-comment line: ITEM_ID<TAB>TITLE[<TAB>ACCEPTED_TASK_ROOT]\n' >&2
+	exit 2
+}
+
+[[ $# -eq 2 ]] || usage
+load_harness_env "$1"
+plan_file="$2"
+ensure_project
+trace_init manager_init_project_plan
+trace_script_start "$@"
+trap 'trace_script_exit $?' EXIT
+acquire_project_lock
+initialize_project_plan "$plan_file"
+printf '%s\n' "$(project_plan_definition_file)"

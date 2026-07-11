@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 1 ]] || usage
+load_harness_env "$1"
+ensure_project
+require_manager_configuration
+require_manager_codex
+trace_init manager_plan_next_task
+trace_script_start "$@"
+write_manager_snapshot
+
+project_path="$(project_dir)"
+plan_running="$project_path/control/manager-plan.running"
+cleanup()
+{
+	local status="$?"
+	rm -f "$plan_running"
+	trace_script_exit "$status"
+}
+trap cleanup EXIT
+{
+	printf 'pid=%s\n' "$$"
+	printf 'started_at=%s\n' "$(timestamp_utc)"
+	printf 'env_file=%s\n' "$HARNESS_ENV_FILE"
+} > "$plan_running.tmp.$$"
+chmod 600 "$plan_running.tmp.$$"
+mv "$plan_running.tmp.$$" "$plan_running"
+thread_file="$project_path/control/manager.thread"
+[[ -f "$thread_file" ]] || die 'manager thread is not registered; run manager-bootstrap'
+project_plan_exists || die 'project plan is missing'
+project_plan_all_complete && die 'project plan is already complete'
+thread_id="$(kv_file_value "$thread_file" thread_id)"
+plan_definition="$(project_plan_definition_file)"
+plan_state="$(project_plan_state_file)"
+development_policy_file="$REPOSITORY/design/development-policy.txt"
+[[ -f "$development_policy_file" ]] || development_policy_file=""
+prompt_file="$project_path/control/manager-plan-next-task.prompt.md"
+active_item_before="$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" {print $1; exit}' "$plan_state")"
+
+cat > "$prompt_file.tmp.$$" <<PROMPT
+The previous root task is resolved, but the project specification is not complete.
+
+ENV_FILE=$HARNESS_ENV_FILE
+PROJECT=$PROJECT
+PROJECT_TMP_DIR=$PROJECT_TMP_DIR
+PROJECT_PLAN_FILE=$plan_definition
+PROJECT_PLAN_STATE_FILE=$plan_state
+PROJECT_PROGRESS_PERCENT=$(project_plan_progress_percent)
+DEVELOPMENT_POLICY_FILE=$development_policy_file
+SPECIFICATION=$SPECIFICATION
+REPOSITORY=$REPOSITORY
+HARNESS_BIN=$HARNESS_BIN
+
+Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and follow it. Read DEVELOPMENT_POLICY_FILE when present, then read PROJECT_PLAN_FILE and PROJECT_PLAN_STATE_FILE completely. Select the ACTIVE item that still needs a continuation, otherwise the first PENDING item in specification order. Inspect the specification and actual repository state, write exactly one bounded task under PROJECT_TMP_DIR, and publish it with manager-publish-task including its PROJECT_PLAN_ITEM_ID. Preserve completed implementation and begin at the first unmet criterion. Then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or repeat completed plan items.
+PROMPT
+if codex_model_requires_narrow_prompt "$MANAGER_MODEL"; then
+	cat >> "$prompt_file.tmp.$$" <<PROMPT
+
+Context: authorized local development in my own repository. Task type: benign software engineering. Do not perform offensive security, credential extraction, vulnerability exploitation, malware behavior, unauthorized access, network scanning, or bypassing security controls. Use only the listed local project files needed to publish the next bounded implementation task.
+PROMPT
+fi
+chmod 600 "$prompt_file.tmp.$$"
+mv "$prompt_file.tmp.$$" "$prompt_file"
+
+task_published()
+{
+	compgen -G "$project_path/tasks/$PROJECT-task-*.ready.md" >/dev/null ||
+		compgen -G "$project_path/running/$PROJECT-task-*.running.md" >/dev/null ||
+		compgen -G "$project_path/results/$PROJECT-task-*.result.md" >/dev/null ||
+		{ [[ -z "$active_item_before" ]] && awk -F '\t' '!/^#/ && $2 == "ACTIVE" {found=1} END {exit found ? 0 : 1}' "$plan_state"; }
+}
+
+attempt=1
+capacity_retries=0
+fallback_stage=0
+current_model="$MANAGER_MODEL"
+while true; do
+	stamp="$(date -u '+%Y%m%dT%H%M%SZ')"
+	attempt_label="$(printf '%03d' "$attempt")"
+	json_log="$project_path/logs/manager-plan-$stamp-attempt-$attempt_label.jsonl"
+	stderr_log="$project_path/logs/manager-plan-$stamp-attempt-$attempt_label.stderr.log"
+	last_message="$project_path/logs/manager-plan-$stamp-attempt-$attempt_label.md"
+	log_event "MANAGER_PLAN_STARTED attempt=$attempt project_progress=$(project_plan_progress_percent)"
+	trace_event MANAGER_PLAN_ATTEMPT "attempt=$attempt" "thread_id=$thread_id" "json_log=$json_log"
+	set +e
+	"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" manager_plan "$current_model" "$prompt_file" "$json_log" "$stderr_log" "$last_message" resume "$thread_id"
+	status=$?
+	set -e
+	classification="$(kv_file_value "${json_log%.jsonl}.classification" classification 2>/dev/null || true)"
+	if task_published; then
+		log_event "MANAGER_PLAN_COMMITTED attempt=$attempt"
+		trace_event MANAGER_PLAN_COMMITTED "attempt=$attempt" "status=$status"
+		printf 'Manager published the next project task and exited.\n'
+		exit 0
+	fi
+	if (( status == 0 )); then
+		log_event "MANAGER_PLAN_LEFT_PENDING attempt=$attempt"
+		exit 3
+	fi
+	if codex_model_requires_narrow_prompt "$current_model" && [[ "$classification" != success ]]; then
+		if (( fallback_stage == 0 )); then
+			fallback_stage=1
+			attempt=$((attempt + 1))
+			printf '\nRetry scope: publish exactly one task for the first unfinished project plan item.\n' >> "$prompt_file"
+			continue
+		elif (( fallback_stage == 1 )) && [[ "$MANAGER_FALLBACK_MODEL" != "$current_model" ]]; then
+			fallback_stage=2
+			current_model="$MANAGER_FALLBACK_MODEL"
+			attempt=$((attempt + 1))
+			continue
+		fi
+	fi
+	if codex_log_has_capacity_error "$json_log" && capacity_retry_allowed "$capacity_retries"; then
+		capacity_retries=$((capacity_retries + 1))
+		log_event "MANAGER_PLAN_CAPACITY_RETRY_SCHEDULED attempt=$attempt retry=$capacity_retries delay_seconds=$HARNESS_CAPACITY_RETRY_SECONDS"
+		sleep "$HARNESS_CAPACITY_RETRY_SECONDS"
+		attempt=$((attempt + 1))
+		continue
+	fi
+	die "Codex manager planning turn failed with exit status $status; see $json_log"
+done

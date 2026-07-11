@@ -32,6 +32,13 @@ trace_event WORKER_SESSION_CREATED "task_id=$task_id" "session=$session"
 claim_output="$("$HARNESS_BIN/worker-claim-task" "$HARNESS_ENV_FILE" "$task_id" "$session")"
 task_file="$(printf '%s\n' "$claim_output" | awk -F= '$1 == "TASK_FILE" {sub(/^[^=]*=/, ""); print; exit}')"
 [[ -f "$task_file" ]] || die "claimed task file is missing: $task_file"
+initialize_task_progress "$task_id" "$task_file"
+task_root="$(task_root_id "$task_id")"
+progress_file="$(task_progress_file "$task_root")"
+root_assignment_file="$(task_root_assignment_file "$task_root")"
+starting_progress="$(task_progress_percent "$task_root")"
+development_policy_file="$REPOSITORY/design/development-policy.txt"
+[[ -f "$development_policy_file" ]] || development_policy_file=""
 trace_event WORKER_TASK_CLAIMED "task_id=$task_id" "session=$session" "task_file=$task_file"
 
 prompt_file="$dir/control/$base.worker.prompt.md"
@@ -45,9 +52,14 @@ PROJECT_TMP_DIR=$PROJECT_TMP_DIR
 REPOSITORY=$REPOSITORY
 TASK_ID=$task_id
 TASK_FILE=$task_file
+TASK_ROOT=$task_root
+ROOT_ASSIGNMENT_FILE=$root_assignment_file
+PROGRESS_FILE=$progress_file
+STARTING_PROGRESS_PERCENT=$starting_progress
+DEVELOPMENT_POLICY_FILE=$development_policy_file
 SESSION=$session
 
-The task is already claimed by this launcher. Read TASK_FILE completely, implement exactly that assignment, validate it, write any scratch files and the result report under PROJECT_TMP_DIR, publish the result with worker-complete-task, and terminate. Do not wait for another task. Do not create, stage, or commit Git changes.
+The task is already claimed by this launcher. Read DEVELOPMENT_POLICY_FILE when present, then ROOT_ASSIGNMENT_FILE, PROGRESS_FILE, and TASK_FILE completely. Preserve verified work and continue from STARTING_PROGRESS_PERCENT rather than reimplementing the root task from zero. Implement exactly the remaining bounded assignment, validate only the developed feature according to the prototype policy, write any scratch files and the result report under PROJECT_TMP_DIR, publish the result with worker-complete-task, and terminate. Do not wait for another task. Do not create, stage, or commit Git changes.
 PROMPT
 if codex_model_requires_narrow_prompt "$WORKER_MODEL"; then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT

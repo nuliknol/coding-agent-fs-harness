@@ -1,0 +1,4 @@
+# One immutable specification phase or acceptance gate per line.
+# Fields are tab-separated: ITEM_ID<TAB>TITLE
+phase-01	First specification phase
+phase-02	Second specification phase

@@ -14,7 +14,8 @@ A local, event-driven two-agent coding harness for Linux.
 
 ```text
 manager-bootstrap
-    -> one manager Codex turn publishes task 001
+    -> records the complete specification plan
+    -> publishes one task for the first plan item
     -> manager exits
 
 worker-supervisor (local Bash, no tokens)
@@ -26,6 +27,7 @@ manager-supervisor (local Bash, no tokens)
     -> detects result 001
     -> resumes manager Codex thread
     -> manager accepts/rejects and publishes the next task
+    -> if acceptance leaves a planning gap, resumes a dedicated planning turn
     -> manager exits
 
 worker-supervisor
@@ -43,7 +45,7 @@ The interactive Codex TUI is not used for automated workers. A fresh non-interac
 `harness-watch-agents refactoring-whatever.env`
 
 [MANAGER task=039-phase8-gpu-proof-device-buffer-descriptor]
-I’ll review task 039 against the archived assignment and actual code, run focused and full validation, then accept or reject and publish one bounded follow-up.
+I’ll review task 039 against the immutable root assignment, cumulative progress checkpoint, and actual code, run the affected build and focused smoke, then accept or publish one bounded continuation.
 
 [MANAGER task=039-phase8-gpu-proof-device-buffer-descriptor]
 The result claims the descriptor layer is host-only and validates alignment, row strides, ordering, and spans. I’m inspecting the descriptor structs, builder, tests, and status note now.
@@ -55,6 +57,11 @@ The status note limits the scope correctly. I’m reading the descriptor builder
 The descriptor builder reuses the private plan validator, so it inherits the fixed 16-byte alignment and region-order checks before constructing descriptors. I’m verifying the validation helper and then running the required validation.
 
 ```
+
+The watcher replays the currently active attempt so its context is visible, but
+does not replay archived rejection decisions from earlier runs. Use
+`--new-only` to suppress even the active attempt's existing messages and show
+only output appended after the watcher starts.
 ## Codex CLI extra args
 
 The harness can append extra `codex exec` flags from your trusted `.env` file.
@@ -133,10 +140,9 @@ export HARNESS_WAIT_SECONDS="300"
 export HARNESS_STALE_SECONDS="900"
 export HARNESS_USE_INOTIFY="1"
 export WORKER_HEARTBEAT_SECONDS="60"
-export HARNESS_CODEX_WALL_TIMEOUT_SECONDS="1800"
-export HARNESS_CODEX_IDLE_TIMEOUT_SECONDS="300"
+export HARNESS_CODEX_WALL_TIMEOUT_SECONDS="0"
+export HARNESS_CODEX_IDLE_TIMEOUT_SECONDS="0"
 export HARNESS_CODEX_KILL_GRACE_SECONDS="15"
-export HARNESS_MAX_STAGNANT_REVISIONS_PER_TASK="10"
 ```
 
 The manager and worker may use the same `CODEX_HOME`, but separate account directories make account selection explicit.
@@ -167,7 +173,9 @@ Start the complete system:
 /opt/coding-agent-fs-harness-v4.2/bin/harness-start /path/to/repository/harness.env
 ```
 
-`harness-init` and `harness-start` serialize on the environment file path. A second concurrent invocation against the same `ENV_FILE` is rejected instead of racing.
+`harness-init` and `harness-start` serialize on the environment file path. A
+repeated `harness-start` preserves existing state and starts only missing
+supervisors.
 
 `harness-start` performs these operations:
 
@@ -177,7 +185,15 @@ Start the complete system:
 4. Return to the shell.
 
 After that, no manual prompt pushes are required.
-When the manager accepts the final task with `--complete-project`, the harness records a completion event, terminates any harness-owned child processes if needed, and both supervisors exit automatically.
+Bootstrap records every specification phase or acceptance gate in an immutable
+project plan. Each root task is assigned to one plan item. Accepting a root task
+completes only that item, and project progress is calculated from completed plan
+items rather than from whichever tasks happen to have been published.
+
+When the final plan item is accepted, the harness records completion and both
+supervisors exit automatically. A premature `--complete-project` assertion is
+rejected before task acceptance, so an unfinished specification cannot be
+terminated by a mistaken manager decision.
 
 ## Stop and restart
 
@@ -193,8 +209,25 @@ Restart them and preserve existing state:
 /opt/coding-agent-fs-harness-v4.2/bin/harness-start /path/to/repository/harness.env
 ```
 
-If `manager.thread` already exists, bootstrap is not repeated.
-If a harness process for the same `ENV_FILE` is already active, `harness-init` and `harness-start` prompt for confirmation before resetting the existing project state. Confirming the reset stops the supervisors, archives the previous project state under `$HARNESS_ROOT/resets/`, and recreates a fresh project directory.
+If `manager.thread` already exists, bootstrap is not repeated. Active processes
+do not cause `harness-start` to reset state. Only `harness-init` offers an
+explicit confirmed reset, archives the old state under `$HARNESS_ROOT/resets/`,
+and creates a new project directory.
+
+Each root task has an immutable assignment and a cumulative progress checkpoint.
+Manager reviews update `Progress-Percent` and `Improvement-Percent`; revision
+assignments automatically receive the recorded starting percentage, completed
+evidence, and root-assignment paths. Consequently, stopping/restarting the
+supervisors or rebooting does not restart implementation from zero.
+
+The project plan is independently durable. If a manager accepts a task and exits
+without publishing its successor, the manager supervisor detects that the plan
+is incomplete and no task is active. It resumes the manager to publish exactly
+one task for the first unfinished plan item. The same recovery happens after a
+restart; no completed plan item or root task is replayed.
+
+`harness-status` reports both levels explicitly: project completion across the
+plan and cumulative completion of each current root task.
 
 ## State location
 
@@ -238,9 +271,14 @@ $HARNESS_ROOT/projects/$PROJECT/
         sample-project-task-001.accepted.md
     control/
         manager.thread
+        project-plan.tsv
+        project-plan-state.tsv
         supervisor.pid
         worker-supervisor.pid
         sample-project-task-002.lease
+        progress/
+            sample-project-task-002.root-assignment.md
+            sample-project-task-002.progress.md
         sessions/
     logs/
         events.log
@@ -286,6 +324,24 @@ The worker launcher runs a local heartbeat subprocess while Codex is active. The
 `WORKER_HEARTBEAT_SECONDS=60` means the lease is refreshed every 60 seconds.
 
 `HARNESS_STALE_SECONDS=900` means a running worker is considered stale only after 900 seconds without a heartbeat. It is not a task-duration limit.
+
+Non-interactive Codex wall and idle watchdogs default to `0` (disabled), so a
+correctly progressing turn is not killed because it is slow. Set
+`HARNESS_CODEX_WALL_TIMEOUT_SECONDS` or
+`HARNESS_CODEX_IDLE_TIMEOUT_SECONDS` to a nonzero value only when an operator
+intentionally wants such a watchdog.
+
+## Prototype validation and revisions
+
+The manager and worker follow the repository's prototype / feature-first
+policy: one affected build/compile check, one focused happy-path smoke, and one
+regression test only for a bug fix. Unrelated aggregate/CTest failures are
+recorded as limitations and do not become revision work.
+
+Revisions are unlimited. A zero-improvement result causes a narrower or changed
+strategy, not a terminal human-intervention state. Cumulative progress is
+monotonic and only root-task acceptance criteria count toward it; unrelated
+repairs contribute 0%.
 
 ## Capacity retry policy
 

@@ -5,7 +5,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HARNESS_HOME="$(cd "$SCRIPT_DIR/.." && pwd)"
 HARNESS_BIN="$HARNESS_HOME/bin"
 TEST_ROOT="$(mktemp -d /tmp/coding-harness-v4.2-test.XXXXXX)"
-trap '"$HARNESS_BIN/harness-stop" "$TEST_ROOT/harness.env" >/dev/null 2>&1 || true; rm -rf "$TEST_ROOT"' EXIT
+cleanup()
+{
+	"$HARNESS_BIN/harness-stop" "$TEST_ROOT/harness.env" >/dev/null 2>&1 || true
+	if [[ "${KEEP_TEST_ROOT:-0}" == 1 ]]; then
+		printf 'Preserved failed test state: %s\n' "$TEST_ROOT" >&2
+	else
+		rm -rf "$TEST_ROOT"
+	fi
+}
+trap cleanup EXIT
 
 mkdir -p "$TEST_ROOT/repo" "$TEST_ROOT/manager-home" "$TEST_ROOT/worker-home"
 printf 'test specification\n' > "$TEST_ROOT/repo/spec.md"
@@ -46,6 +55,9 @@ if printf '%s' "$prompt" | grep -q 'This is the bootstrap turn'; then
 elif printf '%s' "$prompt" | grep -q 'A worker result is ready for review'; then
 	kind="review"
 	key="review-$(value TASK_ID)"
+elif printf '%s' "$prompt" | grep -q 'The previous root task is resolved'; then
+	kind="plan"
+	key="plan"
 elif printf '%s' "$prompt" | grep -q 'The task is already claimed by this launcher'; then
 	kind="worker"
 	key="worker-$(value TASK_ID)"
@@ -69,9 +81,17 @@ printf '{"type":"turn.started"}\n'
 HARNESS_BIN="$(value HARNESS_BIN)"
 final_message="done"
 if [[ "$kind" == bootstrap ]]; then
+	plan="$(mktemp)"
+	printf 'phase-1\tMock first phase\nphase-2\tMock second phase\n' > "$plan"
+	"$HARNESS_BIN/manager-init-project-plan" "$ENV_FILE" "$plan" >/dev/null
 	tmp="$(mktemp)"
 	printf '# Task\n\nTask-ID: 001\n\nMock first task.\n' > "$tmp"
-	"$HARNESS_BIN/manager-publish-task" "$ENV_FILE" 001 "$tmp" >/dev/null
+	"$HARNESS_BIN/manager-publish-task" "$ENV_FILE" 001 "$tmp" phase-1 >/dev/null
+	rm -f "$tmp" "$plan"
+elif [[ "$kind" == plan ]]; then
+	tmp="$(mktemp)"
+	printf '# Task\n\nTask-ID: 002\n\nMock second task.\n' > "$tmp"
+	"$HARNESS_BIN/manager-publish-task" "$ENV_FILE" 002 "$tmp" phase-2 >/dev/null
 	rm -f "$tmp"
 elif [[ "$kind" == review ]]; then
 	TASK_ID="$(value TASK_ID)"
@@ -131,14 +151,14 @@ Mock scope review.
 ## Conclusion
 All required behavior was independently verified. Accept.
 NOTE
+	if [[ "$TASK_ID" == 001 ]]; then
+		if "$HARNESS_BIN/manager-accept-task" "$ENV_FILE" "$TASK_ID" "$note" --complete-project >/dev/null 2>&1; then
+			printf 'premature project completion was incorrectly accepted\n' >&2
+			exit 90
+		fi
+	fi
 	"$HARNESS_BIN/manager-accept-task" "$ENV_FILE" "$TASK_ID" "$note" >/dev/null
 	rm -f "$note"
-	fi
-	if [[ "$TASK_ID" == 001 ]]; then
-		tmp="$(mktemp)"
-		printf '# Task\n\nTask-ID: 002\n\nMock second task.\n' > "$tmp"
-		"$HARNESS_BIN/manager-publish-task" "$ENV_FILE" 002 "$tmp" >/dev/null
-		rm -f "$tmp"
 	fi
 elif [[ "$kind" == worker ]]; then
 	TASK_ID="$(value TASK_ID)"
@@ -198,7 +218,10 @@ export HARNESS_CAPACITY_MAX_RETRIES="3"
 ENV
 chmod 600 "$TEST_ROOT/harness.env"
 
-"$HARNESS_BIN/harness-check-env" "$TEST_ROOT/harness.env" >/dev/null
+"$HARNESS_BIN/harness-check-env" "$TEST_ROOT/harness.env" > "$TEST_ROOT/check-env.out"
+grep -q 'Codex wall timeout seconds: 0 (0 means unlimited)' "$TEST_ROOT/check-env.out"
+grep -q 'Codex idle timeout seconds: 0 (0 means unlimited)' "$TEST_ROOT/check-env.out"
+grep -q 'Task revisions: unlimited' "$TEST_ROOT/check-env.out"
 "$HARNESS_BIN/harness-init" "$TEST_ROOT/harness.env" >/dev/null
 [[ -d "/tmp/testproj" ]]
 "$HARNESS_BIN/harness-start" "$TEST_ROOT/harness.env" >/dev/null
@@ -231,6 +254,8 @@ grep -q 'WORKER_SUPERVISOR_TRIGGER task=001' "$EVENTS"
 grep -q 'WORKER_DIRECT_RESULT_NORMALIZED task=001' "$EVENTS"
 grep -q 'WORKER_LAST_MESSAGE_RESULT_NORMALIZED task=002' "$EVENTS"
 grep -q 'TASK_PUBLISHED task=002' "$EVENTS"
+grep -q 'SUPERVISOR_PLANNING_GAP progress=50 pending=1' "$EVENTS"
+grep -q 'MANAGER_PLAN_COMMITTED' "$EVENTS"
 grep -q 'TASK_ACCEPTED task=002' "$EVENTS"
 grep -q 'PROJECT_COMPLETED task=002' "$EVENTS"
 grep -q 'event=SCRIPT_START' "$TRACE"
@@ -275,13 +300,24 @@ printf '# Duplicate Result\n' > "$result"
 [[ -f "$stale_result_archive" ]]
 grep -q 'TASK_ACCEPTED_STALE_RESULT_ARCHIVED task=002' "$EVENTS"
 
+# Continue with isolated low-level command tests after the completed end-to-end
+# plan by extending this disposable fixture with three pending items.
+rm -f "$TEST_ROOT/state/projects/testproj/control/project.complete"
+printf 'fixture-003\tMalformed acceptance fixture\nfixture-004\tUnlimited revision fixture\nfixture-005\tCumulative progress fixture\n' \
+	>> "$TEST_ROOT/state/projects/testproj/control/project-plan.tsv"
+printf 'fixture-003\tPENDING\t-\t1970-01-01T00:00:00Z\nfixture-004\tPENDING\t-\t1970-01-01T00:00:00Z\nfixture-005\tPENDING\t-\t1970-01-01T00:00:00Z\n' \
+	>> "$TEST_ROOT/state/projects/testproj/control/project-plan-state.tsv"
+
 # A manager cannot accept a malformed worker report or an unstructured review
 # note, even when the result completion transaction itself is valid.
 task_id=003
 base="testproj-task-$task_id"
 result="$TEST_ROOT/state/projects/testproj/results/$base.result.md"
 assignment="$TEST_ROOT/state/projects/testproj/archive/$base.assignment.md"
-printf '# Task\n\nTask-ID: %s\n' "$task_id" > "$assignment"
+fixture_task="$TEST_ROOT/fixture-003.md"
+printf '# Task\n\nTask-ID: %s\n' "$task_id" > "$fixture_task"
+"$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" "$task_id" "$fixture_task" fixture-003 >/dev/null
+mv "$TEST_ROOT/state/projects/testproj/tasks/$base.ready.md" "$assignment"
 printf 'Task-ID: %s\nStatus: COMPLETED\n' "$task_id" > "$result"
 note="$TEST_ROOT/bad-review.md"
 printf 'Task-ID: %s\nDecision: ACCEPT\n' "$task_id" > "$note"
@@ -351,21 +387,71 @@ All required behavior was independently verified. Accept.
 NOTE
 "$HARNESS_BIN/manager-accept-task" "$TEST_ROOT/harness.env" "$task_id" "$note" >/dev/null
 
-# A task may receive unlimited improving revisions, but ten consecutive
-# zero-improvement rejections require human intervention.
+# Revisions remain unlimited, including sustained zero-gain attempts. The
+# manager must preserve cumulative progress and change strategy instead of
+# stopping for a human restart.
+fixture_task="$TEST_ROOT/fixture-004.md"
+printf '# Task\n\nTask-ID: 004\n' > "$fixture_task"
+"$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" 004 "$fixture_task" fixture-004 >/dev/null
+rm -f "$TEST_ROOT/state/projects/testproj/tasks/testproj-task-004.ready.md"
 for revision in 01 02 03 04 05 06 07 08 09 10; do
 	printf 'Improvement-Percent: 0%%\n' > "$TEST_ROOT/state/projects/testproj/archive/testproj-task-004-revision-$revision.rejected.md"
 done
 revision_task="$TEST_ROOT/revision-task.md"
 printf '# Task\n' > "$revision_task"
-if "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" 004-revision-11 "$revision_task" >/dev/null 2>&1; then
-	printf 'Expected stagnation limit to require human intervention.\n' >&2
-	exit 1
-fi
+"$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" 004-revision-11 "$revision_task" >/dev/null
+grep -q '^Starting-Progress: 0%$' "$TEST_ROOT/state/projects/testproj/tasks/testproj-task-004-revision-11.ready.md"
 watch_output="$TEST_ROOT/watch-agents.out"
-timeout 2 "$HARNESS_BIN/harness-watch-agents" "$TEST_ROOT/harness.env" > "$watch_output" 2>&1 || true
-grep -q 'MANAGER REJECTED task=004-revision-10' "$watch_output"
+timeout 2 "$HARNESS_BIN/harness-watch-agents" "$TEST_ROOT/harness.env" > "$watch_output" 2>&1 &
+watch_pid=$!
+sleep 0.3
+printf 'Progress-Percent: 0%%\nImprovement-Percent: 0%%\n' > "$TEST_ROOT/state/projects/testproj/archive/testproj-task-004-revision-12.rejected.md"
+wait "$watch_pid" || true
+grep -q 'MANAGER REJECTED task=004-revision-12' "$watch_output"
+! grep -q 'MANAGER REJECTED task=004-revision-10' "$watch_output"
 grep -q 'Improvement: 0%' "$watch_output"
+rm -f "$TEST_ROOT/state/projects/testproj/tasks/testproj-task-004-revision-11.ready.md"
+sed -i 's/^fixture-004\tACTIVE\t004\t/fixture-004\tCOMPLETE\t004\t/' \
+	"$TEST_ROOT/state/projects/testproj/control/project-plan-state.tsv"
+
+# Cumulative progress is durable and is injected into each continuation.
+progress_task="$TEST_ROOT/progress-task.md"
+printf '# Task\n\nTask-ID: 005\n\nImplement one prototype feature.\n' > "$progress_task"
+"$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" 005 "$progress_task" fixture-005 >/dev/null
+progress_dir="$TEST_ROOT/state/projects/testproj/control/progress"
+progress_file="$progress_dir/testproj-task-005.progress.md"
+root_assignment="$progress_dir/testproj-task-005.root-assignment.md"
+grep -q '^Progress-Percent: 0%$' "$progress_file"
+cmp -s "$progress_task" "$root_assignment"
+mv "$TEST_ROOT/state/projects/testproj/tasks/testproj-task-005.ready.md" \
+	"$TEST_ROOT/state/projects/testproj/archive/testproj-task-005.assignment.md"
+printf 'worker result\n' > "$TEST_ROOT/state/projects/testproj/results/testproj-task-005.result.md"
+progress_note="$TEST_ROOT/progress-review.md"
+cat > "$progress_note" <<'NOTE'
+# Manager Review Record
+
+Task-ID: 005
+Decision: REJECT
+Progress-Percent: 50%
+Improvement-Percent: 50%
+
+## Completed and verified root criteria
+
+- Registry storage works — focused smoke passed.
+
+## Remaining root criteria
+
+- Add projection.
+NOTE
+"$HARNESS_BIN/manager-reject-task" "$TEST_ROOT/harness.env" 005 "$progress_note" >/dev/null
+grep -q '^Progress-Percent: 50%$' "$progress_file"
+"$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" 005-revision-01 "$revision_task" >/dev/null
+continuation="$TEST_ROOT/state/projects/testproj/tasks/testproj-task-005-revision-01.ready.md"
+grep -q '^Task-Root: 005$' "$continuation"
+grep -q '^Starting-Progress: 50%$' "$continuation"
+grep -q 'Preserve all previously verified work' "$continuation"
+"$HARNESS_BIN/harness-status" "$TEST_ROOT/harness.env" > "$TEST_ROOT/progress-status.out"
+grep -Eq '005-revision-01 +READY +50%' "$TEST_ROOT/progress-status.out"
 
 ACTIVE_ROOT="$TEST_ROOT/active"
 mkdir -p "$ACTIVE_ROOT/repo" "$ACTIVE_ROOT/manager-home" "$ACTIVE_ROOT/worker-home"
@@ -387,10 +473,10 @@ export WORKER_CODEX_BIN="$TEST_ROOT/mock-codex"
 export WORKER_MODEL="gpt-5.4-mini"
 export WORKER_REASONING_EFFORT="high"
 export WORKER_SANDBOX="danger-full-access"
-export HARNESS_POLL_SECONDS="0.2"
+export HARNESS_POLL_SECONDS="1"
 export HARNESS_WAIT_SECONDS="5"
 export HARNESS_STALE_SECONDS="30"
-export HARNESS_USE_INOTIFY="0"
+export HARNESS_USE_INOTIFY="1"
 export WORKER_HEARTBEAT_SECONDS="1"
 ENV
 chmod 600 "$ACTIVE_ROOT/harness.env"
@@ -398,6 +484,7 @@ chmod 600 "$ACTIVE_ROOT/harness.env"
 [[ -d "/tmp/activeproj" ]]
 "$HARNESS_BIN/harness-supervisor-start" "$ACTIVE_ROOT/harness.env" >/dev/null
 "$HARNESS_BIN/worker-supervisor-start" "$ACTIVE_ROOT/harness.env" >/dev/null
+printf 'thread_id=existing-thread\n' > "$ACTIVE_ROOT/state/projects/activeproj/control/manager.thread"
 
 LOCK_PATH="$ACTIVE_ROOT/state/control/env-locks/$(printf '%s' "$ACTIVE_ROOT/harness.env" | sha256sum | awk '{print $1}').lock"
 sleep 2 &
@@ -413,13 +500,12 @@ grep -q 'harness-start is already running' "$ACTIVE_ROOT/lock.err"
 wait "$lock_pid"
 rm -f "$LOCK_PATH"
 
-if printf 'n\n' | "$HARNESS_BIN/harness-start" "$ACTIVE_ROOT/harness.env" >"$ACTIVE_ROOT/start-reset.out" 2>"$ACTIVE_ROOT/start-reset.err"; then
-	printf 'Expected harness-start to reject repeated invocation without reset confirmation.\n' >&2
-	exit 1
-fi
-grep -q 'Reset current state for' "$ACTIVE_ROOT/start-reset.err"
-grep -q 'harness-start aborted because state is already active' "$ACTIVE_ROOT/start-reset.err"
+"$HARNESS_BIN/harness-start" "$ACTIVE_ROOT/harness.env" >"$ACTIVE_ROOT/start-resume.out" 2>"$ACTIVE_ROOT/start-resume.err"
+grep -q 'preserving all state and progress' "$ACTIVE_ROOT/start-resume.out"
+grep -q 'Manager thread already exists' "$ACTIVE_ROOT/start-resume.out"
 [[ -f "$ACTIVE_ROOT/state/projects/activeproj/control/supervisor.pid" ]]
+sleep 1
+! grep -q 'SUPERVISOR_FATAL.*wait' "$ACTIVE_ROOT/state/projects/activeproj/logs/events.log"
 
 if ! printf 'yes\n' | "$HARNESS_BIN/harness-init" "$ACTIVE_ROOT/harness.env" >"$ACTIVE_ROOT/init-reset.out" 2>"$ACTIVE_ROOT/init-reset.err"; then
 	printf 'Expected harness-init reset confirmation to succeed.\n' >&2

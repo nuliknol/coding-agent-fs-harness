@@ -3,6 +3,8 @@
 Project: PROJECT_NAME
 Task-ID: TASK_ID
 Revision: 0
+Task-Root: TASK_ID
+Starting-Progress: 0%
 Repository: /absolute/path/to/repository
 Status: READY
 
@@ -18,8 +20,9 @@ Describe one bounded implementation objective.
 
 ## Acceptance criteria
 
-- Existing tests continue to pass.
-- New behavior has deterministic tests.
+- The affected build/compile target succeeds.
+- One focused happy-path manual or smoke test visibly demonstrates the feature.
+- One focused regression test is required only when this task fixes a bug.
 - No unrelated subsystem is modified.
 - The worker does not create, stage, or commit Git changes.
 
@@ -31,6 +34,11 @@ Describe one bounded implementation objective.
 
 ## Constraints
 
+- Follow the repository's prototype / feature-first development policy.
+- Preserve verified work recorded in the root progress checkpoint.
+- Do not run broad unit-test suites, aggregate tests, or full CTest unless the
+  human-owned specification explicitly requires them.
+- Record unrelated failures as known limitations; do not repair them.
 - Use the existing project architecture.
 - Do not redesign unrelated components.
 - Do not make Git commits.
@@ -39,8 +47,8 @@ Describe one bounded implementation objective.
 ## Validation commands
 
 ```text
-make
-make test
+make affected-target
+./affected-smoke --happy-path
 ```
 
 ## Completion protocol

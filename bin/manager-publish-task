@@ -6,14 +6,15 @@ source "$SCRIPT_DIR/../lib/harness-common.sh"
 
 usage()
 {
-	printf 'Usage: %s ENV_FILE TASK_ID TASK_FILE\n' "${0##*/}" >&2
+	printf 'Usage: %s ENV_FILE TASK_ID TASK_FILE [PROJECT_PLAN_ITEM_ID]\n' "${0##*/}" >&2
 	exit 2
 }
 
-[[ $# -eq 3 ]] || usage
+[[ $# -ge 3 && $# -le 4 ]] || usage
 load_harness_env "$1"
 task_id="$2"
 task_file="$3"
+plan_item_id="${4:-}"
 ensure_project
 trace_init manager_publish_task
 trace_script_start "$@"
@@ -22,37 +23,11 @@ validate_task_id "$task_id"
 [[ -f "$task_file" ]] || die "task file does not exist: $task_file"
 acquire_project_lock
 dir="$(project_dir)"
-
-stagnant_revision_limit_reached()
-{
-	local root="$1"
-	local -a rejected_files
-	local file zero_count=0
-
-	shopt -s nullglob
-	rejected_files=("$dir/archive/$PROJECT-task-$root-revision-"*.rejected.md)
-	(( ${#rejected_files[@]} >= HARNESS_MAX_STAGNANT_REVISIONS_PER_TASK )) || return 1
-
-	# The standard NN revision suffix makes lexical ordering chronological.
-	for (( i=${#rejected_files[@]} - 1; i>=0 && zero_count < HARNESS_MAX_STAGNANT_REVISIONS_PER_TASK; i-- )); do
-		file="${rejected_files[i]}"
-		if grep -Fqx 'Improvement-Percent: 0%' "$file"; then
-			zero_count=$((zero_count + 1))
-		else
-			return 1
-		fi
-	done
-	(( zero_count == HARNESS_MAX_STAGNANT_REVISIONS_PER_TASK ))
-}
-
-# Revisions use ROOT-revision-NN. They may continue while a cheap worker is
-# improving; only a sustained zero-gain run requires human intervention.
-if [[ "$task_id" =~ ^(.+)-revision-([0-9]+)$ ]]; then
-	revision_root="${BASH_REMATCH[1]}"
-	if stagnant_revision_limit_reached "$revision_root"; then
-		die "no improvement in the last $HARNESS_MAX_STAGNANT_REVISIONS_PER_TASK revisions of $revision_root; human intervention required"
-	fi
-fi
+project_completion_recorded && die "project is already complete: $(project_complete_file)"
+project_plan_exists || die "project plan is missing; run manager-init-project-plan before publishing tasks"
+root="$(task_root_id "$task_id")"
+progress="$(task_progress_file "$root")"
+root_assignment="$(task_root_assignment_file "$root")"
 
 base="$(task_base "$task_id")"
 ready="$dir/tasks/$base.ready.md"
@@ -61,6 +36,21 @@ result="$dir/results/$base.result.md"
 accepted="$dir/archive/$base.accepted.md"
 aborted="$dir/control/$base.abort.md"
 
+if [[ "$task_id" == "$root" ]]; then
+	[[ -n "$plan_item_id" ]] || die 'a new root task requires PROJECT_PLAN_ITEM_ID'
+	[[ "$(project_plan_item_status "$plan_item_id")" == PENDING ]] || die "project plan item is not pending: $plan_item_id"
+	[[ -z "$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" {print $1; exit}' "$(project_plan_state_file)")" ]] || die 'another project plan item is already active'
+else
+	mapped_item="$(project_plan_item_for_root "$root")"
+	[[ -n "$mapped_item" ]] || die "revision root is not assigned to the project plan: $root"
+	[[ -z "$plan_item_id" || "$plan_item_id" == "$mapped_item" ]] || die "revision plan item mismatch: expected $mapped_item"
+	plan_item_id="$mapped_item"
+	[[ "$(project_plan_item_status "$plan_item_id")" == ACTIVE ]] || die "revision project plan item is not active: $plan_item_id"
+fi
+
+initialize_task_progress "$task_id" "$task_file"
+starting_progress="$(task_progress_percent "$root")"
+
 [[ ! -e "$ready" ]] || die "task already ready: $task_id"
 [[ ! -e "$running" ]] || die "task already running: $task_id"
 [[ ! -e "$result" ]] || die "task already has a result: $task_id"
@@ -68,9 +58,24 @@ aborted="$dir/control/$base.abort.md"
 [[ ! -e "$aborted" ]] || die "task is aborted: $task_id"
 
 tmp="$dir/tasks/$base.ready.tmp.$$"
-install -m 600 "$task_file" "$tmp"
+if [[ "$task_id" == "$root" ]]; then
+	install -m 600 "$task_file" "$tmp"
+else
+	{
+		printf '# Harness Continuation Context\n\n'
+		printf 'Task-Root: %s\n' "$root"
+		printf 'Starting-Progress: %s%%\n' "$starting_progress"
+		printf 'Progress-File: %s\n' "$progress"
+		printf 'Root-Assignment: %s\n\n' "$root_assignment"
+		printf 'Preserve all previously verified work. This revision may address only remaining criteria from the immutable root assignment. Unrelated failures are known limitations and must not broaden this task.\n\n'
+		printf '%s\n\n' '---'
+		cat "$task_file"
+	} > "$tmp"
+	chmod 600 "$tmp"
+fi
 mv "$tmp" "$ready"
+activate_project_plan_item "$plan_item_id" "$root"
 
-log_event "TASK_PUBLISHED task=$task_id file=$ready"
-trace_event TASK_PUBLISHED "task_id=$task_id" "source_file=$task_file" "ready_file=$ready"
+log_event "TASK_PUBLISHED task=$task_id root=$root plan_item=$plan_item_id starting_progress=$starting_progress file=$ready"
+trace_event TASK_PUBLISHED "task_id=$task_id" "task_root=$root" "plan_item=$plan_item_id" "starting_progress=$starting_progress" "source_file=$task_file" "ready_file=$ready" "progress_file=$progress"
 printf '%s\n' "$ready"

@@ -26,6 +26,8 @@ case "${MOCK_MODE:?}" in
  empty) : ;;
  nonzero) exit 7 ;;
  stderr_progress) printf 'progress\n' >&2; printf 'done\n' > "$last"; printf '{"type":"turn.completed"}\n' ;;
+ benign_blocked_text) printf 'done\n' > "$last"; printf '{"type":"item.completed","item":{"type":"agent_message","text":"The blocked queue is now fixed."}}\n{"type":"turn.completed"}\n' ;;
+ refusal) printf '{"type":"error","message":"Request refused by an additional safety check"}\n'; exit 1 ;;
  idle) sleep 5 ;;
  wall) while true; do printf 'progress\n' >&2; sleep 1; done ;;
  partial) printf 'partial\n' >> "$REPOSITORY/tracked.txt"; exit 7 ;;
@@ -66,6 +68,8 @@ run_case empty empty_final_output
 run_case nonzero process_nonzero_exit
 run_case stderr_progress success
 grep -q progress "$TMP/stderr_progress.stderr"
+run_case benign_blocked_text success
+run_case refusal model_refusal_or_blocked_content
 run_case idle idle_timeout
 run_case wall wall_clock_timeout
 run_case partial partial_edit_failure

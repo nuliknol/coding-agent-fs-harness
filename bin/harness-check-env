@@ -37,3 +37,6 @@ printf 'Poll seconds: %s\n' "$HARNESS_POLL_SECONDS"
 printf 'Wait seconds: %s\n' "$HARNESS_WAIT_SECONDS"
 printf 'Stale seconds: %s\n' "$HARNESS_STALE_SECONDS"
 printf 'Use inotify: %s\n' "$HARNESS_USE_INOTIFY"
+printf 'Codex wall timeout seconds: %s (0 means unlimited)\n' "$HARNESS_CODEX_WALL_TIMEOUT_SECONDS"
+printf 'Codex idle timeout seconds: %s (0 means unlimited)\n' "$HARNESS_CODEX_IDLE_TIMEOUT_SECONDS"
+printf 'Task revisions: unlimited; cumulative progress is persisted\n'

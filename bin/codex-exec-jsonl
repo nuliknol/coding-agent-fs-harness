@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run one Codex CLI turn with isolated JSONL/stderr logs and bounded waits.
+# Run one Codex CLI turn with isolated JSONL/stderr logs and optional watchdogs.
 set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/harness-common.sh"
@@ -15,12 +15,12 @@ mkdir -p "$(dirname "$json_log")" "$(dirname "$stderr_log")"
 : > "$json_log"; : > "$stderr_log"
 
 case "$role" in
- manager_bootstrap|manager_review) bin="$MANAGER_CODEX_BIN"; home="$MANAGER_CODEX_HOME"; sandbox="$MANAGER_SANDBOX"; effort="$MANAGER_REASONING_EFFORT"; extras=("${MANAGER_CODEX_EXTRA_ARGS[@]}") ;;
+ manager_bootstrap|manager_review|manager_plan) bin="$MANAGER_CODEX_BIN"; home="$MANAGER_CODEX_HOME"; sandbox="$MANAGER_SANDBOX"; effort="$MANAGER_REASONING_EFFORT"; extras=("${MANAGER_CODEX_EXTRA_ARGS[@]}") ;;
  worker) bin="$WORKER_CODEX_BIN"; home="$WORKER_CODEX_HOME"; sandbox="$WORKER_SANDBOX"; effort="$WORKER_REASONING_EFFORT"; extras=("${WORKER_CODEX_EXTRA_ARGS[@]}") ;;
  *) die "invalid Codex role: $role" ;;
 esac
 
-cmd=(env "CODEX_HOME=$home" "$bin" exec --json --model "$model" --sandbox "$sandbox" --ask-for-approval never --add-dir "$HARNESS_ROOT" --add-dir "$PROJECT_TMP_DIR" --cd "$REPOSITORY" "${extras[@]}" -c "model_reasoning_effort=\"$effort\"" --output-last-message "$last_message")
+cmd=(env "CODEX_HOME=$home" "$bin" exec --json --model "$model" --sandbox "$sandbox" --add-dir "$HARNESS_ROOT" --add-dir "$PROJECT_TMP_DIR" --cd "$REPOSITORY" "${extras[@]}" -c 'approval_policy="never"' -c "model_reasoning_effort=\"$effort\"" --output-last-message "$last_message")
 if [[ $# -eq 2 ]]; then
  [[ "$1" == resume ]] || usage
  cmd+=(resume "$2")
@@ -36,8 +36,8 @@ if git -C "$REPOSITORY" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 fi
 
 # stdout is *only* Codex JSON Lines. stderr has its own log, so progress and
-# diagnostics cannot corrupt JSON parsing. GNU timeout bounds total runtime;
-# the loop additionally kills a process that has produced no stream activity.
+# diagnostics cannot corrupt JSON parsing. Nonzero watchdog settings may bound
+# total runtime or stream inactivity; both are unlimited by default.
 idle_timed_out=0
 if (( HARNESS_CODEX_WALL_TIMEOUT_SECONDS > 0 )); then
  timeout --signal=TERM --kill-after="${HARNESS_CODEX_KILL_GRACE_SECONDS}s" "${HARNESS_CODEX_WALL_TIMEOUT_SECONDS}s" "${cmd[@]}" < "$prompt" > "$json_log" 2> "$stderr_log" &
@@ -74,16 +74,24 @@ if [[ -n "$git_state_before" ]]; then
 fi
 
 classification="success"
+error_event_text=""
+if [[ -s "$json_log" ]] && jq -e -s 'all(.[]; type == "object")' "$json_log" >/dev/null 2>&1; then
+	error_event_text="$(jq -r '
+		select(.type == "error" or .type == "turn.failed") |
+		[.message?, .error.message?, .error?] |
+		map(select(type == "string")) | join(" ")
+	' "$json_log" 2>/dev/null || true)"
+fi
 if (( idle_timed_out )); then classification="idle_timeout"
 elif (( status == 124 )); then classification="wall_clock_timeout"
 elif (( status != 0 && git_state_changed )); then classification="partial_edit_failure"
 elif [[ ! -s "$json_log" ]]; then
  if (( status == 0 )); then classification="empty_final_output"; else classification="process_nonzero_exit"; fi
 elif ! jq -e -s 'all(.[]; type == "object" and (.type | type == "string"))' "$json_log" >/dev/null 2>&1; then classification="json_event_parse_failure"
-elif grep -Eqi 'sandbox|ask.for.approval|approval.*denied|permission denied' "$json_log" "$stderr_log"; then classification="local_sandbox_or_approval_denial"
+elif { printf '%s\n' "$error_event_text"; cat "$stderr_log"; } | grep -Eqi 'sandbox|ask.for.approval|approval.*denied|permission denied'; then classification="local_sandbox_or_approval_denial"
+elif printf '%s\n' "$error_event_text" | grep -Eqi 'refus|blocked content|safety check|cannot assist'; then classification="model_refusal_or_blocked_content"
 elif jq -e 'select(.type == "turn.failed")' "$json_log" >/dev/null 2>&1; then classification="turn_failed"
 elif jq -e 'select(.type == "error")' "$json_log" >/dev/null 2>&1; then classification="error_event"
-elif grep -Eqi 'refus|blocked content|safety check|cannot assist' "$json_log" "$stderr_log"; then classification="model_refusal_or_blocked_content"
 elif (( status != 0 )); then classification="process_nonzero_exit"
 elif ! jq -e 'select(.type == "turn.completed")' "$json_log" >/dev/null 2>&1; then classification="json_event_parse_failure"
 elif [[ ! -s "$last_message" ]]; then classification="empty_final_output"
