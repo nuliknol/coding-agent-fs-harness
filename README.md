@@ -5,8 +5,8 @@ A local, event-driven two-agent coding harness for Linux.
 - A strong manager model decomposes the specification and reviews results.
 - A cheaper worker model implements one bounded task at a time.
 - Ordinary Bash supervisors watch filesystem mailboxes.
-- No model remains alive while waiting.
-- Git commits remain manual.
+- No codex process remains alive while waiting (no tokens consumed).
+- Git commits remain manual (or spec-driven).
 - One trusted `.env` file configures the complete project, harness installation, state directory, accounts, models, and timing.
 - Manager and worker scratch task/result markdown lives under `/tmp/$PROJECT`.
 
@@ -57,11 +57,40 @@ The status note limits the scope correctly. I’m reading the descriptor builder
 The descriptor builder reuses the private plan validator, so it inherits the fixed 16-byte alignment and region-order checks before constructing descriptors. I’m verifying the validation helper and then running the required validation.
 
 ```
-
 The watcher replays the currently active attempt so its context is visible, but
 does not replay archived rejection decisions from earlier runs. Use
 `--new-only` to suppress even the active attempt's existing messages and show
 only output appended after the watcher starts.
+
+## Example of long project running (using single master specification file)
+user@dev :~/configs$ harness-status project.env
+Environment file: /var/home/project/configs/project.env
+Project: project-name
+Repository: /var/home/project
+Harness root: /var/home/project/.local/state/coding-harness
+Manager supervisor: running (PID 3575705)
+Worker supervisor: running (PID 3575962)
+Project progress: 42% (3/7 plan items complete)
+
+PLAN ITEM                STATE        TASK ROOT        TITLE
+------------------------ ------------ ---------------- -----
+phase-01                 COMPLETE     001              Reflective registry
+phase-02                 COMPLETE     002              Predicate IR and grounding
+phase-03                 COMPLETE     003              Backward analyzer
+phase-04                 ACTIVE       004              Exact search
+phase-05                 PENDING      -                World-model integration
+phase-06                 PENDING      -                Rule, model, and function variables
+phase-07                 PENDING      -                C synthesis and widening
+
+TASK                             STATE        PROGRESS   OWNER                        AGE       
+-------------------------------- ------------ ---------- ---------------------------- ----------
+004-revision-10                  RUNNING      85%        worker-20260711T220248Z-f0c1e9a9 50s       
+001-revision-34                  ACCEPTED     100%       -                            -         
+002-revision-05                  ACCEPTED     100%       -                            -         
+003-revision-19                  ACCEPTED     100%       -                            -         
+user@dev :~/configs$ 
+
+
 ## Codex CLI extra args
 
 The harness can append extra `codex exec` flags from your trusted `.env` file.
