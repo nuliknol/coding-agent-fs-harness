@@ -23,17 +23,22 @@ epoch_now()
 	date '+%s'
 }
 
-codex_log_has_capacity_error()
+codex_provider_retry_kind()
 {
-	local log_file="$1"
-	[[ -f "$log_file" ]] || return 1
-	grep -Fqi 'selected model is at capacity' "$log_file"
+	case "$1" in
+		provider_quota_exhausted) printf 'quota\n' ;;
+		provider_transient_error) printf 'transient\n' ;;
+		*) return 1 ;;
+	esac
 }
 
-capacity_retry_allowed()
+codex_provider_retry_delay()
 {
-	local retries_already_scheduled="$1"
-	(( HARNESS_CAPACITY_MAX_RETRIES == 0 || retries_already_scheduled < HARNESS_CAPACITY_MAX_RETRIES ))
+	case "$1" in
+		provider_quota_exhausted) printf '%s\n' "$HARNESS_QUOTA_RETRY_SECONDS" ;;
+		provider_transient_error) printf '%s\n' "$HARNESS_PROVIDER_RETRY_SECONDS" ;;
+		*) return 1 ;;
+	esac
 }
 
 codex_model_requires_narrow_prompt()
@@ -80,6 +85,7 @@ load_harness_env()
 
 	unset PROJECT REPOSITORY SPECIFICATION HARNESS_HOME HARNESS_BIN HARNESS_ROOT PROJECT_TMP_DIR
 	unset HARNESS_POLL_SECONDS HARNESS_WAIT_SECONDS HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY
+	unset HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
 	unset HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
 	unset HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_KILL_GRACE_SECONDS
 	unset MANAGER_FALLBACK_MODEL WORKER_FALLBACK_MODEL
@@ -119,7 +125,14 @@ load_harness_env()
 	HARNESS_WAIT_SECONDS="${HARNESS_WAIT_SECONDS:-300}"
 	HARNESS_STALE_SECONDS="${HARNESS_STALE_SECONDS:-900}"
 	HARNESS_USE_INOTIFY="${HARNESS_USE_INOTIFY:-1}"
-	HARNESS_CAPACITY_RETRY_SECONDS="${HARNESS_CAPACITY_RETRY_SECONDS:-60}"
+	# Provider-side failures retry forever. Short transient failures use a
+	# one-minute cadence; account usage-window exhaustion reports and probes every
+	# five minutes until Codex confirms quota is available again.
+	HARNESS_PROVIDER_RETRY_SECONDS="${HARNESS_PROVIDER_RETRY_SECONDS:-${HARNESS_CAPACITY_RETRY_SECONDS:-60}}"
+	HARNESS_QUOTA_RETRY_SECONDS="${HARNESS_QUOTA_RETRY_SECONDS:-300}"
+	# Retained only for backwards-compatible environment parsing. Provider
+	# retries are intentionally unlimited regardless of this legacy value.
+	HARNESS_CAPACITY_RETRY_SECONDS="$HARNESS_PROVIDER_RETRY_SECONDS"
 	HARNESS_CAPACITY_MAX_RETRIES="${HARNESS_CAPACITY_MAX_RETRIES:-0}"
 	# Correctly progressing tasks are allowed to run without an arbitrary turn
 	# deadline. Operators may opt back into either watchdog with a nonzero value.
@@ -181,8 +194,10 @@ load_harness_env()
 	[[ "$WORKER_HEARTBEAT_SECONDS" =~ ^[0-9]+$ ]] || die 'WORKER_HEARTBEAT_SECONDS must be an integer'
 	(( WORKER_HEARTBEAT_SECONDS > 0 )) || die 'WORKER_HEARTBEAT_SECONDS must be greater than zero'
 	[[ "$HARNESS_USE_INOTIFY" =~ ^[01]$ ]] || die 'HARNESS_USE_INOTIFY must be 0 or 1'
-	[[ "$HARNESS_CAPACITY_RETRY_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_CAPACITY_RETRY_SECONDS must be an integer'
-	(( HARNESS_CAPACITY_RETRY_SECONDS > 0 )) || die 'HARNESS_CAPACITY_RETRY_SECONDS must be greater than zero'
+	[[ "$HARNESS_PROVIDER_RETRY_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_PROVIDER_RETRY_SECONDS must be an integer'
+	(( HARNESS_PROVIDER_RETRY_SECONDS > 0 )) || die 'HARNESS_PROVIDER_RETRY_SECONDS must be greater than zero'
+	[[ "$HARNESS_QUOTA_RETRY_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_QUOTA_RETRY_SECONDS must be an integer'
+	(( HARNESS_QUOTA_RETRY_SECONDS > 0 )) || die 'HARNESS_QUOTA_RETRY_SECONDS must be greater than zero'
 	[[ "$HARNESS_CAPACITY_MAX_RETRIES" =~ ^[0-9]+$ ]] || die 'HARNESS_CAPACITY_MAX_RETRIES must be an integer'
 	[[ "$HARNESS_CODEX_WALL_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_CODEX_WALL_TIMEOUT_SECONDS must be an integer'
 	[[ "$HARNESS_CODEX_IDLE_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_CODEX_IDLE_TIMEOUT_SECONDS must be an integer'
@@ -206,7 +221,8 @@ load_harness_env()
 
 	export HARNESS_ENV_FILE HARNESS_ENV_DIR PROJECT REPOSITORY SPECIFICATION PROJECT_TMP_DIR
 	export HARNESS_HOME HARNESS_BIN HARNESS_ROOT HARNESS_POLL_SECONDS HARNESS_WAIT_SECONDS
-	export HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
+	export HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
+	export HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
 	export HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_KILL_GRACE_SECONDS
 	export WORKER_HEARTBEAT_SECONDS
 	export MANAGER_CODEX_BIN MANAGER_CODEX_HOME MANAGER_MODEL MANAGER_REASONING_EFFORT MANAGER_SANDBOX

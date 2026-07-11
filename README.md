@@ -343,36 +343,50 @@ strategy, not a terminal human-intervention state. Cumulative progress is
 monotonic and only root-task acceptance criteria count toward it; unrelated
 repairs contribute 0%.
 
-## Capacity retry policy
+## Provider retry policy
 
-The harness automatically retries only the confirmed transient Codex error:
+The JSONL runner classifies provider failures before any model fallback. It
+prefers structured error codes and HTTP statuses when Codex supplies them, then
+uses narrow matching against error events and stderr for current CLI errors
+that contain only a message.
 
-```text
-Selected model is at capacity. Please try a different model.
-```
+Two unlimited retry cadences apply:
 
-The default policy waits 60 seconds and launches a fresh Codex process. It applies to:
+- Provider capacity, HTTP 429/rate limits, temporary server failures, and
+  network failures retry every 60 seconds.
+- Account usage-window or quota exhaustion preserves state, reports that quota
+  is unavailable, and probes again every 300 seconds until a turn succeeds.
+
+The policy applies to:
 
 - manager bootstrap;
 - manager result review;
+- manager next-item planning;
 - worker task execution.
 
 Configure it in the environment file:
 
 ```bash
-export HARNESS_CAPACITY_RETRY_SECONDS="60"
-export HARNESS_CAPACITY_MAX_RETRIES="0"
+export HARNESS_PROVIDER_RETRY_SECONDS="60"
+export HARNESS_QUOTA_RETRY_SECONDS="300"
 ```
 
-`HARNESS_CAPACITY_MAX_RETRIES=0` means unlimited retries. A positive number limits the number of automatic retries. Each attempt receives a separate JSONL and final-message log with an `attempt-NNN` suffix.
+Provider retries are always unlimited. Each probe receives a separate JSONL,
+stderr, classification, and final-message log with an `attempt-NNN` suffix.
+`HARNESS_CAPACITY_RETRY_SECONDS` remains a compatibility alias for the transient
+delay, but new configurations should use `HARNESS_PROVIDER_RETRY_SECONDS`.
+The legacy `HARNESS_CAPACITY_MAX_RETRIES` value is ignored; provider retries are
+unlimited by design.
 
 The worker heartbeat remains active during the retry delay, so the claimed task does not become stale. The worker keeps the same task ownership session but starts a fresh Codex context. The manager resumes its persistent manager thread.
 
-The retry is deliberately narrow: test failures, authentication errors, invalid configuration, protocol violations, and other process failures are not retried automatically.
+Authentication/account-disable errors, invalid configuration, sandbox failures,
+malformed output, protocol violations, partial-edit failures, and actual agent
+failures remain terminal and create the existing human-intervention alerts.
 
 ## Other failure policy
 
-A non-capacity worker failure leaves the task in `RUNNING` state and writes:
+A terminal worker failure leaves the task in `RUNNING` state and writes:
 
 ```text
 control/PROJECT-task-ID.worker-failed.md
@@ -386,7 +400,7 @@ Inspect the task log and then reset it explicitly:
 
 The worker supervisor detects the newly restored ready task and performs one new invocation.
 
-A non-capacity manager failure writes a manager failure file and requires explicit requeue through `harness-requeue-result`.
+A terminal or non-provider manager failure writes a manager failure file and requires explicit requeue through `harness-requeue-result`.
 
 ## Upgrade from v3 with an existing ready task
 
@@ -448,15 +462,19 @@ archive/PROJECT-task-ID.assignment.md exists
 
 ## Reliability fixes in 4.2
 
-Version 4.2 adds automatic recovery from temporary model congestion. On the exact capacity error, the invocation wrapper waits `HARNESS_CAPACITY_RETRY_SECONDS` and starts a fresh Codex process. Worker ownership and heartbeats remain valid across the wait. Manager review checks whether an accept/reject action was committed before retrying, preventing duplicate manager actions after a late stream failure.
+Version 4.2 adds automatic recovery from temporary provider failures and account
+usage-window exhaustion. Worker ownership and heartbeats remain valid across
+the wait. Manager review preserves the result and thread and checks whether an
+accept/reject action was committed before retrying, preventing duplicate
+manager actions after a late stream failure.
 
 Event-log entries include:
 
 ```text
-WORKER_CAPACITY_RETRY_SCHEDULED
-WORKER_CAPACITY_RETRY_STARTED
-MANAGER_CAPACITY_RETRY_SCHEDULED
-MANAGER_CAPACITY_RETRY_STARTED
-MANAGER_BOOTSTRAP_CAPACITY_RETRY_SCHEDULED
-MANAGER_BOOTSTRAP_CAPACITY_RETRY_STARTED
+WORKER_PROVIDER_WAIT kind=transient|quota
+WORKER_PROVIDER_RETRY_STARTED kind=transient|quota
+MANAGER_PROVIDER_WAIT kind=transient|quota
+MANAGER_PROVIDER_RETRY_STARTED kind=transient|quota
+MANAGER_PLAN_PROVIDER_WAIT kind=transient|quota
+MANAGER_BOOTSTRAP_PROVIDER_WAIT kind=transient|quota
 ```

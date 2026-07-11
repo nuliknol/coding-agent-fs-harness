@@ -81,7 +81,7 @@ process_tasks()
 				printf 'Environment-File: %s\n\n' "$HARNESS_ENV_FILE"
 				printf 'Failed-At: %s\n\n' "$(timestamp_utc)"
 				printf 'Exit-Status: %s\n\n' "$status"
-				printf 'Confirmed model-capacity errors are retried inside worker-invoke-task. This failure was non-retryable or exhausted the configured retry limit.\n'
+				printf 'Provider quota and transient provider/network failures retry indefinitely inside worker-invoke-task. This failure was classified as terminal or non-provider.\n'
 			} > "$tmp"
 			chmod 600 "$tmp"
 			mv "$tmp" "$alert"

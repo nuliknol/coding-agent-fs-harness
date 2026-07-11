@@ -68,11 +68,17 @@ count=0
 count=$((count + 1))
 printf '%s\n' "$count" > "$counter"
 
-# Exercise automatic capacity retry once in all three invocation paths:
+# Exercise automatic transient-provider retry once in all three invocation paths:
 # manager bootstrap, worker task 001, and manager review task 001.
 if [[ "$count" == 1 && ( "$key" == bootstrap || "$key" == worker-001 || "$key" == review-001 ) ]]; then
-	printf '{"type":"error","message":"Selected model is at capacity. Please try a different model."}\n'
-	printf '{"type":"turn.failed","error":{"message":"Selected model is at capacity. Please try a different model."}}\n'
+	printf '{"type":"error","code":"model_capacity","message":"Selected model is at capacity. Please try a different model."}\n'
+	printf '{"type":"turn.failed","error":{"code":"model_capacity","message":"Selected model is at capacity. Please try a different model."}}\n'
+	exit 1
+fi
+
+# Exercise account usage-window recovery in both a planning turn and worker.
+if [[ "$count" == 1 && ( "$key" == plan || "$key" == worker-002 ) ]]; then
+	printf '{"type":"turn.failed","error":{"code":"usage_limit_reached","message":"Usage limit reached; resets later."}}\n'
 	exit 1
 fi
 
@@ -213,8 +219,8 @@ export HARNESS_WAIT_SECONDS="5"
 export HARNESS_STALE_SECONDS="30"
 export HARNESS_USE_INOTIFY="0"
 export WORKER_HEARTBEAT_SECONDS="1"
-export HARNESS_CAPACITY_RETRY_SECONDS="1"
-export HARNESS_CAPACITY_MAX_RETRIES="3"
+export HARNESS_PROVIDER_RETRY_SECONDS="1"
+export HARNESS_QUOTA_RETRY_SECONDS="1"
 ENV
 chmod 600 "$TEST_ROOT/harness.env"
 
@@ -222,6 +228,8 @@ chmod 600 "$TEST_ROOT/harness.env"
 grep -q 'Codex wall timeout seconds: 0 (0 means unlimited)' "$TEST_ROOT/check-env.out"
 grep -q 'Codex idle timeout seconds: 0 (0 means unlimited)' "$TEST_ROOT/check-env.out"
 grep -q 'Task revisions: unlimited' "$TEST_ROOT/check-env.out"
+grep -q 'Transient provider retry seconds: 1 (retries unlimited)' "$TEST_ROOT/check-env.out"
+grep -q 'Quota retry seconds: 1 (retries unlimited)' "$TEST_ROOT/check-env.out"
 "$HARNESS_BIN/harness-init" "$TEST_ROOT/harness.env" >/dev/null
 [[ -d "/tmp/testproj" ]]
 "$HARNESS_BIN/harness-start" "$TEST_ROOT/harness.env" >/dev/null
@@ -242,12 +250,16 @@ TRACE="$TEST_ROOT/state/projects/testproj/logs/trace.log"
 [[ ! -e "$TEST_ROOT/state/projects/testproj/tasks/testproj-task-002.ready.md" ]]
 [[ ! -e "$TEST_ROOT/state/projects/testproj/running/testproj-task-002.running.md" ]]
 [[ ! -e "$TEST_ROOT/state/projects/testproj/results/testproj-task-002.result.md" ]]
-grep -q 'MANAGER_BOOTSTRAP_CAPACITY_RETRY_SCHEDULED' "$EVENTS"
-grep -q 'MANAGER_BOOTSTRAP_CAPACITY_RETRY_STARTED' "$EVENTS"
-grep -q 'WORKER_CAPACITY_RETRY_SCHEDULED task=001' "$EVENTS"
-grep -q 'WORKER_CAPACITY_RETRY_STARTED task=001' "$EVENTS"
-grep -q 'MANAGER_CAPACITY_RETRY_SCHEDULED task=001' "$EVENTS"
-grep -q 'MANAGER_CAPACITY_RETRY_STARTED task=001' "$EVENTS"
+grep -q 'MANAGER_BOOTSTRAP_PROVIDER_WAIT kind=transient' "$EVENTS"
+grep -q 'MANAGER_BOOTSTRAP_PROVIDER_RETRY_STARTED kind=transient' "$EVENTS"
+grep -q 'WORKER_PROVIDER_WAIT task=001.*kind=transient' "$EVENTS"
+grep -q 'WORKER_PROVIDER_RETRY_STARTED task=001.*kind=transient' "$EVENTS"
+grep -q 'MANAGER_PROVIDER_WAIT task=001.*kind=transient' "$EVENTS"
+grep -q 'MANAGER_PROVIDER_RETRY_STARTED task=001.*kind=transient' "$EVENTS"
+grep -q 'MANAGER_PLAN_PROVIDER_WAIT kind=quota' "$EVENTS"
+grep -q 'MANAGER_PLAN_PROVIDER_RETRY_STARTED kind=quota' "$EVENTS"
+grep -q 'WORKER_PROVIDER_WAIT task=002.*kind=quota' "$EVENTS"
+grep -q 'WORKER_PROVIDER_RETRY_STARTED task=002.*kind=quota' "$EVENTS"
 grep -q 'MANAGER_REVIEW_LEFT_PENDING task=002' "$EVENTS"
 grep -q 'SUPERVISOR_REVIEW_LEFT_UNCOMMITTED task=002' "$EVENTS"
 grep -q 'WORKER_SUPERVISOR_TRIGGER task=001' "$EVENTS"

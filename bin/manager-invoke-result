@@ -82,7 +82,8 @@ chmod 600 "$prompt_file.tmp.$$"
 mv "$prompt_file.tmp.$$" "$prompt_file"
 
 attempt=1
-capacity_retries=0
+provider_retries=0
+quota_waits=0
 status=0
 json_log=""
 stderr_log=""
@@ -136,7 +137,34 @@ while true; do
 		exit 0
 	fi
 
-	if codex_model_requires_narrow_prompt "$current_model" && [[ "$classification" != success ]]; then
+	retry_kind="$(codex_provider_retry_kind "$classification" 2>/dev/null || true)"
+	if [[ -n "$retry_kind" ]]; then
+		retry_delay="$(codex_provider_retry_delay "$classification")"
+		provider_retries=$((provider_retries + 1))
+		[[ "$retry_kind" != quota ]] || quota_waits=$((quota_waits + 1))
+		log_event "MANAGER_PROVIDER_WAIT task=$task_id thread_id=$thread_id kind=$retry_kind attempt=$attempt retry=$provider_retries delay_seconds=$retry_delay classification=$classification"
+		if [[ "$retry_kind" == quota ]]; then
+			printf 'Manager review for task %s has no provider quota; result and thread are preserved. Checking again in %s seconds (quota wait %s).\n' "$task_id" "$retry_delay" "$quota_waits" >&2
+		else
+			printf 'Manager review for task %s hit a transient provider/network failure; retrying in %s seconds.\n' "$task_id" "$retry_delay" >&2
+		fi
+		sleep "$retry_delay"
+
+		if manager_action_committed; then
+			log_event "MANAGER_REVIEW_FINISHED task=$task_id attempt=$attempt outcome=action_committed_during_provider_wait"
+			trace_event MANAGER_REVIEW_COMMITTED_DURING_RETRY_WAIT "task_id=$task_id" "attempt=$attempt"
+			exit 0
+		fi
+		[[ ! -e "$running" ]] || die "cannot retry manager review; running assignment appeared: $running"
+		[[ ! -e "$lease" ]] || die "cannot retry manager review; worker lease appeared: $lease"
+		[[ -f "$assignment_archive" ]] || die "cannot retry manager review; archived assignment disappeared: $assignment_archive"
+		attempt=$((attempt + 1))
+		log_event "MANAGER_PROVIDER_RETRY_STARTED task=$task_id thread_id=$thread_id kind=$retry_kind attempt=$attempt retry=$provider_retries"
+		trace_event MANAGER_REVIEW_RETRY "task_id=$task_id" "kind=$retry_kind" "attempt=$attempt" "retry=$provider_retries"
+		continue
+	fi
+
+	if codex_model_requires_narrow_prompt "$current_model" && [[ "$classification" == model_refusal_or_blocked_content ]]; then
 		if (( fallback_stage == 0 )); then
 			fallback_stage=1; attempt=$((attempt + 1))
 			printf '\nRetry scope: review only RESULT_FILE and the bounded assignment; do not inspect unrelated directories.\n' >> "$prompt_file"
@@ -147,29 +175,6 @@ while true; do
 			log_event "MANAGER_MODEL_FALLBACK task=$task_id classification=$classification model=$current_model"
 			continue
 		fi
-	fi
-
-	if codex_log_has_capacity_error "$json_log" && capacity_retry_allowed "$capacity_retries"; then
-		capacity_retries=$((capacity_retries + 1))
-		log_event "MANAGER_CAPACITY_RETRY_SCHEDULED task=$task_id thread_id=$thread_id attempt=$attempt retry=$capacity_retries delay_seconds=$HARNESS_CAPACITY_RETRY_SECONDS"
-		printf 'Manager model is at capacity for task %s; retrying in %s seconds.\n' "$task_id" "$HARNESS_CAPACITY_RETRY_SECONDS" >&2
-		sleep "$HARNESS_CAPACITY_RETRY_SECONDS"
-
-		# Recheck the authoritative state after the delay. A human or another
-		# recovery action may have resolved the result while this process slept.
-		if manager_action_committed; then
-			log_event "MANAGER_REVIEW_FINISHED task=$task_id attempt=$attempt outcome=action_committed_during_capacity_wait"
-			trace_event MANAGER_REVIEW_COMMITTED_DURING_RETRY_WAIT "task_id=$task_id" "attempt=$attempt"
-			exit 0
-		fi
-		[[ ! -e "$running" ]] || die "cannot retry manager review; running assignment appeared: $running"
-		[[ ! -e "$lease" ]] || die "cannot retry manager review; worker lease appeared: $lease"
-		[[ -f "$assignment_archive" ]] || die "cannot retry manager review; archived assignment disappeared: $assignment_archive"
-
-		attempt=$((attempt + 1))
-		log_event "MANAGER_CAPACITY_RETRY_STARTED task=$task_id thread_id=$thread_id attempt=$attempt retry=$capacity_retries"
-		trace_event MANAGER_REVIEW_RETRY "task_id=$task_id" "attempt=$attempt" "retry=$capacity_retries"
-		continue
 	fi
 
 	log_event "MANAGER_REVIEW_FAILED task=$task_id status=$status attempts=$attempt"

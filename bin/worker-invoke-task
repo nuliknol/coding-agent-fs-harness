@@ -82,7 +82,8 @@ classification=""
 last_message=""
 status=0
 attempt=1
-capacity_retries=0
+provider_retries=0
+quota_waits=0
 fallback_stage=0
 current_model="$WORKER_MODEL"
 heartbeat_pid=""
@@ -181,9 +182,28 @@ while true; do
 		exit 0
 	fi
 
+	retry_kind="$(codex_provider_retry_kind "$classification" 2>/dev/null || true)"
+	if [[ -n "$retry_kind" ]]; then
+		retry_delay="$(codex_provider_retry_delay "$classification")"
+		provider_retries=$((provider_retries + 1))
+		[[ "$retry_kind" != quota ]] || quota_waits=$((quota_waits + 1))
+		log_event "WORKER_PROVIDER_WAIT task=$task_id session=$session kind=$retry_kind attempt=$attempt retry=$provider_retries delay_seconds=$retry_delay classification=$classification"
+		if [[ "$retry_kind" == quota ]]; then
+			printf 'Worker task %s has no provider quota; state and heartbeat are preserved. Checking again in %s seconds (quota wait %s).\n' "$task_id" "$retry_delay" "$quota_waits" >&2
+		else
+			printf 'Worker task %s hit a transient provider/network failure; retrying in %s seconds.\n' "$task_id" "$retry_delay" >&2
+		fi
+		sleep "$retry_delay"
+		attempt=$((attempt + 1))
+		log_event "WORKER_PROVIDER_RETRY_STARTED task=$task_id session=$session kind=$retry_kind attempt=$attempt retry=$provider_retries"
+		trace_event WORKER_PROVIDER_RETRY "task_id=$task_id" "session=$session" "kind=$retry_kind" "attempt=$attempt" "retry=$provider_retries"
+		continue
+	fi
+
 	# Terra/GPT-5.6 gets exactly one narrowed retry, then one stable-model
-	# fallback. This deliberately does not replay a broad autonomous request.
-	if codex_model_requires_narrow_prompt "$current_model" && [[ "$classification" != success ]]; then
+	# fallback for model-layer failures only. Provider, authentication, sandbox,
+	# configuration, and protocol failures never enter this branch.
+	if codex_model_requires_narrow_prompt "$current_model" && [[ "$classification" == model_refusal_or_blocked_content ]]; then
 		if (( fallback_stage == 0 )); then
 			fallback_stage=1
 			printf '\nRetry scope: perform only the single bounded assignment in TASK_FILE. Do not inspect unrelated directories or broaden the task.\n' >> "$prompt_file"
@@ -198,17 +218,6 @@ while true; do
 			log_event "WORKER_MODEL_FALLBACK task=$task_id session=$session classification=$classification model=$current_model"
 			continue
 		fi
-	fi
-
-	if (( status != 0 )) && codex_log_has_capacity_error "$json_log" && capacity_retry_allowed "$capacity_retries"; then
-		capacity_retries=$((capacity_retries + 1))
-		log_event "WORKER_CAPACITY_RETRY_SCHEDULED task=$task_id session=$session attempt=$attempt retry=$capacity_retries delay_seconds=$HARNESS_CAPACITY_RETRY_SECONDS"
-		printf 'Worker model is at capacity for task %s; retrying in %s seconds.\n' "$task_id" "$HARNESS_CAPACITY_RETRY_SECONDS" >&2
-		sleep "$HARNESS_CAPACITY_RETRY_SECONDS"
-		attempt=$((attempt + 1))
-		log_event "WORKER_CAPACITY_RETRY_STARTED task=$task_id session=$session attempt=$attempt retry=$capacity_retries"
-		trace_event WORKER_RETRY "task_id=$task_id" "session=$session" "attempt=$attempt" "retry=$capacity_retries"
-		continue
 	fi
 
 	break
@@ -252,9 +261,11 @@ Partial-Edits: $(kv_file_value "${json_log%.jsonl}.classification" partial_edits
 
 Attempts: $attempt
 
-Capacity-Retries: $capacity_retries
+Provider-Retries: $provider_retries
 
-The completion transaction is not committed. A confirmed model-capacity error is retried automatically after $HARNESS_CAPACITY_RETRY_SECONDS seconds. This failure was either non-retryable or exceeded HARNESS_CAPACITY_MAX_RETRIES. Inspect the log and filesystem state, then reset, repair, or abort the task explicitly.
+Quota-Waits: $quota_waits
+
+The completion transaction is not committed. Provider quota and transient provider/network failures retry indefinitely while preserving task ownership. This failure was classified as terminal, local, configuration/protocol, or an actual agent failure. Inspect the log and filesystem state, then reset, repair, or abort the task explicitly.
 ALERT
 chmod 600 "$alert.tmp.$$"
 mv "$alert.tmp.$$" "$alert"

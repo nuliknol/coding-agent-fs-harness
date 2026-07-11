@@ -75,20 +75,41 @@ fi
 
 classification="success"
 error_event_text=""
+error_code=""
+http_status=""
 if [[ -s "$json_log" ]] && jq -e -s 'all(.[]; type == "object")' "$json_log" >/dev/null 2>&1; then
 	error_event_text="$(jq -r '
 		select(.type == "error" or .type == "turn.failed") |
 		[.message?, .error.message?, .error?] |
 		map(select(type == "string")) | join(" ")
 	' "$json_log" 2>/dev/null || true)"
+	error_code="$(jq -rs '
+		[.[] | select(.type == "error" or .type == "turn.failed") |
+		 .code?, .error.code?, .error.type?, .error.error_code?] |
+		map(select(. != null) | tostring) | first // ""
+	' "$json_log" 2>/dev/null || true)"
+	http_status="$(jq -rs '
+		[.[] | select(.type == "error" or .type == "turn.failed") |
+		 .status?, .status_code?, .http_status?, .error.status?,
+		 .error.status_code?, .error.http_status?] |
+		map(select(. != null) | tostring) | first // ""
+	' "$json_log" 2>/dev/null || true)"
+fi
+combined_error_text="$(printf '%s\n' "$error_event_text"; cat "$stderr_log")"
+failure_signal=0
+if (( status != 0 )) || ! jq -e 'select(.type == "turn.completed")' "$json_log" >/dev/null 2>&1; then
+	failure_signal=1
 fi
 if (( idle_timed_out )); then classification="idle_timeout"
 elif (( status == 124 )); then classification="wall_clock_timeout"
 elif (( status != 0 && git_state_changed )); then classification="partial_edit_failure"
+elif (( failure_signal )) && printf '%s\n' "$combined_error_text" | grep -Eqi 'sandbox|ask.for.approval|approval.*denied|permission denied'; then classification="local_sandbox_or_approval_denial"
+elif (( failure_signal )) && { [[ "$http_status" =~ ^(401|403)$ ]] || [[ "$error_code" =~ ^(invalid_api_key|authentication_error|unauthorized|permission_denied|account_deactivated)$ ]] || printf '%s\n' "$combined_error_text" | grep -Eqi 'invalid api key|authentication (failed|required)|not authenticated|unauthorized|account (is )?(deactivated|disabled)|login required|sign in again|refresh token.{0,30}(expired|invalid|revoked)'; }; then classification="terminal_authentication_error"
+elif (( failure_signal )) && { [[ "$error_code" =~ (usage_limit|insufficient_quota|quota_(exceeded|expired|exhausted)|billing_hard_limit) ]] || printf '%s\n' "$combined_error_text" | grep -Eqi 'usage limit.{0,80}(reached|exceeded|exhausted|hit)|hit.{0,40}usage limit|reached.{0,40}usage limit|quota.{0,50}(exceeded|expired|exhausted|depleted|reached)|out of (credits|quota)|no (credits|quota) remaining|no weighted tokens|0 .{0,30}tokens .{0,20}left|limit resets? (at|in)|resets? (at|in).{0,80}(hour|minute|second)'; }; then classification="provider_quota_exhausted"
+elif (( failure_signal )) && { [[ "$http_status" =~ ^(408|425|429|500|502|503|504)$ ]] || [[ "$error_code" =~ (rate_limit|capacity|overloaded|server_error|service_unavailable|temporarily_unavailable|timeout|connection_error) ]] || printf '%s\n' "$combined_error_text" | grep -Eqi 'selected model is at capacity|system.{0,40}(at capacity|out of capacity|running out of capacity|overloaded)|too many requests|rate.?limit|http[^0-9]*(408|425|429|500|502|503|504)|service unavailable|temporarily unavailable|server (is )?(busy|overloaded)|internal server error|bad gateway|gateway timeout|connection (reset|refused|closed)|stream disconnected|failed to connect|network (error|unavailable)|request timed out|timed out waiting'; }; then classification="provider_transient_error"
 elif [[ ! -s "$json_log" ]]; then
  if (( status == 0 )); then classification="empty_final_output"; else classification="process_nonzero_exit"; fi
 elif ! jq -e -s 'all(.[]; type == "object" and (.type | type == "string"))' "$json_log" >/dev/null 2>&1; then classification="json_event_parse_failure"
-elif { printf '%s\n' "$error_event_text"; cat "$stderr_log"; } | grep -Eqi 'sandbox|ask.for.approval|approval.*denied|permission denied'; then classification="local_sandbox_or_approval_denial"
 elif printf '%s\n' "$error_event_text" | grep -Eqi 'refus|blocked content|safety check|cannot assist'; then classification="model_refusal_or_blocked_content"
 elif jq -e 'select(.type == "turn.failed")' "$json_log" >/dev/null 2>&1; then classification="turn_failed"
 elif jq -e 'select(.type == "error")' "$json_log" >/dev/null 2>&1; then classification="error_event"
@@ -97,6 +118,6 @@ elif ! jq -e 'select(.type == "turn.completed")' "$json_log" >/dev/null 2>&1; th
 elif [[ ! -s "$last_message" ]]; then classification="empty_final_output"
 fi
 classification_file="${json_log%.jsonl}.classification"
-printf 'classification=%s\nexit_status=%s\nidle_timeout=%s\npartial_edits=%s\njsonl=%s\nstderr=%s\nlast_message=%s\n' "$classification" "$status" "$idle_timed_out" "$git_state_changed" "$json_log" "$stderr_log" "$last_message" > "$classification_file"
+printf 'classification=%s\nprovider_code=%s\nhttp_status=%s\nexit_status=%s\nidle_timeout=%s\npartial_edits=%s\njsonl=%s\nstderr=%s\nlast_message=%s\n' "$classification" "$error_code" "$http_status" "$status" "$idle_timed_out" "$git_state_changed" "$json_log" "$stderr_log" "$last_message" > "$classification_file"
 printf 'CODEX_CLASSIFICATION=%s\nCODEX_STDERR_LOG=%s\nCODEX_CLASSIFICATION_FILE=%s\n' "$classification" "$stderr_log" "$classification_file" >&2
 exit "$status"

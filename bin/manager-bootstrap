@@ -63,7 +63,8 @@ bootstrap_task_published()
 }
 
 attempt=1
-capacity_retries=0
+provider_retries=0
+quota_waits=0
 resume_thread_id=""
 status=0
 json_log=""
@@ -125,7 +126,25 @@ while true; do
 		exit 0
 	fi
 
-	if codex_model_requires_narrow_prompt "$current_model" && [[ "$classification" != success ]]; then
+	retry_kind="$(codex_provider_retry_kind "$classification" 2>/dev/null || true)"
+	if [[ -n "$retry_kind" ]]; then
+		retry_delay="$(codex_provider_retry_delay "$classification")"
+		provider_retries=$((provider_retries + 1))
+		[[ "$retry_kind" != quota ]] || quota_waits=$((quota_waits + 1))
+		log_event "MANAGER_BOOTSTRAP_PROVIDER_WAIT kind=$retry_kind attempt=$attempt retry=$provider_retries delay_seconds=$retry_delay classification=$classification"
+		if [[ "$retry_kind" == quota ]]; then
+			printf 'Manager bootstrap has no provider quota; state is preserved. Checking again in %s seconds (quota wait %s).\n' "$retry_delay" "$quota_waits" >&2
+		else
+			printf 'Manager bootstrap hit a transient provider/network failure; retrying in %s seconds.\n' "$retry_delay" >&2
+		fi
+		sleep "$retry_delay"
+		attempt=$((attempt + 1))
+		log_event "MANAGER_BOOTSTRAP_PROVIDER_RETRY_STARTED kind=$retry_kind attempt=$attempt retry=$provider_retries"
+		trace_event MANAGER_BOOTSTRAP_RETRY "kind=$retry_kind" "attempt=$attempt" "retry=$provider_retries"
+		continue
+	fi
+
+	if codex_model_requires_narrow_prompt "$current_model" && [[ "$classification" == model_refusal_or_blocked_content ]]; then
 		if (( fallback_stage == 0 )); then
 			fallback_stage=1; attempt=$((attempt + 1))
 			printf '\nRetry scope: create one bounded initial assignment only; do not inspect unrelated directories.\n' >> "$prompt_file"
@@ -136,17 +155,6 @@ while true; do
 			log_event "MANAGER_MODEL_FALLBACK classification=$classification model=$current_model"
 			continue
 		fi
-	fi
-
-	if codex_log_has_capacity_error "$json_log" && capacity_retry_allowed "$capacity_retries"; then
-		capacity_retries=$((capacity_retries + 1))
-		log_event "MANAGER_BOOTSTRAP_CAPACITY_RETRY_SCHEDULED attempt=$attempt retry=$capacity_retries delay_seconds=$HARNESS_CAPACITY_RETRY_SECONDS"
-		printf 'Manager model is at capacity during bootstrap; retrying in %s seconds.\n' "$HARNESS_CAPACITY_RETRY_SECONDS" >&2
-		sleep "$HARNESS_CAPACITY_RETRY_SECONDS"
-		attempt=$((attempt + 1))
-		log_event "MANAGER_BOOTSTRAP_CAPACITY_RETRY_STARTED attempt=$attempt retry=$capacity_retries"
-		trace_event MANAGER_BOOTSTRAP_RETRY "attempt=$attempt" "retry=$capacity_retries"
-		continue
 	fi
 
 	die "Codex manager bootstrap failed with exit status $status; see $json_log"
