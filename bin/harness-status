@@ -15,6 +15,12 @@ load_harness_env "$1"
 ensure_project
 
 dir="$(project_dir)"
+if project_plan_exists; then
+	printf -v project_progress_line 'Project progress: %s%% (%s/%s plan items complete)' \
+		"$(project_plan_progress_percent)" "$(project_plan_complete_count)" "$(project_plan_total_count)"
+else
+	project_progress_line='Project progress: unavailable (project plan is missing)'
+fi
 
 printf 'Environment file: %s\n' "$HARNESS_ENV_FILE"
 printf 'Project: %s\n' "$PROJECT"
@@ -42,16 +48,12 @@ if oracle_enabled; then
 	fi
 fi
 if project_plan_exists; then
-	printf 'Project progress: %s%% (%s/%s plan items complete)\n' \
-		"$(project_plan_progress_percent)" "$(project_plan_complete_count)" "$(project_plan_total_count)"
 	printf '\n%-24s %-12s %-16s %s\n' 'PLAN ITEM' 'STATE' 'TASK ROOT' 'TITLE'
 	printf '%-24s %-12s %-16s %s\n' '------------------------' '------------' '----------------' '-----'
 	awk -F '\t' '
 		NR == FNR {if ($0 !~ /^#/ && NF >= 2) title[$1] = $2; next}
 		$0 !~ /^#/ && NF >= 4 {printf "%-24s %-12s %-16s %s\n", $1, $2, $3, title[$1]}
 	' "$(project_plan_definition_file)" "$(project_plan_state_file)"
-else
-	printf 'Project progress: unavailable (project plan is missing)\n'
 fi
 printf '\n'
 printf '%-32s %-12s %-10s %-28s %-10s\n' 'TASK' 'STATE' 'PROGRESS' 'OWNER' 'AGE'
@@ -144,3 +146,5 @@ elif project_plan_exists && (( active_count == 0 && aborted_count == 0 )) && ! p
 elif project_completion_recorded; then
 	printf '\nProject status: INCOMPLETE. Ignoring an invalid legacy completion marker because the project plan is absent or unfinished.\n'
 fi
+
+printf '\n%s\n' "$project_progress_line"

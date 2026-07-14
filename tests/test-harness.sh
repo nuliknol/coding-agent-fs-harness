@@ -463,6 +463,7 @@ grep -q '^Starting-Progress: 50%$' "$continuation"
 grep -q 'Preserve all previously verified work' "$continuation"
 "$HARNESS_BIN/harness-status" "$TEST_ROOT/harness.env" > "$TEST_ROOT/progress-status.out"
 grep -Eq '005-revision-01 +READY +50%' "$TEST_ROOT/progress-status.out"
+tail -n 1 "$TEST_ROOT/progress-status.out" | grep -Eq '^Project progress: [0-9]+% \([0-9]+/[0-9]+ plan items complete\)$'
 
 ACTIVE_ROOT="$TEST_ROOT/active"
 mkdir -p "$ACTIVE_ROOT/repo" "$ACTIVE_ROOT/manager-home" "$ACTIVE_ROOT/worker-home"
