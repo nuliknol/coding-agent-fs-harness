@@ -227,7 +227,7 @@ chmod 600 "$TEST_ROOT/harness.env"
 "$HARNESS_BIN/harness-check-env" "$TEST_ROOT/harness.env" > "$TEST_ROOT/check-env.out"
 grep -q 'Codex wall timeout seconds: 0 (0 means unlimited)' "$TEST_ROOT/check-env.out"
 grep -q 'Codex idle timeout seconds: 0 (0 means unlimited)' "$TEST_ROOT/check-env.out"
-grep -q 'Task revisions: unlimited' "$TEST_ROOT/check-env.out"
+grep -q 'identical zero-progress blockers are circuit-broken' "$TEST_ROOT/check-env.out"
 grep -q 'Transient provider retry seconds: 1 (retries unlimited)' "$TEST_ROOT/check-env.out"
 grep -q 'Quota retry seconds: 1 (retries unlimited)' "$TEST_ROOT/check-env.out"
 "$HARNESS_BIN/harness-init" "$TEST_ROOT/harness.env" >/dev/null
@@ -399,9 +399,8 @@ All required behavior was independently verified. Accept.
 NOTE
 "$HARNESS_BIN/manager-accept-task" "$TEST_ROOT/harness.env" "$task_id" "$note" >/dev/null
 
-# Revisions remain unlimited, including sustained zero-gain attempts. The
-# manager must preserve cumulative progress and change strategy instead of
-# stopping for a human restart.
+# Revisions without a deterministic blocker fingerprint remain available; the
+# circuit breaker applies only to repeated identical zero-gain gate evidence.
 fixture_task="$TEST_ROOT/fixture-004.md"
 printf '# Task\n\nTask-ID: 004\n' > "$fixture_task"
 "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" 004 "$fixture_task" fixture-004 >/dev/null
@@ -552,5 +551,95 @@ if "$HARNESS_BIN/harness-init" "$INACTIVE_ROOT/harness.env" >"$INACTIVE_ROOT/rei
 fi
 grep -q 'project state already exists at' "$INACTIVE_ROOT/reinit.err"
 grep -q 'rm -rf' "$INACTIVE_ROOT/reinit.err"
+
+ORACLE_ROOT="$TEST_ROOT/oracle"
+mkdir -p "$ORACLE_ROOT/repo" "$ORACLE_ROOT/manager-home" "$ORACLE_ROOT/worker-home"
+printf 'test specification\n' > "$ORACLE_ROOT/repo/spec.md"
+cat > "$ORACLE_ROOT/harness.env" <<ENV
+export PROJECT="oracleproj"
+export REPOSITORY="$ORACLE_ROOT/repo"
+export SPECIFICATION="\$REPOSITORY/spec.md"
+export HARNESS_HOME="$HARNESS_HOME"
+export HARNESS_BIN="\$HARNESS_HOME/bin"
+export HARNESS_ROOT="$ORACLE_ROOT/state"
+export MANAGER_CODEX_HOME="$ORACLE_ROOT/manager-home"
+export MANAGER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export WORKER_CODEX_HOME="$ORACLE_ROOT/worker-home"
+export WORKER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export ORACLE_MODEL="gpt-5.6-sol"
+ENV
+chmod 600 "$ORACLE_ROOT/harness.env"
+"$HARNESS_BIN/harness-init" "$ORACLE_ROOT/harness.env" >/dev/null
+printf 'P0\tOracle completion test\n' > "$ORACLE_ROOT/plan.tsv"
+"$HARNESS_BIN/manager-init-project-plan" "$ORACLE_ROOT/harness.env" "$ORACLE_ROOT/plan.tsv" >/dev/null
+sed -i 's/^P0\tPENDING/P0\tCOMPLETE/' "$ORACLE_ROOT/state/projects/oracleproj/control/project-plan-state.tsv"
+mkdir -p "$ORACLE_ROOT/state/projects/oracleproj/control/oracle"
+printf '# Oracle Audit Pending\n\nProject: oracleproj\n\nAudit-ID: 1\n' > "$ORACLE_ROOT/state/projects/oracleproj/control/oracle/oracle.pending.md"
+printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"Oracle focused acceptance check is running."}}' > "$ORACLE_ROOT/state/projects/oracleproj/logs/oracle-audit-1-20260714T000000Z-attempt-001.jsonl"
+timeout 2 "$HARNESS_BIN/harness-watch-agents" "$ORACLE_ROOT/harness.env" > "$ORACLE_ROOT/watch.out" 2>&1 || true
+grep -q 'ORACLE task=final-audit-1' "$ORACLE_ROOT/watch.out"
+grep -q 'Oracle focused acceptance check is running.' "$ORACLE_ROOT/watch.out"
+cat > "$ORACLE_ROOT/verdict-pass.md" <<'VERDICT'
+# Oracle Audit Verdict
+
+Decision: PASS
+
+## Traceability verification
+
+All original requirements are accounted for.
+
+## Acceptance verification
+
+All acceptance checks passed.
+
+## Findings
+
+None.
+
+## Conclusion
+
+The implementation is compliant.
+VERDICT
+"$HARNESS_BIN/oracle-complete-audit" "$ORACLE_ROOT/harness.env" "$ORACLE_ROOT/verdict-pass.md" >/dev/null
+[[ -f "$ORACLE_ROOT/state/projects/oracleproj/control/project.complete" ]]
+[[ ! -f "$ORACLE_ROOT/state/projects/oracleproj/control/oracle/oracle.pending.md" ]]
+
+ORACLE_FAIL_ROOT="$TEST_ROOT/oracle-fail"
+mkdir -p "$ORACLE_FAIL_ROOT/repo" "$ORACLE_FAIL_ROOT/manager-home" "$ORACLE_FAIL_ROOT/worker-home"
+printf 'test specification\n' > "$ORACLE_FAIL_ROOT/repo/spec.md"
+cat > "$ORACLE_FAIL_ROOT/harness.env" <<ENV
+export PROJECT="oraclefailproj"
+export REPOSITORY="$ORACLE_FAIL_ROOT/repo"
+export SPECIFICATION="\$REPOSITORY/spec.md"
+export HARNESS_HOME="$HARNESS_HOME"
+export HARNESS_BIN="\$HARNESS_HOME/bin"
+export HARNESS_ROOT="$ORACLE_FAIL_ROOT/state"
+export MANAGER_CODEX_HOME="$ORACLE_FAIL_ROOT/manager-home"
+export MANAGER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export WORKER_CODEX_HOME="$ORACLE_FAIL_ROOT/worker-home"
+export WORKER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export ORACLE_MODEL="gpt-5.6-sol"
+ENV
+chmod 600 "$ORACLE_FAIL_ROOT/harness.env"
+"$HARNESS_BIN/harness-init" "$ORACLE_FAIL_ROOT/harness.env" >/dev/null
+printf 'P0\tOracle remediation test\n' > "$ORACLE_FAIL_ROOT/plan.tsv"
+"$HARNESS_BIN/manager-init-project-plan" "$ORACLE_FAIL_ROOT/harness.env" "$ORACLE_FAIL_ROOT/plan.tsv" >/dev/null
+sed -i 's/^P0\tPENDING/P0\tCOMPLETE/' "$ORACLE_FAIL_ROOT/state/projects/oraclefailproj/control/project-plan-state.tsv"
+mkdir -p "$ORACLE_FAIL_ROOT/state/projects/oraclefailproj/control/oracle"
+printf '# Oracle Audit Pending\n\nProject: oraclefailproj\n\nAudit-ID: 1\n' > "$ORACLE_FAIL_ROOT/state/projects/oraclefailproj/control/oracle/oracle.pending.md"
+sed 's/Decision: PASS/Decision: FAIL/; s/None\./A required behavior is incomplete./; s/The implementation is compliant./Remediation is required./' "$ORACLE_ROOT/verdict-pass.md" > "$ORACLE_FAIL_ROOT/verdict-fail.md"
+{
+	printf '# Specification Addendum\n\n'
+	printf 'Original-Requirement-ID: REQ-ORACLE-1\n'
+	printf 'Remediation-Authority: AUTOMATIC\n\n'
+	printf 'The original requirement remains authoritative. This addendum adds the missing remediation.\n\n'
+	printf '## Harness plan items\n\n'
+	printf 'ORACLE-001-01\tImplement and verify the missing behavior\n'
+} > "$ORACLE_FAIL_ROOT/addendum.md"
+"$HARNESS_BIN/oracle-complete-audit" "$ORACLE_FAIL_ROOT/harness.env" "$ORACLE_FAIL_ROOT/verdict-fail.md" "$ORACLE_FAIL_ROOT/addendum.md" >/dev/null
+grep -Fqx $'ORACLE-001-01\tImplement and verify the missing behavior' "$ORACLE_FAIL_ROOT/state/projects/oraclefailproj/control/project-plan.tsv"
+grep -Eq '^ORACLE-001-01\tPENDING\t-' "$ORACLE_FAIL_ROOT/state/projects/oraclefailproj/control/project-plan-state.tsv"
+[[ ! -f "$ORACLE_FAIL_ROOT/state/projects/oraclefailproj/control/project.complete" ]]
+[[ ! -f "$ORACLE_FAIL_ROOT/state/projects/oraclefailproj/control/oracle/oracle.pending.md" ]]
 
 printf 'All v4.2 harness tests passed.\n'

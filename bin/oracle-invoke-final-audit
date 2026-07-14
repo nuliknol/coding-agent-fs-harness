@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 1 ]] || usage
+load_harness_env "$1"
+ensure_project
+require_manager_configuration
+require_oracle_codex
+oracle_enabled || exit 0
+project_plan_all_complete || die 'Oracle audit requires a complete project plan'
+project_is_blocked && exit 0
+pending="$(project_oracle_pending_file)"
+[[ -f "$pending" ]] || exit 0
+write_oracle_snapshot
+
+dir="$(project_dir)"
+audit_id="$(awk -F': ' '$1 == "Audit-ID" {print $2; exit}' "$pending")"
+prompt="$dir/control/oracle-audit-$audit_id.prompt.md"
+cat > "$prompt.tmp.$$" <<PROMPT
+You are the final Oracle auditor for a filesystem-backed coding harness. You are independent of the manager and worker. Do not edit repository source, tests, builds, specifications, or harness state directly.
+
+ENV_FILE=$HARNESS_ENV_FILE
+PROJECT=$PROJECT
+PROJECT_TMP_DIR=$PROJECT_TMP_DIR
+REPOSITORY=$REPOSITORY
+SPECIFICATION=$SPECIFICATION
+PROJECT_PLAN_FILE=$(project_plan_definition_file)
+PROJECT_PLAN_STATE_FILE=$(project_plan_state_file)
+ORACLE_PENDING_FILE=$pending
+HARNESS_BIN=$HARNESS_BIN
+AUDIT_ID=$audit_id
+
+Read the complete original specification, every referenced mandatory task/specification document, the durable plan and its state, accepted task review records, and the implemented repository. Independently reproduce only the focused acceptance/build/smoke evidence needed to establish compliance. Do not trust manager or worker claims without evidence.
+
+Write a verdict under PROJECT_TMP_DIR with exactly this schema:
+
+# Oracle Audit Verdict
+
+Project: $PROJECT
+Audit-ID: $audit_id
+Decision: PASS or FAIL
+
+## Traceability verification
+- [PASS] or - [FAIL] every original requirement and mandatory referenced file is mapped to evidence or a finding
+
+## Acceptance verification
+- [PASS] or - [FAIL] focused command/code evidence
+
+## Findings
+Each finding must state the original requirement ID/path, expected behavior, observed evidence, and a reproducible command or source location.
+
+## Conclusion
+State why the project passes or fails.
+
+If PASS, call:
+$HARNESS_BIN/oracle-complete-audit "$ENV_FILE" VERDICT_FILE
+
+If FAIL, create a versioned additive addendum under PROJECT_TMP_DIR. It must contain at least one `Original-Requirement-ID: ...`, `Remediation-Authority: AUTOMATIC` only for a bounded repair of an existing requirement, or `HUMAN_APPROVAL` for new scope/conflict. An AUTOMATIC addendum must include:
+
+## Harness plan items
+ORACLE-...<TAB>independently acceptance-complete remediation title
+
+Then call:
+$HARNESS_BIN/oracle-complete-audit "$ENV_FILE" VERDICT_FILE ADDENDUM_FILE
+
+The addendum never replaces the original specification. Do not publish manager or worker tasks. Terminate after the completion command.
+PROMPT
+chmod 600 "$prompt.tmp.$$"
+mv "$prompt.tmp.$$" "$prompt"
+
+attempt=1
+while true; do
+	stamp="$(date -u '+%Y%m%dT%H%M%SZ')"
+	json="$dir/logs/oracle-audit-$audit_id-$stamp-attempt-$(printf '%03d' "$attempt").jsonl"
+	stderr="$dir/logs/oracle-audit-$audit_id-$stamp-attempt-$(printf '%03d' "$attempt").stderr.log"
+	last="$dir/logs/oracle-audit-$audit_id-$stamp-attempt-$(printf '%03d' "$attempt").md"
+	log_event "ORACLE_AUDIT_STARTED audit_id=$audit_id attempt=$attempt model=$ORACLE_MODEL"
+	set +e
+	"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" oracle "$ORACLE_MODEL" "$prompt" "$json" "$stderr" "$last"
+	status=$?
+	set -e
+	[[ ! -f "$pending" ]] && { log_event "ORACLE_AUDIT_FINISHED audit_id=$audit_id attempt=$attempt"; exit 0; }
+	classification="$(kv_file_value "${json%.jsonl}.classification" classification 2>/dev/null || true)"
+	retry_kind="$(codex_provider_retry_kind "$classification" 2>/dev/null || true)"
+	if [[ -n "$retry_kind" ]]; then
+		if [[ "$retry_kind" == quota ]]; then delay="$HARNESS_QUOTA_RETRY_SECONDS"; else delay="$HARNESS_PROVIDER_RETRY_SECONDS"; fi
+		log_event "ORACLE_PROVIDER_WAIT audit_id=$audit_id attempt=$attempt kind=$retry_kind delay_seconds=$delay"
+		sleep "$delay"
+		attempt=$((attempt + 1))
+		continue
+	fi
+	printf 'Oracle audit %s exited without recording a verdict; see %s\n' "$audit_id" "$last" >&2
+	if (( status == 0 )); then exit 3; fi
+	exit "$status"
+done

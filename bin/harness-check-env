@@ -15,6 +15,7 @@ load_harness_env "$1"
 require_manager_configuration
 require_manager_codex
 require_worker_codex
+require_oracle_codex
 
 printf 'Environment file: %s\n' "$HARNESS_ENV_FILE"
 printf 'Project: %s\n' "$PROJECT"
@@ -32,13 +33,21 @@ printf 'Worker Codex: %s\n' "$WORKER_CODEX_BIN"
 printf 'Worker Codex home: %s\n' "$WORKER_CODEX_HOME"
 printf 'Worker model: %s (%s)\n' "$WORKER_MODEL" "$WORKER_REASONING_EFFORT"
 printf 'Worker sandbox: %s\n' "$WORKER_SANDBOX"
+printf 'Oracle enabled: %s\n' "$ORACLE_ENABLED"
+if oracle_enabled; then
+	printf 'Oracle Codex: %s\n' "$ORACLE_CODEX_BIN"
+	printf 'Oracle Codex home: %s\n' "$ORACLE_CODEX_HOME"
+	printf 'Oracle model: %s (%s)\n' "$ORACLE_MODEL" "$ORACLE_REASONING_EFFORT"
+	printf 'Oracle sandbox: %s\n' "$ORACLE_SANDBOX"
+fi
 printf 'Worker heartbeat seconds: %s\n' "$WORKER_HEARTBEAT_SECONDS"
 printf 'Poll seconds: %s\n' "$HARNESS_POLL_SECONDS"
 printf 'Wait seconds: %s\n' "$HARNESS_WAIT_SECONDS"
 printf 'Stale seconds: %s\n' "$HARNESS_STALE_SECONDS"
 printf 'Use inotify: %s\n' "$HARNESS_USE_INOTIFY"
+printf 'Maximum identical zero-progress blockers: %s\n' "$HARNESS_MAX_IDENTICAL_BLOCKERS"
 printf 'Transient provider retry seconds: %s (retries unlimited)\n' "$HARNESS_PROVIDER_RETRY_SECONDS"
 printf 'Quota retry seconds: %s (retries unlimited)\n' "$HARNESS_QUOTA_RETRY_SECONDS"
 printf 'Codex wall timeout seconds: %s (0 means unlimited)\n' "$HARNESS_CODEX_WALL_TIMEOUT_SECONDS"
 printf 'Codex idle timeout seconds: %s (0 means unlimited)\n' "$HARNESS_CODEX_IDLE_TIMEOUT_SECONDS"
-printf 'Task revisions: unlimited; cumulative progress is persisted\n'
+printf 'Task revisions: cumulative progress is persisted; identical zero-progress blockers are circuit-broken\n'

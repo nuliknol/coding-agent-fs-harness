@@ -160,6 +160,10 @@ rm -f "$dir/control/$base.lease" "$dir/control/$base.abort.md" "$dir/control/$ba
 log_event "TASK_ACCEPTED task=$task_id"
 trace_event TASK_ACCEPTED "task_id=$task_id" "accepted_file=$accepted" "result_archive=$result_archive" "note_file=${note_file:-}"
 if project_plan_all_complete; then
-	mark_project_complete "$task_id" "$note_file"
+	if oracle_enabled; then
+		mark_project_awaiting_oracle "$task_id" "$note_file"
+	else
+		mark_project_complete "$task_id" "$note_file"
+	fi
 fi
 printf '%s\n' "$accepted"

@@ -29,6 +29,8 @@ root="$(task_root_id "$task_id")"
 progress="$(task_progress_file "$root")"
 root_assignment="$(task_root_assignment_file "$root")"
 
+task_root_is_blocked "$root" && die "task root is blocked pending human intervention: $root"
+
 base="$(task_base "$task_id")"
 ready="$dir/tasks/$base.ready.md"
 running="$dir/running/$base.running.md"

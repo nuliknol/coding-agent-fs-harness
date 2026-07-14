@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE VERDICT_FILE [ADDENDUM_FILE]\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -ge 2 && $# -le 3 ]] || usage
+load_harness_env "$1"
+verdict="$2"
+addendum="${3:-}"
+ensure_project
+oracle_enabled || die 'Oracle is disabled for this environment'
+[[ -f "$verdict" ]] || die "verdict file does not exist: $verdict"
+[[ -z "$addendum" || -f "$addendum" ]] || die "addendum file does not exist: $addendum"
+acquire_project_lock
+
+pending="$(project_oracle_pending_file)"
+[[ -f "$pending" ]] || die 'no Oracle audit is pending'
+audit_id="$(awk -F': ' '$1 == "Audit-ID" {print $2; exit}' "$pending")"
+[[ "$audit_id" =~ ^[1-9][0-9]*$ ]] || die 'pending Oracle audit has no valid Audit-ID'
+decision="$(awk -F': ' '$1 == "Decision" {print $2; exit}' "$verdict")"
+[[ "$decision" == PASS || "$decision" == FAIL ]] || die 'Oracle verdict Decision must be PASS or FAIL'
+grep -Fqx '# Oracle Audit Verdict' "$verdict" || die 'Oracle verdict must begin with # Oracle Audit Verdict'
+grep -Fqx '## Traceability verification' "$verdict" || die 'Oracle verdict lacks traceability verification'
+grep -Fqx '## Acceptance verification' "$verdict" || die 'Oracle verdict lacks acceptance verification'
+grep -Fqx '## Findings' "$verdict" || die 'Oracle verdict lacks findings'
+grep -Fqx '## Conclusion' "$verdict" || die 'Oracle verdict lacks conclusion'
+
+oracle_dir="$(project_oracle_dir)"
+mkdir -p "$oracle_dir"
+archive="$oracle_dir/audit-$audit_id.md"
+install -m 600 "$verdict" "$archive"
+
+if [[ "$decision" == PASS ]]; then
+	[[ -z "$addendum" ]] || die 'a PASS Oracle verdict must not include an addendum'
+	project_plan_all_complete || die 'Oracle PASS is only valid when every plan item is complete'
+	rm -f "$pending"
+	mark_project_complete "oracle-audit-$audit_id" "$archive"
+	log_event "ORACLE_AUDIT_PASSED audit_id=$audit_id verdict=$archive"
+	printf '%s\n' "$archive"
+	exit 0
+fi
+
+[[ -n "$addendum" ]] || die 'a FAIL Oracle verdict requires an addendum'
+authority="$(awk -F': ' '$1 == "Remediation-Authority" {print $2; exit}' "$addendum")"
+[[ "$authority" == AUTOMATIC || "$authority" == HUMAN_APPROVAL ]] || die 'addendum Remediation-Authority must be AUTOMATIC or HUMAN_APPROVAL'
+grep -Eq '^Original-Requirement-ID: .+' "$addendum" || die 'addendum must identify an original requirement'
+addendum_archive="$oracle_dir/addendum-$audit_id.md"
+install -m 600 "$addendum" "$addendum_archive"
+
+if [[ "$authority" == HUMAN_APPROVAL ]]; then
+	block="$(project_block_file)"
+	tmp="$block.tmp.$$"
+	{
+		printf '# Oracle Approval Required\n\n'
+		printf 'Project: %s\n\n' "$PROJECT"
+		printf 'Audit-ID: %s\n\n' "$audit_id"
+		printf 'Verdict: %s\n\n' "$archive"
+		printf 'Addendum: %s\n\n' "$addendum_archive"
+		printf 'Blocked-At: %s\n' "$(timestamp_utc)"
+	} > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$block"
+	rm -f "$pending"
+	log_event "ORACLE_AUDIT_BLOCKED audit_id=$audit_id verdict=$archive addendum=$addendum_archive"
+	printf '%s\n' "$block"
+	exit 0
+fi
+
+definition="$(project_plan_definition_file)"
+state="$(project_plan_state_file)"
+items_tmp="$oracle_dir/addendum-$audit_id.items.tsv"
+awk '
+	$0 == "## Harness plan items" {inside = 1; next}
+	inside && /^## / {exit}
+	inside && $0 !~ /^#/ && index($0, "\t") {print}
+' "$addendum" > "$items_tmp"
+[[ -s "$items_tmp" ]] || die 'automatic addendum must include tab-separated items under ## Harness plan items'
+
+definition_tmp="$definition.tmp.$$"
+state_tmp="$state.tmp.$$"
+cp "$definition" "$definition_tmp"
+cp "$state" "$state_tmp"
+while IFS=$'\t' read -r item_id title extra || [[ -n "${item_id:-}${title:-}${extra:-}" ]]; do
+	[[ -n "${item_id:-}" && -n "${title:-}" && -z "${extra:-}" ]] || die 'invalid Oracle addendum plan item'
+	[[ "$item_id" =~ ^ORACLE-[A-Za-z0-9._-]+$ ]] || die 'automatic Oracle item IDs must begin with ORACLE-'
+	! awk -F '\t' -v item="$item_id" '!/^#/ && $1 == item {found=1} END {exit found ? 0 : 1}' "$definition" || die "duplicate Oracle plan item: $item_id"
+	printf '%s\t%s\n' "$item_id" "$title" >> "$definition_tmp"
+	printf '%s\tPENDING\t-\t%s\n' "$item_id" "$(timestamp_utc)" >> "$state_tmp"
+done < "$items_tmp"
+chmod 600 "$definition_tmp" "$state_tmp" "$items_tmp"
+mv "$definition_tmp" "$definition"
+mv "$state_tmp" "$state"
+rm -f "$pending"
+active_spec="$oracle_dir/active-specification-set.md"
+tmp="$active_spec.tmp.$$"
+{
+	printf '# Active Specification Set\n\n'
+	printf -- '- Original: %s\n' "$SPECIFICATION"
+	printf -- '- Oracle addendum %s: %s\n' "$audit_id" "$addendum_archive"
+	printf -- '- The addendum is additive and only remediates the original requirement IDs it names.\n'
+} > "$tmp"
+chmod 600 "$tmp"
+mv "$tmp" "$active_spec"
+log_event "ORACLE_AUDIT_REOPENED audit_id=$audit_id verdict=$archive addendum=$addendum_archive items=$items_tmp"
+printf '%s\n' "$addendum_archive"

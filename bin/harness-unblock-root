@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TASK_ROOT\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 2 ]] || usage
+load_harness_env "$1"
+root="$2"
+ensure_project
+validate_task_id "$root"
+[[ "$(task_root_id "$root")" == "$root" ]] || die 'TASK_ROOT must not be a revision ID'
+acquire_project_lock
+
+block="$(task_root_block_file "$root")"
+[[ -f "$block" ]] || die "task root is not blocked: $root"
+rm -f "$block"
+log_event "TASK_ROOT_UNBLOCKED root=$root"
+printf '%s\n' "$root"

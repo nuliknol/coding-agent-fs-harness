@@ -10,9 +10,9 @@ usage()
 	cat >&2 <<USAGE
 Usage: ${0##*/} ENV_FILE [--new-only]
 
-Watch worker and manager natural-language messages for the currently active
-harness task. The watcher automatically follows new tasks and capacity-retry
-attempt logs.
+Watch worker, manager, and final Oracle natural-language messages for the
+currently active harness work. The watcher automatically follows new tasks and
+capacity-retry attempt logs.
 
 Options:
   --new-only   Do not replay existing messages from logs that are active when
@@ -49,6 +49,7 @@ declare -A initialized=()
 declare -A announced_rejection=()
 worker_log=""
 manager_log=""
+oracle_log=""
 startup=1
 
 latest_matching_log()
@@ -122,6 +123,16 @@ current_manager_log()
 	printf '%s' "$candidate"
 }
 
+current_oracle_log()
+{
+	# Oracle has no task mailbox: its durable pending marker is its active-work
+	# indicator. Keep draining the selected log after the marker is removed so
+	# the final verdict message is still visible.
+	oracle_enabled || return 0
+	[[ -f "$(project_oracle_pending_file)" ]] || return 0
+	latest_matching_log "$logs_dir/oracle-audit-*.jsonl"
+}
+
 role_and_task_from_log()
 {
 	local role="$1" file="$2" name task
@@ -140,6 +151,11 @@ role_and_task_from_log()
 			;;
 		MANAGER:manager-plan-*.jsonl)
 			task="planning-next-item"
+			;;
+		ORACLE:oracle-audit-*.jsonl)
+			task="${name#oracle-audit-}"
+			task="${task%%-*}"
+			task="final-audit-$task"
 			;;
 		*)
 			task="unknown"
@@ -223,6 +239,7 @@ initialize_rejection_records
 while true; do
 	new_worker="$(current_worker_log)"
 	new_manager="$(current_manager_log)"
+	new_oracle="$(current_oracle_log)"
 
 	if [[ -n "$new_worker" && "$new_worker" != "$worker_log" ]]; then
 		worker_log="$new_worker"
@@ -240,10 +257,19 @@ while true; do
 		announce_switch MANAGER "$manager_log"
 	fi
 
+	if [[ -n "$new_oracle" && "$new_oracle" != "$oracle_log" ]]; then
+		oracle_log="$new_oracle"
+		replay=1
+		if (( startup == 1 && NEW_ONLY == 1 )); then replay=0; fi
+		initialize_log "$oracle_log" "$replay"
+		announce_switch ORACLE "$oracle_log"
+	fi
+
 	# Continue draining the previous log after its status file disappears. This
 	# captures final messages emitted just after accept/reject or completion.
 	print_new_messages WORKER "$worker_log"
 	print_new_messages MANAGER "$manager_log"
+	print_new_messages ORACLE "$oracle_log"
 	print_new_rejections
 
 	startup=0

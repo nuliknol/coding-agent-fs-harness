@@ -85,11 +85,13 @@ load_harness_env()
 
 	unset PROJECT REPOSITORY SPECIFICATION HARNESS_HOME HARNESS_BIN HARNESS_ROOT PROJECT_TMP_DIR
 	unset HARNESS_POLL_SECONDS HARNESS_WAIT_SECONDS HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY
+	unset HARNESS_MAX_IDENTICAL_BLOCKERS
 	unset HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
 	unset HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
 	unset HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_KILL_GRACE_SECONDS
 	unset MANAGER_FALLBACK_MODEL WORKER_FALLBACK_MODEL
-	unset HARNESS_MANAGER_INVOKER HARNESS_MANAGER_PLAN_INVOKER HARNESS_WORKER_INVOKER
+	unset ORACLE_MODEL ORACLE_REASONING_EFFORT ORACLE_SANDBOX ORACLE_CODEX_BIN ORACLE_CODEX_HOME ORACLE_CODEX_EXTRA_ARGS ORACLE_ENABLED
+	unset HARNESS_MANAGER_INVOKER HARNESS_MANAGER_PLAN_INVOKER HARNESS_WORKER_INVOKER HARNESS_ORACLE_INVOKER
 	unset CODEX_BIN CODEX_HOME
 	unset CODEX_EXTRA_ARGS
 	unset MANAGER_CODEX_BIN MANAGER_CODEX_HOME MANAGER_MODEL MANAGER_REASONING_EFFORT MANAGER_SANDBOX
@@ -125,6 +127,10 @@ load_harness_env()
 	HARNESS_WAIT_SECONDS="${HARNESS_WAIT_SECONDS:-300}"
 	HARNESS_STALE_SECONDS="${HARNESS_STALE_SECONDS:-900}"
 	HARNESS_USE_INOTIFY="${HARNESS_USE_INOTIFY:-1}"
+	# A repeated deterministic blocker cannot be changed by another no-op worker
+	# turn.  Managers may still explore a few bounded diagnostic slices, but the
+	# harness converts the Nth identical zero-progress rejection into BLOCKED.
+	HARNESS_MAX_IDENTICAL_BLOCKERS="${HARNESS_MAX_IDENTICAL_BLOCKERS:-3}"
 	# Provider-side failures retry forever. Short transient failures use a
 	# one-minute cadence; account usage-window exhaustion reports and probes every
 	# five minutes until Codex confirms quota is available again.
@@ -149,19 +155,28 @@ load_harness_env()
 	WORKER_SANDBOX="${WORKER_SANDBOX:-workspace-write}"
 	MANAGER_FALLBACK_MODEL="${MANAGER_FALLBACK_MODEL:-gpt-5.5}"
 	WORKER_FALLBACK_MODEL="${WORKER_FALLBACK_MODEL:-gpt-5.4-mini}"
+	ORACLE_MODEL="${ORACLE_MODEL:-}"
+	ORACLE_ENABLED="${ORACLE_ENABLED:-$([[ -n "$ORACLE_MODEL" ]] && printf 1 || printf 0)}"
+	ORACLE_REASONING_EFFORT="${ORACLE_REASONING_EFFORT:-xhigh}"
+	ORACLE_SANDBOX="${ORACLE_SANDBOX:-$MANAGER_SANDBOX}"
 
 	MANAGER_CODEX_BIN="${MANAGER_CODEX_BIN:-${CODEX_BIN:-codex}}"
 	WORKER_CODEX_BIN="${WORKER_CODEX_BIN:-${CODEX_BIN:-codex}}"
 	MANAGER_CODEX_HOME="${MANAGER_CODEX_HOME:-${CODEX_HOME:-$HOME/.codex}}"
 	WORKER_CODEX_HOME="${WORKER_CODEX_HOME:-${CODEX_HOME:-$HOME/.codex}}"
+	ORACLE_CODEX_BIN="${ORACLE_CODEX_BIN:-$MANAGER_CODEX_BIN}"
+	ORACLE_CODEX_HOME="${ORACLE_CODEX_HOME:-$MANAGER_CODEX_HOME}"
 	MANAGER_CODEX_BIN="$(resolve_command_path "$MANAGER_CODEX_BIN")"
 	WORKER_CODEX_BIN="$(resolve_command_path "$WORKER_CODEX_BIN")"
 	MANAGER_CODEX_HOME="$(resolve_from_env_dir "$MANAGER_CODEX_HOME")"
 	WORKER_CODEX_HOME="$(resolve_from_env_dir "$WORKER_CODEX_HOME")"
+	ORACLE_CODEX_BIN="$(resolve_command_path "$ORACLE_CODEX_BIN")"
+	ORACLE_CODEX_HOME="$(resolve_from_env_dir "$ORACLE_CODEX_HOME")"
 
 	HARNESS_MANAGER_INVOKER="${HARNESS_MANAGER_INVOKER:-}"
 	HARNESS_MANAGER_PLAN_INVOKER="${HARNESS_MANAGER_PLAN_INVOKER:-}"
 	HARNESS_WORKER_INVOKER="${HARNESS_WORKER_INVOKER:-}"
+	HARNESS_ORACLE_INVOKER="${HARNESS_ORACLE_INVOKER:-}"
 	if [[ -n "$HARNESS_MANAGER_INVOKER" ]]; then
 		HARNESS_MANAGER_INVOKER="$(resolve_command_path "$HARNESS_MANAGER_INVOKER")"
 	fi
@@ -171,16 +186,26 @@ load_harness_env()
 	if [[ -n "$HARNESS_WORKER_INVOKER" ]]; then
 		HARNESS_WORKER_INVOKER="$(resolve_command_path "$HARNESS_WORKER_INVOKER")"
 	fi
+	if [[ -n "$HARNESS_ORACLE_INVOKER" ]]; then
+		HARNESS_ORACLE_INVOKER="$(resolve_command_path "$HARNESS_ORACLE_INVOKER")"
+	fi
 
-	local -a shared_codex_extra_args manager_codex_extra_args worker_codex_extra_args
+	local -a shared_codex_extra_args manager_codex_extra_args worker_codex_extra_args oracle_codex_extra_args
 	shared_codex_extra_args=()
 	manager_codex_extra_args=()
 	worker_codex_extra_args=()
+	oracle_codex_extra_args=()
 	load_codex_extra_args shared_codex_extra_args CODEX_EXTRA_ARGS
 	load_codex_extra_args manager_codex_extra_args MANAGER_CODEX_EXTRA_ARGS
 	load_codex_extra_args worker_codex_extra_args WORKER_CODEX_EXTRA_ARGS
+	if declare -p ORACLE_CODEX_EXTRA_ARGS >/dev/null 2>&1; then
+		load_codex_extra_args oracle_codex_extra_args ORACLE_CODEX_EXTRA_ARGS
+	else
+		oracle_codex_extra_args=("${manager_codex_extra_args[@]}")
+	fi
 	MANAGER_CODEX_EXTRA_ARGS=("${shared_codex_extra_args[@]}" "${manager_codex_extra_args[@]}")
 	WORKER_CODEX_EXTRA_ARGS=("${shared_codex_extra_args[@]}" "${worker_codex_extra_args[@]}")
+	ORACLE_CODEX_EXTRA_ARGS=("${shared_codex_extra_args[@]}" "${oracle_codex_extra_args[@]}")
 	if (( ${#shared_codex_extra_args[@]} > 0 )); then
 		CODEX_EXTRA_ARGS=("${shared_codex_extra_args[@]}")
 	else
@@ -194,6 +219,7 @@ load_harness_env()
 	[[ "$WORKER_HEARTBEAT_SECONDS" =~ ^[0-9]+$ ]] || die 'WORKER_HEARTBEAT_SECONDS must be an integer'
 	(( WORKER_HEARTBEAT_SECONDS > 0 )) || die 'WORKER_HEARTBEAT_SECONDS must be greater than zero'
 	[[ "$HARNESS_USE_INOTIFY" =~ ^[01]$ ]] || die 'HARNESS_USE_INOTIFY must be 0 or 1'
+	[[ "$HARNESS_MAX_IDENTICAL_BLOCKERS" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_IDENTICAL_BLOCKERS must be a positive integer'
 	[[ "$HARNESS_PROVIDER_RETRY_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_PROVIDER_RETRY_SECONDS must be an integer'
 	(( HARNESS_PROVIDER_RETRY_SECONDS > 0 )) || die 'HARNESS_PROVIDER_RETRY_SECONDS must be greater than zero'
 	[[ "$HARNESS_QUOTA_RETRY_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_QUOTA_RETRY_SECONDS must be an integer'
@@ -206,12 +232,19 @@ load_harness_env()
 	[[ "$WORKER_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid WORKER_MODEL: $WORKER_MODEL"
 	[[ "$MANAGER_FALLBACK_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid MANAGER_FALLBACK_MODEL: $MANAGER_FALLBACK_MODEL"
 	[[ "$WORKER_FALLBACK_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid WORKER_FALLBACK_MODEL: $WORKER_FALLBACK_MODEL"
+	[[ "$ORACLE_ENABLED" =~ ^[01]$ ]] || die 'ORACLE_ENABLED must be 0 or 1'
+	if [[ "$ORACLE_ENABLED" == 1 ]]; then
+		[[ "$ORACLE_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid ORACLE_MODEL: $ORACLE_MODEL"
+	fi
 	[[ "$MANAGER_REASONING_EFFORT" =~ ^(none|minimal|low|medium|high|xhigh)$ ]] || die "invalid MANAGER_REASONING_EFFORT: $MANAGER_REASONING_EFFORT"
 	[[ "$WORKER_REASONING_EFFORT" =~ ^(none|minimal|low|medium|high|xhigh)$ ]] || die "invalid WORKER_REASONING_EFFORT: $WORKER_REASONING_EFFORT"
 	[[ "$MANAGER_SANDBOX" =~ ^(read-only|workspace-write|danger-full-access)$ ]] || die "invalid MANAGER_SANDBOX: $MANAGER_SANDBOX"
 	[[ "$WORKER_SANDBOX" =~ ^(read-only|workspace-write|danger-full-access)$ ]] || die "invalid WORKER_SANDBOX: $WORKER_SANDBOX"
+	[[ "$ORACLE_REASONING_EFFORT" =~ ^(none|minimal|low|medium|high|xhigh)$ ]] || die "invalid ORACLE_REASONING_EFFORT: $ORACLE_REASONING_EFFORT"
+	[[ "$ORACLE_SANDBOX" =~ ^(read-only|workspace-write|danger-full-access)$ ]] || die "invalid ORACLE_SANDBOX: $ORACLE_SANDBOX"
 	[[ "$MANAGER_CODEX_BIN" != *[[:space:]]* ]] || die 'MANAGER_CODEX_BIN must not contain arguments'
 	[[ "$WORKER_CODEX_BIN" != *[[:space:]]* ]] || die 'WORKER_CODEX_BIN must not contain arguments'
+	[[ "$ORACLE_CODEX_BIN" != *[[:space:]]* ]] || die 'ORACLE_CODEX_BIN must not contain arguments'
 	[[ -d "$HARNESS_HOME" ]] || die "HARNESS_HOME does not exist: $HARNESS_HOME"
 	[[ -d "$HARNESS_BIN" ]] || die "HARNESS_BIN does not exist: $HARNESS_BIN"
 
@@ -221,14 +254,15 @@ load_harness_env()
 
 	export HARNESS_ENV_FILE HARNESS_ENV_DIR PROJECT REPOSITORY SPECIFICATION PROJECT_TMP_DIR
 	export HARNESS_HOME HARNESS_BIN HARNESS_ROOT HARNESS_POLL_SECONDS HARNESS_WAIT_SECONDS
-	export HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
+	export HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY HARNESS_MAX_IDENTICAL_BLOCKERS HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
 	export HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
 	export HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_KILL_GRACE_SECONDS
 	export WORKER_HEARTBEAT_SECONDS
 	export MANAGER_CODEX_BIN MANAGER_CODEX_HOME MANAGER_MODEL MANAGER_REASONING_EFFORT MANAGER_SANDBOX
 	export WORKER_CODEX_BIN WORKER_CODEX_HOME WORKER_MODEL WORKER_REASONING_EFFORT WORKER_SANDBOX
 	export MANAGER_FALLBACK_MODEL WORKER_FALLBACK_MODEL
-	export HARNESS_MANAGER_INVOKER HARNESS_MANAGER_PLAN_INVOKER HARNESS_WORKER_INVOKER
+	export ORACLE_MODEL ORACLE_ENABLED ORACLE_REASONING_EFFORT ORACLE_SANDBOX ORACLE_CODEX_BIN ORACLE_CODEX_HOME
+	export HARNESS_MANAGER_INVOKER HARNESS_MANAGER_PLAN_INVOKER HARNESS_WORKER_INVOKER HARNESS_ORACLE_INVOKER
 }
 
 load_codex_extra_args()
@@ -280,6 +314,22 @@ require_worker_codex()
 		command -v "$WORKER_CODEX_BIN" >/dev/null 2>&1 || die "worker Codex command not found: $WORKER_CODEX_BIN"
 	fi
 	[[ -d "$WORKER_CODEX_HOME" ]] || die "WORKER_CODEX_HOME does not exist: $WORKER_CODEX_HOME"
+}
+
+oracle_enabled()
+{
+	[[ "$ORACLE_ENABLED" == 1 ]]
+}
+
+require_oracle_codex()
+{
+	oracle_enabled || return 0
+	if [[ "$ORACLE_CODEX_BIN" == */* ]]; then
+		[[ -x "$ORACLE_CODEX_BIN" ]] || die "oracle Codex executable not found: $ORACLE_CODEX_BIN"
+	else
+		command -v "$ORACLE_CODEX_BIN" >/dev/null 2>&1 || die "oracle Codex command not found: $ORACLE_CODEX_BIN"
+	fi
+	[[ -d "$ORACLE_CODEX_HOME" ]] || die "ORACLE_CODEX_HOME does not exist: $ORACLE_CODEX_HOME"
 }
 
 validate_project()
@@ -352,6 +402,18 @@ task_root_assignment_file()
 	local root
 	root="$(task_root_id "$1")"
 	printf '%s/control/progress/%s-task-%s.root-assignment.md' "$(project_dir)" "$PROJECT" "$root"
+}
+
+task_root_block_file()
+{
+	local root
+	root="$(task_root_id "$1")"
+	printf '%s/control/progress/%s-task-%s.blocked.md' "$(project_dir)" "$PROJECT" "$root"
+}
+
+task_root_is_blocked()
+{
+	[[ -f "$(task_root_block_file "$1")" ]]
 }
 
 task_progress_percent()
@@ -694,11 +756,56 @@ initialize_project_state()
 	write_project_snapshot
 	write_manager_snapshot
 	write_worker_snapshot
+	write_oracle_snapshot
 }
 
 project_complete_file()
 {
 	printf '%s/control/project.complete' "$(project_dir)"
+}
+
+project_oracle_dir()
+{
+	printf '%s/control/oracle' "$(project_dir)"
+}
+
+project_oracle_pending_file()
+{
+	printf '%s/oracle.pending.md' "$(project_oracle_dir)"
+}
+
+project_block_file()
+{
+	printf '%s/control/project.blocked.md' "$(project_dir)"
+}
+
+project_is_blocked()
+{
+	[[ -f "$(project_block_file)" ]]
+}
+
+mark_project_awaiting_oracle()
+{
+	local task_id="$1" note_file="${2:-}" dir pending audit_id tmp
+	oracle_enabled || return 0
+	dir="$(project_oracle_dir)"
+	mkdir -p "$dir"
+	chmod 700 "$dir"
+	pending="$(project_oracle_pending_file)"
+	[[ -f "$pending" ]] && return 0
+	audit_id=$(( $(find "$dir" -maxdepth 1 -name 'audit-*.md' -type f 2>/dev/null | wc -l) + 1 ))
+	tmp="$pending.tmp.$$"
+	{
+		printf '# Oracle Audit Pending\n\n'
+		printf 'Project: %s\n\n' "$PROJECT"
+		printf 'Audit-ID: %s\n\n' "$audit_id"
+		printf 'Triggered-By-Task: %s\n\n' "$task_id"
+		printf 'Triggered-At: %s\n' "$(timestamp_utc)"
+		if [[ -n "$note_file" ]]; then printf '\nTrigger-Review: %s\n' "$note_file"; fi
+	} > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$pending"
+	log_event "ORACLE_AUDIT_PENDING audit_id=$audit_id task=$task_id"
 }
 
 project_plan_definition_file()
@@ -1006,6 +1113,26 @@ write_worker_snapshot()
 		printf 'codex_bin=%s\n' "$WORKER_CODEX_BIN"
 		printf 'codex_home=%s\n' "$WORKER_CODEX_HOME"
 		printf 'heartbeat_seconds=%s\n' "$WORKER_HEARTBEAT_SECONDS"
+		printf 'env_file=%s\n' "$HARNESS_ENV_FILE"
+		printf 'env_sha256=%s\n' "$(env_sha256)"
+		printf 'updated_at=%s\n' "$(timestamp_utc)"
+	} > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$config"
+}
+
+write_oracle_snapshot()
+{
+	local config tmp
+	config="$(project_dir)/control/oracle.conf"
+	tmp="$config.tmp.$$"
+	{
+		printf 'enabled=%s\n' "$ORACLE_ENABLED"
+		printf 'model=%s\n' "$ORACLE_MODEL"
+		printf 'reasoning_effort=%s\n' "$ORACLE_REASONING_EFFORT"
+		printf 'sandbox=%s\n' "$ORACLE_SANDBOX"
+		printf 'codex_bin=%s\n' "$ORACLE_CODEX_BIN"
+		printf 'codex_home=%s\n' "$ORACLE_CODEX_HOME"
 		printf 'env_file=%s\n' "$HARNESS_ENV_FILE"
 		printf 'env_sha256=%s\n' "$(env_sha256)"
 		printf 'updated_at=%s\n' "$(timestamp_utc)"

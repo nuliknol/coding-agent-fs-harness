@@ -41,6 +41,30 @@ fi
 validate_percent "$progress_percent" 'Progress-Percent'
 (( progress_percent >= current_progress )) || die "Progress-Percent cannot decrease from $current_progress% to $progress_percent%"
 (( progress_percent < 100 )) || die 'a rejected task must have Progress-Percent below 100%'
+
+# Circuit-break a deterministic blocker rather than paying for unbounded
+# no-op revisions.  The manager supplies the stable output hash/fingerprint
+# only when the same unmet gate is being retried; different failures continue
+# through normal bounded review.
+blocking_fingerprint="$(awk -F': ' '$1 == "Blocking-Fingerprint" {print $2; exit}' "$note_file")"
+if [[ "$improvement_percent" == 0 ]]; then
+	[[ -n "$blocking_fingerprint" ]] || die 'zero-improvement rejection requires Blocking-Fingerprint: sha256:<stable-output-hash>'
+	matching_rejections=0
+	shopt -s nullglob
+	for prior_rejection in "$dir/archive/$PROJECT-task-$root.rejected.md" \
+		"$dir/archive/$PROJECT-task-$root-revision-"*.rejected.md; do
+		[[ -f "$prior_rejection" ]] || continue
+		if grep -Fqx 'Improvement-Percent: 0%' "$prior_rejection" &&
+			grep -Fqx "Blocking-Fingerprint: $blocking_fingerprint" "$prior_rejection"; then
+			matching_rejections=$((matching_rejections + 1))
+		fi
+	done
+	if (( matching_rejections + 1 >= HARNESS_MAX_IDENTICAL_BLOCKERS )); then
+		log_event "TASK_CIRCUIT_BREAKER task=$task_id root=$root fingerprint=$blocking_fingerprint prior_matches=$matching_rejections limit=$HARNESS_MAX_IDENTICAL_BLOCKERS"
+		"$HARNESS_BIN/manager-block-task" "$HARNESS_ENV_FILE" "$task_id" "$note_file" "identical zero-progress blocker fingerprint $blocking_fingerprint reached limit $HARNESS_MAX_IDENTICAL_BLOCKERS" --lock-held
+		exit 0
+	fi
+fi
 result="$dir/results/$base.result.md"
 result_archive="$dir/archive/$base.rejected-result.md"
 rejected="$dir/archive/$base.rejected.md"

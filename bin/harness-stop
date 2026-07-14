@@ -13,6 +13,14 @@ usage()
 [[ $# -eq 1 ]] || usage
 load_harness_env "$1"
 ensure_project
+set +e
 "$HARNESS_BIN/worker-supervisor-stop" "$HARNESS_ENV_FILE"
+worker_status=$?
 "$HARNESS_BIN/manager-supervisor-stop" "$HARNESS_ENV_FILE"
+manager_status=$?
+set -e
+if (( worker_status != 0 || manager_status != 0 )); then
+	printf 'One or more supervisors are waiting for active children; retry after those children exit.\n' >&2
+	exit 3
+fi
 printf 'Harness supervisors stopped. Active Codex child processes, if any, are not forcibly killed.\n'

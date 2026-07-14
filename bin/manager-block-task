@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TASK_ID REVIEW_NOTE_FILE [REASON] [--lock-held]\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -ge 3 && $# -le 5 ]] || usage
+load_harness_env "$1"
+task_id="$2"
+note_file="$3"
+reason="${4:-repeated identical zero-progress blocker}"
+lock_held="${5:-}"
+[[ -z "$lock_held" || "$lock_held" == '--lock-held' ]] || usage
+
+ensure_project
+trace_init manager_block_task
+trace_script_start "$@"
+trap 'trace_script_exit $?' EXIT
+validate_task_id "$task_id"
+[[ -f "$note_file" ]] || die "review note file does not exist: $note_file"
+[[ "$lock_held" == '--lock-held' ]] || acquire_project_lock
+
+dir="$(project_dir)"
+base="$(task_base "$task_id")"
+root="$(task_root_id "$task_id")"
+result="$dir/results/$base.result.md"
+result_archive="$dir/archive/$base.blocked-result.md"
+blocked="$dir/archive/$base.blocked.md"
+root_block="$(task_root_block_file "$root")"
+assignment_archive="$dir/archive/$base.assignment.md"
+running="$dir/running/$base.running.md"
+lease="$dir/control/$base.lease"
+progress_percent="$(review_percent "$note_file" Progress-Percent)"
+improvement_percent="$(review_percent "$note_file" Improvement-Percent)"
+
+[[ -n "$progress_percent" ]] || progress_percent="$(task_progress_percent "$root")"
+[[ -n "$improvement_percent" ]] || improvement_percent=0
+validate_percent "$progress_percent" 'Progress-Percent'
+validate_percent "$improvement_percent" 'Improvement-Percent'
+(( progress_percent < 100 )) || die 'a blocked task must have Progress-Percent below 100%'
+[[ -f "$assignment_archive" ]] || die "archived assignment is missing: $task_id"
+[[ ! -e "$running" ]] || die "task is still running: $task_id"
+[[ ! -e "$lease" ]] || die "worker lease still exists: $task_id"
+
+if [[ -f "$blocked" ]]; then
+	printf '%s\n' "$blocked"
+	exit 0
+fi
+
+[[ -f "$result" ]] || die "result does not exist: $task_id"
+mv "$result" "$result_archive"
+
+tmp="$blocked.tmp.$$"
+{
+	printf '# Blocked Task\n\n'
+	printf 'Project: %s\n\n' "$PROJECT"
+	printf 'Task-ID: %s\n\n' "$task_id"
+	printf 'Task-Root: %s\n\n' "$root"
+	printf 'Environment-File: %s\n\n' "$HARNESS_ENV_FILE"
+	printf 'Blocked-At: %s\n\n' "$(timestamp_utc)"
+	printf 'Reason: %s\n\n' "$reason"
+	printf '## Review notes\n\n'
+	cat "$note_file"
+	printf '\n'
+} > "$tmp"
+chmod 600 "$tmp"
+mv "$tmp" "$blocked"
+
+tmp="$root_block.tmp.$$"
+{
+	printf '# Blocked Root Task\n\n'
+	printf 'Project: %s\n\n' "$PROJECT"
+	printf 'Task-Root: %s\n\n' "$root"
+	printf 'Blocked-By-Task: %s\n\n' "$task_id"
+	printf 'Blocked-At: %s\n\n' "$(timestamp_utc)"
+	printf 'Reason: %s\n' "$reason"
+} > "$tmp"
+chmod 600 "$tmp"
+mv "$tmp" "$root_block"
+
+update_task_progress "$task_id" "$progress_percent" "$improvement_percent" BLOCKED "$note_file"
+rm -f "$dir/control/$base.lease" "$dir/control/$base.worker-triggered" "$dir/control/$base.worker-failed.md" "$dir/control/$base.worker-supervisor-failed.md"
+log_event "TASK_BLOCKED task=$task_id root=$root reason=$reason"
+trace_event TASK_BLOCKED "task_id=$task_id" "task_root=$root" "blocked_file=$blocked" "root_block_file=$root_block"
+printf '%s\n' "$blocked"

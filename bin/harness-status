@@ -32,6 +32,15 @@ if [[ -f "$dir/control/worker-supervisor.pid" ]]; then
 fi
 printf 'Manager supervisor: %s\n' "$manager_supervisor"
 printf 'Worker supervisor: %s\n' "$worker_supervisor"
+if oracle_enabled; then
+	if [[ -f "$(project_block_file)" ]]; then
+		printf 'Oracle audit: BLOCKED (%s)\n' "$(project_block_file)"
+	elif [[ -f "$(project_oracle_pending_file)" ]]; then
+		printf 'Oracle audit: PENDING\n'
+	else
+		printf 'Oracle audit: enabled\n'
+	fi
+fi
 if project_plan_exists; then
 	printf 'Project progress: %s%% (%s/%s plan items complete)\n' \
 		"$(project_plan_progress_percent)" "$(project_plan_complete_count)" "$(project_plan_total_count)"
@@ -53,6 +62,7 @@ found=0
 accepted_count=0
 active_count=0
 aborted_count=0
+blocked_count=0
 
 for file in "$dir/tasks/$PROJECT-task-"*.ready.md; do
 	found=1
@@ -109,12 +119,26 @@ for file in "$dir/control/$PROJECT-task-"*.abort.md; do
 	printf '%-32s %-12s %-10s %-28s %-10s\n' "$task_id" 'ABORTED' "$progress" '-' '-'
 done
 
+for file in "$dir/control/progress/$PROJECT-task-"*.blocked.md; do
+	found=1
+	blocked_count=$((blocked_count + 1))
+	name="${file##*/}"
+	task_id="${name#${PROJECT}-task-}"
+	task_id="${task_id%.blocked.md}"
+	progress="$(task_progress_percent "$task_id")%"
+	printf '%-32s %-12s %-10s %-28s %-10s\n' "$task_id" 'BLOCKED' "$progress" '-' '-'
+done
+
 if (( found == 0 )); then
 	printf '%s\n' '(no tasks)'
 fi
 
 if project_completion_recorded && project_plan_all_complete; then
 	printf '\nProject status: COMPLETE. Every project-plan item is accepted.\n'
+elif (( blocked_count > 0 )); then
+	printf '\nProject status: BLOCKED. A root task requires human intervention before planning can continue.\n'
+elif project_is_blocked; then
+	printf '\nProject status: BLOCKED. The Oracle requires human approval before planning can continue.\n'
 elif project_plan_exists && (( active_count == 0 && aborted_count == 0 )) && ! project_plan_all_complete; then
 	printf '\nProject status: INCOMPLETE. No task is active; manager planning is required for the next plan item.\n'
 elif project_completion_recorded; then

@@ -224,6 +224,28 @@ supervisors exit automatically. A premature `--complete-project` assertion is
 rejected before task acceptance, so an unfinished specification cannot be
 terminated by a mistaken manager decision.
 
+## Final Oracle audit
+
+Set `ORACLE_MODEL` to enable a fresh, independent final audit after every plan
+item has been accepted. The Oracle uses `ORACLE_CODEX_*` settings when supplied and
+otherwise inherits the manager Codex environment. It verifies the original
+specification, mandatory referenced documents, durable plan traceability, and
+focused acceptance evidence before project completion is recorded.
+
+An Oracle `PASS` records project completion. An Oracle `FAIL` writes a
+versioned additive addendum: bounded remediation of an existing requirement may
+be marked `AUTOMATIC` and adds durable `ORACLE-*` plan items; new scope or a
+conflict with the original specification must be marked `HUMAN_APPROVAL` and
+blocks the project. Addenda never replace the original specification.
+After approving that block and making the necessary human-directed change, run
+`bin/harness-unblock-project ENV_FILE`, then restart the harness.
+
+```bash
+export ORACLE_MODEL="gpt-5.6-sol"
+export ORACLE_REASONING_EFFORT="xhigh"
+export ORACLE_SANDBOX="danger-full-access"
+```
+
 ## Stop and restart
 
 Stop both local supervisors:
@@ -248,6 +270,21 @@ Manager reviews update `Progress-Percent` and `Improvement-Percent`; revision
 assignments automatically receive the recorded starting percentage, completed
 evidence, and root-assignment paths. Consequently, stopping/restarting the
 supervisors or rebooting does not restart implementation from zero.
+
+### Deterministic-blocker circuit breaker
+
+The manager attaches `Blocking-Fingerprint: sha256:<output-hash>` to a
+zero-improvement rejection when the same focused gate deterministically fails.
+After `HARNESS_MAX_IDENTICAL_BLOCKERS` matching rejections (default: 3), the
+harness archives the result as `BLOCKED`, prevents another continuation from
+being published, and leaves the project plan active for human intervention.
+Use `harness-unblock-root ENV_FILE TASK_ROOT` only after changing the task
+authority, scope, or plan.
+
+Plan rows must be independently acceptance-complete: split a phase into
+multiple rows before assigning bounded milestones. A baseline task may require
+reproducing and documenting a known failure, but must never require that failure
+to pass while its scope forbids the repair.
 
 The project plan is independently durable. If a manager accepts a task and exits
 without publishing its successor, the manager supervisor detects that the plan
@@ -345,6 +382,8 @@ tail -F "$HOME/.local/state/coding-harness/projects/sample-project/logs/supervis
 ```
 
 Task-specific machine-readable streams are also written as `worker-task-*.jsonl` and `manager-review-*.jsonl`.
+When the final audit is active, `harness-watch-agents` also displays its
+`oracle-audit-*.jsonl` messages under an `ORACLE` label.
 
 ## Heartbeats and long tasks
 

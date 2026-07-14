@@ -33,6 +33,7 @@ lease="$project_path/control/$base.lease"
 assignment_archive="$project_path/archive/$base.assignment.md"
 accepted="$project_path/archive/$base.accepted.md"
 rejected="$project_path/archive/$base.rejected.md"
+blocked="$project_path/archive/$base.blocked.md"
 pending_exit_status=3
 [[ -f "$result" ]] || die "result file does not exist: $result"
 [[ ! -e "$running" ]] || die "result is not committed; running assignment still exists: $running"
@@ -94,7 +95,7 @@ current_model="$MANAGER_MODEL"
 
 manager_action_committed()
 {
-	[[ -f "$accepted" || -f "$rejected" ]]
+	[[ -f "$accepted" || -f "$rejected" || -f "$blocked" ]]
 }
 
 while true; do

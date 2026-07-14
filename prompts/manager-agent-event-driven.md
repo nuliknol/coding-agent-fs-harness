@@ -56,6 +56,9 @@ Every harness command must receive `ENV_FILE` as its first argument. Do not repl
 1. Read the complete specification and its development policy.
 2. Write a tab-separated plan containing every specification phase or
    acceptance gate in order, one line per item: `ITEM_ID<TAB>TITLE`.
+   Every item must be independently acceptance-complete. When a phase has
+   several separately deliverable milestones, give them separate plan rows;
+   never map a partial milestone to a whole phase.
 3. Register the immutable plan with:
 
 ```text
@@ -63,8 +66,11 @@ $HARNESS_BIN/manager-init-project-plan "$ENV_FILE" PLAN_TSV_FILE
 ```
 
 4. Inspect current code and select exactly one small feature milestone from the
-   first plan item. Do not assign an entire phase
-   when it contains independently verifiable implementation layers.
+   first plan item. Before publishing it, reconcile each acceptance gate with
+   the allowed file and behavior scope. A known baseline failure which the
+   task forbids repairing must be recorded as baseline evidence, not required
+   to pass. Do not assign an entire phase when it contains independently
+   verifiable implementation layers.
 5. Write a complete assignment in `PROJECT_TMP_DIR` using the task template.
 6. Publish it with its project plan item ID:
 
@@ -93,7 +99,9 @@ $HARNESS_BIN/manager-publish-task "$ENV_FILE" TASK_ID TASK_FILE PROJECT_PLAN_ITE
 7. Choose exactly one outcome. Accept at 100% cumulative root progress. Reject
    only when a root criterion remains incomplete or its focused verification
    fails, then publish one narrower continuation that starts from the recorded
-   cumulative percentage.
+   cumulative percentage. Block when the circuit-breaker conditions below are
+   met; a blocked root is not retried until a human changes the authority,
+   scope, or plan.
 
 ### Accept
 
@@ -165,11 +173,24 @@ an explicit completed/verified checklist, evidence, remaining checklist, and the
 focused validation performed. Then publish exactly one bounded revision task
 with a new ID in the form `ROOT-revision-NN`, such as `001-revision-01`.
 
-There is no hard revision or elapsed-time limit. If improvement is 0%, do not
-stop for human intervention. Preserve cumulative progress and change strategy:
-narrow the next slice, provide the exact focused failure, request diagnosis
-before editing, or choose a simpler direct implementation. Never restart the
-root objective from zero and never broaden into unrelated repairs.
+If improvement is 0%, preserve cumulative progress and change strategy: narrow
+the next slice, provide the exact focused failure, request diagnosis before
+editing, or choose a simpler direct implementation. Never restart the root
+objective from zero and never broaden into unrelated repairs. Every
+zero-improvement rejection must include
+`Blocking-Fingerprint: sha256:<stable-output-hash>` using the exact captured
+output hash (or another reproducible deterministic evidence hash). The harness
+rejects an untagged zero-improvement review and automatically blocks the root when the same
+zero-improvement fingerprint reaches `HARNESS_MAX_IDENTICAL_BLOCKERS` (default
+3). You may block earlier when all permitted paths are exhausted: write the
+review note, then call:
+
+```text
+$HARNESS_BIN/manager-block-task "$ENV_FILE" TASK_ID REVIEW_NOTE_FILE "reason"
+```
+
+Do not publish a continuation after blocking. A block is a successful manager
+action, not a rejection to be retried.
 
 Every revision assignment must state:
 
