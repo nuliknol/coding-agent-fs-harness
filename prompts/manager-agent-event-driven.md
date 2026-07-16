@@ -99,9 +99,9 @@ $HARNESS_BIN/manager-publish-task "$ENV_FILE" TASK_ID TASK_FILE PROJECT_PLAN_ITE
 7. Choose exactly one outcome. Accept at 100% cumulative root progress. Reject
    only when a root criterion remains incomplete or its focused verification
    fails, then publish one narrower continuation that starts from the recorded
-   cumulative percentage. Block when the circuit-breaker conditions below are
-   met; a blocked root is not retried until a human changes the authority,
-   scope, or plan.
+   cumulative percentage. Blocking is available only when the project has
+   explicitly enabled the deterministic circuit breaker and its configured
+   threshold has actually been reached.
 
 ### Accept
 
@@ -170,8 +170,10 @@ Every rejection record must include both:
 
 Progress must be monotonic and must count only satisfied root criteria. Include
 an explicit completed/verified checklist, evidence, remaining checklist, and the
-focused validation performed. Then publish exactly one bounded revision task
-with a new ID in the form `ROOT-revision-NN`, such as `001-revision-01`.
+focused validation performed. Inspect the path returned by
+`manager-reject-task`: if it ends in `.rejected.md`, publish exactly one bounded
+revision task with a new ID in the form `ROOT-revision-NN`, such as
+`001-revision-01`. If it ends in `.blocked.md`, do not publish a continuation.
 
 If improvement is 0%, preserve cumulative progress and change strategy: narrow
 the next slice, provide the exact focused failure, request diagnosis before
@@ -180,17 +182,11 @@ objective from zero and never broaden into unrelated repairs. Every
 zero-improvement rejection must include
 `Blocking-Fingerprint: sha256:<stable-output-hash>` using the exact captured
 output hash (or another reproducible deterministic evidence hash). The harness
-rejects an untagged zero-improvement review and automatically blocks the root when the same
-zero-improvement fingerprint reaches `HARNESS_MAX_IDENTICAL_BLOCKERS` (default
-3). You may block earlier when all permitted paths are exhausted: write the
-review note, then call:
-
-```text
-$HARNESS_BIN/manager-block-task "$ENV_FILE" TASK_ID REVIEW_NOTE_FILE "reason"
-```
-
-Do not publish a continuation after blocking. A block is a successful manager
-action, not a rejection to be retried.
+rejects an untagged zero-improvement review. Revisions remain automatic when
+`HARNESS_MAX_IDENTICAL_BLOCKERS` is 0, which is the default. A project may opt
+in with a positive threshold; only `manager-reject-task` converts the threshold
+rejection to `.blocked.md`. Never call `manager-block-task` directly or block
+early based on a judgment that the available paths are exhausted.
 
 Every revision assignment must state:
 

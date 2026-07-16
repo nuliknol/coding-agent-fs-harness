@@ -275,11 +275,15 @@ supervisors or rebooting does not restart implementation from zero.
 
 The manager attaches `Blocking-Fingerprint: sha256:<output-hash>` to a
 zero-improvement rejection when the same focused gate deterministically fails.
-After `HARNESS_MAX_IDENTICAL_BLOCKERS` matching rejections (default: 3), the
-harness archives the result as `BLOCKED`, prevents another continuation from
-being published, and leaves the project plan active for human intervention.
-Use `harness-unblock-root ENV_FILE TASK_ROOT` only after changing the task
-authority, scope, or plan.
+The circuit breaker is disabled by default
+(`HARNESS_MAX_IDENTICAL_BLOCKERS=0`), so revisions remain automatic and a
+manager cannot create a discretionary human-intervention block. A project may
+explicitly set a positive threshold. At that threshold, `manager-reject-task`
+atomically archives the result as `BLOCKED` and prevents another continuation;
+`manager-block-task` independently verifies the configured threshold and
+matching archived fingerprints, so it cannot be used to block early. Use
+`harness-unblock-root ENV_FILE TASK_ROOT` after correcting the condition or
+changing the task authority, scope, or plan.
 
 Plan rows must be independently acceptance-complete: split a phase into
 multiple rows before assigning bounded milestones. A baseline task may require

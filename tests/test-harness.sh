@@ -227,7 +227,8 @@ chmod 600 "$TEST_ROOT/harness.env"
 "$HARNESS_BIN/harness-check-env" "$TEST_ROOT/harness.env" > "$TEST_ROOT/check-env.out"
 grep -q 'Codex wall timeout seconds: 0 (0 means unlimited)' "$TEST_ROOT/check-env.out"
 grep -q 'Codex idle timeout seconds: 0 (0 means unlimited)' "$TEST_ROOT/check-env.out"
-grep -q 'identical zero-progress blockers are circuit-broken' "$TEST_ROOT/check-env.out"
+grep -q 'Deterministic blocker circuit breaker: disabled' "$TEST_ROOT/check-env.out"
+grep -q 'revisions remain automatic unless the circuit breaker is explicitly enabled' "$TEST_ROOT/check-env.out"
 grep -q 'Transient provider retry seconds: 1 (retries unlimited)' "$TEST_ROOT/check-env.out"
 grep -q 'Quota retry seconds: 1 (retries unlimited)' "$TEST_ROOT/check-env.out"
 "$HARNESS_BIN/harness-init" "$TEST_ROOT/harness.env" >/dev/null
@@ -465,6 +466,89 @@ grep -q 'Preserve all previously verified work' "$continuation"
 grep -Eq '005-revision-01 +READY +50%' "$TEST_ROOT/progress-status.out"
 tail -n 1 "$TEST_ROOT/progress-status.out" | grep -Eq '^Project progress: [0-9]+% \([0-9]+/[0-9]+ plan items complete\)$'
 
+# With the default disabled circuit breaker, even an explicit low-level block
+# request is refused and the normal rejection/continuation path remains open.
+mv "$continuation" \
+	"$TEST_ROOT/state/projects/testproj/archive/testproj-task-005-revision-01.assignment.md"
+printf 'worker result\n' > \
+	"$TEST_ROOT/state/projects/testproj/results/testproj-task-005-revision-01.result.md"
+disabled_block_note="$TEST_ROOT/disabled-block-review.md"
+cat > "$disabled_block_note" <<'NOTE'
+Progress-Percent: 50%
+Improvement-Percent: 0%
+Blocking-Fingerprint: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+NOTE
+if "$HARNESS_BIN/manager-block-task" "$TEST_ROOT/harness.env" 005-revision-01 \
+	"$disabled_block_note" >"$TEST_ROOT/disabled-block.out" 2>"$TEST_ROOT/disabled-block.err"; then
+	printf 'Expected disabled deterministic blocker to refuse a direct block.\n' >&2
+	exit 1
+fi
+grep -q 'deterministic task blocking is disabled' "$TEST_ROOT/disabled-block.err"
+"$HARNESS_BIN/manager-reject-task" "$TEST_ROOT/harness.env" 005-revision-01 \
+	"$disabled_block_note" >/dev/null
+[[ ! -e "$progress_dir/testproj-task-005.blocked.md" ]]
+"$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" 005-revision-02 \
+	"$revision_task" >/dev/null
+[[ -f "$TEST_ROOT/state/projects/testproj/tasks/testproj-task-005-revision-02.ready.md" ]]
+rm -f "$TEST_ROOT/state/projects/testproj/tasks/testproj-task-005-revision-02.ready.md"
+
+# An opt-in circuit breaker still works, but the blocking command independently
+# refuses an early intervention before the configured fingerprint threshold.
+CIRCUIT_ROOT="$TEST_ROOT/circuit"
+mkdir -p "$CIRCUIT_ROOT/repo" "$CIRCUIT_ROOT/manager-home" "$CIRCUIT_ROOT/worker-home"
+printf 'test specification\n' > "$CIRCUIT_ROOT/repo/spec.md"
+cat > "$CIRCUIT_ROOT/harness.env" <<ENV
+export PROJECT="circuitproj"
+export REPOSITORY="$CIRCUIT_ROOT/repo"
+export SPECIFICATION="\$REPOSITORY/spec.md"
+export HARNESS_HOME="$HARNESS_HOME"
+export HARNESS_BIN="\$HARNESS_HOME/bin"
+export HARNESS_ROOT="$CIRCUIT_ROOT/state"
+export MANAGER_CODEX_HOME="$CIRCUIT_ROOT/manager-home"
+export MANAGER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export WORKER_CODEX_HOME="$CIRCUIT_ROOT/worker-home"
+export WORKER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export HARNESS_MAX_IDENTICAL_BLOCKERS="2"
+ENV
+chmod 600 "$CIRCUIT_ROOT/harness.env"
+"$HARNESS_BIN/harness-init" "$CIRCUIT_ROOT/harness.env" >/dev/null
+printf 'P0\tCircuit breaker fixture\n' > "$CIRCUIT_ROOT/plan.tsv"
+"$HARNESS_BIN/manager-init-project-plan" "$CIRCUIT_ROOT/harness.env" \
+	"$CIRCUIT_ROOT/plan.tsv" >/dev/null
+printf '# Task\n\nTask-ID: 001\n' > "$CIRCUIT_ROOT/task.md"
+"$HARNESS_BIN/manager-publish-task" "$CIRCUIT_ROOT/harness.env" 001 \
+	"$CIRCUIT_ROOT/task.md" P0 >/dev/null
+mv "$CIRCUIT_ROOT/state/projects/circuitproj/tasks/circuitproj-task-001.ready.md" \
+	"$CIRCUIT_ROOT/state/projects/circuitproj/archive/circuitproj-task-001.assignment.md"
+printf 'worker result\n' > \
+	"$CIRCUIT_ROOT/state/projects/circuitproj/results/circuitproj-task-001.result.md"
+cat > "$CIRCUIT_ROOT/review-001.md" <<'NOTE'
+Progress-Percent: 0%
+Improvement-Percent: 0%
+Blocking-Fingerprint: sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+NOTE
+if "$HARNESS_BIN/manager-block-task" "$CIRCUIT_ROOT/harness.env" 001 \
+	"$CIRCUIT_ROOT/review-001.md" >"$CIRCUIT_ROOT/early-block.out" 2>"$CIRCUIT_ROOT/early-block.err"; then
+	printf 'Expected an early opt-in block to be refused.\n' >&2
+	exit 1
+fi
+grep -q 'configured threshold: 1/2' "$CIRCUIT_ROOT/early-block.err"
+"$HARNESS_BIN/manager-reject-task" "$CIRCUIT_ROOT/harness.env" 001 \
+	"$CIRCUIT_ROOT/review-001.md" >/dev/null
+"$HARNESS_BIN/manager-publish-task" "$CIRCUIT_ROOT/harness.env" 001-revision-01 \
+	"$CIRCUIT_ROOT/task.md" >/dev/null
+mv "$CIRCUIT_ROOT/state/projects/circuitproj/tasks/circuitproj-task-001-revision-01.ready.md" \
+	"$CIRCUIT_ROOT/state/projects/circuitproj/archive/circuitproj-task-001-revision-01.assignment.md"
+printf 'worker result\n' > \
+	"$CIRCUIT_ROOT/state/projects/circuitproj/results/circuitproj-task-001-revision-01.result.md"
+circuit_output="$("$HARNESS_BIN/manager-reject-task" "$CIRCUIT_ROOT/harness.env" \
+	001-revision-01 "$CIRCUIT_ROOT/review-001.md")"
+[[ "$circuit_output" == *.blocked.md ]]
+[[ -f "$CIRCUIT_ROOT/state/projects/circuitproj/archive/circuitproj-task-001-revision-01.blocked.md" ]]
+[[ -f "$CIRCUIT_ROOT/state/projects/circuitproj/control/progress/circuitproj-task-001.blocked.md" ]]
+grep -q 'TASK_CIRCUIT_BREAKER task=001-revision-01' \
+	"$CIRCUIT_ROOT/state/projects/circuitproj/logs/events.log"
+
 ACTIVE_ROOT="$TEST_ROOT/active"
 mkdir -p "$ACTIVE_ROOT/repo" "$ACTIVE_ROOT/manager-home" "$ACTIVE_ROOT/worker-home"
 printf 'test specification\n' > "$ACTIVE_ROOT/repo/spec.md"
@@ -639,7 +723,7 @@ sed 's/Decision: PASS/Decision: FAIL/; s/None\./A required behavior is incomplet
 } > "$ORACLE_FAIL_ROOT/addendum.md"
 "$HARNESS_BIN/oracle-complete-audit" "$ORACLE_FAIL_ROOT/harness.env" "$ORACLE_FAIL_ROOT/verdict-fail.md" "$ORACLE_FAIL_ROOT/addendum.md" >/dev/null
 grep -Fqx $'ORACLE-001-01\tImplement and verify the missing behavior' "$ORACLE_FAIL_ROOT/state/projects/oraclefailproj/control/project-plan.tsv"
-grep -Eq '^ORACLE-001-01\tPENDING\t-' "$ORACLE_FAIL_ROOT/state/projects/oraclefailproj/control/project-plan-state.tsv"
+grep -Eq $'^ORACLE-001-01\tPENDING\t-' "$ORACLE_FAIL_ROOT/state/projects/oraclefailproj/control/project-plan-state.tsv"
 [[ ! -f "$ORACLE_FAIL_ROOT/state/projects/oraclefailproj/control/project.complete" ]]
 [[ ! -f "$ORACLE_FAIL_ROOT/state/projects/oraclefailproj/control/oracle/oracle.pending.md" ]]
 

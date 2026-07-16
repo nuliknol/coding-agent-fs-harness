@@ -48,7 +48,8 @@ validate_percent "$progress_percent" 'Progress-Percent'
 # through normal bounded review.
 blocking_fingerprint="$(awk -F': ' '$1 == "Blocking-Fingerprint" {print $2; exit}' "$note_file")"
 if [[ "$improvement_percent" == 0 ]]; then
-	[[ -n "$blocking_fingerprint" ]] || die 'zero-improvement rejection requires Blocking-Fingerprint: sha256:<stable-output-hash>'
+	[[ "$blocking_fingerprint" =~ ^sha256:[0-9a-fA-F]{64}$ ]] ||
+		die 'zero-improvement rejection requires Blocking-Fingerprint: sha256:<64-hex-digest>'
 	matching_rejections=0
 	shopt -s nullglob
 	for prior_rejection in "$dir/archive/$PROJECT-task-$root.rejected.md" \
@@ -59,7 +60,7 @@ if [[ "$improvement_percent" == 0 ]]; then
 			matching_rejections=$((matching_rejections + 1))
 		fi
 	done
-	if (( matching_rejections + 1 >= HARNESS_MAX_IDENTICAL_BLOCKERS )); then
+	if (( HARNESS_MAX_IDENTICAL_BLOCKERS > 0 && matching_rejections + 1 >= HARNESS_MAX_IDENTICAL_BLOCKERS )); then
 		log_event "TASK_CIRCUIT_BREAKER task=$task_id root=$root fingerprint=$blocking_fingerprint prior_matches=$matching_rejections limit=$HARNESS_MAX_IDENTICAL_BLOCKERS"
 		"$HARNESS_BIN/manager-block-task" "$HARNESS_ENV_FILE" "$task_id" "$note_file" "identical zero-progress blocker fingerprint $blocking_fingerprint reached limit $HARNESS_MAX_IDENTICAL_BLOCKERS" --lock-held
 		exit 0

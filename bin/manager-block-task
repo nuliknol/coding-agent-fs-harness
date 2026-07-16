@@ -53,6 +53,27 @@ if [[ -f "$blocked" ]]; then
 	exit 0
 fi
 
+(( HARNESS_MAX_IDENTICAL_BLOCKERS > 0 )) ||
+	die 'deterministic task blocking is disabled; reject the task and publish a continuation'
+(( improvement_percent == 0 )) ||
+	die 'a task can be blocked only by an identical zero-improvement circuit breaker'
+blocking_fingerprint="$(awk -F': ' '$1 == "Blocking-Fingerprint" {print $2; exit}' "$note_file")"
+[[ "$blocking_fingerprint" =~ ^sha256:[0-9a-fA-F]{64}$ ]] ||
+	die 'blocked review note must contain Blocking-Fingerprint: sha256:<64-hex-digest>'
+
+matching_rejections=0
+shopt -s nullglob
+for prior_rejection in "$dir/archive/$PROJECT-task-$root.rejected.md" \
+	"$dir/archive/$PROJECT-task-$root-revision-"*.rejected.md; do
+	[[ -f "$prior_rejection" ]] || continue
+	if grep -Fqx 'Improvement-Percent: 0%' "$prior_rejection" &&
+		grep -Fqx "Blocking-Fingerprint: $blocking_fingerprint" "$prior_rejection"; then
+		matching_rejections=$((matching_rejections + 1))
+	fi
+done
+(( matching_rejections + 1 >= HARNESS_MAX_IDENTICAL_BLOCKERS )) ||
+	die "blocking fingerprint has not reached the configured threshold: $((matching_rejections + 1))/$HARNESS_MAX_IDENTICAL_BLOCKERS"
+
 [[ -f "$result" ]] || die "result does not exist: $task_id"
 mv "$result" "$result_archive"
 

@@ -127,10 +127,9 @@ load_harness_env()
 	HARNESS_WAIT_SECONDS="${HARNESS_WAIT_SECONDS:-300}"
 	HARNESS_STALE_SECONDS="${HARNESS_STALE_SECONDS:-900}"
 	HARNESS_USE_INOTIFY="${HARNESS_USE_INOTIFY:-1}"
-	# A repeated deterministic blocker cannot be changed by another no-op worker
-	# turn.  Managers may still explore a few bounded diagnostic slices, but the
-	# harness converts the Nth identical zero-progress rejection into BLOCKED.
-	HARNESS_MAX_IDENTICAL_BLOCKERS="${HARNESS_MAX_IDENTICAL_BLOCKERS:-3}"
+	# Revisions remain automatic by default. Projects may explicitly opt into a
+	# deterministic zero-progress circuit breaker with a positive threshold.
+	HARNESS_MAX_IDENTICAL_BLOCKERS="${HARNESS_MAX_IDENTICAL_BLOCKERS:-0}"
 	# Provider-side failures retry forever. Short transient failures use a
 	# one-minute cadence; account usage-window exhaustion reports and probes every
 	# five minutes until Codex confirms quota is available again.
@@ -219,7 +218,7 @@ load_harness_env()
 	[[ "$WORKER_HEARTBEAT_SECONDS" =~ ^[0-9]+$ ]] || die 'WORKER_HEARTBEAT_SECONDS must be an integer'
 	(( WORKER_HEARTBEAT_SECONDS > 0 )) || die 'WORKER_HEARTBEAT_SECONDS must be greater than zero'
 	[[ "$HARNESS_USE_INOTIFY" =~ ^[01]$ ]] || die 'HARNESS_USE_INOTIFY must be 0 or 1'
-	[[ "$HARNESS_MAX_IDENTICAL_BLOCKERS" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_IDENTICAL_BLOCKERS must be a positive integer'
+	[[ "$HARNESS_MAX_IDENTICAL_BLOCKERS" =~ ^[0-9]+$ ]] || die 'HARNESS_MAX_IDENTICAL_BLOCKERS must be a nonnegative integer'
 	[[ "$HARNESS_PROVIDER_RETRY_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_PROVIDER_RETRY_SECONDS must be an integer'
 	(( HARNESS_PROVIDER_RETRY_SECONDS > 0 )) || die 'HARNESS_PROVIDER_RETRY_SECONDS must be greater than zero'
 	[[ "$HARNESS_QUOTA_RETRY_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_QUOTA_RETRY_SECONDS must be an integer'

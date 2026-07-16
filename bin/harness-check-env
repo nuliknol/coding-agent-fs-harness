@@ -45,9 +45,13 @@ printf 'Poll seconds: %s\n' "$HARNESS_POLL_SECONDS"
 printf 'Wait seconds: %s\n' "$HARNESS_WAIT_SECONDS"
 printf 'Stale seconds: %s\n' "$HARNESS_STALE_SECONDS"
 printf 'Use inotify: %s\n' "$HARNESS_USE_INOTIFY"
-printf 'Maximum identical zero-progress blockers: %s\n' "$HARNESS_MAX_IDENTICAL_BLOCKERS"
+if (( HARNESS_MAX_IDENTICAL_BLOCKERS == 0 )); then
+	printf 'Deterministic blocker circuit breaker: disabled\n'
+else
+	printf 'Deterministic blocker circuit breaker: %s identical zero-progress fingerprints\n' "$HARNESS_MAX_IDENTICAL_BLOCKERS"
+fi
 printf 'Transient provider retry seconds: %s (retries unlimited)\n' "$HARNESS_PROVIDER_RETRY_SECONDS"
 printf 'Quota retry seconds: %s (retries unlimited)\n' "$HARNESS_QUOTA_RETRY_SECONDS"
 printf 'Codex wall timeout seconds: %s (0 means unlimited)\n' "$HARNESS_CODEX_WALL_TIMEOUT_SECONDS"
 printf 'Codex idle timeout seconds: %s (0 means unlimited)\n' "$HARNESS_CODEX_IDLE_TIMEOUT_SECONDS"
-printf 'Task revisions: cumulative progress is persisted; identical zero-progress blockers are circuit-broken\n'
+printf 'Task revisions: cumulative progress is persisted; revisions remain automatic unless the circuit breaker is explicitly enabled\n'
