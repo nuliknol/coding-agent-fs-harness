@@ -28,7 +28,14 @@ prompt="$(cat)"
 printf '%s\n' "$*" >> "$ARGS_LOG"
 last_message_file=""
 capture_next=0
+resume_thread_id=""
+capture_resume=0
 for arg in "$@"; do
+	if [[ "$capture_resume" == 1 ]]; then
+		resume_thread_id="$arg"
+		capture_resume=0
+		continue
+	fi
 	if [[ "$capture_next" == 1 ]]; then
 		last_message_file="$arg"
 		capture_next=0
@@ -36,6 +43,8 @@ for arg in "$@"; do
 	fi
 	if [[ "$arg" == "--output-last-message" ]]; then
 		capture_next=1
+	elif [[ "$arg" == "resume" ]]; then
+		capture_resume=1
 	fi
 done
 value()
@@ -82,7 +91,7 @@ if [[ "$count" == 1 && ( "$key" == plan || "$key" == worker-002 ) ]]; then
 	exit 1
 fi
 
-printf '{"type":"thread.started","thread_id":"mock-thread-001"}\n'
+printf '{"type":"thread.started","thread_id":"%s"}\n' "${resume_thread_id:-mock-thread-001}"
 printf '{"type":"turn.started"}\n'
 HARNESS_BIN="$(value HARNESS_BIN)"
 final_message="done"
@@ -228,6 +237,9 @@ chmod 600 "$TEST_ROOT/harness.env"
 grep -q 'Codex wall timeout seconds: 0 (0 means unlimited)' "$TEST_ROOT/check-env.out"
 grep -q 'Codex idle timeout seconds: 0 (0 means unlimited)' "$TEST_ROOT/check-env.out"
 grep -q 'Deterministic blocker circuit breaker: disabled' "$TEST_ROOT/check-env.out"
+grep -q 'Rejected-root worker thread reuse: enabled' "$TEST_ROOT/check-env.out"
+grep -q 'Worker thread rejection rotation: 8 retained rejections' "$TEST_ROOT/check-env.out"
+grep -q 'Bounded closure mode: enabled at 95% (2 fixes, 3 focused-smoke runs)' "$TEST_ROOT/check-env.out"
 grep -q 'revisions remain automatic unless the circuit breaker is explicitly enabled' "$TEST_ROOT/check-env.out"
 grep -q 'Transient provider retry seconds: 1 (retries unlimited)' "$TEST_ROOT/check-env.out"
 grep -q 'Quota retry seconds: 1 (retries unlimited)' "$TEST_ROOT/check-env.out"
@@ -548,6 +560,126 @@ circuit_output="$("$HARNESS_BIN/manager-reject-task" "$CIRCUIT_ROOT/harness.env"
 [[ -f "$CIRCUIT_ROOT/state/projects/circuitproj/control/progress/circuitproj-task-001.blocked.md" ]]
 grep -q 'TASK_CIRCUIT_BREAKER task=001-revision-01' \
 	"$CIRCUIT_ROOT/state/projects/circuitproj/logs/events.log"
+
+# Rejected revisions retain one root-scoped Codex thread, high-progress
+# continuations receive bounded closure mode, rotation starts a fresh thread,
+# and acceptance clears the retained state.
+CONTEXT_ROOT="$TEST_ROOT/context"
+mkdir -p "$CONTEXT_ROOT/repo" "$CONTEXT_ROOT/manager-home" "$CONTEXT_ROOT/worker-home"
+printf 'test specification\n' > "$CONTEXT_ROOT/repo/spec.md"
+cat > "$CONTEXT_ROOT/harness.env" <<ENV
+export PROJECT="contextproj"
+export REPOSITORY="$CONTEXT_ROOT/repo"
+export SPECIFICATION="\$REPOSITORY/spec.md"
+export HARNESS_HOME="$HARNESS_HOME"
+export HARNESS_BIN="\$HARNESS_HOME/bin"
+export HARNESS_ROOT="$CONTEXT_ROOT/state"
+export MANAGER_CODEX_HOME="$CONTEXT_ROOT/manager-home"
+export MANAGER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export WORKER_CODEX_HOME="$CONTEXT_ROOT/worker-home"
+export WORKER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export WORKER_HEARTBEAT_SECONDS="1"
+export HARNESS_WORKER_THREAD_MAX_REJECTIONS="2"
+export HARNESS_CLOSURE_MODE_MIN_PROGRESS="95"
+export HARNESS_CLOSURE_MODE_MAX_FIXES="2"
+export HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS="3"
+ENV
+chmod 600 "$CONTEXT_ROOT/harness.env"
+"$HARNESS_BIN/harness-init" "$CONTEXT_ROOT/harness.env" >/dev/null
+printf 'P0\tPersistent worker context fixture\n' > "$CONTEXT_ROOT/plan.tsv"
+"$HARNESS_BIN/manager-init-project-plan" "$CONTEXT_ROOT/harness.env" \
+	"$CONTEXT_ROOT/plan.tsv" >/dev/null
+printf '# Task\n\nTask-ID: 001\n' > "$CONTEXT_ROOT/task.md"
+"$HARNESS_BIN/manager-publish-task" "$CONTEXT_ROOT/harness.env" 001 \
+	"$CONTEXT_ROOT/task.md" P0 >/dev/null
+mv "$CONTEXT_ROOT/state/projects/contextproj/tasks/contextproj-task-001.ready.md" \
+	"$CONTEXT_ROOT/state/projects/contextproj/archive/contextproj-task-001.assignment.md"
+printf 'worker result\n' > \
+	"$CONTEXT_ROOT/state/projects/contextproj/results/contextproj-task-001.result.md"
+printf '%s\n' '{"type":"thread.started","thread_id":"context-thread-001"}' \
+	'{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}' > \
+	"$CONTEXT_ROOT/state/projects/contextproj/logs/worker-task-001-20260717T000000Z-attempt-001.jsonl"
+cat > "$CONTEXT_ROOT/reject-001.md" <<'NOTE'
+Progress-Percent: 99%
+Improvement-Percent: 99%
+NOTE
+"$HARNESS_BIN/manager-reject-task" "$CONTEXT_ROOT/harness.env" 001 \
+	"$CONTEXT_ROOT/reject-001.md" >/dev/null
+context_thread="$CONTEXT_ROOT/state/projects/contextproj/control/progress/contextproj-task-001.worker-thread"
+grep -q '^thread_id=context-thread-001$' "$context_thread"
+grep -q '^rejection_count=1$' "$context_thread"
+
+"$HARNESS_BIN/manager-publish-task" "$CONTEXT_ROOT/harness.env" 001-revision-01 \
+	"$CONTEXT_ROOT/task.md" >/dev/null
+"$HARNESS_BIN/worker-invoke-task" "$CONTEXT_ROOT/harness.env" 001-revision-01 >/dev/null
+context_prompt="$CONTEXT_ROOT/state/projects/contextproj/control/contextproj-task-001-revision-01.worker.prompt.md"
+grep -q '^WORKER_CONTEXT_MODE=resumed$' "$context_prompt"
+grep -q '^CLOSURE_MODE=1$' "$context_prompt"
+grep -q '^CLOSURE_MAX_FIXES=2$' "$context_prompt"
+grep -q '^CLOSURE_MAX_SMOKE_RUNS=3$' "$context_prompt"
+grep 'worker-task-001-revision-01' "$ARGS_LOG" | grep -q 'resume context-thread-001'
+cat > "$CONTEXT_ROOT/reject-revision.md" <<'NOTE'
+Progress-Percent: 99%
+Improvement-Percent: 0%
+Blocking-Fingerprint: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+NOTE
+"$HARNESS_BIN/manager-reject-task" "$CONTEXT_ROOT/harness.env" 001-revision-01 \
+	"$CONTEXT_ROOT/reject-revision.md" >/dev/null
+grep -q '^thread_id=context-thread-001$' "$context_thread"
+grep -q '^rejection_count=2$' "$context_thread"
+
+"$HARNESS_BIN/manager-publish-task" "$CONTEXT_ROOT/harness.env" 001-revision-02 \
+	"$CONTEXT_ROOT/task.md" >/dev/null
+"$HARNESS_BIN/worker-invoke-task" "$CONTEXT_ROOT/harness.env" 001-revision-02 >/dev/null
+rotation_prompt="$CONTEXT_ROOT/state/projects/contextproj/control/contextproj-task-001-revision-02.worker.prompt.md"
+grep -q '^WORKER_CONTEXT_MODE=fresh$' "$rotation_prompt"
+grep -q '^WORKER_CONTEXT_REASON=rejection_rotation_limit$' "$rotation_prompt"
+if grep 'worker-task-001-revision-02' "$ARGS_LOG" | grep -q 'resume '; then
+	printf 'Expected rejection-count rotation to launch a fresh worker thread.\n' >&2
+	exit 1
+fi
+"$HARNESS_BIN/manager-reject-task" "$CONTEXT_ROOT/harness.env" 001-revision-02 \
+	"$CONTEXT_ROOT/reject-revision.md" >/dev/null
+
+printf '# Task\n\nTask-ID: 001-revision-03\nWorker-Context: FRESH\n' > \
+	"$CONTEXT_ROOT/fresh-task.md"
+"$HARNESS_BIN/manager-publish-task" "$CONTEXT_ROOT/harness.env" 001-revision-03 \
+	"$CONTEXT_ROOT/fresh-task.md" >/dev/null
+"$HARNESS_BIN/worker-invoke-task" "$CONTEXT_ROOT/harness.env" 001-revision-03 >/dev/null
+fresh_prompt="$CONTEXT_ROOT/state/projects/contextproj/control/contextproj-task-001-revision-03.worker.prompt.md"
+grep -q '^WORKER_CONTEXT_MODE=fresh$' "$fresh_prompt"
+grep -q '^WORKER_CONTEXT_REASON=assignment_requested_fresh$' "$fresh_prompt"
+cat > "$CONTEXT_ROOT/accept.md" <<'NOTE'
+# Manager Review Record
+
+Task-ID: 001-revision-03
+Decision: ACCEPT
+
+## Specification comparison
+Mock specification comparison.
+
+## Acceptance-criteria verification
+- [PASS] persistent context criterion — mocked evidence
+
+## Feature verification
+- [PASS] bounded closure behavior — mocked focused evidence
+
+## Validation executed
+- [PASS] mock-test — exit status 0
+
+## Scope and regression review
+Mock scope review.
+
+## Conclusion
+All required behavior was independently verified. Accept.
+NOTE
+"$HARNESS_BIN/manager-accept-task" "$CONTEXT_ROOT/harness.env" 001-revision-03 \
+	"$CONTEXT_ROOT/accept.md" >/dev/null
+[[ ! -e "$context_thread" ]]
+grep -q 'WORKER_THREAD_RETAINED task=001-revision-01' \
+	"$CONTEXT_ROOT/state/projects/contextproj/logs/events.log"
+grep -q 'WORKER_THREAD_CLEARED task=001-revision-03' \
+	"$CONTEXT_ROOT/state/projects/contextproj/logs/events.log"
 
 ACTIVE_ROOT="$TEST_ROOT/active"
 mkdir -p "$ACTIVE_ROOT/repo" "$ACTIVE_ROOT/manager-home" "$ACTIVE_ROOT/worker-home"

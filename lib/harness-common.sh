@@ -86,6 +86,9 @@ load_harness_env()
 	unset PROJECT REPOSITORY SPECIFICATION HARNESS_HOME HARNESS_BIN HARNESS_ROOT PROJECT_TMP_DIR
 	unset HARNESS_POLL_SECONDS HARNESS_WAIT_SECONDS HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY
 	unset HARNESS_MAX_IDENTICAL_BLOCKERS
+	unset HARNESS_REUSE_WORKER_THREADS HARNESS_WORKER_THREAD_MAX_REJECTIONS
+	unset HARNESS_CLOSURE_MODE_ENABLED HARNESS_CLOSURE_MODE_MIN_PROGRESS
+	unset HARNESS_CLOSURE_MODE_MAX_FIXES HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS
 	unset HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
 	unset HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
 	unset HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_KILL_GRACE_SECONDS
@@ -130,6 +133,18 @@ load_harness_env()
 	# Revisions remain automatic by default. Projects may explicitly opt into a
 	# deterministic zero-progress circuit breaker with a positive threshold.
 	HARNESS_MAX_IDENTICAL_BLOCKERS="${HARNESS_MAX_IDENTICAL_BLOCKERS:-0}"
+	# A rejected continuation normally resumes the same root-scoped Codex
+	# worker thread. Rotate periodically so one stale strategy or an overgrown
+	# context cannot live for the entire root task.
+	HARNESS_REUSE_WORKER_THREADS="${HARNESS_REUSE_WORKER_THREADS:-1}"
+	HARNESS_WORKER_THREAD_MAX_REJECTIONS="${HARNESS_WORKER_THREAD_MAX_REJECTIONS:-8}"
+	# Near completion, let one bounded worker turn diagnose, correct, rebuild,
+	# and retry the same focused acceptance gate instead of forcing one revision
+	# for every newly exposed failure.
+	HARNESS_CLOSURE_MODE_ENABLED="${HARNESS_CLOSURE_MODE_ENABLED:-1}"
+	HARNESS_CLOSURE_MODE_MIN_PROGRESS="${HARNESS_CLOSURE_MODE_MIN_PROGRESS:-95}"
+	HARNESS_CLOSURE_MODE_MAX_FIXES="${HARNESS_CLOSURE_MODE_MAX_FIXES:-2}"
+	HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS="${HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS:-3}"
 	# Provider-side failures retry forever. Short transient failures use a
 	# one-minute cadence; account usage-window exhaustion reports and probes every
 	# five minutes until Codex confirms quota is available again.
@@ -219,6 +234,13 @@ load_harness_env()
 	(( WORKER_HEARTBEAT_SECONDS > 0 )) || die 'WORKER_HEARTBEAT_SECONDS must be greater than zero'
 	[[ "$HARNESS_USE_INOTIFY" =~ ^[01]$ ]] || die 'HARNESS_USE_INOTIFY must be 0 or 1'
 	[[ "$HARNESS_MAX_IDENTICAL_BLOCKERS" =~ ^[0-9]+$ ]] || die 'HARNESS_MAX_IDENTICAL_BLOCKERS must be a nonnegative integer'
+	[[ "$HARNESS_REUSE_WORKER_THREADS" =~ ^[01]$ ]] || die 'HARNESS_REUSE_WORKER_THREADS must be 0 or 1'
+	[[ "$HARNESS_WORKER_THREAD_MAX_REJECTIONS" =~ ^[0-9]+$ ]] || die 'HARNESS_WORKER_THREAD_MAX_REJECTIONS must be a nonnegative integer'
+	[[ "$HARNESS_CLOSURE_MODE_ENABLED" =~ ^[01]$ ]] || die 'HARNESS_CLOSURE_MODE_ENABLED must be 0 or 1'
+	validate_percent "$HARNESS_CLOSURE_MODE_MIN_PROGRESS" 'HARNESS_CLOSURE_MODE_MIN_PROGRESS'
+	[[ "$HARNESS_CLOSURE_MODE_MAX_FIXES" =~ ^[0-9]+$ ]] || die 'HARNESS_CLOSURE_MODE_MAX_FIXES must be a nonnegative integer'
+	[[ "$HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS must be a positive integer'
+	(( HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS > HARNESS_CLOSURE_MODE_MAX_FIXES )) || die 'HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS must be greater than HARNESS_CLOSURE_MODE_MAX_FIXES'
 	[[ "$HARNESS_PROVIDER_RETRY_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_PROVIDER_RETRY_SECONDS must be an integer'
 	(( HARNESS_PROVIDER_RETRY_SECONDS > 0 )) || die 'HARNESS_PROVIDER_RETRY_SECONDS must be greater than zero'
 	[[ "$HARNESS_QUOTA_RETRY_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_QUOTA_RETRY_SECONDS must be an integer'
@@ -254,6 +276,8 @@ load_harness_env()
 	export HARNESS_ENV_FILE HARNESS_ENV_DIR PROJECT REPOSITORY SPECIFICATION PROJECT_TMP_DIR
 	export HARNESS_HOME HARNESS_BIN HARNESS_ROOT HARNESS_POLL_SECONDS HARNESS_WAIT_SECONDS
 	export HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY HARNESS_MAX_IDENTICAL_BLOCKERS HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
+	export HARNESS_REUSE_WORKER_THREADS HARNESS_WORKER_THREAD_MAX_REJECTIONS
+	export HARNESS_CLOSURE_MODE_ENABLED HARNESS_CLOSURE_MODE_MIN_PROGRESS HARNESS_CLOSURE_MODE_MAX_FIXES HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS
 	export HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
 	export HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_KILL_GRACE_SECONDS
 	export WORKER_HEARTBEAT_SECONDS
@@ -408,6 +432,92 @@ task_root_block_file()
 	local root
 	root="$(task_root_id "$1")"
 	printf '%s/control/progress/%s-task-%s.blocked.md' "$(project_dir)" "$PROJECT" "$root"
+}
+
+worker_thread_state_file()
+{
+	local root
+	root="$(task_root_id "$1")"
+	printf '%s/control/progress/%s-task-%s.worker-thread' "$(project_dir)" "$PROJECT" "$root"
+}
+
+codex_thread_id_from_jsonl()
+{
+	local log_file="$1"
+	if command -v jq >/dev/null 2>&1; then
+		jq -rs '[.[] | select(.type == "thread.started") | .thread_id][0] // empty' "$log_file" 2>/dev/null
+	else
+		sed -n 's/.*"type"[[:space:]]*:[[:space:]]*"thread.started".*"thread_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$log_file" | head -n 1
+	fi
+}
+
+worker_thread_id_for_task()
+{
+	local task_id="$1" dir file latest latest_mtime mtime thread_id
+	dir="$(project_dir)"
+	latest=""
+	latest_mtime=-1
+	shopt -s nullglob
+	for file in "$dir/logs/worker-task-$task_id-"*.jsonl; do
+		mtime="$(stat -c %Y "$file" 2>/dev/null || printf 0)"
+		if (( mtime > latest_mtime )) || { (( mtime == latest_mtime )) && [[ "$file" > "$latest" ]]; }; then
+			latest="$file"
+			latest_mtime="$mtime"
+		fi
+	done
+	[[ -n "$latest" ]] || return 1
+	thread_id="$(codex_thread_id_from_jsonl "$latest")"
+	[[ "$thread_id" =~ ^[A-Za-z0-9-]+$ ]] || return 1
+	printf '%s\n' "$thread_id"
+}
+
+retain_worker_thread_for_rejection()
+{
+	local task_id="$1" root file thread_id previous_thread previous_task rejection_count tmp
+	(( HARNESS_REUSE_WORKER_THREADS == 1 )) || return 0
+	root="$(task_root_id "$task_id")"
+	file="$(worker_thread_state_file "$root")"
+	thread_id="$(worker_thread_id_for_task "$task_id" 2>/dev/null || true)"
+	if [[ -z "$thread_id" ]]; then
+		log_event "WORKER_THREAD_NOT_RETAINED task=$task_id root=$root reason=thread_id_unavailable"
+		return 0
+	fi
+	previous_thread=""
+	previous_task=""
+	rejection_count=0
+	if [[ -f "$file" ]]; then
+		previous_thread="$(kv_file_value "$file" thread_id)"
+		previous_task="$(kv_file_value "$file" last_rejected_task)"
+		rejection_count="$(kv_file_value "$file" rejection_count)"
+	fi
+	[[ "$rejection_count" =~ ^[0-9]+$ ]] || rejection_count=0
+	if [[ "$previous_thread" != "$thread_id" ]]; then
+		rejection_count=1
+	elif [[ "$previous_task" != "$task_id" ]]; then
+		rejection_count=$((rejection_count + 1))
+	fi
+	tmp="$file.tmp.$$"
+	{
+		printf 'thread_id=%s\n' "$thread_id"
+		printf 'task_root=%s\n' "$root"
+		printf 'last_rejected_task=%s\n' "$task_id"
+		printf 'rejection_count=%s\n' "$rejection_count"
+		printf 'retained_at=%s\n' "$(timestamp_utc)"
+	} > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$file"
+	log_event "WORKER_THREAD_RETAINED task=$task_id root=$root thread_id=$thread_id rejection_count=$rejection_count"
+}
+
+clear_worker_thread_for_root()
+{
+	local task_id="$1" reason="${2:-resolved}" root file thread_id
+	root="$(task_root_id "$task_id")"
+	file="$(worker_thread_state_file "$root")"
+	[[ -f "$file" ]] || return 0
+	thread_id="$(kv_file_value "$file" thread_id 2>/dev/null || printf unknown)"
+	rm -f "$file"
+	log_event "WORKER_THREAD_CLEARED task=$task_id root=$root thread_id=$thread_id reason=$reason"
 }
 
 task_root_is_blocked()
@@ -1112,6 +1222,12 @@ write_worker_snapshot()
 		printf 'codex_bin=%s\n' "$WORKER_CODEX_BIN"
 		printf 'codex_home=%s\n' "$WORKER_CODEX_HOME"
 		printf 'heartbeat_seconds=%s\n' "$WORKER_HEARTBEAT_SECONDS"
+		printf 'reuse_root_threads=%s\n' "$HARNESS_REUSE_WORKER_THREADS"
+		printf 'thread_max_rejections=%s\n' "$HARNESS_WORKER_THREAD_MAX_REJECTIONS"
+		printf 'closure_mode_enabled=%s\n' "$HARNESS_CLOSURE_MODE_ENABLED"
+		printf 'closure_min_progress=%s\n' "$HARNESS_CLOSURE_MODE_MIN_PROGRESS"
+		printf 'closure_max_fixes=%s\n' "$HARNESS_CLOSURE_MODE_MAX_FIXES"
+		printf 'closure_max_smoke_runs=%s\n' "$HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS"
 		printf 'env_file=%s\n' "$HARNESS_ENV_FILE"
 		printf 'env_sha256=%s\n' "$(env_sha256)"
 		printf 'updated_at=%s\n' "$(timestamp_utc)"

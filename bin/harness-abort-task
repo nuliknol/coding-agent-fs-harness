@@ -45,6 +45,7 @@ if [[ -f "$dir/results/$base.result.md" ]]; then
 	mv "$dir/results/$base.result.md" "$dir/archive/$base.aborted.result.md"
 fi
 rm -f "$dir/control/$base.lease"
+clear_worker_thread_for_root "$task_id" aborted
 
 log_event "TASK_ABORTED task=$task_id reason=$reason"
 printf '%s\n' "$abort"

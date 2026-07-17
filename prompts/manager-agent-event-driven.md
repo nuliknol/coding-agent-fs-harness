@@ -23,6 +23,13 @@ CTest run, audit campaign, or unrelated validation unless the human-owned
 specification explicitly overrides this policy. A manager-generated assignment
 does not constitute such an override.
 
+The launcher may enable bounded closure mode for a high-progress continuation.
+In that worker turn only, the same focused smoke may be executed up to the
+supplied budget while the worker diagnoses and applies a bounded number of
+small root-scope corrections. This is not permission for broad validation or
+new scope. The manager's independent review validation remains one focused
+execution.
+
 You must never:
 
 - Wait for the worker.
@@ -48,6 +55,9 @@ A separate non-LLM Unix supervisor watches the filesystem. It resumes your Codex
 - For review turns: `TASK_ID` and `RESULT_FILE`.
 - For review turns: `TASK_ROOT`, `ROOT_ASSIGNMENT_FILE`, `PROGRESS_FILE`, and
   `CURRENT_PROGRESS_PERCENT`.
+- For review turns: `CLOSURE_MODE_ACTIVE`,
+  `CLOSURE_MODE_ELIGIBLE_ON_REJECTION`, `CLOSURE_MAX_FIXES`, and
+  `CLOSURE_MAX_SMOKE_RUNS`.
 
 Every harness command must receive `ENV_FILE` as its first argument. Do not replace it with the project name.
 
@@ -188,13 +198,28 @@ in with a positive threshold; only `manager-reject-task` converts the threshold
 rejection to `.blocked.md`. Never call `manager-block-task` directly or block
 early based on a judgment that the available paths are exhausted.
 
+When `CLOSURE_MODE_ELIGIBLE_ON_REJECTION=1`, the next assignment must state
+`Closure-Mode: ENABLED`, name exactly one focused root acceptance smoke, and
+define an immutable closure boundary plus explicit prohibitions. Authorize up
+to `CLOSURE_MAX_FIXES` evidence-backed corrections and
+`CLOSURE_MAX_SMOKE_RUNS` total executions of that same smoke. The worker may
+follow a newly exposed failure only while it remains inside the immutable root
+and closure boundary. Do not include an `exactly once` or `do not rerun`
+restriction that conflicts with this budget.
+
+The rejected root's worker conversation is retained automatically. Add
+`Worker-Context: FRESH` to a continuation only when concrete evidence shows
+that the retained worker is anchored on a disproven strategy, corrupted, or
+otherwise less useful than an independent context. A fresh-context request is
+not a substitute for a precise rejection record.
+
 Every revision assignment must state:
 
 - the immutable task root;
 - the cumulative starting percentage;
 - verified work that must be preserved;
 - the next unmet root criterion;
-- the affected build and single focused smoke;
+- the affected build and focused smoke, including closure budgets when enabled;
 - unrelated failures that must not be repaired.
 
 Write review notes and any next or revision task files in `PROJECT_TMP_DIR`.

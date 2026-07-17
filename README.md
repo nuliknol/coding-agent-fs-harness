@@ -35,7 +35,12 @@ worker-supervisor
     -> repeats
 ```
 
-The interactive Codex TUI is not used for automated workers. A fresh non-interactive worker thread is created for each task. This prevents an idle worker prompt and avoids accumulating the entire project history in one worker context.
+The interactive Codex TUI is not used for automated workers. A root task starts
+a fresh non-interactive worker thread. If the manager rejects it, the harness
+records the Codex thread ID and resumes that conversation for the next revision
+without leaving any process alive. Acceptance or abort clears the thread.
+`Worker-Context: FRESH` requests an independent replacement, and
+`HARNESS_WORKER_THREAD_MAX_REJECTIONS` rotates long-lived rejected contexts.
 
 
 
@@ -271,6 +276,20 @@ assignments automatically receive the recorded starting percentage, completed
 evidence, and root-assignment paths. Consequently, stopping/restarting the
 supervisors or rebooting does not restart implementation from zero.
 
+### Rejected-root worker context
+
+`HARNESS_REUSE_WORKER_THREADS=1` (the default) retains the latest worker Codex
+thread only when `manager-reject-task` commits a rejection. The next revision
+of the same immutable root uses `codex exec resume`; its new assignment and
+durable progress checkpoint remain authoritative. No worker process waits
+between tasks and no lease is reused. Acceptance and explicit abort remove the
+retained thread state.
+
+The default `HARNESS_WORKER_THREAD_MAX_REJECTIONS=8` starts a fresh thread after
+eight rejected turns to limit stale-strategy anchoring and context growth. Set
+it to 0 to disable count-based rotation. A manager may request an earlier fresh
+context by putting `Worker-Context: FRESH` in a continuation assignment.
+
 ### Deterministic-blocker circuit breaker
 
 The manager attaches `Blocking-Fingerprint: sha256:<output-hash>` to a
@@ -410,6 +429,15 @@ policy: one affected build/compile check, one focused happy-path smoke, and one
 regression test only for a bug fix. Unrelated aggregate/CTest failures are
 recorded as limitations and do not become revision work.
 
+High-progress revisions enter bounded closure mode by default at 95%. One
+worker turn may make at most two evidence-backed root-scope corrections and run
+the same focused acceptance smoke at most three times, rebuilding between
+corrections. It stops on success, budget exhaustion, an out-of-root failure, or
+a required authority/design choice. Closure mode does not authorize broad test
+suites, relaxed acceptance, public API changes, speculative capacity increases,
+or unrelated cleanup. Configure it with `HARNESS_CLOSURE_MODE_*` values or set
+`HARNESS_CLOSURE_MODE_ENABLED=0` to retain single-attempt behavior.
+
 Revisions are unlimited. A zero-improvement result causes a narrower or changed
 strategy, not a terminal human-intervention state. Cumulative progress is
 monotonic and only root-task acceptance criteria count toward it; unrelated
@@ -450,7 +478,10 @@ delay, but new configurations should use `HARNESS_PROVIDER_RETRY_SECONDS`.
 The legacy `HARNESS_CAPACITY_MAX_RETRIES` value is ignored; provider retries are
 unlimited by design.
 
-The worker heartbeat remains active during the retry delay, so the claimed task does not become stale. The worker keeps the same task ownership session but starts a fresh Codex context. The manager resumes its persistent manager thread.
+The worker heartbeat remains active during the retry delay, so the claimed task
+does not become stale. The worker keeps the same task ownership session and
+resumes the attempt's Codex thread when one was created. The manager resumes its
+persistent manager thread.
 
 Authentication/account-disable errors, invalid configuration, sandbox failures,
 malformed output, protocol violations, partial-edit failures, and actual agent

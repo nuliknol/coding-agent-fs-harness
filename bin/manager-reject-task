@@ -61,6 +61,7 @@ if [[ "$improvement_percent" == 0 ]]; then
 		fi
 	done
 	if (( HARNESS_MAX_IDENTICAL_BLOCKERS > 0 && matching_rejections + 1 >= HARNESS_MAX_IDENTICAL_BLOCKERS )); then
+		retain_worker_thread_for_rejection "$task_id"
 		log_event "TASK_CIRCUIT_BREAKER task=$task_id root=$root fingerprint=$blocking_fingerprint prior_matches=$matching_rejections limit=$HARNESS_MAX_IDENTICAL_BLOCKERS"
 		"$HARNESS_BIN/manager-block-task" "$HARNESS_ENV_FILE" "$task_id" "$note_file" "identical zero-progress blocker fingerprint $blocking_fingerprint reached limit $HARNESS_MAX_IDENTICAL_BLOCKERS" --lock-held
 		exit 0
@@ -87,6 +88,7 @@ archive_lingering_result()
 
 if [[ -f "$rejected" ]]; then
 	archive_lingering_result
+	retain_worker_thread_for_rejection "$task_id"
 	trace_event TASK_REJECT_IDEMPOTENT "task_id=$task_id" "rejected_file=$rejected"
 	printf '%s\n' "$rejected"
 	exit 0
@@ -109,6 +111,7 @@ tmp="$rejected.tmp.$$"
 chmod 600 "$tmp"
 mv "$tmp" "$rejected"
 update_task_progress "$task_id" "$progress_percent" "$improvement_percent" REJECT "$note_file"
+retain_worker_thread_for_rejection "$task_id"
 log_event "TASK_REJECTED task=$task_id"
 trace_event TASK_REJECTED "task_id=$task_id" "rejected_file=$rejected" "result_archive=$result_archive" "note_file=$note_file"
 printf '%s\n' "$rejected"

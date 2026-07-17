@@ -50,6 +50,18 @@ if (( HARNESS_MAX_IDENTICAL_BLOCKERS == 0 )); then
 else
 	printf 'Deterministic blocker circuit breaker: %s identical zero-progress fingerprints\n' "$HARNESS_MAX_IDENTICAL_BLOCKERS"
 fi
+printf 'Rejected-root worker thread reuse: %s\n' "$([[ "$HARNESS_REUSE_WORKER_THREADS" == 1 ]] && printf enabled || printf disabled)"
+if (( HARNESS_WORKER_THREAD_MAX_REJECTIONS == 0 )); then
+	printf 'Worker thread rejection rotation: unlimited\n'
+else
+	printf 'Worker thread rejection rotation: %s retained rejections\n' "$HARNESS_WORKER_THREAD_MAX_REJECTIONS"
+fi
+if (( HARNESS_CLOSURE_MODE_ENABLED == 1 )); then
+	printf 'Bounded closure mode: enabled at %s%% (%s fixes, %s focused-smoke runs)\n' \
+		"$HARNESS_CLOSURE_MODE_MIN_PROGRESS" "$HARNESS_CLOSURE_MODE_MAX_FIXES" "$HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS"
+else
+	printf 'Bounded closure mode: disabled\n'
+fi
 printf 'Transient provider retry seconds: %s (retries unlimited)\n' "$HARNESS_PROVIDER_RETRY_SECONDS"
 printf 'Quota retry seconds: %s (retries unlimited)\n' "$HARNESS_QUOTA_RETRY_SECONDS"
 printf 'Codex wall timeout seconds: %s (0 means unlimited)\n' "$HARNESS_CODEX_WALL_TIMEOUT_SECONDS"

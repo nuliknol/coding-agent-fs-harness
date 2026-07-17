@@ -114,6 +114,7 @@ archive_lingering_result()
 
 if [[ -f "$accepted" ]]; then
 	archive_lingering_result
+	clear_worker_thread_for_root "$task_id" accepted
 	trace_event TASK_ACCEPT_IDEMPOTENT "task_id=$task_id" "accepted_file=$accepted"
 	printf '%s\n' "$accepted"
 	exit 0
@@ -155,6 +156,7 @@ chmod 600 "$tmp"
 mv "$tmp" "$accepted"
 update_task_progress "$task_id" 100 "$accept_improvement" ACCEPT "$note_file"
 complete_project_plan_item_for_task "$task_id"
+clear_worker_thread_for_root "$task_id" accepted
 
 rm -f "$dir/control/$base.lease" "$dir/control/$base.abort.md" "$dir/control/$base.worker-triggered" "$dir/control/$base.worker-failed.md" "$dir/control/$base.worker-supervisor-failed.md"
 log_event "TASK_ACCEPTED task=$task_id"

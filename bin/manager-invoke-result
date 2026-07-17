@@ -44,6 +44,12 @@ task_root="$(task_root_id "$task_id")"
 progress_file="$(task_progress_file "$task_root")"
 root_assignment_file="$(task_root_assignment_file "$task_root")"
 current_progress="$(task_progress_percent "$task_root")"
+closure_mode_active=0
+if (( HARNESS_CLOSURE_MODE_ENABLED == 1 )) &&
+	[[ "$task_id" != "$task_root" ]] &&
+	(( current_progress >= HARNESS_CLOSURE_MODE_MIN_PROGRESS && current_progress < 100 )); then
+	closure_mode_active=1
+fi
 development_policy_file="$REPOSITORY/design/development-policy.txt"
 [[ -f "$development_policy_file" ]] || development_policy_file=""
 project_plan_definition="$(project_plan_definition_file)"
@@ -70,8 +76,12 @@ DEVELOPMENT_POLICY_FILE=$development_policy_file
 SPECIFICATION=$SPECIFICATION
 REPOSITORY=$REPOSITORY
 HARNESS_BIN=$HARNESS_BIN
+CLOSURE_MODE_ACTIVE=$closure_mode_active
+CLOSURE_MODE_ELIGIBLE_ON_REJECTION=$([[ "$HARNESS_CLOSURE_MODE_ENABLED" == 1 && "$current_progress" -ge "$HARNESS_CLOSURE_MODE_MIN_PROGRESS" && "$current_progress" -lt 100 ]] && printf 1 || printf 0)
+CLOSURE_MAX_FIXES=$HARNESS_CLOSURE_MODE_MAX_FIXES
+CLOSURE_MAX_SMOKE_RUNS=$HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS
 
-Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and follow it. Read DEVELOPMENT_POLICY_FILE when present, then PROJECT_PLAN_FILE, PROJECT_PLAN_STATE_FILE, ROOT_ASSIGNMENT_FILE, and PROGRESS_FILE before reviewing this result. Reconcile cumulative root progress and project progress against the actual repository; do not reset completed work after a restart. Write any review note and any next or revision task file under PROJECT_TMP_DIR. Every harness command must receive ENV_FILE as its first argument. Accept the task or reject it and publish one bounded continuation from the recorded progress as appropriate. Acceptance completes only the current project-plan item; if project items remain, publish exactly one task for the next item. Then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or call manager-wait-result.
+Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and follow it. Read DEVELOPMENT_POLICY_FILE when present, then PROJECT_PLAN_FILE, PROJECT_PLAN_STATE_FILE, ROOT_ASSIGNMENT_FILE, and PROGRESS_FILE before reviewing this result. Reconcile cumulative root progress and project progress against the actual repository; do not reset completed work after a restart. Write any review note and any next or revision task file under PROJECT_TMP_DIR. Every harness command must receive ENV_FILE as its first argument. Accept the task or reject it and publish one bounded continuation from the recorded progress as appropriate. When closure mode is eligible, author the continuation for the bounded multi-attempt closure policy rather than imposing an exactly-once smoke restriction. Acceptance completes only the current project-plan item; if project items remain, publish exactly one task for the next item. Then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or call manager-wait-result.
 PROMPT
 if codex_model_requires_narrow_prompt "$MANAGER_MODEL"; then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
