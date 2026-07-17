@@ -476,6 +476,10 @@ grep -q '^Starting-Progress: 50%$' "$continuation"
 grep -q 'Preserve all previously verified work' "$continuation"
 "$HARNESS_BIN/harness-status" "$TEST_ROOT/harness.env" > "$TEST_ROOT/progress-status.out"
 grep -Eq '005-revision-01 +READY +50%' "$TEST_ROOT/progress-status.out"
+expected_task_order=$'003\n002\n001\n005-revision-01'
+actual_task_order="$(awk '$1 ~ /^(001|002|003|005-revision-01)$/ {print $1}' \
+	"$TEST_ROOT/progress-status.out")"
+[[ "$actual_task_order" == "$expected_task_order" ]]
 tail -n 1 "$TEST_ROOT/progress-status.out" | grep -Eq '^Project progress: [0-9]+% \([0-9]+/[0-9]+ plan items complete\)$'
 
 # With the default disabled circuit breaker, even an explicit low-level block

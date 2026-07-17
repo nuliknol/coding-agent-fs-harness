@@ -65,13 +65,15 @@ accepted_count=0
 active_count=0
 aborted_count=0
 blocked_count=0
+task_rows=()
 
 for file in "$dir/tasks/$PROJECT-task-"*.ready.md; do
 	found=1
 	active_count=$((active_count + 1))
 	task_id="$(task_id_from_filename "$file")"
 	progress="$(task_progress_percent "$task_id")%"
-	printf '%-32s %-12s %-10s %-28s %-10s\n' "$task_id" 'READY' "$progress" '-' '-'
+	printf -v task_row '%-32s %-12s %-10s %-28s %-10s' "$task_id" 'READY' "$progress" '-' '-'
+	task_rows+=("$task_row")
 done
 
 for file in "$dir/running/$PROJECT-task-"*.running.md; do
@@ -90,7 +92,8 @@ for file in "$dir/running/$PROJECT-task-"*.running.md; do
 			age="$(( $(epoch_now) - heartbeat_epoch ))s"
 		fi
 	fi
-	printf '%-32s %-12s %-10s %-28s %-10s\n' "$task_id" 'RUNNING' "$progress" "$owner" "$age"
+	printf -v task_row '%-32s %-12s %-10s %-28s %-10s' "$task_id" 'RUNNING' "$progress" "$owner" "$age"
+	task_rows+=("$task_row")
 done
 
 for file in "$dir/results/$PROJECT-task-"*.result.md; do
@@ -98,7 +101,8 @@ for file in "$dir/results/$PROJECT-task-"*.result.md; do
 	active_count=$((active_count + 1))
 	task_id="$(task_id_from_filename "$file")"
 	progress="$(task_progress_percent "$task_id")%"
-	printf '%-32s %-12s %-10s %-28s %-10s\n' "$task_id" 'REVIEW' "$progress" '-' '-'
+	printf -v task_row '%-32s %-12s %-10s %-28s %-10s' "$task_id" 'REVIEW' "$progress" '-' '-'
+	task_rows+=("$task_row")
 done
 
 for file in "$dir/archive/$PROJECT-task-"*.accepted.md; do
@@ -108,7 +112,8 @@ for file in "$dir/archive/$PROJECT-task-"*.accepted.md; do
 	task_id="${name#${PROJECT}-task-}"
 	task_id="${task_id%.accepted.md}"
 	progress="$(task_progress_percent "$task_id")%"
-	printf '%-32s %-12s %-10s %-28s %-10s\n' "$task_id" 'ACCEPTED' "$progress" '-' '-'
+	printf -v task_row '%-32s %-12s %-10s %-28s %-10s' "$task_id" 'ACCEPTED' "$progress" '-' '-'
+	task_rows+=("$task_row")
 done
 
 for file in "$dir/control/$PROJECT-task-"*.abort.md; do
@@ -118,7 +123,8 @@ for file in "$dir/control/$PROJECT-task-"*.abort.md; do
 	task_id="${name#${PROJECT}-task-}"
 	task_id="${task_id%.abort.md}"
 	progress="$(task_progress_percent "$task_id")%"
-	printf '%-32s %-12s %-10s %-28s %-10s\n' "$task_id" 'ABORTED' "$progress" '-' '-'
+	printf -v task_row '%-32s %-12s %-10s %-28s %-10s' "$task_id" 'ABORTED' "$progress" '-' '-'
+	task_rows+=("$task_row")
 done
 
 for file in "$dir/control/progress/$PROJECT-task-"*.blocked.md; do
@@ -128,11 +134,16 @@ for file in "$dir/control/progress/$PROJECT-task-"*.blocked.md; do
 	task_id="${name#${PROJECT}-task-}"
 	task_id="${task_id%.blocked.md}"
 	progress="$(task_progress_percent "$task_id")%"
-	printf '%-32s %-12s %-10s %-28s %-10s\n' "$task_id" 'BLOCKED' "$progress" '-' '-'
+	printf -v task_row '%-32s %-12s %-10s %-28s %-10s' "$task_id" 'BLOCKED' "$progress" '-' '-'
+	task_rows+=("$task_row")
 done
 
 if (( found == 0 )); then
 	printf '%s\n' '(no tasks)'
+else
+	for ((row_index = ${#task_rows[@]} - 1; row_index >= 0; row_index--)); do
+		printf '%s\n' "${task_rows[row_index]}"
+	done
 fi
 
 if project_completion_recorded && project_plan_all_complete; then

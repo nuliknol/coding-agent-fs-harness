@@ -89,10 +89,10 @@ phase-07                 PENDING      -                C synthesis and widening
 
 TASK                             STATE        PROGRESS   OWNER                        AGE       
 -------------------------------- ------------ ---------- ---------------------------- ----------
-004-revision-10                  RUNNING      85%        worker-20260711T220248Z-f0c1e9a9 50s       
-001-revision-34                  ACCEPTED     100%       -                            -         
-002-revision-05                  ACCEPTED     100%       -                            -         
-003-revision-19                  ACCEPTED     100%       -                            -         
+003-revision-19                  ACCEPTED     100%       -                            -
+002-revision-05                  ACCEPTED     100%       -                            -
+001-revision-34                  ACCEPTED     100%       -                            -
+004-revision-10                  RUNNING      85%        worker-20260711T220248Z-f0c1e9a9 50s
 user@dev :~/configs$ 
 
 
