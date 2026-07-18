@@ -70,6 +70,8 @@ messages, the watcher exits automatically when the project completes or pauses
 for human intervention.
 
 ## Example of long project running (using single master specification file)
+
+```text
 user@dev :~/configs$ harness-status project.env
 Environment file: /var/home/project/configs/project.env
 Project: project-name
@@ -96,6 +98,7 @@ TASK                             STATE        PROGRESS   OWNER                  
 001-revision-34                  ACCEPTED     100%       -                            -
 004-revision-10                  RUNNING      85%        worker-20260711T220248Z-f0c1e9a9 50s
 user@dev :~/configs$ 
+```
 
 
 ## Codex CLI extra args
