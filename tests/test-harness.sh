@@ -342,6 +342,14 @@ done
 grep -q 'SUPERVISOR_PROJECT_COMPLETED task=002' "$EVENTS"
 grep -q 'WORKER_SUPERVISOR_PROJECT_COMPLETED task=002' "$EVENTS"
 
+# The natural-language watcher stops on durable project completion instead of
+# remaining as a tail-like process after both supervisors have exited.
+completed_watch_output="$TEST_ROOT/watch-agents-completed.out"
+HARNESS_WATCH_POLL_SECONDS=0.05 timeout 2 \
+	"$HARNESS_BIN/harness-watch-agents" "$TEST_ROOT/harness.env" \
+	> "$completed_watch_output" 2>&1
+grep -q 'Watcher exiting: project completed.' "$completed_watch_output"
+
 task_id=002
 base="testproj-task-$task_id"
 result="$TEST_ROOT/state/projects/testproj/results/$base.result.md"
@@ -593,6 +601,15 @@ circuit_output="$("$HARNESS_BIN/manager-reject-task" "$CIRCUIT_ROOT/harness.env"
 [[ -f "$CIRCUIT_ROOT/state/projects/circuitproj/control/progress/circuitproj-task-001.blocked.md" ]]
 grep -q 'TASK_CIRCUIT_BREAKER task=001-revision-01' \
 	"$CIRCUIT_ROOT/state/projects/circuitproj/logs/events.log"
+
+# A task-level human-intervention pause is also terminal for the output
+# watcher, even though the durable project is intentionally not complete.
+blocked_watch_output="$CIRCUIT_ROOT/watch-agents-blocked.out"
+HARNESS_WATCH_POLL_SECONDS=0.05 timeout 2 \
+	"$HARNESS_BIN/harness-watch-agents" "$CIRCUIT_ROOT/harness.env" \
+	> "$blocked_watch_output" 2>&1
+grep -q 'Watcher exiting: project paused for human intervention.' \
+	"$blocked_watch_output"
 
 # Rejected revisions retain one root-scoped Codex thread, high-progress
 # continuations receive bounded closure mode, rotation starts a fresh thread,

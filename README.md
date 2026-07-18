@@ -65,7 +65,9 @@ The descriptor builder reuses the private plan validator, so it inherits the fix
 The watcher replays the currently active attempt so its context is visible, but
 does not replay archived rejection decisions from earlier runs. Use
 `--new-only` to suppress even the active attempt's existing messages and show
-only output appended after the watcher starts.
+only output appended after the watcher starts. After draining the final agent
+messages, the watcher exits automatically when the project completes or pauses
+for human intervention.
 
 ## Example of long project running (using single master specification file)
 user@dev :~/configs$ harness-status project.env

@@ -12,7 +12,8 @@ Usage: ${0##*/} ENV_FILE [--new-only]
 
 Watch worker, manager, and final Oracle natural-language messages for the
 currently active harness work. The watcher automatically follows new tasks and
-capacity-retry attempt logs.
+capacity-retry attempt logs. It exits after draining final messages when the
+project completes or pauses for human intervention.
 
 Options:
   --new-only   Do not replay existing messages from logs that are active when
@@ -225,6 +226,50 @@ print_new_rejections()
 done
 }
 
+terminal_project_state()
+{
+	if project_completion_recorded && project_plan_all_complete; then
+		printf 'COMPLETED'
+		return 0
+	fi
+	if project_is_blocked ||
+		compgen -G "$dir/control/progress/$PROJECT-task-*.blocked.md" >/dev/null; then
+		printf 'PAUSED_HUMAN_INTERVENTION'
+		return 0
+	fi
+	return 1
+}
+
+agent_invocation_running()
+{
+	local process_args
+	while IFS= read -r process_args; do
+		[[ "$process_args" == *"$HARNESS_ENV_FILE"* ]] || continue
+		case "$process_args" in
+			*"$HARNESS_BIN/worker-invoke-task "*|\
+			*"$HARNESS_BIN/manager-invoke-result "*|\
+			*"$HARNESS_BIN/manager-plan-next-task "*|\
+			*"$HARNESS_BIN/manager-bootstrap "*|\
+			*"$HARNESS_BIN/oracle-invoke-final-audit "*)
+				return 0
+				;;
+		esac
+	done < <(ps -eo args=)
+	return 1
+}
+
+print_terminal_exit()
+{
+	case "$1" in
+		COMPLETED)
+			printf '\nWatcher exiting: project completed.\n'
+			;;
+		PAUSED_HUMAN_INTERVENTION)
+			printf '\nWatcher exiting: project paused for human intervention.\n'
+			;;
+	esac
+}
+
 announce_switch()
 {
 	local role="$1" log="$2" task
@@ -271,6 +316,19 @@ while true; do
 	print_new_messages MANAGER "$manager_log"
 	print_new_messages ORACLE "$oracle_log"
 	print_new_rejections
+
+	terminal_state="$(terminal_project_state || true)"
+	if [[ -n "$terminal_state" ]] && ! agent_invocation_running; then
+		# The state marker can be committed before the invoking agent writes its
+		# final response. Once that invocation is gone, drain the fully flushed
+		# logs once more before ending the watch.
+		print_new_messages WORKER "$worker_log"
+		print_new_messages MANAGER "$manager_log"
+		print_new_messages ORACLE "$oracle_log"
+		print_new_rejections
+		print_terminal_exit "$terminal_state"
+		break
+	fi
 
 	startup=0
 	sleep "$watch_seconds"
