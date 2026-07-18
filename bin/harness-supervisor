@@ -34,6 +34,7 @@ printf '%s\n' "$HARNESS_ENV_FILE" > "$dir/control/supervisor.env-file"
 watch_pid=""
 supervisor_exit_status=0
 current_command=""
+oracle_failed_fingerprint=""
 
 log_supervisor_failure()
 {
@@ -188,21 +189,44 @@ process_planning_gap()
 
 handle_project_completion()
 {
-	local completion_file completed_task oracle_status
+	local completion_file completed_task oracle_status pending_file pending_fingerprint alert tmp
 	if project_is_blocked; then
 		log_event "SUPERVISOR_PROJECT_BLOCKED file=$(project_block_file)"
 		return 1
 	fi
 	if oracle_enabled && project_plan_all_complete && ! project_completion_recorded; then
-		if [[ -f "$(project_oracle_pending_file)" ]]; then
-			log_event "SUPERVISOR_INVOKE_ORACLE pending=$(project_oracle_pending_file)"
+		pending_file="$(project_oracle_pending_file)"
+		if [[ -f "$pending_file" ]]; then
+			pending_fingerprint="$(fingerprint "$pending_file")"
+			if [[ "$pending_fingerprint" == "$oracle_failed_fingerprint" ]]; then
+				return 1
+			fi
+			log_event "SUPERVISOR_INVOKE_ORACLE pending=$pending_file fingerprint=$pending_fingerprint"
 			set +e
 			"$oracle_invoker" "$HARNESS_ENV_FILE"
 			oracle_status=$?
 			set -e
 			trace_event SUPERVISOR_ORACLE_EXIT "status=$oracle_status"
 			if (( oracle_status != 0 )); then
-				log_event "SUPERVISOR_ORACLE_FAILED status=$oracle_status"
+				oracle_failed_fingerprint="$pending_fingerprint"
+				alert="$(project_oracle_dir)/oracle-invocation-failed.md"
+				tmp="$alert.tmp.$$"
+				{
+					printf '# Oracle Invocation Failed\n\n'
+					printf 'Project: %s\n\n' "$PROJECT"
+					printf 'Environment-File: %s\n\n' "$HARNESS_ENV_FILE"
+					printf 'Pending-Audit: %s\n\n' "$pending_file"
+					printf 'Pending-Fingerprint: %s\n\n' "$pending_fingerprint"
+					printf 'Failed-At: %s\n\n' "$(timestamp_utc)"
+					printf 'Exit-Status: %s\n\n' "$oracle_status"
+					printf 'The supervisor will not retry this unchanged pending audit again during its current run. Correct the local failure and restart the supervisor to retry.\n'
+				} > "$tmp"
+				chmod 600 "$tmp"
+				mv "$tmp" "$alert"
+				log_event "SUPERVISOR_ORACLE_FAILED status=$oracle_status fingerprint=$pending_fingerprint alert=$alert retry=suppressed"
+			else
+				oracle_failed_fingerprint=""
+				rm -f "$(project_oracle_dir)/oracle-invocation-failed.md"
 			fi
 		fi
 		project_plan_all_complete || return 1

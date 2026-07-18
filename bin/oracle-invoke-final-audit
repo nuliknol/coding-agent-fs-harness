@@ -12,6 +12,7 @@ usage()
 
 [[ $# -eq 1 ]] || usage
 load_harness_env "$1"
+ENV_FILE="$HARNESS_ENV_FILE"
 ensure_project
 require_manager_configuration
 require_oracle_codex
@@ -64,7 +65,7 @@ State why the project passes or fails.
 If PASS, call:
 $HARNESS_BIN/oracle-complete-audit "$ENV_FILE" VERDICT_FILE
 
-If FAIL, create a versioned additive addendum under PROJECT_TMP_DIR. It must contain at least one `Original-Requirement-ID: ...`, `Remediation-Authority: AUTOMATIC` only for a bounded repair of an existing requirement, or `HUMAN_APPROVAL` for new scope/conflict. An AUTOMATIC addendum must include:
+If FAIL, create a versioned additive addendum under PROJECT_TMP_DIR. It must contain at least one \`Original-Requirement-ID: ...\`, \`Remediation-Authority: AUTOMATIC\` only for a bounded repair of an existing requirement, or \`HUMAN_APPROVAL\` for new scope/conflict. An AUTOMATIC addendum must include:
 
 ## Harness plan items
 ORACLE-...<TAB>independently acceptance-complete remediation title

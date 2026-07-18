@@ -70,6 +70,9 @@ elif printf '%s' "$prompt" | grep -q 'The previous root task is resolved'; then
 elif printf '%s' "$prompt" | grep -q 'The task is already claimed by this launcher'; then
 	kind="worker"
 	key="worker-$(value TASK_ID)"
+elif printf '%s' "$prompt" | grep -q 'You are the final Oracle auditor'; then
+	kind="oracle"
+	key="oracle-$(value AUDIT_ID)"
 fi
 counter="$HARNESS_ROOT/mock-counts/$key"
 count=0
@@ -186,6 +189,32 @@ elif [[ "$kind" == worker ]]; then
 		printf '%s\n' "$final_message" > "$result"
 	fi
 	sleep 0.5
+elif [[ "$kind" == oracle ]]; then
+	verdict="$(mktemp)"
+	cat > "$verdict" <<'VERDICT'
+# Oracle Audit Verdict
+
+Decision: PASS
+
+## Traceability verification
+
+All original requirements are accounted for.
+
+## Acceptance verification
+
+All acceptance checks passed.
+
+## Findings
+
+None.
+
+## Conclusion
+
+The implementation is compliant.
+VERDICT
+	"$HARNESS_BIN/oracle-complete-audit" "$ENV_FILE" "$verdict" >/dev/null
+	rm -f "$verdict"
+	final_message="Oracle audit passed."
 else
 	exit 9
 fi
@@ -821,9 +850,70 @@ None.
 
 The implementation is compliant.
 VERDICT
-"$HARNESS_BIN/oracle-complete-audit" "$ORACLE_ROOT/harness.env" "$ORACLE_ROOT/verdict-pass.md" >/dev/null
+"$HARNESS_BIN/oracle-invoke-final-audit" "$ORACLE_ROOT/harness.env" >/dev/null
+oracle_prompt="$ORACLE_ROOT/state/projects/oracleproj/control/oracle-audit-1.prompt.md"
+grep -q 'at least one `Original-Requirement-ID: ...`' "$oracle_prompt"
+grep -q '`Remediation-Authority: AUTOMATIC`' "$oracle_prompt"
+grep -q '`HUMAN_APPROVAL`' "$oracle_prompt"
 [[ -f "$ORACLE_ROOT/state/projects/oracleproj/control/project.complete" ]]
 [[ ! -f "$ORACLE_ROOT/state/projects/oracleproj/control/oracle/oracle.pending.md" ]]
+
+# A deterministic Oracle launcher failure is attempted only once per unchanged
+# pending audit during one supervisor run. Provider retries remain internal to
+# oracle-invoke-final-audit.
+ORACLE_RETRY_ROOT="$TEST_ROOT/oracle-retry"
+mkdir -p "$ORACLE_RETRY_ROOT/repo" "$ORACLE_RETRY_ROOT/manager-home" \
+	"$ORACLE_RETRY_ROOT/worker-home"
+printf 'test specification\n' > "$ORACLE_RETRY_ROOT/repo/spec.md"
+cat > "$ORACLE_RETRY_ROOT/failing-oracle" <<'FAIL_ORACLE'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+env_file="$1"
+source "$env_file"
+count_file="$HARNESS_ROOT/oracle-invocation-count"
+count=0
+[[ ! -f "$count_file" ]] || count="$(cat "$count_file")"
+printf '%s\n' "$((count + 1))" > "$count_file"
+exit 7
+FAIL_ORACLE
+chmod +x "$ORACLE_RETRY_ROOT/failing-oracle"
+cat > "$ORACLE_RETRY_ROOT/harness.env" <<ENV
+export PROJECT="oracleretryproj"
+export REPOSITORY="$ORACLE_RETRY_ROOT/repo"
+export SPECIFICATION="\$REPOSITORY/spec.md"
+export HARNESS_HOME="$HARNESS_HOME"
+export HARNESS_BIN="\$HARNESS_HOME/bin"
+export HARNESS_ROOT="$ORACLE_RETRY_ROOT/state"
+export MANAGER_CODEX_HOME="$ORACLE_RETRY_ROOT/manager-home"
+export MANAGER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export WORKER_CODEX_HOME="$ORACLE_RETRY_ROOT/worker-home"
+export WORKER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export ORACLE_MODEL="gpt-5.6-sol"
+export HARNESS_ORACLE_INVOKER="$ORACLE_RETRY_ROOT/failing-oracle"
+export HARNESS_POLL_SECONDS="1"
+ENV
+chmod 600 "$ORACLE_RETRY_ROOT/harness.env"
+"$HARNESS_BIN/harness-init" "$ORACLE_RETRY_ROOT/harness.env" >/dev/null
+printf 'P0\tOracle retry suppression test\n' > "$ORACLE_RETRY_ROOT/plan.tsv"
+"$HARNESS_BIN/manager-init-project-plan" "$ORACLE_RETRY_ROOT/harness.env" \
+	"$ORACLE_RETRY_ROOT/plan.tsv" >/dev/null
+sed -i 's/^P0\tPENDING/P0\tCOMPLETE/' \
+	"$ORACLE_RETRY_ROOT/state/projects/oracleretryproj/control/project-plan-state.tsv"
+mkdir -p "$ORACLE_RETRY_ROOT/state/projects/oracleretryproj/control/oracle"
+printf '# Oracle Audit Pending\n\nProject: oracleretryproj\n\nAudit-ID: 1\n' > \
+	"$ORACLE_RETRY_ROOT/state/projects/oracleretryproj/control/oracle/oracle.pending.md"
+"$HARNESS_BIN/harness-supervisor-start" "$ORACLE_RETRY_ROOT/harness.env" >/dev/null
+for _ in $(seq 1 50); do
+	[[ -f "$ORACLE_RETRY_ROOT/state/oracle-invocation-count" ]] && break
+	sleep 0.1
+done
+sleep 2
+"$HARNESS_BIN/harness-supervisor-stop" "$ORACLE_RETRY_ROOT/harness.env" >/dev/null
+[[ "$(cat "$ORACLE_RETRY_ROOT/state/oracle-invocation-count")" == 1 ]]
+oracle_failure_alert="$ORACLE_RETRY_ROOT/state/projects/oracleretryproj/control/oracle/oracle-invocation-failed.md"
+grep -q '^Exit-Status: 7$' "$oracle_failure_alert"
+[[ "$(grep -c 'SUPERVISOR_ORACLE_FAILED' \
+	"$ORACLE_RETRY_ROOT/state/projects/oracleretryproj/logs/events.log")" == 1 ]]
 
 ORACLE_FAIL_ROOT="$TEST_ROOT/oracle-fail"
 mkdir -p "$ORACLE_FAIL_ROOT/repo" "$ORACLE_FAIL_ROOT/manager-home" "$ORACLE_FAIL_ROOT/worker-home"

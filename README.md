@@ -245,6 +245,13 @@ blocks the project. Addenda never replace the original specification.
 After approving that block and making the necessary human-directed change, run
 `bin/harness-unblock-project ENV_FILE`, then restart the harness.
 
+Transient provider and quota failures are retried within the same Oracle
+invocation. A terminal local invocation failure is recorded in
+`control/oracle/oracle-invocation-failed.md`; the supervisor suppresses further
+attempts for that unchanged pending audit until the supervisor is restarted or
+the pending audit changes. This prevents a deterministic setup error from
+becoming a rapid retry loop or a false human-intervention request.
+
 ```bash
 export ORACLE_MODEL="gpt-5.6-sol"
 export ORACLE_REASONING_EFFORT="xhigh"
