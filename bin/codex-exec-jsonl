@@ -15,11 +15,12 @@ mkdir -p "$(dirname "$json_log")" "$(dirname "$stderr_log")"
 : > "$json_log"; : > "$stderr_log"
 
 case "$role" in
- manager_bootstrap|manager_review|manager_plan|manager_replan) bin="$MANAGER_CODEX_BIN"; home="$MANAGER_CODEX_HOME"; sandbox="$MANAGER_SANDBOX"; effort="$MANAGER_REASONING_EFFORT"; extras=("${MANAGER_CODEX_EXTRA_ARGS[@]}") ;;
- worker) bin="$WORKER_CODEX_BIN"; home="$WORKER_CODEX_HOME"; sandbox="$WORKER_SANDBOX"; effort="$WORKER_REASONING_EFFORT"; extras=("${WORKER_CODEX_EXTRA_ARGS[@]}") ;;
+	 manager_bootstrap|manager_review|manager_plan|manager_replan) bin="$MANAGER_CODEX_BIN"; home="$MANAGER_CODEX_HOME"; sandbox="$MANAGER_SANDBOX"; effort="$MANAGER_REASONING_EFFORT"; extras=("${MANAGER_CODEX_EXTRA_ARGS[@]}") ;;
+	 worker) bin="$WORKER_CODEX_BIN"; home="$WORKER_CODEX_HOME"; sandbox="$WORKER_SANDBOX"; effort="$WORKER_REASONING_EFFORT"; extras=("${WORKER_CODEX_EXTRA_ARGS[@]}") ;;
 	oracle) bin="$ORACLE_CODEX_BIN"; home="$ORACLE_CODEX_HOME"; sandbox="$ORACLE_SANDBOX"; effort="$ORACLE_REASONING_EFFORT"; extras=("${ORACLE_CODEX_EXTRA_ARGS[@]}") ;;
- *) die "invalid Codex role: $role" ;;
+	 *) die "invalid Codex role: $role" ;;
 esac
+require_executable_runtime "$role" "$bin"
 
 cmd=(env "CODEX_HOME=$home" "$bin" exec --json --model "$model" --sandbox "$sandbox" --add-dir "$HARNESS_ROOT" --add-dir "$PROJECT_TMP_DIR" --cd "$REPOSITORY" "${extras[@]}" -c 'approval_policy="never"' -c "model_reasoning_effort=\"$effort\"" --output-last-message "$last_message")
 if [[ $# -eq 2 ]]; then

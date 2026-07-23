@@ -64,6 +64,44 @@ prompt="$TMP/prompt"; printf 'test\n' > "$prompt"
 "$ROOT/bin/harness-check-env" "$TMP/env" > "$TMP/defaults.out"
 grep -q '^Transient provider retry seconds: 60 (retries unlimited)$' "$TMP/defaults.out"
 grep -q '^Quota retry seconds: 300 (retries unlimited)$' "$TMP/defaults.out"
+grep -q '^Runtime PATH prefix: (none)$' "$TMP/defaults.out"
+
+# An executable Codex wrapper is not actually runnable when its env shebang
+# runtime is absent. Service-like PATHs must fail at startup, while an explicit
+# runtime prefix must make both validation and execution deterministic.
+mkdir -p "$TMP/runtime"
+cat > "$TMP/runtime/harness-test-runtime" <<'RUNTIME'
+#!/usr/bin/env bash
+exec /usr/bin/bash "$@"
+RUNTIME
+chmod +x "$TMP/runtime/harness-test-runtime"
+cat > "$TMP/runtime-codex" <<RUNTIME_CODEX
+#!/usr/bin/env harness-test-runtime
+exec "$TMP/mock-codex" "\$@"
+RUNTIME_CODEX
+chmod +x "$TMP/runtime-codex"
+cp "$TMP/env" "$TMP/env-runtime-missing"
+{
+	printf 'export MANAGER_CODEX_BIN="%s"\n' "$TMP/runtime-codex"
+	printf 'export WORKER_CODEX_BIN="%s"\n' "$TMP/runtime-codex"
+} >> "$TMP/env-runtime-missing"
+chmod 600 "$TMP/env-runtime-missing"
+set +e
+PATH=/usr/bin:/bin "$ROOT/bin/harness-check-env" "$TMP/env-runtime-missing" > "$TMP/runtime-missing.out" 2>&1
+runtime_missing_status=$?
+set -e
+(( runtime_missing_status != 0 ))
+grep -q "runtime 'harness-test-runtime' is not available in PATH" "$TMP/runtime-missing.out"
+
+cp "$TMP/env-runtime-missing" "$TMP/env-runtime-ok"
+printf 'export HARNESS_RUNTIME_PATH_PREFIX="%s"\n' "$TMP/runtime" >> "$TMP/env-runtime-ok"
+chmod 600 "$TMP/env-runtime-ok"
+PATH=/usr/bin:/bin "$ROOT/bin/harness-check-env" "$TMP/env-runtime-ok" > "$TMP/runtime-ok.out"
+grep -q "^Runtime PATH prefix: $TMP/runtime$" "$TMP/runtime-ok.out"
+MOCK_MODE=success PATH=/usr/bin:/bin \
+	"$ROOT/bin/codex-exec-jsonl" "$TMP/env-runtime-ok" worker gpt-5.5 "$prompt" \
+	"$TMP/runtime-ok.jsonl" "$TMP/runtime-ok.stderr" "$TMP/runtime-ok.last"
+grep -q '^classification=success$' "$TMP/runtime-ok.classification"
 
 run_case() {
  local mode="$1" want="$2" status=0 base

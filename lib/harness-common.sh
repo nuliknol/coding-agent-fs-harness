@@ -66,6 +66,61 @@ resolve_command_path()
 	fi
 }
 
+prepend_harness_runtime_path()
+{
+	local prefix="$1"
+	local entry
+	local -a entries
+	[[ -n "$prefix" ]] || return 0
+	[[ "$prefix" != *$'\n'* && "$prefix" != *$'\r'* ]] ||
+		die 'HARNESS_RUNTIME_PATH_PREFIX must be a single colon-separated line'
+	IFS=: read -r -a entries <<< "$prefix"
+	for entry in "${entries[@]}"; do
+		[[ -n "$entry" ]] || die 'HARNESS_RUNTIME_PATH_PREFIX must not contain empty entries'
+		[[ "$entry" == /* ]] || die "HARNESS_RUNTIME_PATH_PREFIX entries must be absolute: $entry"
+		[[ -d "$entry" ]] || die "HARNESS_RUNTIME_PATH_PREFIX directory does not exist: $entry"
+	done
+	PATH="$prefix${PATH:+:$PATH}"
+	export PATH
+}
+
+require_executable_runtime()
+{
+	local role="$1"
+	local value="$2"
+	local executable magic shebang interpreter spec first second runtime
+	if [[ "$value" == */* ]]; then
+		executable="$value"
+		[[ -x "$executable" ]] || die "$role Codex executable not found: $executable"
+	else
+		executable="$(command -v "$value" 2>/dev/null || true)"
+		[[ -n "$executable" ]] || die "$role Codex command not found: $value"
+	fi
+
+	# An executable script can pass -x while its shebang runtime is absent.
+	# Validate that dependency before a supervisor advertises itself as healthy.
+	magic="$(LC_ALL=C head -c 2 "$executable" 2>/dev/null || true)"
+	[[ "$magic" == '#!' ]] || return 0
+	IFS= read -r shebang < "$executable" || true
+	shebang="${shebang#\#!}"
+	read -r interpreter spec <<< "$shebang"
+	[[ -n "$interpreter" ]] || die "$role Codex executable has an invalid shebang: $executable"
+	if [[ "${interpreter##*/}" == env ]]; then
+		read -r first second _ <<< "$spec"
+		if [[ "$first" == -S ]]; then
+			runtime="$second"
+		else
+			runtime="$first"
+		fi
+		[[ -n "$runtime" ]] || die "$role Codex executable has an invalid env shebang: $executable"
+		command -v "$runtime" >/dev/null 2>&1 ||
+			die "$role Codex runtime '$runtime' is not available in PATH for $executable; set HARNESS_RUNTIME_PATH_PREFIX in $HARNESS_ENV_FILE"
+	else
+		[[ -x "$interpreter" ]] ||
+			die "$role Codex shebang runtime is not executable: $interpreter"
+	fi
+}
+
 load_harness_env()
 {
 	[[ $# -eq 1 ]] || die 'load_harness_env requires exactly one ENV_FILE argument'
@@ -85,6 +140,7 @@ load_harness_env()
 
 	unset PROJECT REPOSITORY SPECIFICATION HARNESS_HOME HARNESS_BIN HARNESS_ROOT PROJECT_TMP_DIR
 	unset HARNESS_POLL_SECONDS HARNESS_WAIT_SECONDS HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY
+	unset HARNESS_RUNTIME_PATH_PREFIX
 	unset HARNESS_MAX_IDENTICAL_BLOCKERS
 	unset HARNESS_MAX_ROOT_ATTEMPTS HARNESS_MAX_ZERO_GAIN_WINDOW
 	unset HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION
@@ -112,6 +168,8 @@ load_harness_env()
 	source "$canonical_file"
 	HARNESS_ENV_FILE="$canonical_file"
 	HARNESS_ENV_DIR="$canonical_dir"
+	HARNESS_RUNTIME_PATH_PREFIX="${HARNESS_RUNTIME_PATH_PREFIX:-}"
+	prepend_harness_runtime_path "$HARNESS_RUNTIME_PATH_PREFIX"
 
 	[[ -n "${PROJECT:-}" ]] || die "PROJECT is not set in $HARNESS_ENV_FILE"
 	[[ -n "${REPOSITORY:-}" ]] || die "REPOSITORY is not set in $HARNESS_ENV_FILE"
@@ -302,6 +360,7 @@ load_harness_env()
 
 	export HARNESS_ENV_FILE HARNESS_ENV_DIR PROJECT REPOSITORY SPECIFICATION PROJECT_TMP_DIR
 	export HARNESS_HOME HARNESS_BIN HARNESS_ROOT HARNESS_POLL_SECONDS HARNESS_WAIT_SECONDS
+	export HARNESS_RUNTIME_PATH_PREFIX
 	export HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY HARNESS_MAX_IDENTICAL_BLOCKERS HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
 	export HARNESS_MAX_ROOT_ATTEMPTS HARNESS_MAX_ZERO_GAIN_WINDOW HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION
 	export HARNESS_AUTO_REPLAN_ENABLED HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION
@@ -351,21 +410,13 @@ require_manager_configuration()
 
 require_manager_codex()
 {
-	if [[ "$MANAGER_CODEX_BIN" == */* ]]; then
-		[[ -x "$MANAGER_CODEX_BIN" ]] || die "manager Codex executable not found: $MANAGER_CODEX_BIN"
-	else
-		command -v "$MANAGER_CODEX_BIN" >/dev/null 2>&1 || die "manager Codex command not found: $MANAGER_CODEX_BIN"
-	fi
+	require_executable_runtime manager "$MANAGER_CODEX_BIN"
 	[[ -d "$MANAGER_CODEX_HOME" ]] || die "MANAGER_CODEX_HOME does not exist: $MANAGER_CODEX_HOME"
 }
 
 require_worker_codex()
 {
-	if [[ "$WORKER_CODEX_BIN" == */* ]]; then
-		[[ -x "$WORKER_CODEX_BIN" ]] || die "worker Codex executable not found: $WORKER_CODEX_BIN"
-	else
-		command -v "$WORKER_CODEX_BIN" >/dev/null 2>&1 || die "worker Codex command not found: $WORKER_CODEX_BIN"
-	fi
+	require_executable_runtime worker "$WORKER_CODEX_BIN"
 	[[ -d "$WORKER_CODEX_HOME" ]] || die "WORKER_CODEX_HOME does not exist: $WORKER_CODEX_HOME"
 }
 
@@ -377,11 +428,7 @@ oracle_enabled()
 require_oracle_codex()
 {
 	oracle_enabled || return 0
-	if [[ "$ORACLE_CODEX_BIN" == */* ]]; then
-		[[ -x "$ORACLE_CODEX_BIN" ]] || die "oracle Codex executable not found: $ORACLE_CODEX_BIN"
-	else
-		command -v "$ORACLE_CODEX_BIN" >/dev/null 2>&1 || die "oracle Codex command not found: $ORACLE_CODEX_BIN"
-	fi
+	require_executable_runtime oracle "$ORACLE_CODEX_BIN"
 	[[ -d "$ORACLE_CODEX_HOME" ]] || die "ORACLE_CODEX_HOME does not exist: $ORACLE_CODEX_HOME"
 }
 
@@ -1704,6 +1751,7 @@ write_manager_snapshot()
 		printf 'sandbox=%s\n' "$MANAGER_SANDBOX"
 		printf 'codex_bin=%s\n' "$MANAGER_CODEX_BIN"
 		printf 'codex_home=%s\n' "$MANAGER_CODEX_HOME"
+		printf 'runtime_path_prefix=%s\n' "$HARNESS_RUNTIME_PATH_PREFIX"
 		printf 'auto_replan_enabled=%s\n' "$HARNESS_AUTO_REPLAN_ENABLED"
 		printf 'max_auto_replans_without_criterion=%s\n' "$HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION"
 		printf 'env_file=%s\n' "$HARNESS_ENV_FILE"
@@ -1725,6 +1773,7 @@ write_worker_snapshot()
 		printf 'sandbox=%s\n' "$WORKER_SANDBOX"
 		printf 'codex_bin=%s\n' "$WORKER_CODEX_BIN"
 		printf 'codex_home=%s\n' "$WORKER_CODEX_HOME"
+		printf 'runtime_path_prefix=%s\n' "$HARNESS_RUNTIME_PATH_PREFIX"
 		printf 'heartbeat_seconds=%s\n' "$WORKER_HEARTBEAT_SECONDS"
 		printf 'reuse_root_threads=%s\n' "$HARNESS_REUSE_WORKER_THREADS"
 		printf 'thread_max_rejections=%s\n' "$HARNESS_WORKER_THREAD_MAX_REJECTIONS"
@@ -1755,6 +1804,7 @@ write_oracle_snapshot()
 		printf 'sandbox=%s\n' "$ORACLE_SANDBOX"
 		printf 'codex_bin=%s\n' "$ORACLE_CODEX_BIN"
 		printf 'codex_home=%s\n' "$ORACLE_CODEX_HOME"
+		printf 'runtime_path_prefix=%s\n' "$HARNESS_RUNTIME_PATH_PREFIX"
 		printf 'env_file=%s\n' "$HARNESS_ENV_FILE"
 		printf 'env_sha256=%s\n' "$(env_sha256)"
 		printf 'updated_at=%s\n' "$(timestamp_utc)"

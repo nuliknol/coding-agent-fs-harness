@@ -151,6 +151,9 @@ export SPECIFICATION="$REPOSITORY/work/specification.md"
 export HARNESS_HOME="/opt/coding-agent-fs-harness-v4.4"
 export HARNESS_BIN="$HARNESS_HOME/bin"
 export HARNESS_ROOT="$HOME/.local/state/coding-harness"
+# Optional but recommended for service launches when the Codex shebang runtime
+# (for example Node.js) is outside the system service PATH.
+export HARNESS_RUNTIME_PATH_PREFIX="/usr/local/node/bin"
 
 export MANAGER_CODEX_HOME="$HOME/.codex/manager-account"
 export MANAGER_CODEX_BIN="$HOME/.local/bin/codex"
@@ -185,6 +188,11 @@ export HARNESS_CODEX_KILL_GRACE_SECONDS="15"
 ```
 
 The manager and worker may use the same `CODEX_HOME`, but separate account directories make account selection explicit.
+
+`HARNESS_RUNTIME_PATH_PREFIX` is a colon-separated list of absolute directories
+prepended for every harness command and child process. The harness validates
+Codex script shebang dependencies at supervisor startup, so a missing `node` or
+other runtime fails visibly instead of leaving a task falsely marked `RUNNING`.
 
 The harness also reserves `/tmp/$PROJECT` as a dedicated scratch directory for manager task files, worker result reports, and manager review notes before those files are published through harness commands.
 
