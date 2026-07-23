@@ -4,7 +4,7 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HARNESS_HOME="$(cd "$SCRIPT_DIR/.." && pwd)"
 HARNESS_BIN="$HARNESS_HOME/bin"
-TEST_ROOT="$(mktemp -d /tmp/coding-harness-v4.2-test.XXXXXX)"
+TEST_ROOT="$(mktemp -d /tmp/coding-harness-v4.3-test.XXXXXX)"
 cleanup()
 {
 	"$HARNESS_BIN/harness-stop" "$TEST_ROOT/harness.env" >/dev/null 2>&1 || true
@@ -266,10 +266,13 @@ chmod 600 "$TEST_ROOT/harness.env"
 grep -q 'Codex wall timeout seconds: 0 (0 means unlimited)' "$TEST_ROOT/check-env.out"
 grep -q 'Codex idle timeout seconds: 0 (0 means unlimited)' "$TEST_ROOT/check-env.out"
 grep -q 'Deterministic blocker circuit breaker: disabled' "$TEST_ROOT/check-env.out"
+grep -q 'Root-attempt replanning guard: 12 reviewed attempts' "$TEST_ROOT/check-env.out"
+grep -q 'Zero-gain replanning guard: 3 consecutive reviews' "$TEST_ROOT/check-env.out"
+grep -q 'Checkpoint convergence guard: 4 verified increments without a completed criterion' "$TEST_ROOT/check-env.out"
 grep -q 'Rejected-root worker thread reuse: enabled' "$TEST_ROOT/check-env.out"
 grep -q 'Worker thread rejection rotation: 8 retained rejections' "$TEST_ROOT/check-env.out"
 grep -q 'Bounded closure mode: enabled at 95% (2 fixes, 3 focused-smoke runs)' "$TEST_ROOT/check-env.out"
-grep -q 'revisions remain automatic unless the circuit breaker is explicitly enabled' "$TEST_ROOT/check-env.out"
+grep -q 'verified increments are checkpointed; root completion remains strict' "$TEST_ROOT/check-env.out"
 grep -q 'Transient provider retry seconds: 1 (retries unlimited)' "$TEST_ROOT/check-env.out"
 grep -q 'Quota retry seconds: 1 (retries unlimited)' "$TEST_ROOT/check-env.out"
 "$HARNESS_BIN/harness-init" "$TEST_ROOT/harness.env" >/dev/null
@@ -731,6 +734,248 @@ grep -q 'WORKER_THREAD_RETAINED task=001-revision-01' \
 grep -q 'WORKER_THREAD_CLEARED task=001-revision-03' \
 	"$CONTEXT_ROOT/state/projects/contextproj/logs/events.log"
 
+# Correct partial work is checkpointed rather than rejected. Checkpoints keep
+# the parent plan item active, preserve scoped workspace content and append-only
+# evidence, and pause in NEEDS_REPLAN after a configured convergence threshold.
+CHECKPOINT_ROOT="$TEST_ROOT/checkpoint"
+mkdir -p "$CHECKPOINT_ROOT/repo" "$CHECKPOINT_ROOT/manager-home" "$CHECKPOINT_ROOT/worker-home"
+printf 'test specification\n' > "$CHECKPOINT_ROOT/repo/spec.md"
+printf 'base\n' > "$CHECKPOINT_ROOT/repo/source.txt"
+git -C "$CHECKPOINT_ROOT/repo" init -q
+git -C "$CHECKPOINT_ROOT/repo" config user.email harness@example.invalid
+git -C "$CHECKPOINT_ROOT/repo" config user.name 'Harness Test'
+git -C "$CHECKPOINT_ROOT/repo" add spec.md source.txt
+git -C "$CHECKPOINT_ROOT/repo" commit -qm base
+cat > "$CHECKPOINT_ROOT/harness.env" <<ENV
+export PROJECT="checkpointproj"
+export REPOSITORY="$CHECKPOINT_ROOT/repo"
+export SPECIFICATION="\$REPOSITORY/spec.md"
+export HARNESS_HOME="$HARNESS_HOME"
+export HARNESS_BIN="\$HARNESS_HOME/bin"
+export HARNESS_ROOT="$CHECKPOINT_ROOT/state"
+export MANAGER_CODEX_HOME="$CHECKPOINT_ROOT/manager-home"
+export MANAGER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export WORKER_CODEX_HOME="$CHECKPOINT_ROOT/worker-home"
+export WORKER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export HARNESS_MAX_ROOT_ATTEMPTS="0"
+export HARNESS_MAX_ZERO_GAIN_WINDOW="0"
+export HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION="2"
+ENV
+chmod 600 "$CHECKPOINT_ROOT/harness.env"
+"$HARNESS_BIN/harness-init" "$CHECKPOINT_ROOT/harness.env" >/dev/null
+printf 'P0\tCheckpoint lifecycle fixture\n' > "$CHECKPOINT_ROOT/plan.tsv"
+"$HARNESS_BIN/manager-init-project-plan" "$CHECKPOINT_ROOT/harness.env" \
+	"$CHECKPOINT_ROOT/plan.tsv" >/dev/null
+
+checkpoint_worker_result()
+{
+	local task_id="$1" result_file="$2"
+	cat > "$result_file" <<RESULT
+# Task Result
+
+Task-ID: $task_id
+Status: COMPLETED
+
+## Summary
+
+Implemented a verified increment.
+
+## Modified files
+
+- source.txt
+
+## Implemented behavior
+
+- Added one bounded behavior.
+
+## Validation performed
+
+Focused validation passed.
+
+## Deviations from assignment
+
+None.
+
+## Remaining concerns
+
+Parent root remains incomplete.
+
+## Worker assessment
+
+Ready for checkpoint review.
+RESULT
+}
+
+printf '# Task\n\nTask-ID: 001\nRoot-Criterion: compiler.registry\nRoot-Criterion: compiler.projection\n' > "$CHECKPOINT_ROOT/task.md"
+"$HARNESS_BIN/manager-publish-task" "$CHECKPOINT_ROOT/harness.env" 001 \
+	"$CHECKPOINT_ROOT/task.md" P0 >/dev/null
+mv "$CHECKPOINT_ROOT/state/projects/checkpointproj/tasks/checkpointproj-task-001.ready.md" \
+	"$CHECKPOINT_ROOT/state/projects/checkpointproj/archive/checkpointproj-task-001.assignment.md"
+printf 'criterion checkpoint\n' > "$CHECKPOINT_ROOT/repo/source.txt"
+checkpoint_worker_result 001 \
+	"$CHECKPOINT_ROOT/state/projects/checkpointproj/results/checkpointproj-task-001.result.md"
+cat > "$CHECKPOINT_ROOT/review-001.md" <<'NOTE'
+# Manager Review Record
+
+Task-ID: 001
+Decision: CHECKPOINT
+Progress-Percent: 50%
+Improvement-Percent: 50%
+Verified-Criterion: compiler.registry
+Checkpoint-Path: source.txt
+
+## Specification comparison
+The bounded registry criterion is complete, while the parent root remains active.
+
+## Increment verification
+- [PASS] registry increment — direct source inspection passed
+
+## Validation executed
+- [PASS] focused-check — exit status 0
+
+## Scope and regression review
+Only source.txt changed and the focused behavior remained stable.
+
+## Remaining root criteria
+Projection remains incomplete.
+
+## Conclusion
+This increment is correct and independently verified, while the root remains incomplete. Checkpoint.
+NOTE
+checkpoint_output="$("$HARNESS_BIN/manager-checkpoint-task" "$CHECKPOINT_ROOT/harness.env" \
+	001 "$CHECKPOINT_ROOT/review-001.md")"
+[[ "$checkpoint_output" == *.checkpointed.md ]]
+checkpoint_project="$CHECKPOINT_ROOT/state/projects/checkpointproj"
+[[ -f "$checkpoint_project/archive/checkpointproj-task-001.checkpointed.md" ]]
+[[ -f "$checkpoint_project/archive/checkpoints/checkpointproj-task-001/manifest.txt" ]]
+cmp -s "$CHECKPOINT_ROOT/repo/source.txt" \
+	"$checkpoint_project/archive/checkpoints/checkpointproj-task-001/files/source.txt"
+grep -q $'^compiler.registry\tPASSED\t001\t' \
+	"$checkpoint_project/control/progress/checkpointproj-task-001.criteria.tsv"
+grep -q $'001\tCHECKPOINT\t50\t50\t' \
+	"$checkpoint_project/control/progress/checkpointproj-task-001.history.tsv"
+grep -Eq $'^P0\tACTIVE\t001\t' "$checkpoint_project/control/project-plan-state.tsv"
+"$HARNESS_BIN/harness-status" "$CHECKPOINT_ROOT/harness.env" > "$CHECKPOINT_ROOT/status-1.out"
+grep -Eq '001 +CHECKPOINTED +50%' "$CHECKPOINT_ROOT/status-1.out"
+
+for revision in 01 02; do
+	task_id="001-revision-$revision"
+	printf '# Task\n\nTask-ID: %s\n' "$task_id" > "$CHECKPOINT_ROOT/task-$revision.md"
+	"$HARNESS_BIN/manager-publish-task" "$CHECKPOINT_ROOT/harness.env" "$task_id" \
+		"$CHECKPOINT_ROOT/task-$revision.md" >/dev/null
+	mv "$checkpoint_project/tasks/checkpointproj-task-$task_id.ready.md" \
+		"$checkpoint_project/archive/checkpointproj-task-$task_id.assignment.md"
+	printf 'verified increment %s\n' "$revision" > "$CHECKPOINT_ROOT/repo/source.txt"
+	checkpoint_worker_result "$task_id" \
+		"$checkpoint_project/results/checkpointproj-task-$task_id.result.md"
+	cat > "$CHECKPOINT_ROOT/review-$revision.md" <<NOTE
+# Manager Review Record
+
+Task-ID: $task_id
+Decision: CHECKPOINT
+Progress-Percent: 50%
+Improvement-Percent: 0%
+Verified-Increment: compiler.increment.$revision
+Checkpoint-Path: source.txt
+
+## Specification comparison
+This verified increment advances the active compiler root.
+
+## Increment verification
+- [PASS] compiler increment $revision — direct source inspection passed
+
+## Validation executed
+- [PASS] focused-check — exit status 0
+
+## Scope and regression review
+Only source.txt changed and the focused behavior remained stable.
+
+## Remaining root criteria
+The next complete root criterion remains pending.
+
+## Conclusion
+This increment is correct and independently verified, while the root remains incomplete. Checkpoint.
+NOTE
+	checkpoint_output="$("$HARNESS_BIN/manager-checkpoint-task" "$CHECKPOINT_ROOT/harness.env" \
+		"$task_id" "$CHECKPOINT_ROOT/review-$revision.md")"
+done
+[[ "$checkpoint_output" == *.needs-replan.md ]]
+replan_marker="$checkpoint_project/control/progress/checkpointproj-task-001.needs-replan.md"
+[[ -f "$replan_marker" ]]
+grep -q 'verified increments without a completed root criterion reached the configured limit (2/2)' "$replan_marker"
+(
+	source "$CHECKPOINT_ROOT/harness.env"
+	source "$HARNESS_HOME/lib/harness-common.sh"
+	[[ "$(root_reviewed_attempt_count 001)" == 3 ]]
+	[[ "$(root_reviewed_attempts_since_replan 001)" == 3 ]]
+	[[ "$(root_zero_gain_streak 001)" == 2 ]]
+	[[ "$(root_checkpoint_without_criterion_streak 001)" == 2 ]]
+)
+[[ -f "$checkpoint_project/archive/checkpointproj-task-001-revision-02.checkpointed.md" ]]
+if "$HARNESS_BIN/manager-publish-task" "$CHECKPOINT_ROOT/harness.env" 001-revision-03 \
+	"$CHECKPOINT_ROOT/task.md" >"$CHECKPOINT_ROOT/paused.out" 2>"$CHECKPOINT_ROOT/paused.err"; then
+	printf 'Expected NEEDS_REPLAN to prevent another continuation.\n' >&2
+	exit 1
+fi
+grep -q 'task root is paused pending replanning' "$CHECKPOINT_ROOT/paused.err"
+"$HARNESS_BIN/harness-status" "$CHECKPOINT_ROOT/harness.env" > "$CHECKPOINT_ROOT/status-2.out"
+grep -q 'Project status: NEEDS_REPLAN.' "$CHECKPOINT_ROOT/status-2.out"
+grep -q 'Verified checkpoints: 3' "$CHECKPOINT_ROOT/status-2.out"
+checkpoint_watch="$CHECKPOINT_ROOT/watch.out"
+HARNESS_WATCH_POLL_SECONDS=0.05 timeout 2 \
+	"$HARNESS_BIN/harness-watch-agents" "$CHECKPOINT_ROOT/harness.env" \
+	> "$checkpoint_watch" 2>&1
+grep -q 'project paused for replanning; verified checkpoints are preserved' "$checkpoint_watch"
+"$HARNESS_BIN/harness-unblock-root" "$CHECKPOINT_ROOT/harness.env" 001 >/dev/null
+[[ ! -f "$replan_marker" ]]
+(
+	source "$CHECKPOINT_ROOT/harness.env"
+	source "$HARNESS_HOME/lib/harness-common.sh"
+	[[ "$(root_reviewed_attempts_since_replan 001)" == 0 ]]
+	[[ "$(root_zero_gain_streak 001)" == 0 ]]
+	[[ "$(root_checkpoint_without_criterion_streak 001)" == 0 ]]
+)
+"$HARNESS_BIN/manager-publish-task" "$CHECKPOINT_ROOT/harness.env" 001-revision-03 \
+	"$CHECKPOINT_ROOT/task.md" >/dev/null
+[[ -f "$checkpoint_project/tasks/checkpointproj-task-001-revision-03.ready.md" ]]
+mv "$checkpoint_project/tasks/checkpointproj-task-001-revision-03.ready.md" \
+	"$checkpoint_project/archive/checkpointproj-task-001-revision-03.assignment.md"
+printf 'completed root\n' > "$CHECKPOINT_ROOT/repo/source.txt"
+checkpoint_worker_result 001-revision-03 \
+	"$checkpoint_project/results/checkpointproj-task-001-revision-03.result.md"
+cat > "$CHECKPOINT_ROOT/accept.md" <<'NOTE'
+# Manager Review Record
+
+Task-ID: 001-revision-03
+Decision: ACCEPT
+Progress-Percent: 100%
+Verified-Criterion: compiler.projection
+
+## Specification comparison
+All declared root criteria are now satisfied.
+
+## Acceptance-criteria verification
+- [PASS] projection criterion — direct focused evidence passed
+
+## Feature verification
+- [PASS] complete compiler root — registry and projection evidence are present
+
+## Validation executed
+- [PASS] focused-check — exit status 0
+
+## Scope and regression review
+The complete declared root was reviewed without unrelated changes.
+
+## Conclusion
+All required behavior was independently verified. Accept.
+NOTE
+"$HARNESS_BIN/manager-accept-task" "$CHECKPOINT_ROOT/harness.env" 001-revision-03 \
+	"$CHECKPOINT_ROOT/accept.md" >/dev/null
+grep -q $'^compiler.projection\tPASSED\t001-revision-03\t' \
+	"$checkpoint_project/control/progress/checkpointproj-task-001.criteria.tsv"
+grep -Eq $'^P0\tCOMPLETE\t001\t' "$checkpoint_project/control/project-plan-state.tsv"
+[[ -f "$checkpoint_project/archive/checkpointproj-task-001-revision-03.accepted.md" ]]
+
 ACTIVE_ROOT="$TEST_ROOT/active"
 mkdir -p "$ACTIVE_ROOT/repo" "$ACTIVE_ROOT/manager-home" "$ACTIVE_ROOT/worker-home"
 printf 'test specification\n' > "$ACTIVE_ROOT/repo/spec.md"
@@ -970,4 +1215,4 @@ grep -Eq $'^ORACLE-001-01\tPENDING\t-' "$ORACLE_FAIL_ROOT/state/projects/oraclef
 [[ ! -f "$ORACLE_FAIL_ROOT/state/projects/oraclefailproj/control/project.complete" ]]
 [[ ! -f "$ORACLE_FAIL_ROOT/state/projects/oraclefailproj/control/oracle/oracle.pending.md" ]]
 
-printf 'All v4.2 harness tests passed.\n'
+printf 'All v4.3 harness tests passed.\n'

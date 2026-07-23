@@ -1,0 +1,311 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TASK_ID REVIEW_NOTE_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 3 ]] || usage
+load_harness_env "$1"
+task_id="$2"
+note_file="$3"
+
+ensure_project
+trace_init manager_checkpoint_task
+trace_script_start "$@"
+trap 'trace_script_exit $?' EXIT
+validate_task_id "$task_id"
+[[ -f "$note_file" ]] || die "review note file does not exist: $note_file"
+acquire_project_lock
+
+dir="$(project_dir)"
+base="$(task_base "$task_id")"
+root="$(task_root_id "$task_id")"
+result="$dir/results/$base.result.md"
+result_archive="$dir/archive/$base.checkpoint-result.md"
+checkpointed="$dir/archive/$base.checkpointed.md"
+stale_result_archive="$dir/archive/$base.checkpoint-stale-result.md"
+assignment_archive="$dir/archive/$base.assignment.md"
+running="$dir/running/$base.running.md"
+lease="$dir/control/$base.lease"
+artifact_dir="$(task_checkpoint_artifact_dir "$task_id")"
+
+require_line()
+{
+	local file="$1" line="$2"
+	grep -Fqx -- "$line" "$file" || die "required checkpoint evidence is missing: $line"
+}
+
+require_heading()
+{
+	local file="$1" heading="$2"
+	grep -Fqx -- "$heading" "$file" || die "required checkpoint section is missing: $heading"
+}
+
+require_pass_evidence()
+{
+	local file="$1" heading="$2"
+	awk -v heading="$heading" '
+		$0 == heading { in_section = 1; next }
+		in_section && /^## / { exit }
+		in_section && /^- \[PASS\] .+ — .+/ { found = 1 }
+		END { exit found ? 0 : 1 }
+	' "$file" || die "required PASS evidence is missing from: $heading"
+}
+
+validate_worker_result()
+{
+	local file="$1" heading
+	require_line "$file" "Task-ID: $task_id"
+	require_line "$file" 'Status: COMPLETED'
+	for heading in '## Summary' '## Modified files' '## Implemented behavior' \
+		'## Validation performed' '## Deviations from assignment' \
+		'## Remaining concerns' '## Worker assessment'; do
+		require_heading "$file" "$heading"
+	done
+}
+
+validate_checkpoint_review()
+{
+	local file="$1" heading
+	require_heading "$file" '# Manager Review Record'
+	require_line "$file" "Task-ID: $task_id"
+	require_line "$file" 'Decision: CHECKPOINT'
+	for heading in '## Specification comparison' '## Increment verification' \
+		'## Validation executed' '## Scope and regression review' \
+		'## Remaining root criteria' '## Conclusion'; do
+		require_heading "$file" "$heading"
+	done
+	require_pass_evidence "$file" '## Increment verification'
+	require_pass_evidence "$file" '## Validation executed'
+	grep -Eq '^Verified-(Criterion|Increment): [A-Za-z0-9][A-Za-z0-9._:-]*$' "$file" ||
+		die 'checkpoint review must contain Verified-Criterion or Verified-Increment with a stable identifier'
+	grep -Eq '^Checkpoint-Path: (NONE|[^[:space:]].*)$' "$file" ||
+		die 'checkpoint review must contain at least one Checkpoint-Path line (or Checkpoint-Path: NONE)'
+}
+
+archive_lingering_result()
+{
+	if [[ ! -f "$result" ]]; then
+		return 0
+	fi
+	if [[ -f "$result_archive" ]]; then
+		mv "$result" "$stale_result_archive"
+		log_event "TASK_CHECKPOINT_STALE_RESULT_ARCHIVED task=$task_id file=$stale_result_archive"
+	else
+		mv "$result" "$result_archive"
+		log_event "TASK_CHECKPOINT_RESULT_RECOVERED task=$task_id file=$result_archive"
+	fi
+}
+
+if [[ -f "$checkpointed" ]]; then
+	archive_lingering_result
+	retain_worker_thread_for_checkpoint "$task_id"
+	trace_event TASK_CHECKPOINT_IDEMPOTENT "task_id=$task_id" "checkpoint_file=$checkpointed"
+	printf '%s\n' "$checkpointed"
+	exit 0
+fi
+
+[[ -f "$result" ]] || die "result does not exist: $task_id"
+[[ -f "$assignment_archive" ]] || die "archived assignment is missing: $task_id"
+[[ ! -e "$running" ]] || die "task is still running: $task_id"
+[[ ! -e "$lease" ]] || die "worker lease still exists: $task_id"
+validate_worker_result "$result"
+validate_checkpoint_review "$note_file"
+initialize_task_progress "$task_id" "$assignment_archive"
+
+current_progress="$(task_progress_percent "$root")"
+progress_percent="$(review_percent "$note_file" Progress-Percent)"
+improvement_percent="$(review_percent "$note_file" Improvement-Percent)"
+validate_percent "$progress_percent" 'Progress-Percent'
+validate_percent "$improvement_percent" 'Improvement-Percent'
+(( progress_percent >= current_progress )) ||
+	die "Progress-Percent cannot decrease from $current_progress% to $progress_percent%"
+(( progress_percent < 100 )) || die 'a checkpointed task must have Progress-Percent below 100%'
+
+mapfile -t verified_criteria < <(awk -F': ' '$1 == "Verified-Criterion" {print $2}' "$note_file")
+mapfile -t verified_increments < <(awk -F': ' '$1 == "Verified-Increment" {print $2}' "$note_file")
+mapfile -t checkpoint_paths < <(awk -F': ' '$1 == "Checkpoint-Path" {sub(/^[^:]*: /, ""); print}' "$note_file")
+(( ${#verified_criteria[@]} + ${#verified_increments[@]} > 0 )) ||
+	die 'checkpoint contains no verified criterion or increment identifiers'
+
+criterion_ledger="$(task_criterion_ledger_file "$root")"
+declare -A seen_checkpoint_items=()
+for checkpoint_item in "${verified_criteria[@]}" "${verified_increments[@]}"; do
+	[[ -z "${seen_checkpoint_items[$checkpoint_item]:-}" ]] ||
+		die "checkpoint item identifier is repeated in the review: $checkpoint_item"
+	seen_checkpoint_items[$checkpoint_item]=1
+	if [[ -f "$criterion_ledger" ]] &&
+		awk -F '\t' -v item="$checkpoint_item" 'NR > 1 && $1 == item {found=1} END {exit !found}' "$criterion_ledger"; then
+		die "checkpoint item identifier is already recorded: $checkpoint_item"
+	fi
+done
+
+root_assignment_file="$(task_root_assignment_file "$root")"
+mapfile -t declared_criteria < <(awk -F': ' '$1 == "Root-Criterion" {print $2}' "$root_assignment_file")
+if (( ${#declared_criteria[@]} > 0 )); then
+	declare -A declared_criterion_ids=()
+	for declared_criterion in "${declared_criteria[@]}"; do
+		[[ "$declared_criterion" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]] ||
+			die "invalid Root-Criterion identifier in immutable assignment: $declared_criterion"
+		[[ -z "${declared_criterion_ids[$declared_criterion]:-}" ]] ||
+			die "duplicate Root-Criterion identifier in immutable assignment: $declared_criterion"
+		declared_criterion_ids[$declared_criterion]=1
+	done
+	for criterion in "${verified_criteria[@]}"; do
+		[[ -n "${declared_criterion_ids[$criterion]:-}" ]] ||
+			die "Verified-Criterion is not declared by the immutable root assignment: $criterion"
+	done
+	passed_criteria=0
+	if [[ -f "$criterion_ledger" ]]; then
+		passed_criteria="$(awk -F '\t' 'NR > 1 && $2 == "PASSED" {count++} END {print count + 0}' "$criterion_ledger")"
+	fi
+	expected_progress=$(( (passed_criteria + ${#verified_criteria[@]}) * 100 / ${#declared_criteria[@]} ))
+	(( expected_progress < 100 )) ||
+		die 'all declared root criteria would pass; use manager-accept-task instead of checkpointing'
+	expected_improvement=$((expected_progress - current_progress))
+	(( expected_improvement >= 0 )) || expected_improvement=0
+	(( progress_percent == expected_progress )) ||
+		die "Progress-Percent must equal calculated declared-criterion progress: $expected_progress%"
+	(( improvement_percent == expected_improvement )) ||
+		die "Improvement-Percent must equal calculated declared-criterion gain: $expected_improvement%"
+fi
+
+if (( ${#checkpoint_paths[@]} > 1 )); then
+	for checkpoint_path in "${checkpoint_paths[@]}"; do
+		[[ "$checkpoint_path" != NONE ]] || die 'Checkpoint-Path: NONE cannot be combined with repository paths'
+	done
+fi
+
+artifact_tmp="$artifact_dir.tmp.$$"
+[[ ! -e "$artifact_dir" && ! -e "$artifact_tmp" ]] || die "checkpoint artifact already exists: $artifact_dir"
+mkdir -p "$artifact_tmp/files"
+chmod 700 "$artifact_tmp" "$artifact_tmp/files"
+install -m 600 "$result" "$artifact_tmp/result.md"
+install -m 600 "$note_file" "$artifact_tmp/review.md"
+install -m 600 "$assignment_archive" "$artifact_tmp/assignment.md"
+
+paths_file="$artifact_tmp/checkpoint-paths.txt"
+: > "$paths_file"
+if [[ "${checkpoint_paths[0]}" != NONE ]]; then
+	for checkpoint_path in "${checkpoint_paths[@]}"; do
+		[[ "$checkpoint_path" != *$'\t'* ]] || die 'Checkpoint-Path must not contain a tab character'
+		[[ "$checkpoint_path" != /* && "$checkpoint_path" != '.' && "$checkpoint_path" != '..' &&
+			"$checkpoint_path" != ../* && "$checkpoint_path" != */../* && "$checkpoint_path" != */.. ]] ||
+			die "Checkpoint-Path must be a repository-relative path without '..': $checkpoint_path"
+		resolved_path="$(realpath -m "$REPOSITORY/$checkpoint_path")"
+		[[ "$resolved_path" == "$REPOSITORY"/* ]] || die "Checkpoint-Path escapes repository: $checkpoint_path"
+		printf '%s\n' "$checkpoint_path" >> "$paths_file"
+		snapshot_path="$artifact_tmp/files/$checkpoint_path"
+		if [[ -L "$REPOSITORY/$checkpoint_path" ]]; then
+			mkdir -p "$(dirname "$snapshot_path")"
+			cp -P -- "$REPOSITORY/$checkpoint_path" "$snapshot_path"
+		elif [[ -f "$REPOSITORY/$checkpoint_path" ]]; then
+			mkdir -p "$(dirname "$snapshot_path")"
+			cp -p -- "$REPOSITORY/$checkpoint_path" "$snapshot_path"
+		elif [[ -d "$REPOSITORY/$checkpoint_path" ]]; then
+			die "Checkpoint-Path must name a file, symlink, or deleted path: $checkpoint_path"
+		fi
+	done
+fi
+chmod 600 "$paths_file"
+
+git_head='-'
+if git -C "$REPOSITORY" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+	git_head="$(git -C "$REPOSITORY" rev-parse HEAD 2>/dev/null || printf UNBORN)"
+	if [[ "${checkpoint_paths[0]}" != NONE ]]; then
+		git -C "$REPOSITORY" diff --binary --full-index HEAD -- "${checkpoint_paths[@]}" > "$artifact_tmp/workspace.patch" 2>/dev/null || true
+		git -C "$REPOSITORY" status --porcelain=v1 -- "${checkpoint_paths[@]}" > "$artifact_tmp/git-status.txt"
+	else
+		: > "$artifact_tmp/workspace.patch"
+		: > "$artifact_tmp/git-status.txt"
+	fi
+	chmod 600 "$artifact_tmp/workspace.patch" "$artifact_tmp/git-status.txt"
+fi
+
+result_sha="$(sha256sum "$result" | awk '{print $1}')"
+review_sha="$(sha256sum "$note_file" | awk '{print $1}')"
+{
+	printf 'project=%s\n' "$PROJECT"
+	printf 'task_id=%s\n' "$task_id"
+	printf 'task_root=%s\n' "$root"
+	printf 'captured_at=%s\n' "$(timestamp_utc)"
+	printf 'repository=%s\n' "$REPOSITORY"
+	printf 'git_head=%s\n' "$git_head"
+	printf 'result_sha256=%s\n' "$result_sha"
+	printf 'review_sha256=%s\n' "$review_sha"
+	printf 'progress_percent=%s\n' "$progress_percent"
+	printf 'improvement_percent=%s\n' "$improvement_percent"
+	for criterion in "${verified_criteria[@]}"; do printf 'verified_criterion=%s\n' "$criterion"; done
+	for increment in "${verified_increments[@]}"; do printf 'verified_increment=%s\n' "$increment"; done
+	while IFS= read -r checkpoint_path; do
+		[[ -n "$checkpoint_path" ]] || continue
+		if [[ -L "$REPOSITORY/$checkpoint_path" ]]; then
+			printf 'path=%s\ttype=symlink\ttarget=%s\n' "$checkpoint_path" "$(readlink "$REPOSITORY/$checkpoint_path")"
+		elif [[ -f "$REPOSITORY/$checkpoint_path" ]]; then
+			printf 'path=%s\ttype=file\tmode=%s\tsha256=%s\n' "$checkpoint_path" \
+				"$(stat -c '%a' "$REPOSITORY/$checkpoint_path")" \
+				"$(sha256sum "$REPOSITORY/$checkpoint_path" | awk '{print $1}')"
+		else
+			printf 'path=%s\ttype=deleted\n' "$checkpoint_path"
+		fi
+	done < "$paths_file"
+} > "$artifact_tmp/manifest.txt"
+chmod 600 "$artifact_tmp/manifest.txt"
+mv "$artifact_tmp" "$artifact_dir"
+
+mv "$result" "$result_archive"
+tmp="$checkpointed.tmp.$$"
+{
+	printf '# Checkpointed Task Increment\n\n'
+	printf 'Project: %s\n\n' "$PROJECT"
+	printf 'Task-ID: %s\n\n' "$task_id"
+	printf 'Task-Root: %s\n\n' "$root"
+	printf 'Environment-File: %s\n\n' "$HARNESS_ENV_FILE"
+	printf 'Checkpointed-At: %s\n\n' "$(timestamp_utc)"
+	printf 'Artifact-Directory: %s\n\n' "$artifact_dir"
+	printf '## Review notes\n\n'
+	cat "$note_file"
+	printf '\n'
+} > "$tmp"
+chmod 600 "$tmp"
+mv "$tmp" "$checkpointed"
+
+if [[ ! -f "$criterion_ledger" ]]; then
+	printf 'item_id\tstate\tverified_by\tevidence_sha256\tupdated_at\n' > "$criterion_ledger"
+	chmod 600 "$criterion_ledger"
+fi
+for criterion in "${verified_criteria[@]}"; do
+	printf '%s\tPASSED\t%s\t%s\t%s\n' "$criterion" "$task_id" "$review_sha" "$(timestamp_utc)" >> "$criterion_ledger"
+done
+for increment in "${verified_increments[@]}"; do
+	printf '%s\tVERIFIED\t%s\t%s\t%s\n' "$increment" "$task_id" "$review_sha" "$(timestamp_utc)" >> "$criterion_ledger"
+done
+
+checkpoint_ledger="$(task_checkpoint_ledger_file "$root")"
+if [[ ! -f "$checkpoint_ledger" ]]; then
+	printf 'checkpointed_at\ttask_id\tcriterion_count\tincrement_count\tprogress_percent\timprovement_percent\treview_sha256\tartifact_directory\n' > "$checkpoint_ledger"
+	chmod 600 "$checkpoint_ledger"
+fi
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(timestamp_utc)" "$task_id" \
+	"${#verified_criteria[@]}" "${#verified_increments[@]}" "$progress_percent" \
+	"$improvement_percent" "$review_sha" "$artifact_dir" >> "$checkpoint_ledger"
+
+update_task_progress "$task_id" "$progress_percent" "$improvement_percent" CHECKPOINT "$note_file"
+retain_worker_thread_for_checkpoint "$task_id"
+rm -f "$dir/control/$base.lease" "$dir/control/$base.abort.md" \
+	"$dir/control/$base.worker-triggered" "$dir/control/$base.worker-failed.md" \
+	"$dir/control/$base.worker-supervisor-failed.md"
+log_event "TASK_CHECKPOINTED task=$task_id root=$root criteria=${#verified_criteria[@]} increments=${#verified_increments[@]} artifact=$artifact_dir"
+trace_event TASK_CHECKPOINTED "task_id=$task_id" "task_root=$root" "checkpoint_file=$checkpointed" "artifact_dir=$artifact_dir"
+
+if replan_marker="$(maybe_mark_root_needs_replan "$task_id" CHECKPOINT)"; then
+	printf '%s\n' "$replan_marker"
+else
+	printf '%s\n' "$checkpointed"
+fi

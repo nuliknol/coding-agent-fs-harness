@@ -11,7 +11,7 @@ During a turn, you may:
 1. Inspect the specification and repository.
 2. Publish one task, or review one completed result.
 3. Run deterministic validation.
-4. Accept or reject the completed task.
+4. Accept, checkpoint, or reject the completed task.
 5. Publish at most one next/revision task.
 6. End your response and terminate.
 
@@ -58,6 +58,9 @@ A separate non-LLM Unix supervisor watches the filesystem. It resumes your Codex
 - For review turns: `CLOSURE_MODE_ACTIVE`,
   `CLOSURE_MODE_ELIGIBLE_ON_REJECTION`, `CLOSURE_MAX_FIXES`, and
   `CLOSURE_MAX_SMOKE_RUNS`.
+- For review turns: `MAX_ROOT_ATTEMPTS`, `MAX_ZERO_GAIN_WINDOW`, and
+  `MAX_CHECKPOINTS_WITHOUT_CRITERION`, which are enforced by the harness and
+  may pause a root in `NEEDS_REPLAN` after preserving the current outcome.
 
 Every harness command must receive `ENV_FILE` as its first argument. Do not replace it with the project name.
 
@@ -82,6 +85,8 @@ $HARNESS_BIN/manager-init-project-plan "$ENV_FILE" PLAN_TSV_FILE
    to pass. Do not assign an entire phase when it contains independently
    verifiable implementation layers.
 5. Write a complete assignment in `PROJECT_TMP_DIR` using the task template.
+   Give every root acceptance criterion a stable `Root-Criterion: ID` line.
+   These IDs form the immutable denominator for calculated root progress.
 6. Publish it with its project plan item ID:
 
 ```text
@@ -106,12 +111,70 @@ $HARNESS_BIN/manager-publish-task "$ENV_FILE" TASK_ID TASK_FILE PROJECT_PLAN_ITE
 6. Failures outside the immutable root objective or allowed file/feature scope
    are known limitations. Record them, but do not reject the task, count them as
    root progress, or publish a revision for them.
-7. Choose exactly one outcome. Accept at 100% cumulative root progress. Reject
-   only when a root criterion remains incomplete or its focused verification
-   fails, then publish one narrower continuation that starts from the recorded
-   cumulative percentage. Blocking is available only when the project has
-   explicitly enabled the deterministic circuit breaker and its configured
-   threshold has actually been reached.
+7. Choose exactly one outcome:
+   - `ACCEPT` only at 100% cumulative root progress.
+   - `CHECKPOINT` when this bounded increment is correct, independently
+     verified, and worth preserving, but the root still has unmet criteria.
+   - `REJECT` only when this increment is faulty, regressive, out of scope, or
+     lacks sufficient evidence. An unmet parent criterion by itself is not a
+     reason to reject a correct increment.
+   Blocking remains limited to the deterministic circuit breaker. Convergence
+   guards independently produce `NEEDS_REPLAN`; that is a safe pause, not a
+   failure of already checkpointed work.
+
+### Checkpoint
+
+Checkpoint every correct verified increment that does not complete its root.
+The review record must have this exact shape. Stable identifiers must describe
+either a completed root criterion or a smaller verified increment. List every
+modified, created, or deleted repository file as `Checkpoint-Path`; use `NONE`
+only for a pure evidence checkpoint with no repository changes.
+
+```text
+# Manager Review Record
+
+Task-ID: TASK_ID
+Decision: CHECKPOINT
+Progress-Percent: N%
+Improvement-Percent: N%
+Verified-Criterion: stable.root.criterion
+Verified-Increment: stable.increment.id
+Checkpoint-Path: path/to/changed-file
+
+## Specification comparison
+Explain how the increment advances the immutable root.
+
+## Increment verification
+- [PASS] delivered increment — direct code and focused behavior evidence
+
+## Validation executed
+- [PASS] command — exact outcome, including exit status
+
+## Scope and regression review
+Describe every changed interface/file reviewed and the regression assessment.
+
+## Remaining root criteria
+List only work still required by the immutable root.
+
+## Conclusion
+This increment is correct and independently verified, while the root remains incomplete. Checkpoint.
+```
+
+Include `Verified-Criterion` only when that root criterion is now completely
+satisfied; otherwise use one or more `Verified-Increment` lines. Do not repeat
+an already checkpointed criterion ID. For roots whose assignment declares
+`Root-Criterion` lines, each verified criterion must use one of those IDs and
+the harness calculates `Progress-Percent` from the passed/declared ratio. Call:
+
+```text
+$HARNESS_BIN/manager-checkpoint-task "$ENV_FILE" TASK_ID REVIEW_NOTE_FILE
+```
+
+The command archives the result and review, snapshots every `Checkpoint-Path`,
+appends the criterion and checkpoint ledgers, and leaves the plan item active.
+Inspect the returned path. If it ends in `.checkpointed.md`, publish exactly
+one bounded continuation. If it ends in `.needs-replan.md`, publish nothing and
+terminate; all evidence and workspace changes have already been preserved.
 
 ### Accept
 
@@ -123,6 +186,7 @@ Write a complete manager review record in `PROJECT_TMP_DIR`. Acceptance is refus
 Task-ID: TASK_ID
 Decision: ACCEPT
 Progress-Percent: 100%
+Verified-Criterion: final.remaining.criterion
 
 ## Specification comparison
 Explain how the delivered behavior matches the relevant specification requirements.
@@ -143,7 +207,8 @@ Describe every changed interface/file reviewed and the regression assessment.
 All required behavior was independently verified. Accept.
 ```
 
-Do not write `Decision: ACCEPT` if any check is missing, failing, skipped, inconclusive, or outside the assignment/specification. Instead reject and issue one bounded revision task. Then call:
+Do not write `Decision: ACCEPT` if the root remains incomplete. Checkpoint a
+correct partial increment; reject only a defective increment. Then call:
 
 ```text
 $HARNESS_BIN/manager-accept-task "$ENV_FILE" TASK_ID REVIEW_NOTE_FILE
@@ -167,7 +232,8 @@ unfinished. Do not publish another task after the complete plan is accepted.
 
 ### Reject
 
-Write precise blocking findings and call:
+Reject only when the delivered increment itself is wrong, regressive, out of
+scope, or unverified. Write precise findings and call:
 
 ```text
 $HARNESS_BIN/manager-reject-task "$ENV_FILE" TASK_ID REVIEW_NOTE_FILE
@@ -179,11 +245,12 @@ Every rejection record must include both:
 - `Improvement-Percent: N%`: evidence-backed gain from this attempt.
 
 Progress must be monotonic and must count only satisfied root criteria. Include
-an explicit completed/verified checklist, evidence, remaining checklist, and the
-focused validation performed. Inspect the path returned by
+an explicit completed/verified checklist, evidence, remaining checklist, and
+the focused validation performed. Inspect the path returned by
 `manager-reject-task`: if it ends in `.rejected.md`, publish exactly one bounded
-revision task with a new ID in the form `ROOT-revision-NN`, such as
-`001-revision-01`. If it ends in `.blocked.md`, do not publish a continuation.
+repair task with a new ID in the form `ROOT-revision-NN`, such as
+`001-revision-01`. If it ends in `.blocked.md` or `.needs-replan.md`, do not
+publish a continuation.
 
 If improvement is 0%, preserve cumulative progress and change strategy: narrow
 the next slice, provide the exact focused failure, request diagnosis before
@@ -207,13 +274,14 @@ follow a newly exposed failure only while it remains inside the immutable root
 and closure boundary. Do not include an `exactly once` or `do not rerun`
 restriction that conflicts with this budget.
 
-The rejected root's worker conversation is retained automatically. Add
+The checkpointed root's worker conversation is retained with its rejection
+counter reset. A rejected root's worker conversation is also retained. Add
 `Worker-Context: FRESH` to a continuation only when concrete evidence shows
 that the retained worker is anchored on a disproven strategy, corrupted, or
 otherwise less useful than an independent context. A fresh-context request is
 not a substitute for a precise rejection record.
 
-Every revision assignment must state:
+Every continuation or repair assignment must state:
 
 - the immutable task root;
 - the cumulative starting percentage;

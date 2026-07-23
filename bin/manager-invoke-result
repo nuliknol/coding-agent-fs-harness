@@ -32,6 +32,7 @@ running="$project_path/running/$base.running.md"
 lease="$project_path/control/$base.lease"
 assignment_archive="$project_path/archive/$base.assignment.md"
 accepted="$project_path/archive/$base.accepted.md"
+checkpointed="$project_path/archive/$base.checkpointed.md"
 rejected="$project_path/archive/$base.rejected.md"
 blocked="$project_path/archive/$base.blocked.md"
 pending_exit_status=3
@@ -80,8 +81,11 @@ CLOSURE_MODE_ACTIVE=$closure_mode_active
 CLOSURE_MODE_ELIGIBLE_ON_REJECTION=$([[ "$HARNESS_CLOSURE_MODE_ENABLED" == 1 && "$current_progress" -ge "$HARNESS_CLOSURE_MODE_MIN_PROGRESS" && "$current_progress" -lt 100 ]] && printf 1 || printf 0)
 CLOSURE_MAX_FIXES=$HARNESS_CLOSURE_MODE_MAX_FIXES
 CLOSURE_MAX_SMOKE_RUNS=$HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS
+MAX_ROOT_ATTEMPTS=$HARNESS_MAX_ROOT_ATTEMPTS
+MAX_ZERO_GAIN_WINDOW=$HARNESS_MAX_ZERO_GAIN_WINDOW
+MAX_CHECKPOINTS_WITHOUT_CRITERION=$HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION
 
-Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and follow it. Read DEVELOPMENT_POLICY_FILE when present, then PROJECT_PLAN_FILE, PROJECT_PLAN_STATE_FILE, ROOT_ASSIGNMENT_FILE, and PROGRESS_FILE before reviewing this result. Reconcile cumulative root progress and project progress against the actual repository; do not reset completed work after a restart. Write any review note and any next or revision task file under PROJECT_TMP_DIR. Every harness command must receive ENV_FILE as its first argument. Accept the task or reject it and publish one bounded continuation from the recorded progress as appropriate. When closure mode is eligible, author the continuation for the bounded multi-attempt closure policy rather than imposing an exactly-once smoke restriction. Acceptance completes only the current project-plan item; if project items remain, publish exactly one task for the next item. Then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or call manager-wait-result.
+Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and follow it. Read DEVELOPMENT_POLICY_FILE when present, then PROJECT_PLAN_FILE, PROJECT_PLAN_STATE_FILE, ROOT_ASSIGNMENT_FILE, and PROGRESS_FILE before reviewing this result. Reconcile cumulative root progress and project progress against the actual repository; do not reset completed work after a restart. Write any review note and any next or revision task file under PROJECT_TMP_DIR. Every harness command must receive ENV_FILE as its first argument. Checkpoint a correct verified increment that does not complete the root; accept only when the entire root passes; reject only a faulty, regressive, or unverified increment. Inspect the command's returned path and do not publish a continuation when it ends in .needs-replan.md or .blocked.md. When closure mode is eligible, author the continuation for the bounded multi-attempt closure policy rather than imposing an exactly-once smoke restriction. Acceptance completes only the current project-plan item; if project items remain, publish exactly one task for the next item. Then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or call manager-wait-result.
 PROMPT
 if codex_model_requires_narrow_prompt "$MANAGER_MODEL"; then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
@@ -105,7 +109,7 @@ current_model="$MANAGER_MODEL"
 
 manager_action_committed()
 {
-	[[ -f "$accepted" || -f "$rejected" || -f "$blocked" ]]
+	[[ -f "$accepted" || -f "$checkpointed" || -f "$rejected" || -f "$blocked" ]]
 }
 
 while true; do
@@ -135,11 +139,11 @@ while true; do
 
 		log_event "MANAGER_REVIEW_LEFT_PENDING task=$task_id attempt=$attempt"
 		trace_event MANAGER_REVIEW_PENDING "task_id=$task_id" "attempt=$attempt"
-		printf 'Manager review exited without accepting or rejecting task %s.\n' "$task_id" >&2
+		printf 'Manager review exited without accepting, checkpointing, or rejecting task %s.\n' "$task_id" >&2
 		exit "$pending_exit_status"
 	fi
 
-	# A manager command may have committed an accept/reject immediately before
+	# A manager command may have committed an accept/checkpoint/reject immediately before
 	# the API stream failed. Never repeat a committed manager action.
 	if manager_action_committed; then
 		log_event "MANAGER_REVIEW_FINISHED task=$task_id attempt=$attempt outcome=action_committed_before_process_failure status=$status"

@@ -46,6 +46,7 @@ worker_context_mode="fresh"
 worker_context_reason="no_retained_thread"
 worker_resume_thread_id=""
 worker_thread_rejections=0
+worker_last_outcome=""
 if (( HARNESS_REUSE_WORKER_THREADS == 0 )); then
 	worker_context_reason="reuse_disabled"
 elif [[ "$task_id" == "$task_root" ]]; then
@@ -55,6 +56,7 @@ elif grep -Eq '^Worker-Context:[[:space:]]*FRESH[[:space:]]*$' "$task_file"; the
 elif [[ -f "$worker_thread_file" ]]; then
 	worker_resume_thread_id="$(kv_file_value "$worker_thread_file" thread_id 2>/dev/null || true)"
 	worker_thread_rejections="$(kv_file_value "$worker_thread_file" rejection_count 2>/dev/null || printf 0)"
+	worker_last_outcome="$(kv_file_value "$worker_thread_file" last_outcome 2>/dev/null || true)"
 	[[ "$worker_thread_rejections" =~ ^[0-9]+$ ]] || worker_thread_rejections=0
 	if [[ ! "$worker_resume_thread_id" =~ ^[A-Za-z0-9-]+$ ]]; then
 		worker_resume_thread_id=""
@@ -64,7 +66,11 @@ elif [[ -f "$worker_thread_file" ]]; then
 		worker_context_reason="rejection_rotation_limit"
 	else
 		worker_context_mode="resumed"
-		worker_context_reason="same_root_rejection"
+		if [[ "$worker_last_outcome" == CHECKPOINT ]]; then
+			worker_context_reason="same_root_checkpoint"
+		else
+			worker_context_reason="same_root_rejection"
+		fi
 	fi
 fi
 

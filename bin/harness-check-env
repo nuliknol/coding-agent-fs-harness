@@ -50,6 +50,21 @@ if (( HARNESS_MAX_IDENTICAL_BLOCKERS == 0 )); then
 else
 	printf 'Deterministic blocker circuit breaker: %s identical zero-progress fingerprints\n' "$HARNESS_MAX_IDENTICAL_BLOCKERS"
 fi
+if (( HARNESS_MAX_ROOT_ATTEMPTS == 0 )); then
+	printf 'Root-attempt replanning guard: disabled\n'
+else
+	printf 'Root-attempt replanning guard: %s reviewed attempts\n' "$HARNESS_MAX_ROOT_ATTEMPTS"
+fi
+if (( HARNESS_MAX_ZERO_GAIN_WINDOW == 0 )); then
+	printf 'Zero-gain replanning guard: disabled\n'
+else
+	printf 'Zero-gain replanning guard: %s consecutive reviews\n' "$HARNESS_MAX_ZERO_GAIN_WINDOW"
+fi
+if (( HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION == 0 )); then
+	printf 'Checkpoint convergence guard: disabled\n'
+else
+	printf 'Checkpoint convergence guard: %s verified increments without a completed criterion\n' "$HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION"
+fi
 printf 'Rejected-root worker thread reuse: %s\n' "$([[ "$HARNESS_REUSE_WORKER_THREADS" == 1 ]] && printf enabled || printf disabled)"
 if (( HARNESS_WORKER_THREAD_MAX_REJECTIONS == 0 )); then
 	printf 'Worker thread rejection rotation: unlimited\n'
@@ -66,4 +81,4 @@ printf 'Transient provider retry seconds: %s (retries unlimited)\n' "$HARNESS_PR
 printf 'Quota retry seconds: %s (retries unlimited)\n' "$HARNESS_QUOTA_RETRY_SECONDS"
 printf 'Codex wall timeout seconds: %s (0 means unlimited)\n' "$HARNESS_CODEX_WALL_TIMEOUT_SECONDS"
 printf 'Codex idle timeout seconds: %s (0 means unlimited)\n' "$HARNESS_CODEX_IDLE_TIMEOUT_SECONDS"
-printf 'Task revisions: cumulative progress is persisted; revisions remain automatic unless the circuit breaker is explicitly enabled\n'
+printf 'Task lifecycle: verified increments are checkpointed; root completion remains strict; convergence guards pause safely for replanning\n'

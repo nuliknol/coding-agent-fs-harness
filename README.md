@@ -1,4 +1,4 @@
-# Coding Agent Filesystem Harness v4.2 (for Codex CLI)
+# Coding Agent Filesystem Harness v4.3 (for Codex CLI)
 
 A local, event-driven two-agent coding harness for Linux.
 
@@ -26,7 +26,7 @@ worker-supervisor (local Bash, no tokens)
 manager-supervisor (local Bash, no tokens)
     -> detects result 001
     -> resumes manager Codex thread
-    -> manager accepts/rejects and publishes the next task
+    -> manager accepts/checkpoints/rejects and publishes the next task
     -> if acceptance leaves a planning gap, resumes a dedicated planning turn
     -> manager exits
 
@@ -148,7 +148,7 @@ export PROJECT="sample-project"
 export REPOSITORY="/path/to/repository"
 export SPECIFICATION="$REPOSITORY/work/specification.md"
 
-export HARNESS_HOME="/opt/coding-agent-fs-harness-v4.2"
+export HARNESS_HOME="/opt/coding-agent-fs-harness-v4.3"
 export HARNESS_BIN="$HARNESS_HOME/bin"
 export HARNESS_ROOT="$HOME/.local/state/coding-harness"
 
@@ -199,17 +199,17 @@ The file is trusted Bash input and is sourced by every command.
 ## First initialization
 
 ```bash
-/opt/coding-agent-fs-harness-v4.2/bin/harness-check-env /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.3/bin/harness-check-env /path/to/repository/harness.env
 ```
 
 ```bash
-/opt/coding-agent-fs-harness-v4.2/bin/harness-init /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.3/bin/harness-init /path/to/repository/harness.env
 ```
 
 Start the complete system:
 
 ```bash
-/opt/coding-agent-fs-harness-v4.2/bin/harness-start /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.3/bin/harness-start /path/to/repository/harness.env
 ```
 
 `harness-init` and `harness-start` serialize on the environment file path. A
@@ -268,13 +268,13 @@ export ORACLE_SANDBOX="danger-full-access"
 Stop both local supervisors:
 
 ```bash
-/opt/coding-agent-fs-harness-v4.2/bin/harness-stop /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.3/bin/harness-stop /path/to/repository/harness.env
 ```
 
 Restart them and preserve existing state:
 
 ```bash
-/opt/coding-agent-fs-harness-v4.2/bin/harness-start /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.3/bin/harness-start /path/to/repository/harness.env
 ```
 
 If `manager.thread` already exists, bootstrap is not repeated. Active processes
@@ -282,20 +282,43 @@ do not cause `harness-start` to reset state. Only `harness-init` offers an
 explicit confirmed reset, archives the old state under `$HARNESS_ROOT/resets/`,
 and creates a new project directory.
 
-Each root task has an immutable assignment and a cumulative progress checkpoint.
-Manager reviews update `Progress-Percent` and `Improvement-Percent`; revision
-assignments automatically receive the recorded starting percentage, completed
-evidence, and root-assignment paths. Consequently, stopping/restarting the
-supervisors or rebooting does not restart implementation from zero.
+Each root task has an immutable assignment, an append-only progress history,
+and a cumulative checkpoint. A correct verified increment is `CHECKPOINTED`
+even when its parent root remains incomplete. Checkpoint reviews append stable
+criterion/increment IDs, archive the result and evidence, and snapshot each
+declared repository path. Continuations receive the recorded percentage,
+verified evidence, and root-assignment paths. Consequently, stopping/restarting
+the supervisors or rebooting does not restart implementation from zero.
 
-### Rejected-root worker context
+### Checkpointed increments
+
+The manager has three ordinary review outcomes:
+
+- `CHECKPOINT`: the bounded increment is correct and verified, while its root
+  remains active;
+- `ACCEPT`: every root criterion passes, completing the assigned plan item;
+- `REJECT`: the increment itself is faulty, regressive, out of scope, or lacks
+  evidence.
+
+`manager-checkpoint-task` requires stable `Verified-Criterion` or
+`Verified-Increment` identifiers and an explicit list of `Checkpoint-Path`
+files. It stores the review, result, assignment, file snapshots, Git patch and
+hash manifest under `archive/checkpoints/`. The append-only `.criteria.tsv`,
+`.checkpoints.tsv`, and `.history.tsv` files under `control/progress/` remain
+the recovery ledger. The live repository is never reset or rewritten by this
+transaction. New root assignments declare stable `Root-Criterion` IDs; for
+those roots checkpoint progress is calculated from passed versus declared
+criteria rather than estimated by the manager. Legacy roots without that
+inventory retain monotonic percentage compatibility.
+
+### Root worker context
 
 `HARNESS_REUSE_WORKER_THREADS=1` (the default) retains the latest worker Codex
-thread only when `manager-reject-task` commits a rejection. The next revision
-of the same immutable root uses `codex exec resume`; its new assignment and
-durable progress checkpoint remain authoritative. No worker process waits
-between tasks and no lease is reused. Acceptance and explicit abort remove the
-retained thread state.
+thread after a checkpoint or rejection. A checkpoint resets its rejection
+counter because the strategy produced verified work. The next continuation of
+the same immutable root uses `codex exec resume`; its new assignment and durable
+progress ledger remain authoritative. No worker process waits between tasks
+and no lease is reused. Acceptance and explicit abort remove retained state.
 
 The default `HARNESS_WORKER_THREAD_MAX_REJECTIONS=8` starts a fresh thread after
 eight rejected turns to limit stale-strategy anchoring and context growth. Set
@@ -306,15 +329,35 @@ context by putting `Worker-Context: FRESH` in a continuation assignment.
 
 The manager attaches `Blocking-Fingerprint: sha256:<output-hash>` to a
 zero-improvement rejection when the same focused gate deterministically fails.
-The circuit breaker is disabled by default
-(`HARNESS_MAX_IDENTICAL_BLOCKERS=0`), so revisions remain automatic and a
-manager cannot create a discretionary human-intervention block. A project may
-explicitly set a positive threshold. At that threshold, `manager-reject-task`
+The fingerprint-specific circuit breaker is disabled by default
+(`HARNESS_MAX_IDENTICAL_BLOCKERS=0`), so a manager cannot create a discretionary
+human-intervention block. The general convergence guards below still apply. A
+project may explicitly set a positive fingerprint threshold. At that threshold,
+`manager-reject-task`
 atomically archives the result as `BLOCKED` and prevents another continuation;
 `manager-block-task` independently verifies the configured threshold and
 matching archived fingerprints, so it cannot be used to block early. Use
 `harness-unblock-root ENV_FILE TASK_ROOT` after correcting the condition or
 changing the task authority, scope, or plan.
+
+### Convergence and NEEDS_REPLAN
+
+Changing failure fingerprints no longer allow a root to continue forever.
+Three project settings default to safe finite thresholds:
+
+```bash
+export HARNESS_MAX_ROOT_ATTEMPTS="12"
+export HARNESS_MAX_ZERO_GAIN_WINDOW="3"
+export HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION="4"
+```
+
+When any threshold is reached, the just-reviewed result is archived first and
+the root enters `NEEDS_REPLAN`. No continuation can be published while that
+marker exists. The repository, checkpoint artifacts, criterion ledger, and
+review history remain intact. Reassess and narrow the active root strategy,
+then use `harness-unblock-root ENV_FILE TASK_ROOT` to grant a fresh convergence
+window. The planning turn reads the preserved ledgers and publishes a bounded
+continuation. Set an individual value to `0` to disable only that guard.
 
 Plan rows must be independently acceptance-complete: split a phase into
 multiple rows before assigning bounded milestones. A baseline task may require
@@ -335,7 +378,7 @@ plan and cumulative completion of each current root task.
 Print the exact harness project-state path:
 
 ```bash
-/opt/coding-agent-fs-harness-v4.2/bin/harness-state-path /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.3/bin/harness-state-path /path/to/repository/harness.env
 ```
 
 For the example configuration, it is:
@@ -353,7 +396,7 @@ The separate scratch directory for task and result markdown is:
 Print the source repository path separately:
 
 ```bash
-/opt/coding-agent-fs-harness-v4.2/bin/harness-repository-path /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.3/bin/harness-repository-path /path/to/repository/harness.env
 ```
 
 ## Runtime files
@@ -395,7 +438,7 @@ $HARNESS_ROOT/projects/$PROJECT/
 Status:
 
 ```bash
-/opt/coding-agent-fs-harness-v4.2/bin/harness-status /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.3/bin/harness-status /path/to/repository/harness.env
 ```
 
 Unified state transitions:
@@ -450,10 +493,12 @@ suites, relaxed acceptance, public API changes, speculative capacity increases,
 or unrelated cleanup. Configure it with `HARNESS_CLOSURE_MODE_*` values or set
 `HARNESS_CLOSURE_MODE_ENABLED=0` to retain single-attempt behavior.
 
-Revisions are unlimited. A zero-improvement result causes a narrower or changed
-strategy, not a terminal human-intervention state. Cumulative progress is
-monotonic and only root-task acceptance criteria count toward it; unrelated
-repairs contribute 0%.
+Correct increments are checkpointed rather than rejected. A zero-improvement
+result may still record a stable verified increment, but the rolling zero-gain,
+checkpoint-without-criterion, and total-attempt guards prevent an active root
+from becoming an unbounded conveyor belt. Cumulative progress is monotonic and
+only root-task acceptance criteria count toward it; unrelated repairs
+contribute 0%.
 
 ## Provider retry policy
 
@@ -510,7 +555,7 @@ control/PROJECT-task-ID.worker-failed.md
 Inspect the task log and then reset it explicitly:
 
 ```bash
-/opt/coding-agent-fs-harness-v4.2/bin/harness-reset-task /path/to/repository/harness.env TASK_ID --force
+/opt/coding-agent-fs-harness-v4.3/bin/harness-reset-task /path/to/repository/harness.env TASK_ID --force
 ```
 
 The worker supervisor detects the newly restored ready task and performs one new invocation.
@@ -528,7 +573,7 @@ The state directory is compatible. Stop the v3 manager supervisor first, exit th
 Update at least:
 
 ```bash
-export HARNESS_HOME="/opt/coding-agent-fs-harness-v4.2"
+export HARNESS_HOME="/opt/coding-agent-fs-harness-v4.3"
 export HARNESS_BIN="$HARNESS_HOME/bin"
 export MANAGER_CODEX_HOME="$HOME/.codex/manager-account"
 export MANAGER_CODEX_BIN="$HOME/.local/bin/codex"
@@ -542,11 +587,11 @@ export WORKER_SANDBOX="danger-full-access"
 Then:
 
 ```bash
-/opt/coding-agent-fs-harness-v4.2/bin/harness-check-env /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.3/bin/harness-check-env /path/to/repository/harness.env
 ```
 
 ```bash
-/opt/coding-agent-fs-harness-v4.2/bin/harness-start /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.3/bin/harness-start /path/to/repository/harness.env
 ```
 
 If task `002` is already `READY`, the v4 worker supervisor claims it automatically.
@@ -593,3 +638,17 @@ MANAGER_PROVIDER_RETRY_STARTED kind=transient|quota
 MANAGER_PLAN_PROVIDER_WAIT kind=transient|quota
 MANAGER_BOOTSTRAP_PROVIDER_WAIT kind=transient|quota
 ```
+
+## Increment lifecycle in 4.3
+
+Version 4.3 separates verified incremental delivery from final root acceptance.
+`manager-checkpoint-task` records correct partial work as `CHECKPOINTED`, saves
+scoped source snapshots and Git evidence, appends stable criterion/increment
+ledgers, and leaves the parent plan item active. Manager retries recognize the
+checkpoint transaction idempotently.
+
+Finite root-attempt, rolling zero-gain, and checkpoint-without-criterion guards
+now pause non-converging roots in `NEEDS_REPLAN`. The pause occurs only after
+the current result has been archived. Resuming a replanned root records a new
+convergence baseline, so its next bounded strategy receives a fresh budget
+without deleting prior history.

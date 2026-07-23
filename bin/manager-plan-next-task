@@ -46,9 +46,16 @@ development_policy_file="$REPOSITORY/design/development-policy.txt"
 [[ -f "$development_policy_file" ]] || development_policy_file=""
 prompt_file="$project_path/control/manager-plan-next-task.prompt.md"
 active_item_before="$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" {print $1; exit}' "$plan_state")"
+active_root_before="$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" {print $3; exit}' "$plan_state")"
+active_progress_file=""
+active_criteria_file=""
+if [[ -n "$active_root_before" && "$active_root_before" != '-' ]]; then
+	active_progress_file="$(task_progress_file "$active_root_before")"
+	active_criteria_file="$(task_criterion_ledger_file "$active_root_before")"
+fi
 
 cat > "$prompt_file.tmp.$$" <<PROMPT
-The previous root task is resolved, but the project specification is not complete.
+The previous root task is resolved, or an ACTIVE root was explicitly resumed after replanning; the project has no active task process and its specification is not complete.
 
 ENV_FILE=$HARNESS_ENV_FILE
 PROJECT=$PROJECT
@@ -60,8 +67,12 @@ DEVELOPMENT_POLICY_FILE=$development_policy_file
 SPECIFICATION=$SPECIFICATION
 REPOSITORY=$REPOSITORY
 HARNESS_BIN=$HARNESS_BIN
+ACTIVE_PLAN_ITEM=$active_item_before
+ACTIVE_TASK_ROOT=$active_root_before
+ACTIVE_PROGRESS_FILE=$active_progress_file
+ACTIVE_CRITERIA_FILE=$active_criteria_file
 
-Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and follow it. Read DEVELOPMENT_POLICY_FILE when present, then read PROJECT_PLAN_FILE and PROJECT_PLAN_STATE_FILE completely. Select the ACTIVE item that still needs a continuation, otherwise the first PENDING item in specification order. Inspect the specification and actual repository state, write exactly one bounded task under PROJECT_TMP_DIR, and publish it with manager-publish-task including its PROJECT_PLAN_ITEM_ID. Preserve completed implementation and begin at the first unmet criterion. Then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or repeat completed plan items.
+Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and follow it. Read DEVELOPMENT_POLICY_FILE when present, then read PROJECT_PLAN_FILE and PROJECT_PLAN_STATE_FILE completely. If ACTIVE_TASK_ROOT is set, also read ACTIVE_PROGRESS_FILE and ACTIVE_CRITERIA_FILE when present, then publish one newly bounded continuation of that same root. Otherwise select the first PENDING item in specification order and publish a new root. Inspect the specification and actual repository state, write exactly one bounded task under PROJECT_TMP_DIR, and publish it with manager-publish-task including its PROJECT_PLAN_ITEM_ID. Preserve completed implementation and begin at the first unmet criterion. Then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or repeat completed plan items.
 PROMPT
 if codex_model_requires_narrow_prompt "$MANAGER_MODEL"; then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT

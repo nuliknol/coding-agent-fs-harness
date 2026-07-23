@@ -86,6 +86,8 @@ load_harness_env()
 	unset PROJECT REPOSITORY SPECIFICATION HARNESS_HOME HARNESS_BIN HARNESS_ROOT PROJECT_TMP_DIR
 	unset HARNESS_POLL_SECONDS HARNESS_WAIT_SECONDS HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY
 	unset HARNESS_MAX_IDENTICAL_BLOCKERS
+	unset HARNESS_MAX_ROOT_ATTEMPTS HARNESS_MAX_ZERO_GAIN_WINDOW
+	unset HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION
 	unset HARNESS_REUSE_WORKER_THREADS HARNESS_WORKER_THREAD_MAX_REJECTIONS
 	unset HARNESS_CLOSURE_MODE_ENABLED HARNESS_CLOSURE_MODE_MIN_PROGRESS
 	unset HARNESS_CLOSURE_MODE_MAX_FIXES HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS
@@ -133,6 +135,12 @@ load_harness_env()
 	# Revisions remain automatic by default. Projects may explicitly opt into a
 	# deterministic zero-progress circuit breaker with a positive threshold.
 	HARNESS_MAX_IDENTICAL_BLOCKERS="${HARNESS_MAX_IDENTICAL_BLOCKERS:-0}"
+	# A changing failure fingerprint must not permit an oversized root to run
+	# forever. These convergence guards pause the root in NEEDS_REPLAN while
+	# preserving every verified checkpoint and the live workspace.
+	HARNESS_MAX_ROOT_ATTEMPTS="${HARNESS_MAX_ROOT_ATTEMPTS:-12}"
+	HARNESS_MAX_ZERO_GAIN_WINDOW="${HARNESS_MAX_ZERO_GAIN_WINDOW:-3}"
+	HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION="${HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION:-4}"
 	# A rejected continuation normally resumes the same root-scoped Codex
 	# worker thread. Rotate periodically so one stale strategy or an overgrown
 	# context cannot live for the entire root task.
@@ -234,6 +242,9 @@ load_harness_env()
 	(( WORKER_HEARTBEAT_SECONDS > 0 )) || die 'WORKER_HEARTBEAT_SECONDS must be greater than zero'
 	[[ "$HARNESS_USE_INOTIFY" =~ ^[01]$ ]] || die 'HARNESS_USE_INOTIFY must be 0 or 1'
 	[[ "$HARNESS_MAX_IDENTICAL_BLOCKERS" =~ ^[0-9]+$ ]] || die 'HARNESS_MAX_IDENTICAL_BLOCKERS must be a nonnegative integer'
+	[[ "$HARNESS_MAX_ROOT_ATTEMPTS" =~ ^[0-9]+$ ]] || die 'HARNESS_MAX_ROOT_ATTEMPTS must be a nonnegative integer'
+	[[ "$HARNESS_MAX_ZERO_GAIN_WINDOW" =~ ^[0-9]+$ ]] || die 'HARNESS_MAX_ZERO_GAIN_WINDOW must be a nonnegative integer'
+	[[ "$HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION" =~ ^[0-9]+$ ]] || die 'HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION must be a nonnegative integer'
 	[[ "$HARNESS_REUSE_WORKER_THREADS" =~ ^[01]$ ]] || die 'HARNESS_REUSE_WORKER_THREADS must be 0 or 1'
 	[[ "$HARNESS_WORKER_THREAD_MAX_REJECTIONS" =~ ^[0-9]+$ ]] || die 'HARNESS_WORKER_THREAD_MAX_REJECTIONS must be a nonnegative integer'
 	[[ "$HARNESS_CLOSURE_MODE_ENABLED" =~ ^[01]$ ]] || die 'HARNESS_CLOSURE_MODE_ENABLED must be 0 or 1'
@@ -276,6 +287,7 @@ load_harness_env()
 	export HARNESS_ENV_FILE HARNESS_ENV_DIR PROJECT REPOSITORY SPECIFICATION PROJECT_TMP_DIR
 	export HARNESS_HOME HARNESS_BIN HARNESS_ROOT HARNESS_POLL_SECONDS HARNESS_WAIT_SECONDS
 	export HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY HARNESS_MAX_IDENTICAL_BLOCKERS HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
+	export HARNESS_MAX_ROOT_ATTEMPTS HARNESS_MAX_ZERO_GAIN_WINDOW HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION
 	export HARNESS_REUSE_WORKER_THREADS HARNESS_WORKER_THREAD_MAX_REJECTIONS
 	export HARNESS_CLOSURE_MODE_ENABLED HARNESS_CLOSURE_MODE_MIN_PROGRESS HARNESS_CLOSURE_MODE_MAX_FIXES HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS
 	export HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
@@ -434,6 +446,47 @@ task_root_block_file()
 	printf '%s/control/progress/%s-task-%s.blocked.md' "$(project_dir)" "$PROJECT" "$root"
 }
 
+task_root_replan_file()
+{
+	local root
+	root="$(task_root_id "$1")"
+	printf '%s/control/progress/%s-task-%s.needs-replan.md' "$(project_dir)" "$PROJECT" "$root"
+}
+
+task_convergence_baseline_file()
+{
+	local root
+	root="$(task_root_id "$1")"
+	printf '%s/control/progress/%s-task-%s.convergence-baseline' "$(project_dir)" "$PROJECT" "$root"
+}
+
+task_progress_history_file()
+{
+	local root
+	root="$(task_root_id "$1")"
+	printf '%s/control/progress/%s-task-%s.history.tsv' "$(project_dir)" "$PROJECT" "$root"
+}
+
+task_checkpoint_ledger_file()
+{
+	local root
+	root="$(task_root_id "$1")"
+	printf '%s/control/progress/%s-task-%s.checkpoints.tsv' "$(project_dir)" "$PROJECT" "$root"
+}
+
+task_criterion_ledger_file()
+{
+	local root
+	root="$(task_root_id "$1")"
+	printf '%s/control/progress/%s-task-%s.criteria.tsv' "$(project_dir)" "$PROJECT" "$root"
+}
+
+task_checkpoint_artifact_dir()
+{
+	local task_id="$1"
+	printf '%s/archive/checkpoints/%s' "$(project_dir)" "$(task_base "$task_id")"
+}
+
 worker_thread_state_file()
 {
 	local root
@@ -502,11 +555,37 @@ retain_worker_thread_for_rejection()
 		printf 'task_root=%s\n' "$root"
 		printf 'last_rejected_task=%s\n' "$task_id"
 		printf 'rejection_count=%s\n' "$rejection_count"
+		printf 'last_outcome=REJECT\n'
 		printf 'retained_at=%s\n' "$(timestamp_utc)"
 	} > "$tmp"
 	chmod 600 "$tmp"
 	mv "$tmp" "$file"
 	log_event "WORKER_THREAD_RETAINED task=$task_id root=$root thread_id=$thread_id rejection_count=$rejection_count"
+}
+
+retain_worker_thread_for_checkpoint()
+{
+	local task_id="$1" root file thread_id tmp
+	(( HARNESS_REUSE_WORKER_THREADS == 1 )) || return 0
+	root="$(task_root_id "$task_id")"
+	file="$(worker_thread_state_file "$root")"
+	thread_id="$(worker_thread_id_for_task "$task_id" 2>/dev/null || true)"
+	if [[ -z "$thread_id" ]]; then
+		log_event "WORKER_THREAD_NOT_RETAINED task=$task_id root=$root reason=thread_id_unavailable outcome=checkpoint"
+		return 0
+	fi
+	tmp="$file.tmp.$$"
+	{
+		printf 'thread_id=%s\n' "$thread_id"
+		printf 'task_root=%s\n' "$root"
+		printf 'last_checkpointed_task=%s\n' "$task_id"
+		printf 'rejection_count=0\n'
+		printf 'last_outcome=CHECKPOINT\n'
+		printf 'retained_at=%s\n' "$(timestamp_utc)"
+	} > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$file"
+	log_event "WORKER_THREAD_CHECKPOINTED task=$task_id root=$root thread_id=$thread_id rejection_count=0"
 }
 
 clear_worker_thread_for_root()
@@ -523,6 +602,16 @@ clear_worker_thread_for_root()
 task_root_is_blocked()
 {
 	[[ -f "$(task_root_block_file "$1")" ]]
+}
+
+task_root_needs_replan()
+{
+	[[ -f "$(task_root_replan_file "$1")" ]]
+}
+
+task_root_is_paused()
+{
+	task_root_is_blocked "$1" || task_root_needs_replan "$1"
 }
 
 task_progress_percent()
@@ -593,7 +682,7 @@ update_task_progress()
 	local improvement_percent="$3"
 	local decision="$4"
 	local review_file="${5:-}"
-	local root progress tmp
+	local root progress history review_sha tmp
 	root="$(task_root_id "$task_id")"
 	progress="$(task_progress_file "$root")"
 	validate_percent "$progress_percent" 'Progress-Percent'
@@ -616,7 +705,135 @@ update_task_progress()
 	} > "$tmp"
 	chmod 600 "$tmp"
 	mv "$tmp" "$progress"
+	history="$(task_progress_history_file "$root")"
+	if [[ ! -f "$history" ]]; then
+		printf 'updated_at\ttask_id\tdecision\tprogress_percent\timprovement_percent\treview_sha256\n' > "$history"
+		chmod 600 "$history"
+	fi
+	review_sha='-'
+	if [[ -n "$review_file" && -f "$review_file" ]]; then
+		review_sha="$(sha256sum "$review_file" | awk '{print $1}')"
+	fi
+	printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(timestamp_utc)" "$task_id" "$decision" \
+		"$progress_percent" "$improvement_percent" "$review_sha" >> "$history"
 	log_event "TASK_PROGRESS_UPDATED root=$root task=$task_id progress=$progress_percent improvement=$improvement_percent decision=$decision"
+}
+
+root_reviewed_attempt_count()
+{
+	local root="$1" dir file count=0 task
+	dir="$(project_dir)"
+	shopt -s nullglob
+	for file in "$dir/archive/$PROJECT-task-"*.accepted.md \
+		"$dir/archive/$PROJECT-task-"*.checkpointed.md \
+		"$dir/archive/$PROJECT-task-"*.rejected.md \
+		"$dir/archive/$PROJECT-task-"*.blocked.md; do
+		task="$(task_id_from_filename "$file")"
+		task="${task%.accepted.md}"
+		task="${task%.checkpointed.md}"
+		task="${task%.rejected.md}"
+		task="${task%.blocked.md}"
+		if [[ "$(task_root_id "$task")" == "$root" ]]; then
+			count=$((count + 1))
+		fi
+	done
+	printf '%s\n' "$count"
+}
+
+root_reviewed_attempts_since_replan()
+{
+	local root="$1" baseline_file baseline total
+	baseline_file="$(task_convergence_baseline_file "$root")"
+	baseline=0
+	[[ ! -f "$baseline_file" ]] || baseline="$(kv_file_value "$baseline_file" reviewed_attempts 2>/dev/null || printf 0)"
+	[[ "$baseline" =~ ^[0-9]+$ ]] || baseline=0
+	total="$(root_reviewed_attempt_count "$root")"
+	(( total >= baseline )) || baseline=0
+	printf '%s\n' "$((total - baseline))"
+}
+
+root_zero_gain_streak()
+{
+	local history baseline_file baseline
+	history="$(task_progress_history_file "$1")"
+	[[ -f "$history" ]] || { printf '0\n'; return 0; }
+	baseline_file="$(task_convergence_baseline_file "$1")"
+	baseline=0
+	[[ ! -f "$baseline_file" ]] || baseline="$(kv_file_value "$baseline_file" history_rows 2>/dev/null || printf 0)"
+	[[ "$baseline" =~ ^[0-9]+$ ]] || baseline=0
+	awk -F '\t' -v baseline="$baseline" 'NR > 1 && NR > baseline + 1 {gain[++n] = $5} END {for (i = n; i > 0 && gain[i] == 0; i--) count++; print count + 0}' "$history"
+}
+
+root_checkpoint_without_criterion_streak()
+{
+	local ledger baseline_file baseline
+	ledger="$(task_checkpoint_ledger_file "$1")"
+	[[ -f "$ledger" ]] || { printf '0\n'; return 0; }
+	baseline_file="$(task_convergence_baseline_file "$1")"
+	baseline=0
+	[[ ! -f "$baseline_file" ]] || baseline="$(kv_file_value "$baseline_file" checkpoint_rows 2>/dev/null || printf 0)"
+	[[ "$baseline" =~ ^[0-9]+$ ]] || baseline=0
+	awk -F '\t' -v baseline="$baseline" 'NR > 1 && NR > baseline + 1 {criteria[++n] = $3} END {for (i = n; i > 0 && criteria[i] == 0; i--) count++; print count + 0}' "$ledger"
+}
+
+mark_root_needs_replan()
+{
+	local task_id="$1" reason="$2" trigger="$3" root marker tmp
+	root="$(task_root_id "$task_id")"
+	marker="$(task_root_replan_file "$root")"
+	if [[ -f "$marker" ]]; then
+		printf '%s\n' "$marker"
+		return 0
+	fi
+	tmp="$marker.tmp.$$"
+	{
+		printf '# Root Task Needs Replanning\n\n'
+		printf 'Project: %s\n\n' "$PROJECT"
+		printf 'Task-Root: %s\n\n' "$root"
+		printf 'Triggered-By: %s\n\n' "$task_id"
+		printf 'Trigger-Outcome: %s\n\n' "$trigger"
+		printf 'Paused-At: %s\n\n' "$(timestamp_utc)"
+		printf 'Progress-Percent: %s%%\n\n' "$(task_progress_percent "$root")"
+		printf 'Reason: %s\n\n' "$reason"
+		printf 'Reviewed-Attempts: %s\n' "$(root_reviewed_attempt_count "$root")"
+		printf 'Reviewed-Attempts-Since-Last-Replan: %s\n' "$(root_reviewed_attempts_since_replan "$root")"
+		printf 'Zero-Gain-Streak: %s\n' "$(root_zero_gain_streak "$root")"
+		printf 'Checkpoints-Without-Criterion: %s\n\n' "$(root_checkpoint_without_criterion_streak "$root")"
+		printf 'All checkpoint artifacts, review records, progress history, and repository changes are preserved. Reassess and narrow the active item, then run harness-unblock-root to grant a fresh convergence window.\n'
+	} > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$marker"
+	log_event "TASK_NEEDS_REPLAN task=$task_id root=$root trigger=$trigger reason=$(printf '%q' "$reason") marker=$marker"
+	printf '%s\n' "$marker"
+}
+
+maybe_mark_root_needs_replan()
+{
+	local task_id="$1" trigger="$2" root attempts zero_streak checkpoint_streak
+	root="$(task_root_id "$task_id")"
+	if task_root_needs_replan "$root"; then
+		printf '%s\n' "$(task_root_replan_file "$root")"
+		return 0
+	fi
+	attempts="$(root_reviewed_attempts_since_replan "$root")"
+	if (( HARNESS_MAX_ROOT_ATTEMPTS > 0 && attempts >= HARNESS_MAX_ROOT_ATTEMPTS )); then
+		mark_root_needs_replan "$task_id" \
+			"reviewed root attempts reached the configured limit ($attempts/$HARNESS_MAX_ROOT_ATTEMPTS)" "$trigger"
+		return 0
+	fi
+	zero_streak="$(root_zero_gain_streak "$root")"
+	if (( HARNESS_MAX_ZERO_GAIN_WINDOW > 0 && zero_streak >= HARNESS_MAX_ZERO_GAIN_WINDOW )); then
+		mark_root_needs_replan "$task_id" \
+			"consecutive zero-gain reviews reached the configured limit ($zero_streak/$HARNESS_MAX_ZERO_GAIN_WINDOW)" "$trigger"
+		return 0
+	fi
+	checkpoint_streak="$(root_checkpoint_without_criterion_streak "$root")"
+	if (( HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION > 0 && checkpoint_streak >= HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION )); then
+		mark_root_needs_replan "$task_id" \
+			"verified increments without a completed root criterion reached the configured limit ($checkpoint_streak/$HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION)" "$trigger"
+		return 0
+	fi
+	return 1
 }
 
 task_id_from_filename()
@@ -627,6 +844,10 @@ task_id_from_filename()
 	filename="${filename%.ready.md}"
 	filename="${filename%.running.md}"
 	filename="${filename%.result.md}"
+	filename="${filename%.accepted.md}"
+	filename="${filename%.checkpointed.md}"
+	filename="${filename%.rejected.md}"
+	filename="${filename%.blocked.md}"
 	printf '%s' "$filename"
 }
 
@@ -1224,6 +1445,9 @@ write_worker_snapshot()
 		printf 'heartbeat_seconds=%s\n' "$WORKER_HEARTBEAT_SECONDS"
 		printf 'reuse_root_threads=%s\n' "$HARNESS_REUSE_WORKER_THREADS"
 		printf 'thread_max_rejections=%s\n' "$HARNESS_WORKER_THREAD_MAX_REJECTIONS"
+		printf 'max_root_attempts=%s\n' "$HARNESS_MAX_ROOT_ATTEMPTS"
+		printf 'max_zero_gain_window=%s\n' "$HARNESS_MAX_ZERO_GAIN_WINDOW"
+		printf 'max_checkpoints_without_criterion=%s\n' "$HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION"
 		printf 'closure_mode_enabled=%s\n' "$HARNESS_CLOSURE_MODE_ENABLED"
 		printf 'closure_min_progress=%s\n' "$HARNESS_CLOSURE_MODE_MIN_PROGRESS"
 		printf 'closure_max_fixes=%s\n' "$HARNESS_CLOSURE_MODE_MAX_FIXES"

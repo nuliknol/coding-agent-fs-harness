@@ -29,6 +29,7 @@ result="$dir/results/$base.result.md"
 lease="$dir/control/$base.lease"
 abort="$dir/control/$base.abort.md"
 accepted="$dir/archive/$base.accepted.md"
+checkpointed="$dir/archive/$base.checkpointed.md"
 deadline=$(( $(epoch_now) + timeout ))
 
 while true; do
@@ -44,6 +45,10 @@ while true; do
 		printf 'Task %s is already accepted. Marker: %s\n' "$task_id" "$accepted"
 		exit 0
 	fi
+	if [[ -f "$checkpointed" ]]; then
+		printf 'Task %s is already checkpointed. Marker: %s\n' "$task_id" "$checkpointed"
+		exit 0
+	fi
 	if [[ -f "$running" && -f "$lease" ]]; then
 		heartbeat_epoch="$(lease_value "$lease" heartbeat_epoch)"
 		heartbeat_epoch="${heartbeat_epoch:-0}"
@@ -54,7 +59,7 @@ while true; do
 			exit 75
 		fi
 	fi
-	if [[ ! -f "$ready" && ! -f "$running" && ! -f "$result" && ! -f "$accepted" ]]; then
+	if [[ ! -f "$ready" && ! -f "$running" && ! -f "$result" && ! -f "$accepted" && ! -f "$checkpointed" ]]; then
 		printf 'Task %s has no active state.\n' "$task_id" >&2
 		exit 66
 	fi

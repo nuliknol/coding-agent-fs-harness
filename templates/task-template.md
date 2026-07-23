@@ -8,6 +8,11 @@ Starting-Progress: 0%
 Repository: /absolute/path/to/repository
 Status: READY
 
+<!-- Declare every independently verifiable root acceptance criterion with a
+stable ID. Continuations inherit this immutable inventory. -->
+Root-Criterion: feature.behavior
+Root-Criterion: feature.validation
+
 ## Objective
 
 Describe one bounded implementation objective.

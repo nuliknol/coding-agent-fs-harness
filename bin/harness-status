@@ -62,9 +62,11 @@ printf '%-32s %-12s %-10s %-28s %-10s\n' '--------------------------------' '---
 shopt -s nullglob
 found=0
 accepted_count=0
+checkpointed_count=0
 active_count=0
 aborted_count=0
 blocked_count=0
+replan_count=0
 task_rows=()
 
 for file in "$dir/tasks/$PROJECT-task-"*.ready.md; do
@@ -116,6 +118,17 @@ for file in "$dir/archive/$PROJECT-task-"*.accepted.md; do
 	task_rows+=("$task_row")
 done
 
+for file in "$dir/archive/$PROJECT-task-"*.checkpointed.md; do
+	found=1
+	checkpointed_count=$((checkpointed_count + 1))
+	name="${file##*/}"
+	task_id="${name#${PROJECT}-task-}"
+	task_id="${task_id%.checkpointed.md}"
+	progress="$(task_progress_percent "$task_id")%"
+	printf -v task_row '%-32s %-12s %-10s %-28s %-10s' "$task_id" 'CHECKPOINTED' "$progress" '-' '-'
+	task_rows+=("$task_row")
+done
+
 for file in "$dir/control/$PROJECT-task-"*.abort.md; do
 	found=1
 	aborted_count=$((aborted_count + 1))
@@ -138,6 +151,17 @@ for file in "$dir/control/progress/$PROJECT-task-"*.blocked.md; do
 	task_rows+=("$task_row")
 done
 
+for file in "$dir/control/progress/$PROJECT-task-"*.needs-replan.md; do
+	found=1
+	replan_count=$((replan_count + 1))
+	name="${file##*/}"
+	task_id="${name#${PROJECT}-task-}"
+	task_id="${task_id%.needs-replan.md}"
+	progress="$(task_progress_percent "$task_id")%"
+	printf -v task_row '%-32s %-12s %-10s %-28s %-10s' "$task_id" 'NEEDS_REPLAN' "$progress" '-' '-'
+	task_rows+=("$task_row")
+done
+
 if (( found == 0 )); then
 	printf '%s\n' '(no tasks)'
 else
@@ -148,6 +172,8 @@ fi
 
 if project_completion_recorded && project_plan_all_complete; then
 	printf '\nProject status: COMPLETE. Every project-plan item is accepted.\n'
+elif (( replan_count > 0 )); then
+	printf '\nProject status: NEEDS_REPLAN. Verified checkpoints are preserved; reassess and narrow the active root before resuming.\n'
 elif (( blocked_count > 0 )); then
 	printf '\nProject status: BLOCKED. A root task requires human intervention before planning can continue.\n'
 elif project_is_blocked; then
@@ -156,6 +182,10 @@ elif project_plan_exists && (( active_count == 0 && aborted_count == 0 )) && ! p
 	printf '\nProject status: INCOMPLETE. No task is active; manager planning is required for the next plan item.\n'
 elif project_completion_recorded; then
 	printf '\nProject status: INCOMPLETE. Ignoring an invalid legacy completion marker because the project plan is absent or unfinished.\n'
+fi
+
+if (( checkpointed_count > 0 )); then
+	printf '\nVerified checkpoints: %s\n' "$checkpointed_count"
 fi
 
 printf '\n%s\n' "$project_progress_line"

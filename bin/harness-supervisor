@@ -69,7 +69,7 @@ fingerprint()
 
 process_results()
 {
-	local file task_id base marker current previous status alert tmp running lease assignment_archive accepted rejected blocked
+	local file task_id base marker current previous status alert tmp running lease assignment_archive accepted checkpointed rejected blocked
 	shopt -s nullglob
 	for file in "$dir/results/$PROJECT-task-"*.result.md; do
 		task_id="$(task_id_from_filename "$file")"
@@ -78,6 +78,7 @@ process_results()
 		lease="$dir/control/$base.lease"
 		assignment_archive="$dir/archive/$base.assignment.md"
 		accepted="$dir/archive/$base.accepted.md"
+		checkpointed="$dir/archive/$base.checkpointed.md"
 		rejected="$dir/archive/$base.rejected.md"
 		blocked="$dir/archive/$base.blocked.md"
 
@@ -104,7 +105,7 @@ process_results()
 		trace_event SUPERVISOR_MANAGER_EXIT "task_id=$task_id" "status=$status"
 		if (( status == 0 )); then
 			if [[ -f "$file" ]]; then
-				log_event "SUPERVISOR_RESULT_STILL_PRESENT task=$task_id accepted=$([[ -f "$accepted" ]] && printf 1 || printf 0) rejected=$([[ -f "$rejected" ]] && printf 1 || printf 0) blocked=$([[ -f "$blocked" ]] && printf 1 || printf 0)"
+				log_event "SUPERVISOR_RESULT_STILL_PRESENT task=$task_id accepted=$([[ -f "$accepted" ]] && printf 1 || printf 0) checkpointed=$([[ -f "$checkpointed" ]] && printf 1 || printf 0) rejected=$([[ -f "$rejected" ]] && printf 1 || printf 0) blocked=$([[ -f "$blocked" ]] && printf 1 || printf 0)"
 				tmp="$marker.tmp.$$"
 				{
 					printf 'fingerprint=%s\n' "$current"
@@ -149,7 +150,8 @@ project_has_active_task()
 	compgen -G "$dir/tasks/$PROJECT-task-*.ready.md" >/dev/null ||
 		compgen -G "$dir/running/$PROJECT-task-*.running.md" >/dev/null ||
 		compgen -G "$dir/results/$PROJECT-task-*.result.md" >/dev/null ||
-		compgen -G "$dir/control/progress/$PROJECT-task-*.blocked.md" >/dev/null
+		compgen -G "$dir/control/progress/$PROJECT-task-*.blocked.md" >/dev/null ||
+		compgen -G "$dir/control/progress/$PROJECT-task-*.needs-replan.md" >/dev/null
 }
 
 process_planning_gap()

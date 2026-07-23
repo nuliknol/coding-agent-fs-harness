@@ -20,8 +20,8 @@ Options:
                the watcher starts. New tasks and retry attempts are shown from
                their beginning.
 
-Archived rejection decisions are never replayed at startup. Rejections created
-while this watcher is running are announced once.
+Archived checkpoint and rejection decisions are never replayed at startup.
+Decisions created while this watcher is running are announced once.
 USAGE
 	exit 2
 }
@@ -48,6 +48,7 @@ shopt -s nullglob
 declare -A next_line=()
 declare -A initialized=()
 declare -A announced_rejection=()
+declare -A announced_checkpoint=()
 worker_log=""
 manager_log=""
 oracle_log=""
@@ -208,6 +209,15 @@ initialize_rejection_records()
 	done
 }
 
+initialize_checkpoint_records()
+{
+	local record
+	for record in "$dir/archive/$PROJECT-task-"*.checkpointed.md; do
+		[[ -f "$record" ]] || continue
+		announced_checkpoint[$record]=1
+	done
+}
+
 print_new_rejections()
 {
 	local record task improvement progress
@@ -226,6 +236,24 @@ print_new_rejections()
 done
 }
 
+print_new_checkpoints()
+{
+	local record task improvement progress
+	for record in "$dir/archive/$PROJECT-task-"*.checkpointed.md; do
+		[[ -f "$record" ]] || continue
+		[[ -z "${announced_checkpoint[$record]:-}" ]] || continue
+		announced_checkpoint[$record]=1
+		task="${record##*/}"
+		task="${task#${PROJECT}-task-}"
+		task="${task%.checkpointed.md}"
+		improvement="$(awk -F': ' '$1 == "Improvement-Percent" {print $2; exit}' "$record")"
+		progress="$(awk -F': ' '$1 == "Progress-Percent" {print $2; exit}' "$record")"
+		[[ -n "$improvement" ]] || improvement='not recorded'
+		[[ -n "$progress" ]] || progress='not recorded'
+		printf '\n[MANAGER CHECKPOINTED task=%s]\nCumulative progress: %s\nImprovement: %s\n' "$task" "$progress" "$improvement"
+	done
+}
+
 terminal_project_state()
 {
 	if project_completion_recorded && project_plan_all_complete; then
@@ -235,6 +263,10 @@ terminal_project_state()
 	if project_is_blocked ||
 		compgen -G "$dir/control/progress/$PROJECT-task-*.blocked.md" >/dev/null; then
 		printf 'PAUSED_HUMAN_INTERVENTION'
+		return 0
+	fi
+	if compgen -G "$dir/control/progress/$PROJECT-task-*.needs-replan.md" >/dev/null; then
+		printf 'PAUSED_REPLAN'
 		return 0
 	fi
 	return 1
@@ -267,6 +299,9 @@ print_terminal_exit()
 		PAUSED_HUMAN_INTERVENTION)
 			printf '\nWatcher exiting: project paused for human intervention.\n'
 			;;
+		PAUSED_REPLAN)
+			printf '\nWatcher exiting: project paused for replanning; verified checkpoints are preserved.\n'
+			;;
 	esac
 }
 
@@ -280,6 +315,7 @@ announce_switch()
 printf 'Watching natural-language agent output for project %s. Press Ctrl+C to stop.\n' "$PROJECT"
 printf 'State: %s\n' "$dir"
 initialize_rejection_records
+initialize_checkpoint_records
 
 while true; do
 	new_worker="$(current_worker_log)"
@@ -311,11 +347,12 @@ while true; do
 	fi
 
 	# Continue draining the previous log after its status file disappears. This
-	# captures final messages emitted just after accept/reject or completion.
+	# captures final messages emitted just after accept/checkpoint/reject or completion.
 	print_new_messages WORKER "$worker_log"
 	print_new_messages MANAGER "$manager_log"
 	print_new_messages ORACLE "$oracle_log"
 	print_new_rejections
+	print_new_checkpoints
 
 	terminal_state="$(terminal_project_state || true)"
 	if [[ -n "$terminal_state" ]] && ! agent_invocation_running; then
@@ -326,6 +363,7 @@ while true; do
 		print_new_messages MANAGER "$manager_log"
 		print_new_messages ORACLE "$oracle_log"
 		print_new_rejections
+		print_new_checkpoints
 		print_terminal_exit "$terminal_state"
 		break
 	fi

@@ -129,6 +129,42 @@ validate_acceptance_evidence "$note_file"
 initialize_task_progress "$task_id" "$assignment_archive"
 current_progress="$(task_progress_percent "$task_id")"
 accept_improvement=$((100 - current_progress))
+root="$(task_root_id "$task_id")"
+root_assignment="$(task_root_assignment_file "$root")"
+criterion_ledger="$(task_criterion_ledger_file "$root")"
+mapfile -t declared_criteria < <(awk -F': ' '$1 == "Root-Criterion" {print $2}' "$root_assignment")
+mapfile -t accepted_criteria < <(awk -F': ' '$1 == "Verified-Criterion" {print $2}' "$note_file")
+if (( ${#declared_criteria[@]} > 0 )); then
+	require_line "$note_file" 'Progress-Percent: 100%'
+	declare -A declared_criterion_ids=()
+	declare -A satisfied_criterion_ids=()
+	for criterion in "${declared_criteria[@]}"; do
+		[[ "$criterion" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]] ||
+			die "invalid Root-Criterion identifier in immutable assignment: $criterion"
+		[[ -z "${declared_criterion_ids[$criterion]:-}" ]] ||
+			die "duplicate Root-Criterion identifier in immutable assignment: $criterion"
+		declared_criterion_ids[$criterion]=1
+	done
+	if [[ -f "$criterion_ledger" ]]; then
+		while IFS=$'\t' read -r criterion state _; do
+			[[ "$state" == PASSED ]] || continue
+			satisfied_criterion_ids[$criterion]=1
+		done < <(tail -n +2 "$criterion_ledger")
+	fi
+	for criterion in "${accepted_criteria[@]}"; do
+		[[ "$criterion" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]] ||
+			die "invalid Verified-Criterion identifier: $criterion"
+		[[ -n "${declared_criterion_ids[$criterion]:-}" ]] ||
+			die "Verified-Criterion is not declared by the immutable root assignment: $criterion"
+		[[ -z "${satisfied_criterion_ids[$criterion]:-}" ]] ||
+			die "root criterion is already checkpointed: $criterion"
+		satisfied_criterion_ids[$criterion]=1
+	done
+	for criterion in "${declared_criteria[@]}"; do
+		[[ -n "${satisfied_criterion_ids[$criterion]:-}" ]] ||
+			die "cannot accept root; declared criterion lacks verified evidence: $criterion"
+	done
+fi
 
 project_plan_exists || die 'cannot accept a task without a persistent project plan'
 plan_item_id="$(project_plan_item_for_root "$(task_root_id "$task_id")")"
@@ -154,6 +190,16 @@ tmp="$accepted.tmp.$$"
 } > "$tmp"
 chmod 600 "$tmp"
 mv "$tmp" "$accepted"
+if (( ${#accepted_criteria[@]} > 0 )); then
+	if [[ ! -f "$criterion_ledger" ]]; then
+		printf 'item_id\tstate\tverified_by\tevidence_sha256\tupdated_at\n' > "$criterion_ledger"
+		chmod 600 "$criterion_ledger"
+	fi
+	review_sha="$(sha256sum "$note_file" | awk '{print $1}')"
+	for criterion in "${accepted_criteria[@]}"; do
+		printf '%s\tPASSED\t%s\t%s\t%s\n' "$criterion" "$task_id" "$review_sha" "$(timestamp_utc)" >> "$criterion_ledger"
+	done
+fi
 update_task_progress "$task_id" 100 "$accept_improvement" ACCEPT "$note_file"
 complete_project_plan_item_for_task "$task_id"
 clear_worker_thread_for_root "$task_id" accepted

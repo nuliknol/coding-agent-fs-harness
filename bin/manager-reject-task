@@ -114,4 +114,8 @@ update_task_progress "$task_id" "$progress_percent" "$improvement_percent" REJEC
 retain_worker_thread_for_rejection "$task_id"
 log_event "TASK_REJECTED task=$task_id"
 trace_event TASK_REJECTED "task_id=$task_id" "rejected_file=$rejected" "result_archive=$result_archive" "note_file=$note_file"
-printf '%s\n' "$rejected"
+if replan_marker="$(maybe_mark_root_needs_replan "$task_id" REJECT)"; then
+	printf '%s\n' "$replan_marker"
+else
+	printf '%s\n' "$rejected"
+fi

@@ -29,13 +29,16 @@ root="$(task_root_id "$task_id")"
 progress="$(task_progress_file "$root")"
 root_assignment="$(task_root_assignment_file "$root")"
 
-task_root_is_blocked "$root" && die "task root is blocked pending human intervention: $root"
+task_root_is_paused "$root" && die "task root is paused pending replanning or human intervention: $root"
 
 base="$(task_base "$task_id")"
 ready="$dir/tasks/$base.ready.md"
 running="$dir/running/$base.running.md"
 result="$dir/results/$base.result.md"
 accepted="$dir/archive/$base.accepted.md"
+checkpointed="$dir/archive/$base.checkpointed.md"
+rejected="$dir/archive/$base.rejected.md"
+blocked="$dir/archive/$base.blocked.md"
 aborted="$dir/control/$base.abort.md"
 
 if [[ "$task_id" == "$root" ]]; then
@@ -57,6 +60,9 @@ starting_progress="$(task_progress_percent "$root")"
 [[ ! -e "$running" ]] || die "task already running: $task_id"
 [[ ! -e "$result" ]] || die "task already has a result: $task_id"
 [[ ! -e "$accepted" ]] || die "task already accepted: $task_id"
+[[ ! -e "$checkpointed" ]] || die "task already checkpointed: $task_id"
+[[ ! -e "$rejected" ]] || die "task already rejected: $task_id"
+[[ ! -e "$blocked" ]] || die "task already blocked: $task_id"
 [[ ! -e "$aborted" ]] || die "task is aborted: $task_id"
 
 tmp="$dir/tasks/$base.ready.tmp.$$"
