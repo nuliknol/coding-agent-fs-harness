@@ -2,13 +2,35 @@
 
 A local, event-driven two-agent coding harness for Linux.
 
-- A strong manager model decomposes the specification and reviews results.
-- A cheaper worker model implements one bounded task at a time.
-- Ordinary Bash supervisors watch filesystem mailboxes.
-- No codex process remains alive while waiting (no tokens consumed).
-- Git commits remain manual (or spec-driven).
-- One trusted `.env` file configures the complete project, harness installation, state directory, accounts, models, and timing.
-- Manager and worker scratch task/result markdown lives under `/tmp/$PROJECT`.
+## Features
+
+- Durable specification planning: the manager records an immutable project
+  plan and advances only the first unfinished plan item.
+- Explicit task decomposition: each root has ordered, independently verifiable
+  criteria, and every continuation targets the first unmet criterion.
+- Incremental delivery: verified partial work is checkpointed with source
+  snapshots, evidence hashes, and append-only criterion/history ledgers.
+- Bounded automatic replanning: convergence guards start one fresh-context,
+  materially different strategy without discarding checkpoints or workspace
+  changes.
+- Persistent but bounded worker context: root-scoped conversations resume
+  across checkpoints and rejections and rotate after repeated rejection.
+- Event-driven execution: ordinary Bash supervisors launch Codex only when
+  work exists; no Codex process remains alive while waiting.
+- Provider resilience: transient network, capacity, rate-limit, and quota
+  failures retry while preserving ownership and heartbeat state.
+- Focused closure mode: high-progress tasks receive a bounded
+  diagnose-correct-rebuild-smoke budget instead of unbounded revision churn.
+- Independent final audit: an optional fresh Oracle checks specification
+  traceability and may create bounded remediation plan items.
+- Filesystem observability: assignments, results, reviews, JSONL streams,
+  checkpoints, progress, and lifecycle events remain inspectable on disk.
+- Safe restart and recovery: supervisor restarts preserve plans, task state,
+  checkpoints, retained threads, and completed evidence.
+- Explicit runtime configuration: one trusted `.env` selects repositories,
+  state, accounts, models, timing, and child-process runtime paths.
+- Manual Git ownership: the harness does not commit unless the specification
+  explicitly makes commits part of the work.
 
 ## Process model
 
@@ -27,6 +49,7 @@ manager-supervisor (local Bash, no tokens)
     -> detects result 001
     -> resumes manager Codex thread
     -> manager accepts/checkpoints/rejects and publishes the next task
+    -> convergence guards may request a fresh automatic replan
     -> if acceptance leaves a planning gap, resumes a dedicated planning turn
     -> manager exits
 
@@ -42,7 +65,66 @@ without leaving any process alive. Acceptance or abort clears the thread.
 `Worker-Context: FRESH` requests an independent replacement, and
 `HARNESS_WORKER_THREAD_MAX_REJECTIONS` rotates long-lived rejected contexts.
 
+## How task decomposition and replanning work
 
+The harness separates the project plan, root acceptance criteria, and worker
+revisions instead of treating every agent turn as an independent task:
+
+```text
+specification
+    -> project plan item
+        -> immutable root assignment
+            -> ordered root criteria
+                -> bounded worker revisions for the first unmet criterion
+```
+
+For a new root, the manager must declare stable `Root-Criterion` IDs with
+independently checkable evidence. A continuation must declare exactly one
+`Target-Criterion`, and the publisher verifies that it is the first criterion
+not already marked `PASSED`. Oversized legacy roots receive an immutable
+criterion-definition sidecar when automatic replanning first decomposes them.
+
+Each worker revision ends in one of three manager decisions:
+
+| Decision | Meaning | What is accumulated |
+|---|---|---|
+| `CHECKPOINT` | The bounded increment is correct, but the root is incomplete. | Stable criterion/increment evidence, source snapshots, hashes, review history, and the live repository changes. |
+| `REJECT` | The proposed increment is unsafe, regressive, out of scope, or insufficiently proven. | Assignment, result, review, rejection boundary, retained worker context, and live workspace state; nothing new is marked verified. |
+| `ACCEPT` | Every root criterion passes. | The root and its project-plan item become complete. |
+
+A rejection does not automatically revert the repository or erase the worker's
+conversation. The next revision normally resumes the same root-scoped thread
+and receives the manager's rejection boundary, so useful but unverified work
+can be repaired. Only a checkpoint or passed criterion enters the durable
+verified ledger. An explicit abort/reset remains an operator-controlled
+transaction.
+
+`Improvement: 0%` means the coarse legacy percentage did not move; it does not
+mean the attempt or its evidence was deleted. This is especially common for a
+legacy root pinned at 99%, where there is no integer step before final
+acceptance at 100%. Use the criterion ledger and verified-checkpoint count as
+the authoritative fine-grained progress indicators.
+
+The harness watches for non-convergence using three independent signals:
+
+- reviewed attempts since the current convergence baseline;
+- consecutive reviews with neither numeric nor checkpointed gain;
+- verified increments accumulated without completing a declared criterion.
+
+When a configured threshold is reached, the current result is archived and the
+root enters `NEEDS_REPLAN`. With automatic replanning enabled, this is a
+transient state: a fresh manager context must publish one continuation for the
+first unmet criterion using a materially different strategy. A valid strategy
+change must narrow scope, change the evidence approach, or isolate a new
+bounded criterion; changing only the task title or strategy label is rejected.
+
+The automatic budget resets when a declared criterion reaches `PASSED`.
+Checkpointed smaller increments remain preserved but cannot extend that budget
+forever. If the manager cannot produce a materially different task, the same
+blocker survives the bounded replan, or the replan budget is exhausted, the
+root enters `NEEDS_HUMAN`. Explicit hard blocks and Oracle scope conflicts are
+always human-only. No checkpoint, criterion record, archived attempt, or live
+workspace change is deleted during these transitions.
 
 ## Watch the agents working
 
@@ -348,10 +430,10 @@ matching archived fingerprints, so it cannot be used to block early. Use
 `harness-unblock-root ENV_FILE TASK_ROOT` after correcting the condition or
 changing the task authority, scope, or plan.
 
-### Resumable decomposition and bounded automatic replanning
+### Convergence guards and automatic replan configuration
 
-Changing failure fingerprints no longer allow a root to continue forever.
-Three project settings default to safe finite thresholds:
+The decomposition lifecycle above is enforced by safe finite thresholds. Three
+project settings configure the convergence signals:
 
 ```bash
 export HARNESS_MAX_ROOT_ATTEMPTS="12"
