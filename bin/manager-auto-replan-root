@@ -1,0 +1,222 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TASK_ROOT\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 2 ]] || usage
+load_harness_env "$1"
+root="$2"
+ensure_project
+require_manager_configuration
+require_manager_codex
+trace_init manager_auto_replan_root
+trace_script_start "$@"
+validate_task_id "$root"
+[[ "$(task_root_id "$root")" == "$root" ]] || die 'TASK_ROOT must not be a revision ID'
+
+(( HARNESS_AUTO_REPLAN_ENABLED == 1 )) || exit 0
+replan_marker="$(task_root_replan_file "$root")"
+[[ -f "$replan_marker" ]] || exit 0
+if task_root_is_blocked "$root" || task_root_needs_human "$root"; then
+	exit 0
+fi
+
+trigger_task="$(awk -F': ' '$1 == "Triggered-By" {print $2; exit}' "$replan_marker")"
+[[ -n "$trigger_task" ]] || trigger_task="$root"
+blocking_fingerprint="$(awk -F': ' '$1 == "Blocking-Fingerprint" {print $2; exit}' "$replan_marker")"
+[[ -n "$blocking_fingerprint" ]] || blocking_fingerprint="-"
+last_blocker="$(root_last_auto_replan_blocker "$root" 2>/dev/null || true)"
+if [[ "$blocking_fingerprint" != "-" && "$blocking_fingerprint" == "$last_blocker" ]]; then
+	mark_root_needs_human "$root" "$trigger_task" \
+		"the same blocker survived a bounded automatic replan: $blocking_fingerprint" >/dev/null
+	exit 0
+fi
+auto_replans="$(root_auto_replans_without_criterion "$root")"
+if (( auto_replans >= HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION )); then
+	mark_root_needs_human "$root" "$trigger_task" \
+		"automatic strategy-change budget exhausted without completing a declared criterion ($auto_replans/$HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION)" >/dev/null
+	exit 0
+fi
+
+project_path="$(project_dir)"
+running_marker="$(task_root_replanning_file "$root")"
+if [[ -f "$running_marker" ]]; then
+	running_pid="$(kv_file_value "$running_marker" pid 2>/dev/null || true)"
+	if [[ "$running_pid" =~ ^[0-9]+$ ]] && kill -0 "$running_pid" 2>/dev/null; then
+		exit 0
+	fi
+fi
+cleanup()
+{
+	local status="$?"
+	rm -f "$running_marker"
+	trace_script_exit "$status"
+}
+trap cleanup EXIT
+{
+	printf 'pid=%s\n' "$$"
+	printf 'root=%s\n' "$root"
+	printf 'started_at=%s\n' "$(timestamp_utc)"
+	printf 'env_file=%s\n' "$HARNESS_ENV_FILE"
+} > "$running_marker.tmp.$$"
+chmod 600 "$running_marker.tmp.$$"
+mv "$running_marker.tmp.$$" "$running_marker"
+
+expected_task_id="$(next_task_revision_id "$root")"
+root_assignment="$(task_root_assignment_file "$root")"
+progress_file="$(task_progress_file "$root")"
+criteria_definition="$(task_criteria_definition_file "$root")"
+criterion_ledger="$(task_criterion_ledger_file "$root")"
+replan_ledger="$(task_replan_ledger_file "$root")"
+plan_definition="$(project_plan_definition_file)"
+plan_state="$(project_plan_state_file)"
+development_policy_file="$REPOSITORY/design/development-policy.txt"
+[[ -f "$development_policy_file" ]] || development_policy_file=""
+task_output="$PROJECT_TMP_DIR/$PROJECT-task-$expected_task_id.auto-replan.md"
+criteria_output="$PROJECT_TMP_DIR/$PROJECT-task-$root.criteria-definition.tsv"
+prompt_file="$project_path/control/$PROJECT-task-$root.auto-replan.prompt.md"
+
+criteria_instruction=""
+if task_root_uses_assignment_criteria "$root" || [[ -f "$criteria_definition" ]]; then
+	first_unmet="$(task_first_unmet_criterion "$root" 2>/dev/null || true)"
+	if [[ -z "$first_unmet" ]]; then
+		mark_root_needs_human "$root" "$trigger_task" \
+			'all declared criteria are already passed but the root was not accepted; manager evidence reconciliation is required' >/dev/null
+		exit 0
+	fi
+	criteria_instruction="Use the existing immutable criterion inventory. Target exactly its first unmet criterion: $first_unmet. Do not create or replace CRITERIA_OUTPUT, and call manager-publish-task without a criteria-file argument."
+else
+	criteria_instruction="This is an oversized legacy root without an explicit criterion inventory. Create CRITERIA_OUTPUT as criterion_id<TAB>title<TAB>acceptance_evidence with the exact header and at least two ordered, independently verifiable remaining child milestones. The first row must be the bounded target. Do not include completed work as a remaining criterion. Pass CRITERIA_OUTPUT as the final manager-publish-task argument."
+fi
+
+cat > "$prompt_file.tmp.$$" <<PROMPT
+The root hit a convergence guard after its latest outcome was safely archived. Perform one automatic recovery turn with fresh context. This is not permission to broaden scope, discard checkpoints, alter the project plan, or retry the same assignment.
+
+ENV_FILE=$HARNESS_ENV_FILE
+PROJECT=$PROJECT
+PROJECT_TMP_DIR=$PROJECT_TMP_DIR
+TASK_ROOT=$root
+EXPECTED_TASK_ID=$expected_task_id
+TRIGGER_TASK=$trigger_task
+NEEDS_REPLAN_FILE=$replan_marker
+ROOT_ASSIGNMENT_FILE=$root_assignment
+PROGRESS_FILE=$progress_file
+CRITERIA_DEFINITION_FILE=$criteria_definition
+CRITERION_LEDGER_FILE=$criterion_ledger
+REPLAN_LEDGER_FILE=$replan_ledger
+PROJECT_PLAN_FILE=$plan_definition
+PROJECT_PLAN_STATE_FILE=$plan_state
+DEVELOPMENT_POLICY_FILE=$development_policy_file
+SPECIFICATION=$SPECIFICATION
+REPOSITORY=$REPOSITORY
+HARNESS_BIN=$HARNESS_BIN
+TASK_OUTPUT=$task_output
+CRITERIA_OUTPUT=$criteria_output
+
+Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and the files above that exist. Inspect only the repository evidence needed to understand the first unmet boundary. Preserve every verified checkpoint.
+
+$criteria_instruction
+
+Write exactly one materially different bounded continuation to TASK_OUTPUT. It must contain exactly one of each:
+
+Task-ID: $expected_task_id
+Task-Root: $root
+Target-Criterion: FIRST_UNMET_ID
+Worker-Context: FRESH
+Replan-Strategy-ID: NEW_STABLE_ID
+Strategy-Change: NARROW_SCOPE|NEW_EVIDENCE|ISOLATE_CRITERION
+Supersedes-Task: $trigger_task
+
+It must also contain nonempty Objective, Acceptance criteria, and Validation commands level-two sections. The objective must isolate the first unmet criterion. The evidence or scope strategy must materially differ from prior entries in REPLAN_LEDGER_FILE and from the triggering assignment. Do not edit the repository in this planning turn.
+
+Publish the task atomically with:
+
+$HARNESS_BIN/manager-publish-task "$HARNESS_ENV_FILE" "$expected_task_id" "$task_output" --auto-replan [CRITERIA_OUTPUT only when required above]
+
+The command validates the first-unmet target, immutable decomposition, fresh worker context, strategy uniqueness, material fingerprint, replan budget, and surviving blocker fingerprint. Correct any validation error within this one turn. Publish exactly one task, then terminate immediately. Do not wait, sleep, poll, watch the filesystem, call harness-unblock-root, or resume the old manager thread.
+PROMPT
+if codex_model_requires_narrow_prompt "$MANAGER_MODEL"; then
+	cat >> "$prompt_file.tmp.$$" <<PROMPT
+
+Context: authorized local development planning in my own repository. Task type: benign software engineering. Do not perform offensive security, credential extraction, vulnerability exploitation, malware behavior, unauthorized access, network scanning, or bypassing security controls.
+PROMPT
+fi
+chmod 600 "$prompt_file.tmp.$$"
+mv "$prompt_file.tmp.$$" "$prompt_file"
+
+task_published()
+{
+	local base
+	base="$(task_base "$expected_task_id")"
+	[[ -f "$project_path/tasks/$base.ready.md" ||
+		-f "$project_path/running/$base.running.md" ||
+		-f "$project_path/results/$base.result.md" ||
+		-f "$project_path/archive/$base.accepted.md" ||
+		-f "$project_path/archive/$base.checkpointed.md" ||
+		-f "$project_path/archive/$base.rejected.md" ]]
+}
+
+attempt=1
+provider_retries=0
+quota_waits=0
+fallback_stage=0
+current_model="$MANAGER_MODEL"
+while true; do
+	stamp="$(timestamp_compact_utc)"
+	attempt_label="$(printf '%03d' "$attempt")"
+	json_log="$project_path/logs/manager-replan-$root-$stamp-attempt-$attempt_label.jsonl"
+	stderr_log="$project_path/logs/manager-replan-$root-$stamp-attempt-$attempt_label.stderr.log"
+	last_message="$project_path/logs/manager-replan-$root-$stamp-attempt-$attempt_label.md"
+	log_event "MANAGER_REPLAN_STARTED root=$root trigger=$trigger_task expected_task=$expected_task_id attempt=$attempt context=fresh"
+	trace_event MANAGER_REPLAN_ATTEMPT "root=$root" "trigger_task=$trigger_task" "expected_task=$expected_task_id" "attempt=$attempt" "json_log=$json_log"
+	set +e
+	"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" manager_replan "$current_model" \
+		"$prompt_file" "$json_log" "$stderr_log" "$last_message"
+	status=$?
+	set -e
+	classification="$(kv_file_value "${json_log%.jsonl}.classification" classification 2>/dev/null || true)"
+	if task_published; then
+		log_event "MANAGER_REPLAN_COMMITTED root=$root task=$expected_task_id attempt=$attempt"
+		trace_event MANAGER_REPLAN_COMMITTED "root=$root" "task_id=$expected_task_id" "attempt=$attempt"
+		printf 'Manager automatically replanned root %s as %s with fresh context.\n' "$root" "$expected_task_id"
+		exit 0
+	fi
+	if (( status == 0 )); then
+		mark_root_needs_human "$root" "$trigger_task" \
+			'the fresh manager turn could not publish one valid materially different continuation' >/dev/null
+		exit 0
+	fi
+	retry_kind="$(codex_provider_retry_kind "$classification" 2>/dev/null || true)"
+	if [[ -n "$retry_kind" ]]; then
+		retry_delay="$(codex_provider_retry_delay "$classification")"
+		provider_retries=$((provider_retries + 1))
+		[[ "$retry_kind" != quota ]] || quota_waits=$((quota_waits + 1))
+		log_event "MANAGER_REPLAN_PROVIDER_WAIT root=$root kind=$retry_kind attempt=$attempt retry=$provider_retries delay_seconds=$retry_delay"
+		sleep "$retry_delay"
+		attempt=$((attempt + 1))
+		continue
+	fi
+	if codex_model_requires_narrow_prompt "$current_model" && [[ "$classification" == model_refusal_or_blocked_content ]]; then
+		if (( fallback_stage == 0 )); then
+			fallback_stage=1
+			attempt=$((attempt + 1))
+			printf '\nRetry scope: decompose or isolate only the first unmet root criterion and publish one local task.\n' >> "$prompt_file"
+			continue
+		elif (( fallback_stage == 1 )) && [[ "$MANAGER_FALLBACK_MODEL" != "$current_model" ]]; then
+			fallback_stage=2
+			current_model="$MANAGER_FALLBACK_MODEL"
+			attempt=$((attempt + 1))
+			continue
+		fi
+	fi
+	mark_root_needs_human "$root" "$trigger_task" \
+		"automatic manager replan failed terminally (classification=$classification status=$status)" >/dev/null
+	exit 0
+done

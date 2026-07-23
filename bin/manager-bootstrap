@@ -36,7 +36,7 @@ SPECIFICATION=$SPECIFICATION
 REPOSITORY=$REPOSITORY
 DEVELOPMENT_POLICY_FILE=$development_policy_file
 
-This is the bootstrap turn. Read DEVELOPMENT_POLICY_FILE when present and inspect the complete specification. First write a tab-separated project plan under PROJECT_TMP_DIR with one immutable line per specification phase or acceptance gate: ITEM_ID<TAB>TITLE. Include the full execution stack, not merely the first task. Register it with manager-init-project-plan. Then inspect the repository, write one bounded initial assignment under PROJECT_TMP_DIR, and publish it with manager-publish-task including the corresponding PROJECT_PLAN_ITEM_ID. Terminate after exactly one task is published. Every harness command must receive ENV_FILE as its first argument. Do not wait for the worker and do not run any polling command.
+This is the bootstrap turn. Read DEVELOPMENT_POLICY_FILE when present and inspect the complete specification. First write a tab-separated project plan under PROJECT_TMP_DIR with one immutable line per specification phase or acceptance gate: ITEM_ID<TAB>TITLE. Include the full execution stack, not merely the first task. Register it with manager-init-project-plan. Then inspect the repository, write one bounded initial assignment under PROJECT_TMP_DIR with stable Root-Criterion lines for every independently verifiable acceptance criterion, and publish it with manager-publish-task including the corresponding PROJECT_PLAN_ITEM_ID. Terminate after exactly one task is published. Every harness command must receive ENV_FILE as its first argument. Do not wait for the worker and do not run any polling command.
 PROMPT
 if codex_model_requires_narrow_prompt "$MANAGER_MODEL"; then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT

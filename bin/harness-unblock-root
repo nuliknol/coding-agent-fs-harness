@@ -20,31 +20,19 @@ acquire_project_lock
 
 block="$(task_root_block_file "$root")"
 replan="$(task_root_replan_file "$root")"
-[[ -f "$block" || -f "$replan" ]] || die "task root is not blocked or awaiting replanning: $root"
+human="$(task_root_human_file "$root")"
+[[ -f "$block" || -f "$replan" || -f "$human" ]] ||
+	die "task root is not blocked, awaiting replanning, or awaiting human intervention: $root"
 had_block=0
 had_replan=0
+had_human=0
 [[ ! -f "$block" ]] || had_block=1
 [[ ! -f "$replan" ]] || had_replan=1
-if (( had_replan == 1 )); then
-	baseline="$(task_convergence_baseline_file "$root")"
-	history="$(task_progress_history_file "$root")"
-	checkpoint_ledger="$(task_checkpoint_ledger_file "$root")"
-	history_rows=0
-	checkpoint_rows=0
-	[[ ! -f "$history" ]] || history_rows="$(( $(wc -l < "$history") - 1 ))"
-	[[ ! -f "$checkpoint_ledger" ]] || checkpoint_rows="$(( $(wc -l < "$checkpoint_ledger") - 1 ))"
-	(( history_rows >= 0 )) || history_rows=0
-	(( checkpoint_rows >= 0 )) || checkpoint_rows=0
-	tmp="$baseline.tmp.$$"
-	{
-		printf 'reviewed_attempts=%s\n' "$(root_reviewed_attempt_count "$root")"
-		printf 'history_rows=%s\n' "$history_rows"
-		printf 'checkpoint_rows=%s\n' "$checkpoint_rows"
-		printf 'resumed_at=%s\n' "$(timestamp_utc)"
-	} > "$tmp"
-	chmod 600 "$tmp"
-	mv "$tmp" "$baseline"
+[[ ! -f "$human" ]] || had_human=1
+if (( had_replan == 1 || had_human == 1 )); then
+	record_root_convergence_baseline "$root"
+	record_root_replan_baseline "$root"
 fi
-rm -f "$block" "$replan"
-log_event "TASK_ROOT_UNBLOCKED root=$root cleared_block=$had_block cleared_replan=$had_replan"
+rm -f "$block" "$replan" "$human"
+log_event "TASK_ROOT_UNBLOCKED root=$root cleared_block=$had_block cleared_replan=$had_replan cleared_human=$had_human"
 printf '%s\n' "$root"

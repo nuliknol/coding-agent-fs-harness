@@ -49,9 +49,13 @@ active_item_before="$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" {print $1; exit}' "$p
 active_root_before="$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" {print $3; exit}' "$plan_state")"
 active_progress_file=""
 active_criteria_file=""
+active_criteria_definition_file=""
+active_first_unmet_criterion=""
 if [[ -n "$active_root_before" && "$active_root_before" != '-' ]]; then
 	active_progress_file="$(task_progress_file "$active_root_before")"
 	active_criteria_file="$(task_criterion_ledger_file "$active_root_before")"
+	active_criteria_definition_file="$(task_criteria_definition_file "$active_root_before")"
+	active_first_unmet_criterion="$(task_first_unmet_criterion "$active_root_before" 2>/dev/null || true)"
 fi
 
 cat > "$prompt_file.tmp.$$" <<PROMPT
@@ -71,8 +75,10 @@ ACTIVE_PLAN_ITEM=$active_item_before
 ACTIVE_TASK_ROOT=$active_root_before
 ACTIVE_PROGRESS_FILE=$active_progress_file
 ACTIVE_CRITERIA_FILE=$active_criteria_file
+ACTIVE_CRITERIA_DEFINITION_FILE=$active_criteria_definition_file
+ACTIVE_FIRST_UNMET_CRITERION=$active_first_unmet_criterion
 
-Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and follow it. Read DEVELOPMENT_POLICY_FILE when present, then read PROJECT_PLAN_FILE and PROJECT_PLAN_STATE_FILE completely. If ACTIVE_TASK_ROOT is set, also read ACTIVE_PROGRESS_FILE and ACTIVE_CRITERIA_FILE when present, then publish one newly bounded continuation of that same root. Otherwise select the first PENDING item in specification order and publish a new root. Inspect the specification and actual repository state, write exactly one bounded task under PROJECT_TMP_DIR, and publish it with manager-publish-task including its PROJECT_PLAN_ITEM_ID. Preserve completed implementation and begin at the first unmet criterion. Then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or repeat completed plan items.
+Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and follow it. Read DEVELOPMENT_POLICY_FILE when present, then read PROJECT_PLAN_FILE and PROJECT_PLAN_STATE_FILE completely. If ACTIVE_TASK_ROOT is set, also read ACTIVE_PROGRESS_FILE, ACTIVE_CRITERIA_FILE, and ACTIVE_CRITERIA_DEFINITION_FILE when present, then publish one newly bounded continuation of that same root with Target-Criterion equal to ACTIVE_FIRST_UNMET_CRITERION. Otherwise select the first PENDING item in specification order and publish a new root whose independently verifiable criteria are declared with stable Root-Criterion lines. Inspect the specification and actual repository state, write exactly one bounded task under PROJECT_TMP_DIR, and publish it with manager-publish-task including its PROJECT_PLAN_ITEM_ID. Preserve completed implementation and begin at the first unmet criterion. Then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or repeat completed plan items.
 PROMPT
 if codex_model_requires_narrow_prompt "$MANAGER_MODEL"; then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT

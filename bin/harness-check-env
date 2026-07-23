@@ -58,12 +58,18 @@ fi
 if (( HARNESS_MAX_ZERO_GAIN_WINDOW == 0 )); then
 	printf 'Zero-gain replanning guard: disabled\n'
 else
-	printf 'Zero-gain replanning guard: %s consecutive reviews\n' "$HARNESS_MAX_ZERO_GAIN_WINDOW"
+	printf 'Zero-gain replanning guard: %s consecutive reviews without measured or checkpointed gain\n' "$HARNESS_MAX_ZERO_GAIN_WINDOW"
 fi
 if (( HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION == 0 )); then
 	printf 'Checkpoint convergence guard: disabled\n'
 else
 	printf 'Checkpoint convergence guard: %s verified increments without a completed criterion\n' "$HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION"
+fi
+if (( HARNESS_AUTO_REPLAN_ENABLED == 1 )); then
+	printf 'Automatic fresh-context replanning: enabled (%s strategy change(s) without a completed criterion)\n' \
+		"$HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION"
+else
+	printf 'Automatic fresh-context replanning: disabled\n'
 fi
 printf 'Rejected-root worker thread reuse: %s\n' "$([[ "$HARNESS_REUSE_WORKER_THREADS" == 1 ]] && printf enabled || printf disabled)"
 if (( HARNESS_WORKER_THREAD_MAX_REJECTIONS == 0 )); then
@@ -81,4 +87,4 @@ printf 'Transient provider retry seconds: %s (retries unlimited)\n' "$HARNESS_PR
 printf 'Quota retry seconds: %s (retries unlimited)\n' "$HARNESS_QUOTA_RETRY_SECONDS"
 printf 'Codex wall timeout seconds: %s (0 means unlimited)\n' "$HARNESS_CODEX_WALL_TIMEOUT_SECONDS"
 printf 'Codex idle timeout seconds: %s (0 means unlimited)\n' "$HARNESS_CODEX_IDLE_TIMEOUT_SECONDS"
-printf 'Task lifecycle: verified increments are checkpointed; root completion remains strict; convergence guards pause safely for replanning\n'
+printf 'Task lifecycle: verified increments are checkpointed; roots resume by first-unmet criterion; bounded automatic replanning escalates only to NEEDS_HUMAN\n'

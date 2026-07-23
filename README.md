@@ -1,4 +1,4 @@
-# Coding Agent Filesystem Harness v4.3 (for Codex CLI)
+# Coding Agent Filesystem Harness v4.4 (for Codex CLI)
 
 A local, event-driven two-agent coding harness for Linux.
 
@@ -148,7 +148,7 @@ export PROJECT="sample-project"
 export REPOSITORY="/path/to/repository"
 export SPECIFICATION="$REPOSITORY/work/specification.md"
 
-export HARNESS_HOME="/opt/coding-agent-fs-harness-v4.3"
+export HARNESS_HOME="/opt/coding-agent-fs-harness-v4.4"
 export HARNESS_BIN="$HARNESS_HOME/bin"
 export HARNESS_ROOT="$HOME/.local/state/coding-harness"
 
@@ -199,17 +199,17 @@ The file is trusted Bash input and is sourced by every command.
 ## First initialization
 
 ```bash
-/opt/coding-agent-fs-harness-v4.3/bin/harness-check-env /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.4/bin/harness-check-env /path/to/repository/harness.env
 ```
 
 ```bash
-/opt/coding-agent-fs-harness-v4.3/bin/harness-init /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.4/bin/harness-init /path/to/repository/harness.env
 ```
 
 Start the complete system:
 
 ```bash
-/opt/coding-agent-fs-harness-v4.3/bin/harness-start /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.4/bin/harness-start /path/to/repository/harness.env
 ```
 
 `harness-init` and `harness-start` serialize on the environment file path. A
@@ -268,13 +268,13 @@ export ORACLE_SANDBOX="danger-full-access"
 Stop both local supervisors:
 
 ```bash
-/opt/coding-agent-fs-harness-v4.3/bin/harness-stop /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.4/bin/harness-stop /path/to/repository/harness.env
 ```
 
 Restart them and preserve existing state:
 
 ```bash
-/opt/coding-agent-fs-harness-v4.3/bin/harness-start /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.4/bin/harness-start /path/to/repository/harness.env
 ```
 
 If `manager.thread` already exists, bootstrap is not repeated. Active processes
@@ -340,7 +340,7 @@ matching archived fingerprints, so it cannot be used to block early. Use
 `harness-unblock-root ENV_FILE TASK_ROOT` after correcting the condition or
 changing the task authority, scope, or plan.
 
-### Convergence and NEEDS_REPLAN
+### Resumable decomposition and bounded automatic replanning
 
 Changing failure fingerprints no longer allow a root to continue forever.
 Three project settings default to safe finite thresholds:
@@ -352,12 +352,43 @@ export HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION="4"
 ```
 
 When any threshold is reached, the just-reviewed result is archived first and
-the root enters `NEEDS_REPLAN`. No continuation can be published while that
-marker exists. The repository, checkpoint artifacts, criterion ledger, and
-review history remain intact. Reassess and narrow the active root strategy,
-then use `harness-unblock-root ENV_FILE TASK_ROOT` to grant a fresh convergence
-window. The planning turn reads the preserved ledgers and publishes a bounded
-continuation. Set an individual value to `0` to disable only that guard.
+the root enters `NEEDS_REPLAN`. The repository, checkpoint artifacts, criterion
+ledger, review history, and live workspace remain intact. By default the
+manager supervisor consumes this marker automatically:
+
+```bash
+export HARNESS_AUTO_REPLAN_ENABLED="1"
+export HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION="1"
+```
+
+The automatic manager turn starts with fresh context. For an oversized legacy
+root, it first installs an immutable ordered
+`.criteria-definition.tsv` containing at least two independently verifiable
+remaining child milestones. It then publishes exactly one continuation for the
+first unmet criterion with `Worker-Context: FRESH` and a declared strategy
+change: narrower scope, new evidence, or an isolated criterion. The publisher
+rejects repeated strategy IDs, materially identical strategy fingerprints,
+non-first targets, mutable decompositions, and a surviving deterministic
+blocker.
+
+The automatic budget resets only when a declared criterion reaches `PASSED`.
+Verified smaller increments remain checkpointed, but do not create an
+unbounded retry budget. If no materially different continuation can be
+published, the same blocker survives, or the bounded budget is exhausted, the
+root enters `NEEDS_HUMAN`. Explicit hard blocks and Oracle scope conflicts
+remain human-only. `harness-unblock-root ENV_FILE TASK_ROOT` is the explicit
+operator action for `NEEDS_HUMAN`; it records new convergence and replan
+baselines without deleting history.
+
+Set `HARNESS_AUTO_REPLAN_ENABLED=0` to retain manual `NEEDS_REPLAN` handling.
+Set an individual convergence threshold to `0` to disable only that trigger.
+
+A committed `CHECKPOINT` resets the zero-gain review streak even when a legacy
+root's numeric progress remains pinned at 99%, because every checkpoint must
+record a new stable verified criterion or increment. Criterion-free
+checkpoints remain independently bounded by
+`HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION`, so a stream of tiny verified
+increments cannot bypass replanning indefinitely.
 
 Plan rows must be independently acceptance-complete: split a phase into
 multiple rows before assigning bounded milestones. A baseline task may require
@@ -370,15 +401,15 @@ is incomplete and no task is active. It resumes the manager to publish exactly
 one task for the first unfinished plan item. The same recovery happens after a
 restart; no completed plan item or root task is replayed.
 
-`harness-status` reports both levels explicitly: project completion across the
-plan and cumulative completion of each current root task.
+`harness-status` reports both levels explicitly, including `REPLANNING` while
+the fresh manager is active and `NEEDS_HUMAN` only at a human-only boundary.
 
 ## State location
 
 Print the exact harness project-state path:
 
 ```bash
-/opt/coding-agent-fs-harness-v4.3/bin/harness-state-path /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.4/bin/harness-state-path /path/to/repository/harness.env
 ```
 
 For the example configuration, it is:
@@ -396,7 +427,7 @@ The separate scratch directory for task and result markdown is:
 Print the source repository path separately:
 
 ```bash
-/opt/coding-agent-fs-harness-v4.3/bin/harness-repository-path /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.4/bin/harness-repository-path /path/to/repository/harness.env
 ```
 
 ## Runtime files
@@ -438,7 +469,7 @@ $HARNESS_ROOT/projects/$PROJECT/
 Status:
 
 ```bash
-/opt/coding-agent-fs-harness-v4.3/bin/harness-status /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.4/bin/harness-status /path/to/repository/harness.env
 ```
 
 Unified state transitions:
@@ -555,7 +586,7 @@ control/PROJECT-task-ID.worker-failed.md
 Inspect the task log and then reset it explicitly:
 
 ```bash
-/opt/coding-agent-fs-harness-v4.3/bin/harness-reset-task /path/to/repository/harness.env TASK_ID --force
+/opt/coding-agent-fs-harness-v4.4/bin/harness-reset-task /path/to/repository/harness.env TASK_ID --force
 ```
 
 The worker supervisor detects the newly restored ready task and performs one new invocation.
@@ -573,7 +604,7 @@ The state directory is compatible. Stop the v3 manager supervisor first, exit th
 Update at least:
 
 ```bash
-export HARNESS_HOME="/opt/coding-agent-fs-harness-v4.3"
+export HARNESS_HOME="/opt/coding-agent-fs-harness-v4.4"
 export HARNESS_BIN="$HARNESS_HOME/bin"
 export MANAGER_CODEX_HOME="$HOME/.codex/manager-account"
 export MANAGER_CODEX_BIN="$HOME/.local/bin/codex"
@@ -587,11 +618,11 @@ export WORKER_SANDBOX="danger-full-access"
 Then:
 
 ```bash
-/opt/coding-agent-fs-harness-v4.3/bin/harness-check-env /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.4/bin/harness-check-env /path/to/repository/harness.env
 ```
 
 ```bash
-/opt/coding-agent-fs-harness-v4.3/bin/harness-start /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.4/bin/harness-start /path/to/repository/harness.env
 ```
 
 If task `002` is already `READY`, the v4 worker supervisor claims it automatically.
@@ -652,3 +683,17 @@ now pause non-converging roots in `NEEDS_REPLAN`. The pause occurs only after
 the current result has been archived. Resuming a replanned root records a new
 convergence baseline, so its next bounded strategy receives a fresh budget
 without deleting prior history.
+
+## Resumable decomposition in 4.4
+
+Version 4.4 makes root criteria executable lifecycle state rather than prompt
+advice. New roots must declare stable `Root-Criterion` IDs. Continuations of a
+decomposed root must name the first unmet ID with `Target-Criterion`. Legacy
+roots receive an immutable criterion-definition sidecar during automatic
+replanning, preserving historical percentages such as 99% while moving future
+verification through explicit child milestones.
+
+`NEEDS_REPLAN` is now an automatic bounded transition, not an overnight stop.
+One fresh-context, materially different strategy is allowed until a declared
+criterion passes. Exhaustion, repeated blockers, hard blocks, and Oracle scope
+conflicts remain explicit human-intervention states.

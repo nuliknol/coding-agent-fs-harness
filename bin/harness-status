@@ -67,6 +67,8 @@ active_count=0
 aborted_count=0
 blocked_count=0
 replan_count=0
+human_count=0
+replanning_count=0
 task_rows=()
 
 for file in "$dir/tasks/$PROJECT-task-"*.ready.md; do
@@ -153,12 +155,37 @@ done
 
 for file in "$dir/control/progress/$PROJECT-task-"*.needs-replan.md; do
 	found=1
-	replan_count=$((replan_count + 1))
 	name="${file##*/}"
 	task_id="${name#${PROJECT}-task-}"
 	task_id="${task_id%.needs-replan.md}"
+	if [[ -f "$(task_root_replanning_file "$task_id")" ]]; then
+		continue
+	fi
+	replan_count=$((replan_count + 1))
 	progress="$(task_progress_percent "$task_id")%"
 	printf -v task_row '%-32s %-12s %-10s %-28s %-10s' "$task_id" 'NEEDS_REPLAN' "$progress" '-' '-'
+	task_rows+=("$task_row")
+done
+
+for file in "$dir/control/progress/$PROJECT-task-"*.replanning.md; do
+	found=1
+	replanning_count=$((replanning_count + 1))
+	name="${file##*/}"
+	task_id="${name#${PROJECT}-task-}"
+	task_id="${task_id%.replanning.md}"
+	progress="$(task_progress_percent "$task_id")%"
+	printf -v task_row '%-32s %-12s %-10s %-28s %-10s' "$task_id" 'REPLANNING' "$progress" '-' '-'
+	task_rows+=("$task_row")
+done
+
+for file in "$dir/control/progress/$PROJECT-task-"*.needs-human.md; do
+	found=1
+	human_count=$((human_count + 1))
+	name="${file##*/}"
+	task_id="${name#${PROJECT}-task-}"
+	task_id="${task_id%.needs-human.md}"
+	progress="$(task_progress_percent "$task_id")%"
+	printf -v task_row '%-32s %-12s %-10s %-28s %-10s' "$task_id" 'NEEDS_HUMAN' "$progress" '-' '-'
 	task_rows+=("$task_row")
 done
 
@@ -172,10 +199,18 @@ fi
 
 if project_completion_recorded && project_plan_all_complete; then
 	printf '\nProject status: COMPLETE. Every project-plan item is accepted.\n'
-elif (( replan_count > 0 )); then
-	printf '\nProject status: NEEDS_REPLAN. Verified checkpoints are preserved; reassess and narrow the active root before resuming.\n'
+elif (( human_count > 0 )); then
+	printf '\nProject status: NEEDS_HUMAN. Bounded automatic recovery was exhausted or could not produce a materially different strategy; verified work is preserved.\n'
 elif (( blocked_count > 0 )); then
 	printf '\nProject status: BLOCKED. A root task requires human intervention before planning can continue.\n'
+elif (( replanning_count > 0 )); then
+	printf '\nProject status: REPLANNING. A fresh manager is decomposing the root and publishing one first-unmet-criterion continuation.\n'
+elif (( replan_count > 0 )); then
+	if (( HARNESS_AUTO_REPLAN_ENABLED == 1 )); then
+		printf '\nProject status: NEEDS_REPLAN. Verified checkpoints are preserved; automatic fresh-context recovery is pending.\n'
+	else
+		printf '\nProject status: NEEDS_REPLAN. Automatic recovery is disabled; reassess and explicitly resume the root.\n'
+	fi
 elif project_is_blocked; then
 	printf '\nProject status: BLOCKED. The Oracle requires human approval before planning can continue.\n'
 elif project_plan_exists && (( active_count == 0 && aborted_count == 0 )) && ! project_plan_all_complete; then

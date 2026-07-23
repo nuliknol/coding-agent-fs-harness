@@ -7,14 +7,24 @@ source "$SCRIPT_DIR/../lib/harness-common.sh"
 usage()
 {
 	printf 'Usage: %s ENV_FILE TASK_ID TASK_FILE [PROJECT_PLAN_ITEM_ID]\n' "${0##*/}" >&2
+	printf '       %s ENV_FILE TASK_ID TASK_FILE --auto-replan [LEGACY_CRITERIA_TSV]\n' "${0##*/}" >&2
 	exit 2
 }
 
-[[ $# -ge 3 && $# -le 4 ]] || usage
+[[ $# -ge 3 && $# -le 5 ]] || usage
 load_harness_env "$1"
 task_id="$2"
 task_file="$3"
-plan_item_id="${4:-}"
+plan_item_id=""
+auto_replan=0
+criteria_candidate=""
+if [[ "${4:-}" == '--auto-replan' ]]; then
+	auto_replan=1
+	criteria_candidate="${5:-}"
+else
+	(( $# <= 4 )) || usage
+	plan_item_id="${4:-}"
+fi
 ensure_project
 trace_init manager_publish_task
 trace_script_start "$@"
@@ -28,8 +38,16 @@ project_plan_exists || die "project plan is missing; run manager-init-project-pl
 root="$(task_root_id "$task_id")"
 progress="$(task_progress_file "$root")"
 root_assignment="$(task_root_assignment_file "$root")"
+criteria_definition="$(task_criteria_definition_file "$root")"
 
-task_root_is_paused "$root" && die "task root is paused pending replanning or human intervention: $root"
+if (( auto_replan == 1 )); then
+	[[ "$task_id" != "$root" ]] || die 'an automatic replan must publish a revision of an existing root'
+	task_root_needs_replan "$root" || die "automatic replan marker is missing for root: $root"
+	! task_root_is_blocked "$root" || die "hard-blocked root requires human intervention: $root"
+	! task_root_needs_human "$root" || die "root already requires human intervention: $root"
+else
+	task_root_is_paused "$root" && die "task root is paused pending replanning or human intervention: $root"
+fi
 
 base="$(task_base "$task_id")"
 ready="$dir/tasks/$base.ready.md"
@@ -53,9 +71,6 @@ else
 	[[ "$(project_plan_item_status "$plan_item_id")" == ACTIVE ]] || die "revision project plan item is not active: $plan_item_id"
 fi
 
-initialize_task_progress "$task_id" "$task_file"
-starting_progress="$(task_progress_percent "$root")"
-
 [[ ! -e "$ready" ]] || die "task already ready: $task_id"
 [[ ! -e "$running" ]] || die "task already running: $task_id"
 [[ ! -e "$result" ]] || die "task already has a result: $task_id"
@@ -64,6 +79,161 @@ starting_progress="$(task_progress_percent "$root")"
 [[ ! -e "$rejected" ]] || die "task already rejected: $task_id"
 [[ ! -e "$blocked" ]] || die "task already blocked: $task_id"
 [[ ! -e "$aborted" ]] || die "task is aborted: $task_id"
+
+validate_criterion_inventory()
+{
+	local source_file="$1" source_kind="$2" criterion
+	local -A seen=()
+	if [[ "$source_kind" == assignment ]]; then
+		mapfile -t declared_criteria < <(awk -F': ' '$1 == "Root-Criterion" {print $2}' "$source_file")
+	else
+		validate_criteria_definition_file "$source_file" 2
+		mapfile -t declared_criteria < <(awk -F '\t' 'NR > 1 {print $1}' "$source_file")
+	fi
+	(( ${#declared_criteria[@]} > 0 )) || die 'a new root task must declare at least one Root-Criterion'
+	for criterion in "${declared_criteria[@]}"; do
+		[[ "$criterion" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]] ||
+			die "invalid root criterion identifier: $criterion"
+		[[ -z "${seen[$criterion]:-}" ]] || die "duplicate root criterion identifier: $criterion"
+		seen[$criterion]=1
+	done
+}
+
+single_metadata_value()
+{
+	local file="$1" field="$2" count value
+	count="$(awk -F': ' -v field="$field" '$1 == field {count++} END {print count + 0}' "$file")"
+	(( count == 1 )) || die "automatic replan assignment must contain exactly one $field line"
+	value="$(awk -F': ' -v field="$field" '$1 == field {print $2; exit}' "$file")"
+	[[ -n "$value" ]] || die "automatic replan assignment has an empty $field value"
+	printf '%s\n' "$value"
+}
+
+section_has_content()
+{
+	local file="$1" heading="$2"
+	awk -v heading="$heading" '
+		$0 == heading {inside=1; next}
+		inside && /^## / {exit}
+		inside && $0 !~ /^[[:space:]]*$/ {found=1}
+		END {exit found ? 0 : 1}
+	' "$file"
+}
+
+assignment_material_fingerprint()
+{
+	local file="$1" fallback_target="${2:--}" material_target
+	material_target="$(awk -F': ' '$1 == "Target-Criterion" {print $2; exit}' "$file")"
+	[[ -n "$material_target" ]] || material_target="$fallback_target"
+	{
+		printf '%s\n' "$material_target"
+		awk '
+			/^## (Objective|Acceptance criteria|Validation commands)$/ {inside=1; print; next}
+			inside && /^## / {inside=0}
+			inside && $0 !~ /^[[:space:]]*$/ {gsub(/[[:space:]]+/, " "); print}
+		' "$file"
+	} | sha256sum | awk '{print "sha256:" $1}'
+}
+
+declare -a declared_criteria=()
+if [[ "$task_id" == "$root" ]]; then
+	validate_criterion_inventory "$task_file" assignment
+else
+	if task_root_uses_assignment_criteria "$root"; then
+		[[ -z "$criteria_candidate" ]] ||
+			die 'root criteria are already immutable in the root assignment; do not supply a replacement definition'
+		validate_criterion_inventory "$root_assignment" assignment
+	elif [[ -f "$criteria_definition" ]]; then
+		if [[ -n "$criteria_candidate" ]]; then
+			validate_criteria_definition_file "$criteria_candidate" 2
+			cmp -s "$criteria_definition" "$criteria_candidate" ||
+				die 'legacy root criteria definition is immutable and cannot be replaced'
+		fi
+		validate_criterion_inventory "$criteria_definition" definition
+	elif (( auto_replan == 1 )); then
+		[[ -n "$criteria_candidate" ]] ||
+			die 'legacy automatic replan requires a criteria definition TSV'
+		validate_criterion_inventory "$criteria_candidate" definition
+	elif [[ -n "$criteria_candidate" ]]; then
+		die 'a criteria definition may be installed only by an automatic replan'
+	fi
+fi
+
+target_criterion=""
+if (( ${#declared_criteria[@]} > 0 )) && [[ "$task_id" != "$root" ]]; then
+	target_count="$(awk -F': ' '$1 == "Target-Criterion" {count++} END {print count + 0}' "$task_file")"
+	(( target_count == 1 )) ||
+		die 'a continuation of a criterion-decomposed root requires exactly one Target-Criterion'
+	target_criterion="$(awk -F': ' '$1 == "Target-Criterion" {print $2; exit}' "$task_file")"
+	first_unmet=""
+	for criterion in "${declared_criteria[@]}"; do
+		if ! task_criterion_is_passed "$root" "$criterion"; then
+			first_unmet="$criterion"
+			break
+		fi
+	done
+	[[ -n "$first_unmet" ]] || die 'all declared root criteria are already passed; accept the root instead of publishing a continuation'
+	[[ "$target_criterion" == "$first_unmet" ]] ||
+		die "continuation must target the first unmet criterion: $first_unmet"
+fi
+
+strategy_id=""
+strategy_change=""
+strategy_fingerprint=""
+trigger_task=""
+blocking_fingerprint="-"
+if (( auto_replan == 1 )); then
+	[[ -n "$target_criterion" ]] || die 'automatic replan requires an explicit criterion inventory and target'
+	[[ "$(single_metadata_value "$task_file" Task-ID)" == "$task_id" ]] ||
+		die "automatic replan Task-ID does not match expected revision: $task_id"
+	[[ "$(single_metadata_value "$task_file" Task-Root)" == "$root" ]] ||
+		die "automatic replan Task-Root does not match: $root"
+	[[ "$(single_metadata_value "$task_file" Worker-Context)" == FRESH ]] ||
+		die 'automatic replan must set Worker-Context: FRESH'
+	strategy_id="$(single_metadata_value "$task_file" Replan-Strategy-ID)"
+	[[ "$strategy_id" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]] ||
+		die "invalid Replan-Strategy-ID: $strategy_id"
+	strategy_change="$(single_metadata_value "$task_file" Strategy-Change)"
+	[[ "$strategy_change" =~ ^(NARROW_SCOPE|NEW_EVIDENCE|ISOLATE_CRITERION)$ ]] ||
+		die 'Strategy-Change must be NARROW_SCOPE, NEW_EVIDENCE, or ISOLATE_CRITERION'
+	trigger_task="$(awk -F': ' '$1 == "Triggered-By" {print $2; exit}' "$(task_root_replan_file "$root")")"
+	[[ -n "$trigger_task" ]] || die 'automatic replan marker does not identify its triggering task'
+	[[ "$(single_metadata_value "$task_file" Supersedes-Task)" == "$trigger_task" ]] ||
+		die "automatic replan must supersede triggering task: $trigger_task"
+	for heading in '## Objective' '## Acceptance criteria' '## Validation commands'; do
+		section_has_content "$task_file" "$heading" ||
+			die "automatic replan assignment requires nonempty section: $heading"
+	done
+	trigger_assignment="$dir/archive/$(task_base "$trigger_task").assignment.md"
+	if [[ -f "$trigger_assignment" ]] &&
+		[[ "$(sha256sum "$trigger_assignment" | awk '{print $1}')" == "$(sha256sum "$task_file" | awk '{print $1}')" ]]; then
+		die 'automatic replan assignment is byte-identical to the strategy it supersedes'
+	fi
+	strategy_fingerprint="$(assignment_material_fingerprint "$task_file" "$target_criterion")"
+	if [[ -f "$trigger_assignment" ]] &&
+		[[ "$(assignment_material_fingerprint "$trigger_assignment")" == "$strategy_fingerprint" ]]; then
+		die 'automatic replan objective, acceptance evidence, and validation strategy are materially unchanged from the triggering assignment'
+	fi
+	replan_ledger="$(task_replan_ledger_file "$root")"
+	if [[ -f "$replan_ledger" ]]; then
+		! awk -F '\t' -v id="$strategy_id" 'NR > 1 && $5 == id {found=1} END {exit !found}' "$replan_ledger" ||
+			die "automatic replan strategy identifier was already used: $strategy_id"
+		! awk -F '\t' -v fingerprint="$strategy_fingerprint" 'NR > 1 && $7 == fingerprint {found=1} END {exit !found}' "$replan_ledger" ||
+			die 'automatic replan is not materially different from an earlier bounded strategy'
+	fi
+	auto_replans="$(root_auto_replans_without_criterion "$root")"
+	(( auto_replans < HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION )) ||
+		die "automatic replan budget is exhausted without a completed criterion: $auto_replans/$HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION"
+	blocking_fingerprint="$(awk -F': ' '$1 == "Blocking-Fingerprint" {print $2; exit}' "$(task_root_replan_file "$root")")"
+	[[ -n "$blocking_fingerprint" ]] || blocking_fingerprint="-"
+	last_blocker="$(root_last_auto_replan_blocker "$root" 2>/dev/null || true)"
+	if [[ "$blocking_fingerprint" != "-" && "$blocking_fingerprint" == "$last_blocker" ]]; then
+		die "same blocking fingerprint survived the prior bounded replan: $blocking_fingerprint"
+	fi
+fi
+
+initialize_task_progress "$task_id" "$task_file"
+starting_progress="$(task_progress_percent "$root")"
 
 tmp="$dir/tasks/$base.ready.tmp.$$"
 if [[ "$task_id" == "$root" ]]; then
@@ -74,16 +244,44 @@ else
 		printf 'Task-Root: %s\n' "$root"
 		printf 'Starting-Progress: %s%%\n' "$starting_progress"
 		printf 'Progress-File: %s\n' "$progress"
-		printf 'Root-Assignment: %s\n\n' "$root_assignment"
-		printf 'Preserve all previously verified work. This revision may address only remaining criteria from the immutable root assignment. Unrelated failures are known limitations and must not broaden this task.\n\n'
+		printf 'Root-Assignment: %s\n' "$root_assignment"
+		if (( ${#declared_criteria[@]} > 0 )); then
+			if task_root_uses_assignment_criteria "$root"; then
+				printf 'Criteria-Definition: %s\n' "$root_assignment"
+			else
+				printf 'Criteria-Definition: %s\n' "$criteria_definition"
+			fi
+			printf 'Target-Criterion: %s\n' "$target_criterion"
+		fi
+		printf '\nPreserve all previously verified work. This revision may address only the first unmet criterion shown above. Unrelated failures are known limitations and must not broaden this task.\n\n'
 		printf '%s\n\n' '---'
 		cat "$task_file"
 	} > "$tmp"
 	chmod 600 "$tmp"
 fi
+
+if (( auto_replan == 1 )); then
+	if [[ ! -f "$criteria_definition" ]]; then
+		install -m 600 "$criteria_candidate" "$criteria_definition"
+	fi
+	record_root_convergence_baseline "$root"
+	clear_worker_thread_for_root "$root" automatic-replan
+	replan_ledger="$(task_replan_ledger_file "$root")"
+	if [[ ! -f "$replan_ledger" ]]; then
+		printf 'replanned_at\ttask_id\ttrigger_task\ttarget_criterion\tstrategy_id\tchange_type\tstrategy_fingerprint\tblocker_fingerprint\tpassed_criterion_count\n' > "$replan_ledger"
+		chmod 600 "$replan_ledger"
+	fi
+	printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+		"$(timestamp_utc)" "$task_id" "$trigger_task" "$target_criterion" "$strategy_id" \
+		"$strategy_change" "$strategy_fingerprint" "$blocking_fingerprint" \
+		"$(task_passed_declared_criterion_count "$root")" >> "$replan_ledger"
+fi
 mv "$tmp" "$ready"
+if (( auto_replan == 1 )); then
+	rm -f "$(task_root_replan_file "$root")" "$(task_root_replanning_file "$root")"
+fi
 activate_project_plan_item "$plan_item_id" "$root"
 
-log_event "TASK_PUBLISHED task=$task_id root=$root plan_item=$plan_item_id starting_progress=$starting_progress file=$ready"
-trace_event TASK_PUBLISHED "task_id=$task_id" "task_root=$root" "plan_item=$plan_item_id" "starting_progress=$starting_progress" "source_file=$task_file" "ready_file=$ready" "progress_file=$progress"
+log_event "TASK_PUBLISHED task=$task_id root=$root plan_item=$plan_item_id starting_progress=$starting_progress target_criterion=${target_criterion:--} auto_replan=$auto_replan file=$ready"
+trace_event TASK_PUBLISHED "task_id=$task_id" "task_root=$root" "plan_item=$plan_item_id" "starting_progress=$starting_progress" "target_criterion=${target_criterion:--}" "auto_replan=$auto_replan" "source_file=$task_file" "ready_file=$ready" "progress_file=$progress"
 printf '%s\n' "$ready"

@@ -13,7 +13,8 @@ Usage: ${0##*/} ENV_FILE [--new-only]
 Watch worker, manager, and final Oracle natural-language messages for the
 currently active harness work. The watcher automatically follows new tasks and
 capacity-retry attempt logs. It exits after draining final messages when the
-project completes or pauses for human intervention.
+project completes or reaches a human-only intervention state. Automatic
+fresh-context replanning is followed like any other manager turn.
 
 Options:
   --new-only   Do not replay existing messages from logs that are active when
@@ -89,11 +90,25 @@ current_worker_log()
 
 current_manager_log()
 {
-	local result task_id candidate="" candidate_epoch="" log epoch planning_turn=0
+	local result task_id candidate="" candidate_epoch="" log epoch planning_turn=0 replan_running
 	for result in "$dir/results/$PROJECT-task-"*.result.md; do
 		[[ -f "$result" ]] || continue
 		task_id="$(task_id_from_filename "$result")"
 		log="$(latest_matching_log "$logs_dir/manager-review-$task_id-*.jsonl")"
+		[[ -n "$log" ]] || continue
+		epoch="$(stat -c '%Y' "$log" 2>/dev/null || printf '0')"
+		if [[ -z "$candidate" || "$epoch" -gt "$candidate_epoch" || ( "$epoch" -eq "$candidate_epoch" && "$log" > "$candidate" ) ]]; then
+			candidate="$log"
+			candidate_epoch="$epoch"
+		fi
+	done
+
+	for replan_running in "$dir/control/progress/$PROJECT-task-"*.replanning.md; do
+		[[ -f "$replan_running" ]] || continue
+		task_id="${replan_running##*/}"
+		task_id="${task_id#${PROJECT}-task-}"
+		task_id="${task_id%.replanning.md}"
+		log="$(latest_matching_log "$logs_dir/manager-replan-$task_id-*-attempt-*.jsonl")"
 		[[ -n "$log" ]] || continue
 		epoch="$(stat -c '%Y' "$log" 2>/dev/null || printf '0')"
 		if [[ -z "$candidate" || "$epoch" -gt "$candidate_epoch" || ( "$epoch" -eq "$candidate_epoch" && "$log" > "$candidate" ) ]]; then
@@ -151,9 +166,14 @@ role_and_task_from_log()
 		MANAGER:manager-bootstrap-*.jsonl)
 			task="bootstrap"
 			;;
-		MANAGER:manager-plan-*.jsonl)
-			task="planning-next-item"
-			;;
+			MANAGER:manager-plan-*.jsonl)
+				task="planning-next-item"
+				;;
+			MANAGER:manager-replan-*.jsonl)
+				task="${name#manager-replan-}"
+				task="${task%-????????T??????Z-attempt-???.jsonl}"
+				task="replanning-$task"
+				;;
 		ORACLE:oracle-audit-*.jsonl)
 			task="${name#oracle-audit-}"
 			task="${task%%-*}"
@@ -261,11 +281,13 @@ terminal_project_state()
 		return 0
 	fi
 	if project_is_blocked ||
-		compgen -G "$dir/control/progress/$PROJECT-task-*.blocked.md" >/dev/null; then
+		compgen -G "$dir/control/progress/$PROJECT-task-*.blocked.md" >/dev/null ||
+		compgen -G "$dir/control/progress/$PROJECT-task-*.needs-human.md" >/dev/null; then
 		printf 'PAUSED_HUMAN_INTERVENTION'
 		return 0
 	fi
-	if compgen -G "$dir/control/progress/$PROJECT-task-*.needs-replan.md" >/dev/null; then
+	if (( HARNESS_AUTO_REPLAN_ENABLED == 0 )) &&
+		compgen -G "$dir/control/progress/$PROJECT-task-*.needs-replan.md" >/dev/null; then
 		printf 'PAUSED_REPLAN'
 		return 0
 	fi
@@ -279,8 +301,9 @@ agent_invocation_running()
 		[[ "$process_args" == *"$HARNESS_ENV_FILE"* ]] || continue
 		case "$process_args" in
 			*"$HARNESS_BIN/worker-invoke-task "*|\
-			*"$HARNESS_BIN/manager-invoke-result "*|\
-			*"$HARNESS_BIN/manager-plan-next-task "*|\
+				*"$HARNESS_BIN/manager-invoke-result "*|\
+				*"$HARNESS_BIN/manager-plan-next-task "*|\
+				*"$HARNESS_BIN/manager-auto-replan-root "*|\
 			*"$HARNESS_BIN/manager-bootstrap "*|\
 			*"$HARNESS_BIN/oracle-invoke-final-audit "*)
 				return 0

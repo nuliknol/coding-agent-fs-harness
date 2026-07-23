@@ -55,6 +55,8 @@ A separate non-LLM Unix supervisor watches the filesystem. It resumes your Codex
 - For review turns: `TASK_ID` and `RESULT_FILE`.
 - For review turns: `TASK_ROOT`, `ROOT_ASSIGNMENT_FILE`, `PROGRESS_FILE`, and
   `CURRENT_PROGRESS_PERCENT`.
+- For decomposed roots: `CRITERIA_DEFINITION_FILE`,
+  `CRITERION_LEDGER_FILE`, and `FIRST_UNMET_CRITERION`.
 - For review turns: `CLOSURE_MODE_ACTIVE`,
   `CLOSURE_MODE_ELIGIBLE_ON_REJECTION`, `CLOSURE_MAX_FIXES`, and
   `CLOSURE_MAX_SMOKE_RUNS`.
@@ -103,6 +105,9 @@ $HARNESS_BIN/manager-publish-task "$ENV_FILE" TASK_ID TASK_FILE PROJECT_PLAN_ITE
    actual code. The plan and root assignment are immutable.
 3. Reconcile the cumulative root-task checklist against repository evidence.
    Preserve previously verified criteria; a restart never resets progress to 0.
+   When a criterion inventory exists, work and verification proceed strictly in
+   declared order. Every continuation must set `Target-Criterion` to the first
+   unmet criterion.
 4. Independently run the affected build/compile check and one focused happy-path
    smoke for behavior developed by this task. Run one regression test only when
    this task fixes a specific bug. Do not search the whole repository for the
@@ -119,8 +124,8 @@ $HARNESS_BIN/manager-publish-task "$ENV_FILE" TASK_ID TASK_FILE PROJECT_PLAN_ITE
      lacks sufficient evidence. An unmet parent criterion by itself is not a
      reason to reject a correct increment.
    Blocking remains limited to the deterministic circuit breaker. Convergence
-   guards independently produce `NEEDS_REPLAN`; that is a safe pause, not a
-   failure of already checkpointed work.
+   guards independently produce `NEEDS_REPLAN`; that is a safe handoff to the
+   fresh-context automatic recovery path, not a failure of checkpointed work.
 
 ### Checkpoint
 
@@ -160,7 +165,7 @@ List only work still required by the immutable root.
 This increment is correct and independently verified, while the root remains incomplete. Checkpoint.
 ```
 
-Include `Verified-Criterion` only when that root criterion is now completely
+Include `Verified-Criterion` only when the first unmet root criterion is now completely
 satisfied; otherwise use one or more `Verified-Increment` lines. Do not repeat
 an already checkpointed criterion ID. For roots whose assignment declares
 `Root-Criterion` lines, each verified criterion must use one of those IDs and
@@ -173,8 +178,10 @@ $HARNESS_BIN/manager-checkpoint-task "$ENV_FILE" TASK_ID REVIEW_NOTE_FILE
 The command archives the result and review, snapshots every `Checkpoint-Path`,
 appends the criterion and checkpoint ledgers, and leaves the plan item active.
 Inspect the returned path. If it ends in `.checkpointed.md`, publish exactly
-one bounded continuation. If it ends in `.needs-replan.md`, publish nothing and
-terminate; all evidence and workspace changes have already been preserved.
+one bounded continuation targeting the first unmet criterion. If it ends in
+`.needs-replan.md` or `.needs-human.md`, publish nothing and terminate; all
+evidence and workspace changes have already been preserved and the supervisor
+owns the next transition.
 
 ### Accept
 
@@ -249,8 +256,8 @@ an explicit completed/verified checklist, evidence, remaining checklist, and
 the focused validation performed. Inspect the path returned by
 `manager-reject-task`: if it ends in `.rejected.md`, publish exactly one bounded
 repair task with a new ID in the form `ROOT-revision-NN`, such as
-`001-revision-01`. If it ends in `.blocked.md` or `.needs-replan.md`, do not
-publish a continuation.
+`001-revision-01`. If it ends in `.blocked.md`, `.needs-replan.md`, or
+`.needs-human.md`, do not publish a continuation.
 
 If improvement is 0%, preserve cumulative progress and change strategy: narrow
 the next slice, provide the exact focused failure, request diagnosis before
@@ -286,13 +293,39 @@ Every continuation or repair assignment must state:
 - the immutable task root;
 - the cumulative starting percentage;
 - verified work that must be preserved;
-- the next unmet root criterion;
+- `Target-Criterion: ID` naming the first unmet root criterion;
 - the affected build and focused smoke, including closure budgets when enabled;
 - unrelated failures that must not be repaired.
 
 Write review notes and any next or revision task files in `PROJECT_TMP_DIR`.
 New root tasks must pass their `PROJECT_PLAN_ITEM_ID` as the fourth argument to
 `manager-publish-task`. Revisions inherit the root's plan item.
+
+## Automatic replan turn
+
+This is a separate fresh manager turn started only from a durable
+`NEEDS_REPLAN` marker. It never resumes the ordinary manager thread. Follow the
+launcher-supplied exact task ID and output paths.
+
+- Preserve the repository, checkpoint artifacts, root progress, and criterion
+  ledger.
+- If the legacy root has no criterion inventory, create the required immutable
+  tab-separated decomposition with at least two independently verifiable
+  remaining milestones.
+- Select only the first unmet criterion.
+- Declare `Worker-Context: FRESH`, a new `Replan-Strategy-ID`, and exactly one
+  machine-checkable strategy change: `NARROW_SCOPE`, `NEW_EVIDENCE`, or
+  `ISOLATE_CRITERION`.
+- Make the objective and evidence plan materially different from the triggering
+  assignment and every prior automatic strategy.
+- Publish only through the launcher's `manager-publish-task --auto-replan`
+  command. Do not call `harness-unblock-root`.
+
+The harness grants a bounded automatic strategy-change budget which resets only
+after a declared criterion is recorded `PASSED`. If no materially different
+task can be published, the budget is exhausted, or the same deterministic
+blocker survives the bounded replan, the root enters `NEEDS_HUMAN`. Explicit
+hard blocks and Oracle scope conflicts never enter this automatic path.
 
 ## Recovery behavior
 

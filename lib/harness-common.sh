@@ -88,6 +88,7 @@ load_harness_env()
 	unset HARNESS_MAX_IDENTICAL_BLOCKERS
 	unset HARNESS_MAX_ROOT_ATTEMPTS HARNESS_MAX_ZERO_GAIN_WINDOW
 	unset HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION
+	unset HARNESS_AUTO_REPLAN_ENABLED HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION
 	unset HARNESS_REUSE_WORKER_THREADS HARNESS_WORKER_THREAD_MAX_REJECTIONS
 	unset HARNESS_CLOSURE_MODE_ENABLED HARNESS_CLOSURE_MODE_MIN_PROGRESS
 	unset HARNESS_CLOSURE_MODE_MAX_FIXES HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS
@@ -96,7 +97,8 @@ load_harness_env()
 	unset HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_KILL_GRACE_SECONDS
 	unset MANAGER_FALLBACK_MODEL WORKER_FALLBACK_MODEL
 	unset ORACLE_MODEL ORACLE_REASONING_EFFORT ORACLE_SANDBOX ORACLE_CODEX_BIN ORACLE_CODEX_HOME ORACLE_CODEX_EXTRA_ARGS ORACLE_ENABLED
-	unset HARNESS_MANAGER_INVOKER HARNESS_MANAGER_PLAN_INVOKER HARNESS_WORKER_INVOKER HARNESS_ORACLE_INVOKER
+	unset HARNESS_MANAGER_INVOKER HARNESS_MANAGER_PLAN_INVOKER HARNESS_MANAGER_REPLAN_INVOKER
+	unset HARNESS_WORKER_INVOKER HARNESS_ORACLE_INVOKER
 	unset CODEX_BIN CODEX_HOME
 	unset CODEX_EXTRA_ARGS
 	unset MANAGER_CODEX_BIN MANAGER_CODEX_HOME MANAGER_MODEL MANAGER_REASONING_EFFORT MANAGER_SANDBOX
@@ -141,6 +143,13 @@ load_harness_env()
 	HARNESS_MAX_ROOT_ATTEMPTS="${HARNESS_MAX_ROOT_ATTEMPTS:-12}"
 	HARNESS_MAX_ZERO_GAIN_WINDOW="${HARNESS_MAX_ZERO_GAIN_WINDOW:-3}"
 	HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION="${HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION:-4}"
+	# A convergence pause is normally recovered without an operator. The
+	# recovery turn starts with fresh manager and worker context, may install a
+	# durable criterion decomposition for a legacy root, and must publish a
+	# materially different first-unmet-criterion continuation. One such replan
+	# is allowed until a declared criterion is completed.
+	HARNESS_AUTO_REPLAN_ENABLED="${HARNESS_AUTO_REPLAN_ENABLED:-1}"
+	HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION="${HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION:-1}"
 	# A rejected continuation normally resumes the same root-scoped Codex
 	# worker thread. Rotate periodically so one stale strategy or an overgrown
 	# context cannot live for the entire root task.
@@ -197,6 +206,7 @@ load_harness_env()
 
 	HARNESS_MANAGER_INVOKER="${HARNESS_MANAGER_INVOKER:-}"
 	HARNESS_MANAGER_PLAN_INVOKER="${HARNESS_MANAGER_PLAN_INVOKER:-}"
+	HARNESS_MANAGER_REPLAN_INVOKER="${HARNESS_MANAGER_REPLAN_INVOKER:-}"
 	HARNESS_WORKER_INVOKER="${HARNESS_WORKER_INVOKER:-}"
 	HARNESS_ORACLE_INVOKER="${HARNESS_ORACLE_INVOKER:-}"
 	if [[ -n "$HARNESS_MANAGER_INVOKER" ]]; then
@@ -204,6 +214,9 @@ load_harness_env()
 	fi
 	if [[ -n "$HARNESS_MANAGER_PLAN_INVOKER" ]]; then
 		HARNESS_MANAGER_PLAN_INVOKER="$(resolve_command_path "$HARNESS_MANAGER_PLAN_INVOKER")"
+	fi
+	if [[ -n "$HARNESS_MANAGER_REPLAN_INVOKER" ]]; then
+		HARNESS_MANAGER_REPLAN_INVOKER="$(resolve_command_path "$HARNESS_MANAGER_REPLAN_INVOKER")"
 	fi
 	if [[ -n "$HARNESS_WORKER_INVOKER" ]]; then
 		HARNESS_WORKER_INVOKER="$(resolve_command_path "$HARNESS_WORKER_INVOKER")"
@@ -245,6 +258,9 @@ load_harness_env()
 	[[ "$HARNESS_MAX_ROOT_ATTEMPTS" =~ ^[0-9]+$ ]] || die 'HARNESS_MAX_ROOT_ATTEMPTS must be a nonnegative integer'
 	[[ "$HARNESS_MAX_ZERO_GAIN_WINDOW" =~ ^[0-9]+$ ]] || die 'HARNESS_MAX_ZERO_GAIN_WINDOW must be a nonnegative integer'
 	[[ "$HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION" =~ ^[0-9]+$ ]] || die 'HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION must be a nonnegative integer'
+	[[ "$HARNESS_AUTO_REPLAN_ENABLED" =~ ^[01]$ ]] || die 'HARNESS_AUTO_REPLAN_ENABLED must be 0 or 1'
+	[[ "$HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION" =~ ^[1-9][0-9]*$ ]] ||
+		die 'HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION must be a positive integer'
 	[[ "$HARNESS_REUSE_WORKER_THREADS" =~ ^[01]$ ]] || die 'HARNESS_REUSE_WORKER_THREADS must be 0 or 1'
 	[[ "$HARNESS_WORKER_THREAD_MAX_REJECTIONS" =~ ^[0-9]+$ ]] || die 'HARNESS_WORKER_THREAD_MAX_REJECTIONS must be a nonnegative integer'
 	[[ "$HARNESS_CLOSURE_MODE_ENABLED" =~ ^[01]$ ]] || die 'HARNESS_CLOSURE_MODE_ENABLED must be 0 or 1'
@@ -288,6 +304,7 @@ load_harness_env()
 	export HARNESS_HOME HARNESS_BIN HARNESS_ROOT HARNESS_POLL_SECONDS HARNESS_WAIT_SECONDS
 	export HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY HARNESS_MAX_IDENTICAL_BLOCKERS HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
 	export HARNESS_MAX_ROOT_ATTEMPTS HARNESS_MAX_ZERO_GAIN_WINDOW HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION
+	export HARNESS_AUTO_REPLAN_ENABLED HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION
 	export HARNESS_REUSE_WORKER_THREADS HARNESS_WORKER_THREAD_MAX_REJECTIONS
 	export HARNESS_CLOSURE_MODE_ENABLED HARNESS_CLOSURE_MODE_MIN_PROGRESS HARNESS_CLOSURE_MODE_MAX_FIXES HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS
 	export HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
@@ -297,7 +314,8 @@ load_harness_env()
 	export WORKER_CODEX_BIN WORKER_CODEX_HOME WORKER_MODEL WORKER_REASONING_EFFORT WORKER_SANDBOX
 	export MANAGER_FALLBACK_MODEL WORKER_FALLBACK_MODEL
 	export ORACLE_MODEL ORACLE_ENABLED ORACLE_REASONING_EFFORT ORACLE_SANDBOX ORACLE_CODEX_BIN ORACLE_CODEX_HOME
-	export HARNESS_MANAGER_INVOKER HARNESS_MANAGER_PLAN_INVOKER HARNESS_WORKER_INVOKER HARNESS_ORACLE_INVOKER
+	export HARNESS_MANAGER_INVOKER HARNESS_MANAGER_PLAN_INVOKER HARNESS_MANAGER_REPLAN_INVOKER
+	export HARNESS_WORKER_INVOKER HARNESS_ORACLE_INVOKER
 }
 
 load_codex_extra_args()
@@ -453,6 +471,20 @@ task_root_replan_file()
 	printf '%s/control/progress/%s-task-%s.needs-replan.md' "$(project_dir)" "$PROJECT" "$root"
 }
 
+task_root_human_file()
+{
+	local root
+	root="$(task_root_id "$1")"
+	printf '%s/control/progress/%s-task-%s.needs-human.md' "$(project_dir)" "$PROJECT" "$root"
+}
+
+task_root_replanning_file()
+{
+	local root
+	root="$(task_root_id "$1")"
+	printf '%s/control/progress/%s-task-%s.replanning.md' "$(project_dir)" "$PROJECT" "$root"
+}
+
 task_convergence_baseline_file()
 {
 	local root
@@ -479,6 +511,105 @@ task_criterion_ledger_file()
 	local root
 	root="$(task_root_id "$1")"
 	printf '%s/control/progress/%s-task-%s.criteria.tsv' "$(project_dir)" "$PROJECT" "$root"
+}
+
+task_criteria_definition_file()
+{
+	local root
+	root="$(task_root_id "$1")"
+	printf '%s/control/progress/%s-task-%s.criteria-definition.tsv' "$(project_dir)" "$PROJECT" "$root"
+}
+
+task_replan_ledger_file()
+{
+	local root
+	root="$(task_root_id "$1")"
+	printf '%s/control/progress/%s-task-%s.replans.tsv' "$(project_dir)" "$PROJECT" "$root"
+}
+
+task_replan_baseline_file()
+{
+	local root
+	root="$(task_root_id "$1")"
+	printf '%s/control/progress/%s-task-%s.replan-baseline' "$(project_dir)" "$PROJECT" "$root"
+}
+
+validate_criteria_definition_file()
+{
+	local file="$1" minimum="${2:-1}" header id title evidence extra count=0
+	local -A seen=()
+	[[ -f "$file" ]] || die "criteria definition does not exist: $file"
+	IFS= read -r header < "$file" || die "criteria definition is empty: $file"
+	[[ "$header" == $'criterion_id\ttitle\tacceptance_evidence' ]] ||
+		die 'criteria definition header must be: criterion_id<TAB>title<TAB>acceptance_evidence'
+	while IFS=$'\t' read -r id title evidence extra; do
+		[[ -n "$id" && -n "$title" && -n "$evidence" && -z "$extra" ]] ||
+			die "each criteria definition row must contain exactly three nonempty tab-separated fields: $file"
+		[[ "$id" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]] ||
+			die "invalid criterion identifier in criteria definition: $id"
+		[[ -z "${seen[$id]:-}" ]] || die "duplicate criterion identifier in criteria definition: $id"
+		seen[$id]=1
+		count=$((count + 1))
+	done < <(tail -n +2 "$file")
+	(( count >= minimum )) ||
+		die "criteria definition requires at least $minimum independently verifiable criterion row(s)"
+}
+
+task_root_uses_assignment_criteria()
+{
+	local assignment
+	assignment="$(task_root_assignment_file "$1")"
+	[[ -f "$assignment" ]] && grep -Eq '^Root-Criterion: [A-Za-z0-9][A-Za-z0-9._:-]*$' "$assignment"
+}
+
+task_root_declared_criteria()
+{
+	local root assignment definition
+	root="$(task_root_id "$1")"
+	assignment="$(task_root_assignment_file "$root")"
+	definition="$(task_criteria_definition_file "$root")"
+	if task_root_uses_assignment_criteria "$root"; then
+		awk -F': ' '$1 == "Root-Criterion" {print $2}' "$assignment"
+	elif [[ -f "$definition" ]]; then
+		awk -F '\t' 'NR > 1 {print $1}' "$definition"
+	fi
+}
+
+task_criterion_is_passed()
+{
+	local root criterion ledger
+	root="$(task_root_id "$1")"
+	criterion="$2"
+	ledger="$(task_criterion_ledger_file "$root")"
+	[[ -f "$ledger" ]] &&
+		awk -F '\t' -v item="$criterion" 'NR > 1 && $1 == item && $2 == "PASSED" {found=1} END {exit !found}' "$ledger"
+}
+
+task_first_unmet_criterion()
+{
+	local root criterion
+	root="$(task_root_id "$1")"
+	while IFS= read -r criterion; do
+		[[ -n "$criterion" ]] || continue
+		if ! task_criterion_is_passed "$root" "$criterion"; then
+			printf '%s\n' "$criterion"
+			return 0
+		fi
+	done < <(task_root_declared_criteria "$root")
+	return 1
+}
+
+task_passed_declared_criterion_count()
+{
+	local root criterion count=0
+	root="$(task_root_id "$1")"
+	while IFS= read -r criterion; do
+		[[ -n "$criterion" ]] || continue
+		if task_criterion_is_passed "$root" "$criterion"; then
+			count=$((count + 1))
+		fi
+	done < <(task_root_declared_criteria "$root")
+	printf '%s\n' "$count"
 }
 
 task_checkpoint_artifact_dir()
@@ -609,9 +740,20 @@ task_root_needs_replan()
 	[[ -f "$(task_root_replan_file "$1")" ]]
 }
 
+task_root_needs_human()
+{
+	[[ -f "$(task_root_human_file "$1")" ]]
+}
+
+task_root_is_replanning()
+{
+	[[ -f "$(task_root_replanning_file "$1")" ]]
+}
+
 task_root_is_paused()
 {
-	task_root_is_blocked "$1" || task_root_needs_replan "$1"
+	task_root_is_blocked "$1" || task_root_needs_replan "$1" ||
+		task_root_needs_human "$1" || task_root_is_replanning "$1"
 }
 
 task_progress_percent()
@@ -761,7 +903,23 @@ root_zero_gain_streak()
 	baseline=0
 	[[ ! -f "$baseline_file" ]] || baseline="$(kv_file_value "$baseline_file" history_rows 2>/dev/null || printf 0)"
 	[[ "$baseline" =~ ^[0-9]+$ ]] || baseline=0
-	awk -F '\t' -v baseline="$baseline" 'NR > 1 && NR > baseline + 1 {gain[++n] = $5} END {for (i = n; i > 0 && gain[i] == 0; i--) count++; print count + 0}' "$history"
+	awk -F '\t' -v baseline="$baseline" '
+		NR > 1 && NR > baseline + 1 {
+			decision[++n] = $3
+			gain[n] = $5
+		}
+		END {
+			for (i = n; i > 0; i--) {
+				# A committed checkpoint necessarily records a new stable
+				# criterion or increment. Treat that evidence-backed outcome as
+				# gain even when legacy percentage progress is pinned at 99%.
+				if (gain[i] != 0 || decision[i] == "CHECKPOINT")
+					break
+				count++
+			}
+			print count + 0
+		}
+	' "$history"
 }
 
 root_checkpoint_without_criterion_streak()
@@ -776,15 +934,111 @@ root_checkpoint_without_criterion_streak()
 	awk -F '\t' -v baseline="$baseline" 'NR > 1 && NR > baseline + 1 {criteria[++n] = $3} END {for (i = n; i > 0 && criteria[i] == 0; i--) count++; print count + 0}' "$ledger"
 }
 
+record_root_convergence_baseline()
+{
+	local root="$1" baseline history checkpoint_ledger history_rows=0 checkpoint_rows=0 tmp
+	baseline="$(task_convergence_baseline_file "$root")"
+	history="$(task_progress_history_file "$root")"
+	checkpoint_ledger="$(task_checkpoint_ledger_file "$root")"
+	[[ ! -f "$history" ]] || history_rows="$(( $(wc -l < "$history") - 1 ))"
+	[[ ! -f "$checkpoint_ledger" ]] || checkpoint_rows="$(( $(wc -l < "$checkpoint_ledger") - 1 ))"
+	(( history_rows >= 0 )) || history_rows=0
+	(( checkpoint_rows >= 0 )) || checkpoint_rows=0
+	tmp="$baseline.tmp.$$"
+	{
+		printf 'reviewed_attempts=%s\n' "$(root_reviewed_attempt_count "$root")"
+		printf 'history_rows=%s\n' "$history_rows"
+		printf 'checkpoint_rows=%s\n' "$checkpoint_rows"
+		printf 'resumed_at=%s\n' "$(timestamp_utc)"
+	} > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$baseline"
+}
+
+root_auto_replans_without_criterion()
+{
+	local root="$1" ledger passed baseline_file baseline=0
+	ledger="$(task_replan_ledger_file "$root")"
+	[[ -f "$ledger" ]] || { printf '0\n'; return 0; }
+	passed="$(task_passed_declared_criterion_count "$root")"
+	baseline_file="$(task_replan_baseline_file "$root")"
+	[[ ! -f "$baseline_file" ]] ||
+		baseline="$(kv_file_value "$baseline_file" replan_rows 2>/dev/null || printf 0)"
+	[[ "$baseline" =~ ^[0-9]+$ ]] || baseline=0
+	awk -F '\t' -v passed="$passed" -v baseline="$baseline" '
+		NR > 1 && NR > baseline + 1 {criterion_count[++n] = $9}
+		END {
+			for (i = n; i > 0 && criterion_count[i] == passed; i--)
+				count++
+			print count + 0
+		}
+	' "$ledger"
+}
+
+record_root_replan_baseline()
+{
+	local root="$1" ledger baseline rows=0 tmp
+	ledger="$(task_replan_ledger_file "$root")"
+	baseline="$(task_replan_baseline_file "$root")"
+	[[ ! -f "$ledger" ]] || rows="$(( $(wc -l < "$ledger") - 1 ))"
+	(( rows >= 0 )) || rows=0
+	tmp="$baseline.tmp.$$"
+	{
+		printf 'replan_rows=%s\n' "$rows"
+		printf 'passed_criteria=%s\n' "$(task_passed_declared_criterion_count "$root")"
+		printf 'reset_at=%s\n' "$(timestamp_utc)"
+	} > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$baseline"
+}
+
+root_last_auto_replan_blocker()
+{
+	local ledger
+	ledger="$(task_replan_ledger_file "$1")"
+	[[ -f "$ledger" ]] || return 1
+	awk -F '\t' 'NR > 1 {value=$8} END {if (value != "" && value != "-") print value}' "$ledger"
+}
+
+mark_root_needs_human()
+{
+	local root="$1" trigger_task="$2" reason="$3" marker tmp
+	root="$(task_root_id "$root")"
+	marker="$(task_root_human_file "$root")"
+	if [[ ! -f "$marker" ]]; then
+		tmp="$marker.tmp.$$"
+		{
+			printf '# Root Task Needs Human Intervention\n\n'
+			printf 'Project: %s\n\n' "$PROJECT"
+			printf 'Task-Root: %s\n\n' "$root"
+			printf 'Triggered-By: %s\n\n' "$trigger_task"
+			printf 'Paused-At: %s\n\n' "$(timestamp_utc)"
+			printf 'Progress-Percent: %s%%\n\n' "$(task_progress_percent "$root")"
+			printf 'Reason: %s\n\n' "$reason"
+			printf 'Verified checkpoints, criterion evidence, review history, and repository changes are preserved. An operator must inspect this marker and explicitly run harness-unblock-root after changing the strategy, authority, or external blocking condition.\n'
+		} > "$tmp"
+		chmod 600 "$tmp"
+		mv "$tmp" "$marker"
+	fi
+	rm -f "$(task_root_replan_file "$root")" "$(task_root_replanning_file "$root")"
+	log_event "TASK_NEEDS_HUMAN root=$root trigger=$trigger_task reason=$(printf '%q' "$reason") marker=$marker"
+	printf '%s\n' "$marker"
+}
+
 mark_root_needs_replan()
 {
-	local task_id="$1" reason="$2" trigger="$3" root marker tmp
+	local task_id="$1" reason="$2" trigger="$3" root marker progress blocking_fingerprint tmp
 	root="$(task_root_id "$task_id")"
 	marker="$(task_root_replan_file "$root")"
 	if [[ -f "$marker" ]]; then
 		printf '%s\n' "$marker"
 		return 0
 	fi
+	progress="$(task_progress_file "$root")"
+	blocking_fingerprint=""
+	[[ ! -f "$progress" ]] ||
+		blocking_fingerprint="$(awk -F': ' '$1 == "Blocking-Fingerprint" {print $2; exit}' "$progress")"
+	[[ -n "$blocking_fingerprint" ]] || blocking_fingerprint="-"
 	tmp="$marker.tmp.$$"
 	{
 		printf '# Root Task Needs Replanning\n\n'
@@ -799,7 +1053,12 @@ mark_root_needs_replan()
 		printf 'Reviewed-Attempts-Since-Last-Replan: %s\n' "$(root_reviewed_attempts_since_replan "$root")"
 		printf 'Zero-Gain-Streak: %s\n' "$(root_zero_gain_streak "$root")"
 		printf 'Checkpoints-Without-Criterion: %s\n\n' "$(root_checkpoint_without_criterion_streak "$root")"
-		printf 'All checkpoint artifacts, review records, progress history, and repository changes are preserved. Reassess and narrow the active item, then run harness-unblock-root to grant a fresh convergence window.\n'
+		printf 'Blocking-Fingerprint: %s\n\n' "$blocking_fingerprint"
+		if (( HARNESS_AUTO_REPLAN_ENABLED == 1 )); then
+			printf 'All checkpoint artifacts, review records, progress history, and repository changes are preserved. The supervisor will request one fresh-context, materially different continuation of the first unmet criterion. If that bounded recovery cannot change strategy or does not complete a criterion, the root will require human intervention.\n'
+		else
+			printf 'All checkpoint artifacts, review records, progress history, and repository changes are preserved. Automatic replanning is disabled; reassess the active item, then run harness-unblock-root to grant a fresh convergence window.\n'
+		fi
 	} > "$tmp"
 	chmod 600 "$tmp"
 	mv "$tmp" "$marker"
@@ -824,7 +1083,7 @@ maybe_mark_root_needs_replan()
 	zero_streak="$(root_zero_gain_streak "$root")"
 	if (( HARNESS_MAX_ZERO_GAIN_WINDOW > 0 && zero_streak >= HARNESS_MAX_ZERO_GAIN_WINDOW )); then
 		mark_root_needs_replan "$task_id" \
-			"consecutive zero-gain reviews reached the configured limit ($zero_streak/$HARNESS_MAX_ZERO_GAIN_WINDOW)" "$trigger"
+			"consecutive reviews without measured or checkpointed gain reached the configured limit ($zero_streak/$HARNESS_MAX_ZERO_GAIN_WINDOW)" "$trigger"
 		return 0
 	fi
 	checkpoint_streak="$(root_checkpoint_without_criterion_streak "$root")"
@@ -834,6 +1093,28 @@ maybe_mark_root_needs_replan()
 		return 0
 	fi
 	return 1
+}
+
+next_task_revision_id()
+{
+	local root dir path name revision max_revision=0
+	root="$(task_root_id "$1")"
+	dir="$(project_dir)"
+	shopt -s nullglob
+	for path in "$dir/tasks/$PROJECT-task-$root-revision-"* \
+		"$dir/running/$PROJECT-task-$root-revision-"* \
+		"$dir/results/$PROJECT-task-$root-revision-"* \
+		"$dir/archive/$PROJECT-task-$root-revision-"* \
+		"$dir/control/$PROJECT-task-$root-revision-"*; do
+		[[ -e "$path" ]] || continue
+		name="${path##*/}"
+		if [[ "$name" =~ ^${PROJECT}-task-${root}-revision-([0-9]+)[.] ]]; then
+			revision="${BASH_REMATCH[1]}"
+			revision=$((10#$revision))
+			(( revision <= max_revision )) || max_revision="$revision"
+		fi
+	done
+	printf '%s-revision-%02d\n' "$root" "$((max_revision + 1))"
 }
 
 task_id_from_filename()
@@ -1423,6 +1704,8 @@ write_manager_snapshot()
 		printf 'sandbox=%s\n' "$MANAGER_SANDBOX"
 		printf 'codex_bin=%s\n' "$MANAGER_CODEX_BIN"
 		printf 'codex_home=%s\n' "$MANAGER_CODEX_HOME"
+		printf 'auto_replan_enabled=%s\n' "$HARNESS_AUTO_REPLAN_ENABLED"
+		printf 'max_auto_replans_without_criterion=%s\n' "$HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION"
 		printf 'env_file=%s\n' "$HARNESS_ENV_FILE"
 		printf 'env_sha256=%s\n' "$(env_sha256)"
 		printf 'updated_at=%s\n' "$(timestamp_utc)"

@@ -19,10 +19,14 @@ dir="$(project_dir)"
 write_oracle_snapshot
 manager_invoker="${HARNESS_MANAGER_INVOKER:-$HARNESS_BIN/manager-invoke-result}"
 manager_plan_invoker="${HARNESS_MANAGER_PLAN_INVOKER:-$HARNESS_BIN/manager-plan-next-task}"
+manager_replan_invoker="${HARNESS_MANAGER_REPLAN_INVOKER:-$HARNESS_BIN/manager-auto-replan-root}"
 oracle_invoker="${HARNESS_ORACLE_INVOKER:-$HARNESS_BIN/oracle-invoke-final-audit}"
 manager_pending_exit_status=3
 [[ -x "$manager_invoker" ]] || die "manager invoker is not executable: $manager_invoker"
 [[ -x "$manager_plan_invoker" ]] || die "manager plan invoker is not executable: $manager_plan_invoker"
+if (( HARNESS_AUTO_REPLAN_ENABLED == 1 )); then
+	[[ -x "$manager_replan_invoker" ]] || die "manager replan invoker is not executable: $manager_replan_invoker"
+fi
 if oracle_enabled; then
 	[[ -x "$oracle_invoker" ]] || die "oracle invoker is not executable: $oracle_invoker"
 fi
@@ -35,6 +39,7 @@ watch_pid=""
 supervisor_exit_status=0
 current_command=""
 oracle_failed_fingerprint=""
+declare -A replan_failed_fingerprint=()
 
 log_supervisor_failure()
 {
@@ -151,7 +156,53 @@ project_has_active_task()
 		compgen -G "$dir/running/$PROJECT-task-*.running.md" >/dev/null ||
 		compgen -G "$dir/results/$PROJECT-task-*.result.md" >/dev/null ||
 		compgen -G "$dir/control/progress/$PROJECT-task-*.blocked.md" >/dev/null ||
-		compgen -G "$dir/control/progress/$PROJECT-task-*.needs-replan.md" >/dev/null
+		compgen -G "$dir/control/progress/$PROJECT-task-*.needs-replan.md" >/dev/null ||
+		compgen -G "$dir/control/progress/$PROJECT-task-*.needs-human.md" >/dev/null ||
+		compgen -G "$dir/control/progress/$PROJECT-task-*.replanning.md" >/dev/null
+}
+
+process_auto_replans()
+{
+	local marker name root current status alert tmp
+	(( HARNESS_AUTO_REPLAN_ENABLED == 1 )) || return 0
+	shopt -s nullglob
+	for marker in "$dir/control/progress/$PROJECT-task-"*.needs-replan.md; do
+		[[ -f "$marker" ]] || continue
+		name="${marker##*/}"
+		root="${name#${PROJECT}-task-}"
+		root="${root%.needs-replan.md}"
+		current="$(fingerprint "$marker")"
+		[[ "${replan_failed_fingerprint[$root]:-}" != "$current" ]] || continue
+		log_event "SUPERVISOR_INVOKE_MANAGER_REPLAN root=$root fingerprint=$current invoker=$manager_replan_invoker"
+		trace_event SUPERVISOR_INVOKE_MANAGER_REPLAN "root=$root" "fingerprint=$current" "manager_replan_invoker=$manager_replan_invoker"
+		set +e
+		"$manager_replan_invoker" "$HARNESS_ENV_FILE" "$root"
+		status=$?
+		set -e
+		trace_event SUPERVISOR_MANAGER_REPLAN_EXIT "root=$root" "status=$status"
+		if (( status == 0 )); then
+			unset 'replan_failed_fingerprint[$root]'
+			rm -f "$dir/control/$PROJECT-task-$root.manager-replan-failed.md"
+			continue
+		fi
+		replan_failed_fingerprint[$root]="$current"
+		alert="$dir/control/$PROJECT-task-$root.manager-replan-failed.md"
+		tmp="$alert.tmp.$$"
+		{
+			printf '# Automatic Manager Replan Invocation Failed\n\n'
+			printf 'Project: %s\n\n' "$PROJECT"
+			printf 'Task-Root: %s\n\n' "$root"
+			printf 'Environment-File: %s\n\n' "$HARNESS_ENV_FILE"
+			printf 'Needs-Replan-Fingerprint: %s\n\n' "$current"
+			printf 'Failed-At: %s\n\n' "$(timestamp_utc)"
+			printf 'Exit-Status: %s\n\n' "$status"
+			printf 'The supervisor will not repeat this unchanged local failure during its current run. Provider failures retry inside the replan invoker.\n'
+		} > "$tmp"
+		chmod 600 "$tmp"
+		mv "$tmp" "$alert"
+		mark_root_needs_human "$root" "$root" \
+			"automatic replan invoker failed locally (status=$status); inspect $alert before explicitly resuming" >/dev/null
+	done
 }
 
 process_planning_gap()
@@ -255,6 +306,10 @@ while true; do
 		break
 	fi
 	process_results
+	if handle_project_completion; then
+		break
+	fi
+	process_auto_replans
 	if handle_project_completion; then
 		break
 	fi

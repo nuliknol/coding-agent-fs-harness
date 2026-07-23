@@ -13,6 +13,11 @@ stable ID. Continuations inherit this immutable inventory. -->
 Root-Criterion: feature.behavior
 Root-Criterion: feature.validation
 
+<!-- Continuations replace Root-Criterion declarations with exactly one
+Target-Criterion naming the first unmet immutable criterion. Automatic replans
+also declare Worker-Context, Replan-Strategy-ID, Strategy-Change, and
+Supersedes-Task as directed by the launcher. -->
+
 ## Objective
 
 Describe one bounded implementation objective.

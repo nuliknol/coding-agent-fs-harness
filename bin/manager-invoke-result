@@ -44,6 +44,9 @@ initialize_task_progress "$task_id" "$assignment_archive"
 task_root="$(task_root_id "$task_id")"
 progress_file="$(task_progress_file "$task_root")"
 root_assignment_file="$(task_root_assignment_file "$task_root")"
+criteria_definition_file="$(task_criteria_definition_file "$task_root")"
+criterion_ledger_file="$(task_criterion_ledger_file "$task_root")"
+first_unmet_criterion="$(task_first_unmet_criterion "$task_root" 2>/dev/null || true)"
 current_progress="$(task_progress_percent "$task_root")"
 closure_mode_active=0
 if (( HARNESS_CLOSURE_MODE_ENABLED == 1 )) &&
@@ -69,6 +72,9 @@ RESULT_FILE=$result
 TASK_ROOT=$task_root
 ROOT_ASSIGNMENT_FILE=$root_assignment_file
 PROGRESS_FILE=$progress_file
+CRITERIA_DEFINITION_FILE=$criteria_definition_file
+CRITERION_LEDGER_FILE=$criterion_ledger_file
+FIRST_UNMET_CRITERION=$first_unmet_criterion
 CURRENT_PROGRESS_PERCENT=$current_progress
 PROJECT_PLAN_FILE=$project_plan_definition
 PROJECT_PLAN_STATE_FILE=$project_plan_state
@@ -85,7 +91,7 @@ MAX_ROOT_ATTEMPTS=$HARNESS_MAX_ROOT_ATTEMPTS
 MAX_ZERO_GAIN_WINDOW=$HARNESS_MAX_ZERO_GAIN_WINDOW
 MAX_CHECKPOINTS_WITHOUT_CRITERION=$HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION
 
-Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and follow it. Read DEVELOPMENT_POLICY_FILE when present, then PROJECT_PLAN_FILE, PROJECT_PLAN_STATE_FILE, ROOT_ASSIGNMENT_FILE, and PROGRESS_FILE before reviewing this result. Reconcile cumulative root progress and project progress against the actual repository; do not reset completed work after a restart. Write any review note and any next or revision task file under PROJECT_TMP_DIR. Every harness command must receive ENV_FILE as its first argument. Checkpoint a correct verified increment that does not complete the root; accept only when the entire root passes; reject only a faulty, regressive, or unverified increment. Inspect the command's returned path and do not publish a continuation when it ends in .needs-replan.md or .blocked.md. When closure mode is eligible, author the continuation for the bounded multi-attempt closure policy rather than imposing an exactly-once smoke restriction. Acceptance completes only the current project-plan item; if project items remain, publish exactly one task for the next item. Then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or call manager-wait-result.
+Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and follow it. Read DEVELOPMENT_POLICY_FILE when present, then PROJECT_PLAN_FILE, PROJECT_PLAN_STATE_FILE, ROOT_ASSIGNMENT_FILE, PROGRESS_FILE, CRITERIA_DEFINITION_FILE, and CRITERION_LEDGER_FILE when present before reviewing this result. Reconcile cumulative root progress and project progress against the actual repository; do not reset completed work after a restart. Write any review note and any next or revision task file under PROJECT_TMP_DIR. Every harness command must receive ENV_FILE as its first argument. Checkpoint a correct verified increment that does not complete the root; accept only when the entire root passes; reject only a faulty, regressive, or unverified increment. Any ordinary continuation must set Target-Criterion to FIRST_UNMET_CRITERION. Inspect the command's returned path and do not publish a continuation when it ends in .needs-replan.md, .needs-human.md, or .blocked.md; the supervisor owns automatic replanning. When closure mode is eligible, author the continuation for the bounded multi-attempt closure policy rather than imposing an exactly-once smoke restriction. Acceptance completes only the current project-plan item; if project items remain, publish exactly one task for the next item. Then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or call manager-wait-result.
 PROMPT
 if codex_model_requires_narrow_prompt "$MANAGER_MODEL"; then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT

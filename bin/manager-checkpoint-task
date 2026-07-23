@@ -147,7 +147,7 @@ for checkpoint_item in "${verified_criteria[@]}" "${verified_increments[@]}"; do
 done
 
 root_assignment_file="$(task_root_assignment_file "$root")"
-mapfile -t declared_criteria < <(awk -F': ' '$1 == "Root-Criterion" {print $2}' "$root_assignment_file")
+mapfile -t declared_criteria < <(task_root_declared_criteria "$root")
 if (( ${#declared_criteria[@]} > 0 )); then
 	declare -A declared_criterion_ids=()
 	for declared_criterion in "${declared_criteria[@]}"; do
@@ -159,21 +159,23 @@ if (( ${#declared_criteria[@]} > 0 )); then
 	done
 	for criterion in "${verified_criteria[@]}"; do
 		[[ -n "${declared_criterion_ids[$criterion]:-}" ]] ||
-			die "Verified-Criterion is not declared by the immutable root assignment: $criterion"
+			die "Verified-Criterion is not declared by the immutable root criterion inventory: $criterion"
+		first_unmet="$(task_first_unmet_criterion "$root" 2>/dev/null || true)"
+		[[ "$criterion" == "$first_unmet" ]] ||
+			die "Verified-Criterion must complete the first unmet criterion: $first_unmet"
 	done
-	passed_criteria=0
-	if [[ -f "$criterion_ledger" ]]; then
-		passed_criteria="$(awk -F '\t' 'NR > 1 && $2 == "PASSED" {count++} END {print count + 0}' "$criterion_ledger")"
-	fi
-	expected_progress=$(( (passed_criteria + ${#verified_criteria[@]}) * 100 / ${#declared_criteria[@]} ))
-	(( expected_progress < 100 )) ||
+	passed_criteria="$(task_passed_declared_criterion_count "$root")"
+	(( passed_criteria + ${#verified_criteria[@]} < ${#declared_criteria[@]} )) ||
 		die 'all declared root criteria would pass; use manager-accept-task instead of checkpointing'
-	expected_improvement=$((expected_progress - current_progress))
-	(( expected_improvement >= 0 )) || expected_improvement=0
-	(( progress_percent == expected_progress )) ||
-		die "Progress-Percent must equal calculated declared-criterion progress: $expected_progress%"
-	(( improvement_percent == expected_improvement )) ||
-		die "Improvement-Percent must equal calculated declared-criterion gain: $expected_improvement%"
+	if task_root_uses_assignment_criteria "$root"; then
+		expected_progress=$(( (passed_criteria + ${#verified_criteria[@]}) * 100 / ${#declared_criteria[@]} ))
+		expected_improvement=$((expected_progress - current_progress))
+		(( expected_improvement >= 0 )) || expected_improvement=0
+		(( progress_percent == expected_progress )) ||
+			die "Progress-Percent must equal calculated declared-criterion progress: $expected_progress%"
+		(( improvement_percent == expected_improvement )) ||
+			die "Improvement-Percent must equal calculated declared-criterion gain: $expected_improvement%"
+	fi
 fi
 
 if (( ${#checkpoint_paths[@]} > 1 )); then
