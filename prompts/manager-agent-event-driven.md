@@ -56,7 +56,10 @@ A separate non-LLM Unix supervisor watches the filesystem. It resumes your Codex
 - For review turns: `TASK_ROOT`, `ROOT_ASSIGNMENT_FILE`, `PROGRESS_FILE`, and
   `CURRENT_PROGRESS_PERCENT`.
 - For decomposed roots: `CRITERIA_DEFINITION_FILE`,
-  `CRITERION_LEDGER_FILE`, and `FIRST_UNMET_CRITERION`.
+  `CRITERION_DECOMPOSITION_FILE`, `CRITERION_LEDGER_FILE`, and
+  `FIRST_UNMET_CRITERION`. Decomposition rows are append-only children of an
+  unexpectedly broad leaf; they never replace or delete the original root
+  inventory.
 - For review turns: `CLOSURE_MODE_ACTIVE`,
   `CLOSURE_MODE_ELIGIBLE_ON_REJECTION`, `CLOSURE_MAX_FIXES`, and
   `CLOSURE_MAX_SMOKE_RUNS`.
@@ -106,8 +109,8 @@ $HARNESS_BIN/manager-publish-task "$ENV_FILE" TASK_ID TASK_FILE PROJECT_PLAN_ITE
 3. Reconcile the cumulative root-task checklist against repository evidence.
    Preserve previously verified criteria; a restart never resets progress to 0.
    When a criterion inventory exists, work and verification proceed strictly in
-   declared order. Every continuation must set `Target-Criterion` to the first
-   unmet criterion.
+   declared leaf order. Every continuation must set `Target-Criterion` to the
+   first unmet leaf criterion.
 4. Independently run the affected build/compile check and one focused happy-path
    smoke for behavior developed by this task. Run one regression test only when
    this task fixes a specific bug. Do not search the whole repository for the
@@ -165,11 +168,13 @@ List only work still required by the immutable root.
 This increment is correct and independently verified, while the root remains incomplete. Checkpoint.
 ```
 
-Include `Verified-Criterion` only when the first unmet root criterion is now completely
+Include `Verified-Criterion` only when the first unmet leaf criterion is now completely
 satisfied; otherwise use one or more `Verified-Increment` lines. Do not repeat
-an already checkpointed criterion ID. For roots whose assignment declares
-`Root-Criterion` lines, each verified criterion must use one of those IDs and
-the harness calculates `Progress-Percent` from the passed/declared ratio. Call:
+an already checkpointed criterion ID. A leaf is either an original
+`Root-Criterion` or an append-only child installed by automatic replanning.
+Without a child decomposition the harness calculates `Progress-Percent` from
+the passed/declared ratio; decomposed roots keep monotonic legacy percentages
+while their item ledger is the authoritative fine-grained progress. Call:
 
 ```text
 $HARNESS_BIN/manager-checkpoint-task "$ENV_FILE" TASK_ID REVIEW_NOTE_FILE
@@ -293,7 +298,7 @@ Every continuation or repair assignment must state:
 - the immutable task root;
 - the cumulative starting percentage;
 - verified work that must be preserved;
-- `Target-Criterion: ID` naming the first unmet root criterion;
+- `Target-Criterion: ID` naming the first unmet leaf criterion;
 - the affected build and focused smoke, including closure budgets when enabled;
 - unrelated failures that must not be repaired.
 
@@ -312,7 +317,10 @@ launcher-supplied exact task ID and output paths.
 - If the legacy root has no criterion inventory, create the required immutable
   tab-separated decomposition with at least two independently verifiable
   remaining milestones.
-- Select only the first unmet criterion.
+- If an existing first-unmet leaf proves unexpectedly broad, it may be refined
+  into at least two ordered children in the launcher-provided append-only
+  decomposition file. Never replace, reorder, or delete existing criteria.
+- Select only the first unmet leaf criterion.
 - Declare `Worker-Context: FRESH`, a new `Replan-Strategy-ID`, and exactly one
   machine-checkable strategy change: `NARROW_SCOPE`, `NEW_EVIDENCE`, or
   `ISOLATE_CRITERION`.
@@ -321,11 +329,15 @@ launcher-supplied exact task ID and output paths.
 - Publish only through the launcher's `manager-publish-task --auto-replan`
   command. Do not call `harness-unblock-root`.
 
-The harness grants a bounded automatic strategy-change budget which resets only
-after a declared criterion is recorded `PASSED`. If no materially different
-task can be published, the budget is exhausted, or the same deterministic
-blocker survives the bounded replan, the root enters `NEEDS_HUMAN`. Explicit
-hard blocks and Oracle scope conflicts never enter this automatic path.
+The harness grants a bounded automatic strategy-change budget which resets
+after any unique verified checkpoint or passed criterion. A periodic
+checkpoint-without-criterion guard therefore rotates strategy and context but
+does not become a path to human intervention while durable evidence continues
+to accumulate. If multiple materially different strategies produce no new
+verified item, no materially different task can be published, or the same
+deterministic blocker survives without durable gain, the root enters
+`NEEDS_HUMAN`. Explicit hard blocks and Oracle scope conflicts never enter this
+automatic path.
 
 ## Recovery behavior
 
@@ -334,4 +346,4 @@ project checkpoint and `PROGRESS_FILE` is the durable root-task checkpoint,
 while repository evidence remains authoritative if they differ.
 Never publish a duplicate task ID. Reconcile stale prose against the actual code
 and focused smoke, update cumulative progress, and continue from the first unmet
-root criterion.
+leaf criterion.

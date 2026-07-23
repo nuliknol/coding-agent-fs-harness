@@ -132,12 +132,11 @@ accept_improvement=$((100 - current_progress))
 root="$(task_root_id "$task_id")"
 root_assignment="$(task_root_assignment_file "$root")"
 criterion_ledger="$(task_criterion_ledger_file "$root")"
-mapfile -t declared_criteria < <(task_root_declared_criteria "$task_id")
+mapfile -t declared_criteria < <(task_root_leaf_criteria "$task_id")
 mapfile -t accepted_criteria < <(awk -F': ' '$1 == "Verified-Criterion" {print $2}' "$note_file")
 if (( ${#declared_criteria[@]} > 0 )); then
 	require_line "$note_file" 'Progress-Percent: 100%'
 	declare -A declared_criterion_ids=()
-	declare -A satisfied_criterion_ids=()
 	for criterion in "${declared_criteria[@]}"; do
 		[[ "$criterion" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]] ||
 			die "invalid Root-Criterion identifier in immutable assignment: $criterion"
@@ -145,35 +144,25 @@ if (( ${#declared_criteria[@]} > 0 )); then
 			die "duplicate Root-Criterion identifier in immutable assignment: $criterion"
 		declared_criterion_ids[$criterion]=1
 	done
-	if [[ -f "$criterion_ledger" ]]; then
-		while IFS=$'\t' read -r criterion state _; do
-			[[ "$state" == PASSED ]] || continue
-			satisfied_criterion_ids[$criterion]=1
-		done < <(tail -n +2 "$criterion_ledger")
-	fi
+	(( ${#accepted_criteria[@]} == 1 )) ||
+		die 'final acceptance must complete exactly one independently bounded remaining leaf criterion'
+	first_unmet="$(task_first_unmet_criterion "$task_id" 2>/dev/null || true)"
+	[[ -n "$first_unmet" ]] ||
+		die 'all declared leaf criteria are already passed; reconcile the root instead of accepting another result'
 	for criterion in "${accepted_criteria[@]}"; do
 		[[ "$criterion" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]] ||
 			die "invalid Verified-Criterion identifier: $criterion"
 		[[ -n "${declared_criterion_ids[$criterion]:-}" ]] ||
-			die "Verified-Criterion is not declared by the immutable root criterion inventory: $criterion"
-		[[ -z "${satisfied_criterion_ids[$criterion]:-}" ]] ||
+			die "Verified-Criterion is not an active leaf in the immutable root criterion inventory: $criterion"
+		! task_criterion_is_passed "$root" "$criterion" ||
 			die "root criterion is already checkpointed: $criterion"
-		satisfied_criterion_ids[$criterion]=1
 	done
-	first_unmet="$(task_first_unmet_criterion "$task_id" 2>/dev/null || true)"
-	remaining_before_accept=0
-	for criterion in "${declared_criteria[@]}"; do
-		[[ -n "${satisfied_criterion_ids[$criterion]:-}" ]] || remaining_before_accept=$((remaining_before_accept + 1))
-	done
-	(( remaining_before_accept == 0 )) ||
-		die 'acceptance evidence does not satisfy every declared root criterion'
-	(( ${#accepted_criteria[@]} == 1 )) ||
-		die 'final acceptance must complete exactly one independently bounded remaining criterion'
 	[[ "${accepted_criteria[0]}" == "$first_unmet" ]] ||
 		die "final acceptance must complete the first unmet criterion: $first_unmet"
 	for criterion in "${declared_criteria[@]}"; do
-		[[ -n "${satisfied_criterion_ids[$criterion]:-}" ]] ||
-			die "cannot accept root; declared criterion lacks verified evidence: $criterion"
+		[[ "$criterion" == "$first_unmet" ]] && continue
+		task_criterion_is_passed "$root" "$criterion" ||
+			die "cannot accept root; declared leaf criterion lacks verified evidence: $criterion"
 	done
 fi
 

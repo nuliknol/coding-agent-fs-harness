@@ -326,11 +326,11 @@ grep -q 'Deterministic blocker circuit breaker: disabled' "$TEST_ROOT/check-env.
 grep -q 'Root-attempt replanning guard: 12 reviewed attempts' "$TEST_ROOT/check-env.out"
 grep -q 'Zero-gain replanning guard: 3 consecutive reviews' "$TEST_ROOT/check-env.out"
 grep -q 'Checkpoint convergence guard: 4 verified increments without a completed criterion' "$TEST_ROOT/check-env.out"
-grep -q 'Automatic fresh-context replanning: enabled (1 strategy change(s) without a completed criterion)' "$TEST_ROOT/check-env.out"
+grep -q 'Automatic fresh-context replanning: enabled (1 strategy change(s) without durable verified gain)' "$TEST_ROOT/check-env.out"
 grep -q 'Rejected-root worker thread reuse: enabled' "$TEST_ROOT/check-env.out"
 grep -q 'Worker thread rejection rotation: 8 retained rejections' "$TEST_ROOT/check-env.out"
 grep -q 'Bounded closure mode: enabled at 95% (2 fixes, 3 focused-smoke runs)' "$TEST_ROOT/check-env.out"
-grep -q 'roots resume by first-unmet criterion; bounded automatic replanning escalates only to NEEDS_HUMAN' "$TEST_ROOT/check-env.out"
+grep -q 'broad criteria may gain append-only children; roots resume by first-unmet leaf; verified gain resets bounded automatic-replan escalation' "$TEST_ROOT/check-env.out"
 grep -q 'Transient provider retry seconds: 1 (retries unlimited)' "$TEST_ROOT/check-env.out"
 grep -q 'Quota retry seconds: 1 (retries unlimited)' "$TEST_ROOT/check-env.out"
 "$HARNESS_BIN/harness-init" "$TEST_ROOT/harness.env" >/dev/null
@@ -1078,8 +1078,8 @@ grep -Eq $'^P0\tCOMPLETE\t001\t' "$checkpoint_project/control/project-plan-state
 # Convergence recovery is automatic and bounded. A legacy root receives an
 # immutable criterion decomposition, the fresh manager must isolate the first
 # unmet criterion with a materially new strategy, and a fresh worker context is
-# forced. A second replan without a completed criterion becomes human-only;
-# completing a declared criterion resets that one-replan budget.
+# forced. A second replan without a new verified item becomes human-only; any
+# unique verified increment or criterion resets that one-replan budget.
 AUTO_ROOT="$TEST_ROOT/auto-replan"
 mkdir -p "$AUTO_ROOT/repo" "$AUTO_ROOT/manager-home" "$AUTO_ROOT/worker-home"
 printf 'test specification\n' > "$AUTO_ROOT/repo/spec.md"
@@ -1097,7 +1097,7 @@ export WORKER_CODEX_BIN="$TEST_ROOT/mock-codex"
 export HARNESS_POLL_SECONDS="0.1"
 export HARNESS_USE_INOTIFY="0"
 export HARNESS_AUTO_REPLAN_ENABLED="1"
-export HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION="1"
+export HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN="1"
 ENV
 chmod 600 "$AUTO_ROOT/harness.env"
 "$HARNESS_BIN/harness-init" "$AUTO_ROOT/harness.env" >/dev/null
@@ -1213,7 +1213,7 @@ MARKER
 "$HARNESS_BIN/manager-auto-replan-root" "$AUTO_ROOT/harness.env" 001 >/dev/null
 auto_human="$auto_progress/autoreplanproj-task-001.needs-human.md"
 [[ -f "$auto_human" ]]
-grep -q 'automatic strategy-change budget exhausted without completing a declared criterion' "$auto_human"
+grep -q 'automatic strategy-change budget exhausted without durable verified gain' "$auto_human"
 "$HARNESS_BIN/harness-status" "$AUTO_ROOT/harness.env" > "$AUTO_ROOT/human-status.out"
 grep -q 'Project status: NEEDS_HUMAN.' "$AUTO_ROOT/human-status.out"
 "$HARNESS_BIN/harness-unblock-root" "$AUTO_ROOT/harness.env" 001 >/dev/null
@@ -1240,19 +1240,125 @@ auto_ready_final="$auto_project/tasks/autoreplanproj-task-001-revision-09.ready.
 [[ -f "$auto_ready_final" ]]
 grep -q '^Target-Criterion: legacy.final$' "$auto_ready_final"
 [[ "$(awk 'END {print NR}' "$auto_replans")" == 3 ]]
-grep -q $'^.*\t001-revision-09\t001-revision-08\tlegacy.final\tmock.strategy.2\tISOLATE_CRITERION\tsha256:.*\tsha256:dddd.*\t1$' "$auto_replans"
+grep -q $'^.*\t001-revision-09\t001-revision-08\tlegacy.final\tmock.strategy.2\tISOLATE_CRITERION\tsha256:.*\tsha256:dddd.*\t1\t1$' "$auto_replans"
 mv "$auto_ready_final" "$auto_project/archive/autoreplanproj-task-001-revision-09.checkpointed.md"
+printf 'legacy.increment.after-replan\tVERIFIED\t001-revision-09\tsha256:increment\t2026-07-23T13:00:00Z\n' \
+	>> "$auto_progress/autoreplanproj-task-001.criteria.tsv"
 cat > "$auto_progress/autoreplanproj-task-001.needs-replan.md" <<'MARKER'
 # Root Task Needs Replanning
 
 Task-Root: 001
 Triggered-By: 001-revision-09
+Trigger-Outcome: CHECKPOINT
+Blocking-Fingerprint: sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+MARKER
+"$HARNESS_BIN/manager-auto-replan-root" "$AUTO_ROOT/harness.env" 001 >/dev/null
+auto_ready_after_gain="$auto_project/tasks/autoreplanproj-task-001-revision-10.ready.md"
+[[ -f "$auto_ready_after_gain" ]]
+grep -q '^Target-Criterion: legacy.final$' "$auto_ready_after_gain"
+grep -q $'^.*\t001-revision-10\t001-revision-09\tlegacy.final\tmock.strategy.3\tISOLATE_CRITERION\tsha256:.*\tsha256:dddd.*\t1\t2$' "$auto_replans"
+mv "$auto_ready_after_gain" "$auto_project/archive/autoreplanproj-task-001-revision-10.checkpointed.md"
+cat > "$auto_progress/autoreplanproj-task-001.needs-replan.md" <<'MARKER'
+# Root Task Needs Replanning
+
+Task-Root: 001
+Triggered-By: 001-revision-10
 Trigger-Outcome: REJECT
 Blocking-Fingerprint: sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 MARKER
 "$HARNESS_BIN/manager-auto-replan-root" "$AUTO_ROOT/harness.env" 001 >/dev/null
 [[ -f "$auto_human" ]]
-grep -q 'the same blocker survived a bounded automatic replan' "$auto_human"
+grep -q 'the same blocker survived a bounded automatic replan without durable verified gain' "$auto_human"
+
+# A broad immutable leaf can be refined only by appending ordered children.
+# The original parent remains in the root inventory and scheduling advances
+# through the new leaves without rewriting prior evidence.
+DECOMP_ROOT="$TEST_ROOT/child-decomposition"
+mkdir -p "$DECOMP_ROOT/repo" "$DECOMP_ROOT/manager-home" "$DECOMP_ROOT/worker-home"
+printf 'test specification\n' > "$DECOMP_ROOT/repo/spec.md"
+cat > "$DECOMP_ROOT/harness.env" <<ENV
+export PROJECT="decompproj"
+export REPOSITORY="$DECOMP_ROOT/repo"
+export SPECIFICATION="\$REPOSITORY/spec.md"
+export HARNESS_HOME="$HARNESS_HOME"
+export HARNESS_BIN="\$HARNESS_HOME/bin"
+export HARNESS_ROOT="$DECOMP_ROOT/state"
+export MANAGER_CODEX_HOME="$DECOMP_ROOT/manager-home"
+export MANAGER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export WORKER_CODEX_HOME="$DECOMP_ROOT/worker-home"
+export WORKER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export HARNESS_AUTO_REPLAN_ENABLED="1"
+export HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN="1"
+ENV
+chmod 600 "$DECOMP_ROOT/harness.env"
+"$HARNESS_BIN/harness-init" "$DECOMP_ROOT/harness.env" >/dev/null
+printf 'P0\tBroad criterion\n' > "$DECOMP_ROOT/plan.tsv"
+"$HARNESS_BIN/manager-init-project-plan" "$DECOMP_ROOT/harness.env" "$DECOMP_ROOT/plan.tsv" >/dev/null
+cat > "$DECOMP_ROOT/root.md" <<'TASK'
+# Task
+
+Task-ID: 001
+Root-Criterion: broad.parent
+Root-Criterion: final.parent
+
+Implement the broad root.
+TASK
+"$HARNESS_BIN/manager-publish-task" "$DECOMP_ROOT/harness.env" 001 \
+	"$DECOMP_ROOT/root.md" P0 >/dev/null
+decomp_project="$DECOMP_ROOT/state/projects/decompproj"
+mv "$decomp_project/tasks/decompproj-task-001.ready.md" \
+	"$decomp_project/archive/decompproj-task-001.assignment.md"
+decomp_progress="$decomp_project/control/progress"
+cat > "$decomp_progress/decompproj-task-001.needs-replan.md" <<'MARKER'
+# Root Task Needs Replanning
+
+Task-Root: 001
+Triggered-By: 001
+Trigger-Outcome: CHECKPOINT
+Blocking-Fingerprint: -
+MARKER
+cat > "$DECOMP_ROOT/children.tsv" <<'TSV'
+parent_criterion	child_criterion	title	acceptance_evidence
+broad.parent	broad.parse	Parse tranche	focused parse smoke
+broad.parent	broad.emit	Emit tranche	focused emit smoke
+TSV
+cat > "$DECOMP_ROOT/replan.md" <<'TASK'
+# Task Assignment
+
+Task-ID: 001-revision-01
+Task-Root: 001
+Target-Criterion: broad.parse
+Worker-Context: FRESH
+Replan-Strategy-ID: decomp.strategy.1
+Strategy-Change: ISOLATE_CRITERION
+Supersedes-Task: 001
+
+## Objective
+
+Isolate the parse tranche of the broad parent.
+
+## Acceptance criteria
+
+- Focused parse evidence passes.
+
+## Validation commands
+
+decomp-focused-parse
+TASK
+"$HARNESS_BIN/manager-publish-task" "$DECOMP_ROOT/harness.env" 001-revision-01 \
+	"$DECOMP_ROOT/replan.md" --auto-replan - "$DECOMP_ROOT/children.tsv" >/dev/null
+decomp_file="$decomp_progress/decompproj-task-001.criterion-decomposition.tsv"
+[[ "$(wc -l < "$decomp_file")" == 3 ]]
+grep -q $'^broad.parent\tbroad.parse\t' "$decomp_file"
+(
+	source "$DECOMP_ROOT/harness.env"
+	source "$HARNESS_HOME/lib/harness-common.sh"
+	[[ "$(task_first_unmet_criterion 001)" == broad.parse ]]
+	printf 'item_id\tstate\tverified_by\tevidence_sha256\tupdated_at\nbroad.parse\tPASSED\t001-revision-01\tsha256:parse\t2026-07-23T00:00:00Z\n' \
+		> "$(task_criterion_ledger_file 001)"
+	[[ "$(task_first_unmet_criterion 001)" == broad.emit ]]
+	! task_criterion_is_passed 001 broad.parent
+)
 
 ACTIVE_ROOT="$TEST_ROOT/active"
 mkdir -p "$ACTIVE_ROOT/repo" "$ACTIVE_ROOT/manager-home" "$ACTIVE_ROOT/worker-home"
@@ -1286,6 +1392,18 @@ chmod 600 "$ACTIVE_ROOT/harness.env"
 "$HARNESS_BIN/harness-supervisor-start" "$ACTIVE_ROOT/harness.env" >/dev/null
 "$HARNESS_BIN/worker-supervisor-start" "$ACTIVE_ROOT/harness.env" >/dev/null
 printf 'thread_id=existing-thread\n' > "$ACTIVE_ROOT/state/projects/activeproj/control/manager.thread"
+sleep 0.2
+for supervisor_pid_file in \
+	"$ACTIVE_ROOT/state/projects/activeproj/control/supervisor.pid" \
+	"$ACTIVE_ROOT/state/projects/activeproj/control/worker-supervisor.pid"; do
+	supervisor_pid="$(cat "$supervisor_pid_file")"
+	while IFS= read -r child_pid; do
+		[[ -z "$child_pid" || ! -e "/proc/$child_pid/fd/8" ]] || {
+			printf 'Supervisor child %s inherited the lifetime lock descriptor.\n' "$child_pid" >&2
+			exit 1
+		}
+	done < <(pgrep -P "$supervisor_pid" 2>/dev/null || true)
+done
 
 LOCK_PATH="$ACTIVE_ROOT/state/control/env-locks/$(printf '%s' "$ACTIVE_ROOT/harness.env" | sha256sum | awk '{print $1}').lock"
 sleep 2 &

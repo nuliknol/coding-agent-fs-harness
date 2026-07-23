@@ -104,7 +104,7 @@ process_results()
 		log_event "SUPERVISOR_TRIGGER task=$task_id fingerprint=$current"
 		trace_event SUPERVISOR_INVOKE_MANAGER "task_id=$task_id" "fingerprint=$current" "manager_invoker=$manager_invoker"
 		set +e
-		"$manager_invoker" "$HARNESS_ENV_FILE" "$task_id"
+		"$manager_invoker" "$HARNESS_ENV_FILE" "$task_id" 8>&-
 		status=$?
 		set -e
 		trace_event SUPERVISOR_MANAGER_EXIT "task_id=$task_id" "status=$status"
@@ -176,7 +176,7 @@ process_auto_replans()
 		log_event "SUPERVISOR_INVOKE_MANAGER_REPLAN root=$root fingerprint=$current invoker=$manager_replan_invoker"
 		trace_event SUPERVISOR_INVOKE_MANAGER_REPLAN "root=$root" "fingerprint=$current" "manager_replan_invoker=$manager_replan_invoker"
 		set +e
-		"$manager_replan_invoker" "$HARNESS_ENV_FILE" "$root"
+		"$manager_replan_invoker" "$HARNESS_ENV_FILE" "$root" 8>&-
 		status=$?
 		set -e
 		trace_event SUPERVISOR_MANAGER_REPLAN_EXIT "root=$root" "status=$status"
@@ -213,7 +213,7 @@ process_planning_gap()
 	project_has_active_task && return 0
 	log_event "SUPERVISOR_PLANNING_GAP progress=$(project_plan_progress_percent) pending=$(project_plan_pending_count)"
 	trace_event SUPERVISOR_INVOKE_MANAGER_PLAN "manager_plan_invoker=$manager_plan_invoker" "project_progress=$(project_plan_progress_percent)"
-	if "$manager_plan_invoker" "$HARNESS_ENV_FILE"; then
+	if "$manager_plan_invoker" "$HARNESS_ENV_FILE" 8>&-; then
 		status=0
 	else
 		status=$?
@@ -256,7 +256,7 @@ handle_project_completion()
 			fi
 			log_event "SUPERVISOR_INVOKE_ORACLE pending=$pending_file fingerprint=$pending_fingerprint"
 			set +e
-			"$oracle_invoker" "$HARNESS_ENV_FILE"
+			"$oracle_invoker" "$HARNESS_ENV_FILE" 8>&-
 			oracle_status=$?
 			set -e
 			trace_event SUPERVISOR_ORACLE_EXIT "status=$oracle_status"
@@ -319,7 +319,8 @@ while true; do
 	fi
 	if [[ "$HARNESS_USE_INOTIFY" == "1" ]] && command -v inotifywait >/dev/null 2>&1; then
 		trace_event SUPERVISOR_WATCH_WAIT_BEGIN "mode=inotify" "timeout=$HARNESS_POLL_SECONDS"
-		inotifywait -q -t "$HARNESS_POLL_SECONDS" -e moved_to -e delete "$dir/results" "$dir/control" >/dev/null 2>&1 &
+		inotifywait -q -t "$HARNESS_POLL_SECONDS" -e moved_to -e delete \
+			"$dir/results" "$dir/control" 8>&- >/dev/null 2>&1 &
 		watch_pid=$!
 		if wait "$watch_pid"; then
 			watch_status=0
@@ -332,7 +333,7 @@ while true; do
 		watch_pid=""
 	else
 		trace_event SUPERVISOR_WATCH_WAIT_BEGIN "mode=poll" "timeout=$HARNESS_POLL_SECONDS"
-		sleep "$HARNESS_POLL_SECONDS"
+		sleep "$HARNESS_POLL_SECONDS" 8>&-
 		trace_event SUPERVISOR_WATCH_WAIT_END "mode=poll" "status=0"
 	fi
 done

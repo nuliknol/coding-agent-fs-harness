@@ -7,20 +7,23 @@ source "$SCRIPT_DIR/../lib/harness-common.sh"
 usage()
 {
 	printf 'Usage: %s ENV_FILE TASK_ID TASK_FILE [PROJECT_PLAN_ITEM_ID]\n' "${0##*/}" >&2
-	printf '       %s ENV_FILE TASK_ID TASK_FILE --auto-replan [LEGACY_CRITERIA_TSV]\n' "${0##*/}" >&2
+	printf '       %s ENV_FILE TASK_ID TASK_FILE --auto-replan [LEGACY_CRITERIA_TSV|-] [CHILD_DECOMPOSITION_TSV]\n' "${0##*/}" >&2
 	exit 2
 }
 
-[[ $# -ge 3 && $# -le 5 ]] || usage
+[[ $# -ge 3 && $# -le 6 ]] || usage
 load_harness_env "$1"
 task_id="$2"
 task_file="$3"
 plan_item_id=""
 auto_replan=0
 criteria_candidate=""
+decomposition_candidate=""
 if [[ "${4:-}" == '--auto-replan' ]]; then
 	auto_replan=1
 	criteria_candidate="${5:-}"
+	[[ "$criteria_candidate" != "-" ]] || criteria_candidate=""
+	decomposition_candidate="${6:-}"
 else
 	(( $# <= 4 )) || usage
 	plan_item_id="${4:-}"
@@ -39,6 +42,7 @@ root="$(task_root_id "$task_id")"
 progress="$(task_progress_file "$root")"
 root_assignment="$(task_root_assignment_file "$root")"
 criteria_definition="$(task_criteria_definition_file "$root")"
+criterion_decomposition="$(task_criterion_decomposition_file "$root")"
 
 if (( auto_replan == 1 )); then
 	[[ "$task_id" != "$root" ]] || die 'an automatic replan must publish a revision of an existing root'
@@ -159,22 +163,58 @@ else
 	fi
 fi
 
+validate_decomposition_for_root()
+{
+	local candidate="$1" expected_parent="$2" child known
+	local -A known_ids=()
+	validate_criterion_decomposition_candidate "$candidate" "$expected_parent"
+	while IFS= read -r known; do
+		[[ -n "$known" ]] && known_ids[$known]=1
+	done < <(
+		task_root_declared_criteria "$root"
+		[[ ! -f "$criterion_decomposition" ]] || awk -F '\t' 'NR > 1 {print $2}' "$criterion_decomposition"
+	)
+	while IFS=$'\t' read -r _ child _ _; do
+		[[ -z "${known_ids[$child]:-}" ]] ||
+			die "child criterion identifier is already used by this root: $child"
+		if [[ -f "$(task_criterion_ledger_file "$root")" ]] &&
+			awk -F '\t' -v item="$child" 'NR > 1 && $1 == item {found=1} END {exit !found}' \
+				"$(task_criterion_ledger_file "$root")"; then
+			die "child criterion identifier is already recorded in the verified-item ledger: $child"
+		fi
+	done < <(tail -n +2 "$candidate")
+}
+
 target_criterion=""
 if (( ${#declared_criteria[@]} > 0 )) && [[ "$task_id" != "$root" ]]; then
 	target_count="$(awk -F': ' '$1 == "Target-Criterion" {count++} END {print count + 0}' "$task_file")"
 	(( target_count == 1 )) ||
 		die 'a continuation of a criterion-decomposed root requires exactly one Target-Criterion'
 	target_criterion="$(awk -F': ' '$1 == "Target-Criterion" {print $2; exit}' "$task_file")"
-	first_unmet=""
-	for criterion in "${declared_criteria[@]}"; do
-		if ! task_criterion_is_passed "$root" "$criterion"; then
-			first_unmet="$criterion"
-			break
-		fi
-	done
+	first_unmet="$(task_first_unmet_criterion "$root" 2>/dev/null || true)"
+	if [[ -z "$first_unmet" && -n "$criteria_candidate" && ! -f "$criteria_definition" ]]; then
+		for criterion in "${declared_criteria[@]}"; do
+			if ! task_criterion_is_passed "$root" "$criterion"; then
+				first_unmet="$criterion"
+				break
+			fi
+		done
+	fi
 	[[ -n "$first_unmet" ]] || die 'all declared root criteria are already passed; accept the root instead of publishing a continuation'
-	[[ "$target_criterion" == "$first_unmet" ]] ||
+	if [[ -n "$decomposition_candidate" ]]; then
+		(( auto_replan == 1 )) ||
+			die 'a child criterion decomposition may be installed only by an automatic replan'
+		[[ -z "$(task_criterion_children "$root" "$first_unmet")" ]] ||
+			die "the first unmet criterion is already decomposed: $first_unmet"
+		validate_decomposition_for_root "$decomposition_candidate" "$first_unmet"
+		decomposed_first="$(awk -F '\t' 'NR == 2 {print $2}' "$decomposition_candidate")"
+		[[ "$target_criterion" == "$decomposed_first" ]] ||
+			die "continuation must target the first new child criterion: $decomposed_first"
+	elif [[ "$target_criterion" != "$first_unmet" ]]; then
 		die "continuation must target the first unmet criterion: $first_unmet"
+	fi
+elif [[ -n "$decomposition_candidate" ]]; then
+	die 'child criterion decomposition requires an existing explicit criterion inventory'
 fi
 
 strategy_id=""
@@ -221,14 +261,13 @@ if (( auto_replan == 1 )); then
 		! awk -F '\t' -v fingerprint="$strategy_fingerprint" 'NR > 1 && $7 == fingerprint {found=1} END {exit !found}' "$replan_ledger" ||
 			die 'automatic replan is not materially different from an earlier bounded strategy'
 	fi
-	auto_replans="$(root_auto_replans_without_criterion "$root")"
-	(( auto_replans < HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION )) ||
-		die "automatic replan budget is exhausted without a completed criterion: $auto_replans/$HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION"
+	auto_replans="$(root_auto_replans_without_verified_gain "$root")"
+	(( auto_replans < HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN )) ||
+		die "automatic replan budget is exhausted without durable verified gain: $auto_replans/$HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN"
 	blocking_fingerprint="$(awk -F': ' '$1 == "Blocking-Fingerprint" {print $2; exit}' "$(task_root_replan_file "$root")")"
 	[[ -n "$blocking_fingerprint" ]] || blocking_fingerprint="-"
-	last_blocker="$(root_last_auto_replan_blocker "$root" 2>/dev/null || true)"
-	if [[ "$blocking_fingerprint" != "-" && "$blocking_fingerprint" == "$last_blocker" ]]; then
-		die "same blocking fingerprint survived the prior bounded replan: $blocking_fingerprint"
+	if root_same_blocker_without_verified_gain "$root" "$blocking_fingerprint"; then
+		die "same blocking fingerprint survived the prior bounded replan without durable verified gain: $blocking_fingerprint"
 	fi
 fi
 
@@ -251,6 +290,9 @@ else
 			else
 				printf 'Criteria-Definition: %s\n' "$criteria_definition"
 			fi
+			if [[ -f "$criterion_decomposition" || -n "$decomposition_candidate" ]]; then
+				printf 'Criterion-Decomposition: %s\n' "$criterion_decomposition"
+			fi
 			printf 'Target-Criterion: %s\n' "$target_criterion"
 		fi
 		printf '\nPreserve all previously verified work. This revision may address only the first unmet criterion shown above. Unrelated failures are known limitations and must not broaden this task.\n\n'
@@ -262,19 +304,28 @@ fi
 
 if (( auto_replan == 1 )); then
 	if [[ ! -f "$criteria_definition" ]]; then
-		install -m 600 "$criteria_candidate" "$criteria_definition"
+		[[ -z "$criteria_candidate" ]] || install -m 600 "$criteria_candidate" "$criteria_definition"
+	fi
+	if [[ -n "$decomposition_candidate" ]]; then
+		decomposition_tmp="$criterion_decomposition.tmp.$$"
+		if [[ -f "$criterion_decomposition" ]]; then
+			cp -p "$criterion_decomposition" "$decomposition_tmp"
+		else
+			printf 'parent_criterion\tchild_criterion\ttitle\tacceptance_evidence\n' > "$decomposition_tmp"
+		fi
+		tail -n +2 "$decomposition_candidate" >> "$decomposition_tmp"
+		chmod 600 "$decomposition_tmp"
+		mv "$decomposition_tmp" "$criterion_decomposition"
 	fi
 	record_root_convergence_baseline "$root"
 	clear_worker_thread_for_root "$root" automatic-replan
+	ensure_root_replan_ledger_schema "$root"
 	replan_ledger="$(task_replan_ledger_file "$root")"
-	if [[ ! -f "$replan_ledger" ]]; then
-		printf 'replanned_at\ttask_id\ttrigger_task\ttarget_criterion\tstrategy_id\tchange_type\tstrategy_fingerprint\tblocker_fingerprint\tpassed_criterion_count\n' > "$replan_ledger"
-		chmod 600 "$replan_ledger"
-	fi
-	printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+	printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
 		"$(timestamp_utc)" "$task_id" "$trigger_task" "$target_criterion" "$strategy_id" \
 		"$strategy_change" "$strategy_fingerprint" "$blocking_fingerprint" \
-		"$(task_passed_declared_criterion_count "$root")" >> "$replan_ledger"
+		"$(task_passed_declared_criterion_count "$root")" \
+		"$(task_verified_item_count "$root")" >> "$replan_ledger"
 fi
 mv "$tmp" "$ready"
 if (( auto_replan == 1 )); then

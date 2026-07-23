@@ -144,7 +144,8 @@ load_harness_env()
 	unset HARNESS_MAX_IDENTICAL_BLOCKERS
 	unset HARNESS_MAX_ROOT_ATTEMPTS HARNESS_MAX_ZERO_GAIN_WINDOW
 	unset HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION
-	unset HARNESS_AUTO_REPLAN_ENABLED HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION
+	unset HARNESS_AUTO_REPLAN_ENABLED HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN
+	unset HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION
 	unset HARNESS_REUSE_WORKER_THREADS HARNESS_WORKER_THREAD_MAX_REJECTIONS
 	unset HARNESS_CLOSURE_MODE_ENABLED HARNESS_CLOSURE_MODE_MIN_PROGRESS
 	unset HARNESS_CLOSURE_MODE_MAX_FIXES HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS
@@ -204,10 +205,14 @@ load_harness_env()
 	# A convergence pause is normally recovered without an operator. The
 	# recovery turn starts with fresh manager and worker context, may install a
 	# durable criterion decomposition for a legacy root, and must publish a
-	# materially different first-unmet-criterion continuation. One such replan
-	# is allowed until a declared criterion is completed.
+	# materially different first-unmet-criterion continuation. A newly verified
+	# checkpoint or criterion resets the escalation budget; percentage progress
+	# is deliberately not used as a proxy for durable gain.
 	HARNESS_AUTO_REPLAN_ENABLED="${HARNESS_AUTO_REPLAN_ENABLED:-1}"
-	HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION="${HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION:-1}"
+	HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN="${HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN:-${HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION:-1}}"
+	# Backwards-compatible alias for existing environment files. New code and
+	# snapshots use the verified-gain name.
+	HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION="$HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN"
 	# A rejected continuation normally resumes the same root-scoped Codex
 	# worker thread. Rotate periodically so one stale strategy or an overgrown
 	# context cannot live for the entire root task.
@@ -317,8 +322,8 @@ load_harness_env()
 	[[ "$HARNESS_MAX_ZERO_GAIN_WINDOW" =~ ^[0-9]+$ ]] || die 'HARNESS_MAX_ZERO_GAIN_WINDOW must be a nonnegative integer'
 	[[ "$HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION" =~ ^[0-9]+$ ]] || die 'HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION must be a nonnegative integer'
 	[[ "$HARNESS_AUTO_REPLAN_ENABLED" =~ ^[01]$ ]] || die 'HARNESS_AUTO_REPLAN_ENABLED must be 0 or 1'
-	[[ "$HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION" =~ ^[1-9][0-9]*$ ]] ||
-		die 'HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION must be a positive integer'
+	[[ "$HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN" =~ ^[1-9][0-9]*$ ]] ||
+		die 'HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN must be a positive integer'
 	[[ "$HARNESS_REUSE_WORKER_THREADS" =~ ^[01]$ ]] || die 'HARNESS_REUSE_WORKER_THREADS must be 0 or 1'
 	[[ "$HARNESS_WORKER_THREAD_MAX_REJECTIONS" =~ ^[0-9]+$ ]] || die 'HARNESS_WORKER_THREAD_MAX_REJECTIONS must be a nonnegative integer'
 	[[ "$HARNESS_CLOSURE_MODE_ENABLED" =~ ^[01]$ ]] || die 'HARNESS_CLOSURE_MODE_ENABLED must be 0 or 1'
@@ -363,7 +368,8 @@ load_harness_env()
 	export HARNESS_RUNTIME_PATH_PREFIX
 	export HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY HARNESS_MAX_IDENTICAL_BLOCKERS HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
 	export HARNESS_MAX_ROOT_ATTEMPTS HARNESS_MAX_ZERO_GAIN_WINDOW HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION
-	export HARNESS_AUTO_REPLAN_ENABLED HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION
+	export HARNESS_AUTO_REPLAN_ENABLED HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN
+	export HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION
 	export HARNESS_REUSE_WORKER_THREADS HARNESS_WORKER_THREAD_MAX_REJECTIONS
 	export HARNESS_CLOSURE_MODE_ENABLED HARNESS_CLOSURE_MODE_MIN_PROGRESS HARNESS_CLOSURE_MODE_MAX_FIXES HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS
 	export HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
@@ -567,6 +573,13 @@ task_criteria_definition_file()
 	printf '%s/control/progress/%s-task-%s.criteria-definition.tsv' "$(project_dir)" "$PROJECT" "$root"
 }
 
+task_criterion_decomposition_file()
+{
+	local root
+	root="$(task_root_id "$1")"
+	printf '%s/control/progress/%s-task-%s.criterion-decomposition.tsv' "$(project_dir)" "$PROJECT" "$root"
+}
+
 task_replan_ledger_file()
 {
 	local root
@@ -602,6 +615,33 @@ validate_criteria_definition_file()
 		die "criteria definition requires at least $minimum independently verifiable criterion row(s)"
 }
 
+validate_criterion_decomposition_candidate()
+{
+	local file="$1" expected_parent="$2"
+	local header parent child title evidence extra count=0
+	local -A seen=()
+	[[ -f "$file" ]] || die "criterion decomposition does not exist: $file"
+	IFS= read -r header < "$file" || die "criterion decomposition is empty: $file"
+	[[ "$header" == $'parent_criterion\tchild_criterion\ttitle\tacceptance_evidence' ]] ||
+		die 'criterion decomposition header must be: parent_criterion<TAB>child_criterion<TAB>title<TAB>acceptance_evidence'
+	while IFS=$'\t' read -r parent child title evidence extra; do
+		[[ -n "$parent" && -n "$child" && -n "$title" && -n "$evidence" && -z "$extra" ]] ||
+			die "each criterion decomposition row must contain exactly four nonempty tab-separated fields: $file"
+		[[ "$parent" == "$expected_parent" ]] ||
+			die "criterion decomposition may refine only the current first unmet criterion: $expected_parent"
+		[[ "$child" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]] ||
+			die "invalid child criterion identifier in decomposition: $child"
+		[[ "$child" != "$parent" ]] ||
+			die "child criterion cannot equal its parent: $child"
+		[[ -z "${seen[$child]:-}" ]] ||
+			die "duplicate child criterion identifier in decomposition: $child"
+		seen[$child]=1
+		count=$((count + 1))
+	done < <(tail -n +2 "$file")
+	(( count >= 2 )) ||
+		die 'criterion decomposition requires at least two ordered, independently verifiable child criteria'
+}
+
 task_root_uses_assignment_criteria()
 {
 	local assignment
@@ -622,7 +662,43 @@ task_root_declared_criteria()
 	fi
 }
 
-task_criterion_is_passed()
+task_criterion_children()
+{
+	local root criterion decomposition
+	root="$(task_root_id "$1")"
+	criterion="$2"
+	decomposition="$(task_criterion_decomposition_file "$root")"
+	[[ -f "$decomposition" ]] || return 0
+	awk -F '\t' -v parent="$criterion" 'NR > 1 && $1 == parent {print $2}' "$decomposition"
+}
+
+task_emit_criterion_leaves()
+{
+	local root="$1" criterion="$2" ancestry="${3:-}" child
+	local -a children=()
+	[[ ":$ancestry:" != *":$criterion:"* ]] ||
+		die "criterion decomposition cycle detected at: $criterion"
+	mapfile -t children < <(task_criterion_children "$root" "$criterion")
+	if (( ${#children[@]} == 0 )); then
+		printf '%s\n' "$criterion"
+		return 0
+	fi
+	for child in "${children[@]}"; do
+		task_emit_criterion_leaves "$root" "$child" "${ancestry:+$ancestry:}$criterion"
+	done
+}
+
+task_root_leaf_criteria()
+{
+	local root criterion
+	root="$(task_root_id "$1")"
+	while IFS= read -r criterion; do
+		[[ -n "$criterion" ]] || continue
+		task_emit_criterion_leaves "$root" "$criterion"
+	done < <(task_root_declared_criteria "$root")
+}
+
+task_criterion_has_pass_record()
 {
 	local root criterion ledger
 	root="$(task_root_id "$1")"
@@ -630,6 +706,22 @@ task_criterion_is_passed()
 	ledger="$(task_criterion_ledger_file "$root")"
 	[[ -f "$ledger" ]] &&
 		awk -F '\t' -v item="$criterion" 'NR > 1 && $1 == item && $2 == "PASSED" {found=1} END {exit !found}' "$ledger"
+}
+
+task_criterion_is_passed()
+{
+	local root criterion child
+	local -a children=()
+	root="$(task_root_id "$1")"
+	criterion="$2"
+	if task_criterion_has_pass_record "$root" "$criterion"; then
+		return 0
+	fi
+	mapfile -t children < <(task_criterion_children "$root" "$criterion")
+	(( ${#children[@]} > 0 )) || return 1
+	for child in "${children[@]}"; do
+		task_criterion_is_passed "$root" "$child" || return 1
+	done
 }
 
 task_first_unmet_criterion()
@@ -642,7 +734,7 @@ task_first_unmet_criterion()
 			printf '%s\n' "$criterion"
 			return 0
 		fi
-	done < <(task_root_declared_criteria "$root")
+	done < <(task_root_leaf_criteria "$root")
 	return 1
 }
 
@@ -657,6 +749,23 @@ task_passed_declared_criterion_count()
 		fi
 	done < <(task_root_declared_criteria "$root")
 	printf '%s\n' "$count"
+}
+
+task_verified_item_count()
+{
+	local ledger rows=0
+	ledger="$(task_criterion_ledger_file "$1")"
+	[[ ! -f "$ledger" ]] || rows="$(( $(wc -l < "$ledger") - 1 ))"
+	(( rows >= 0 )) || rows=0
+	printf '%s\n' "$rows"
+}
+
+task_verified_item_count_at()
+{
+	local ledger at="$2"
+	ledger="$(task_criterion_ledger_file "$1")"
+	[[ -f "$ledger" ]] || { printf '0\n'; return 0; }
+	awk -F '\t' -v at="$at" 'NR > 1 && $5 <= at {count++} END {print count + 0}' "$ledger"
 }
 
 task_checkpoint_artifact_dir()
@@ -1002,24 +1111,77 @@ record_root_convergence_baseline()
 	mv "$tmp" "$baseline"
 }
 
-root_auto_replans_without_criterion()
+root_auto_replans_without_verified_gain()
 {
-	local root="$1" ledger passed baseline_file baseline=0
+	local root="$1" ledger current baseline_file baseline=0
+	local replanned_at recorded_verified row=0 count=0
+	local -a verified_counts=()
 	ledger="$(task_replan_ledger_file "$root")"
 	[[ -f "$ledger" ]] || { printf '0\n'; return 0; }
-	passed="$(task_passed_declared_criterion_count "$root")"
+	current="$(task_verified_item_count "$root")"
 	baseline_file="$(task_replan_baseline_file "$root")"
 	[[ ! -f "$baseline_file" ]] ||
 		baseline="$(kv_file_value "$baseline_file" replan_rows 2>/dev/null || printf 0)"
 	[[ "$baseline" =~ ^[0-9]+$ ]] || baseline=0
-	awk -F '\t' -v passed="$passed" -v baseline="$baseline" '
-		NR > 1 && NR > baseline + 1 {criterion_count[++n] = $9}
-		END {
-			for (i = n; i > 0 && criterion_count[i] == passed; i--)
-				count++
-			print count + 0
-		}
-	' "$ledger"
+	while IFS=$'\t' read -r replanned_at _ _ _ _ _ _ _ _ recorded_verified _; do
+		row=$((row + 1))
+		(( row > baseline )) || continue
+		if [[ ! "$recorded_verified" =~ ^[0-9]+$ ]]; then
+			# Version-1 ledgers recorded only completed root criteria. Recover
+			# their durable-gain baseline from the timestamped item ledger.
+			recorded_verified="$(task_verified_item_count_at "$root" "$replanned_at")"
+		fi
+		verified_counts+=("$recorded_verified")
+	done < <(tail -n +2 "$ledger")
+	for (( row = ${#verified_counts[@]} - 1; row >= 0; row-- )); do
+		[[ "${verified_counts[row]}" == "$current" ]] || break
+		count=$((count + 1))
+	done
+	printf '%s\n' "$count"
+}
+
+# Compatibility wrapper for integrations written against the original name.
+# Its semantics intentionally follow durable verified gain now.
+root_auto_replans_without_criterion()
+{
+	root_auto_replans_without_verified_gain "$1"
+}
+
+root_last_auto_replan_verified_item_count()
+{
+	local root="$1" ledger replanned_at recorded_verified
+	ledger="$(task_replan_ledger_file "$root")"
+	[[ -f "$ledger" ]] || return 1
+	IFS=$'\t' read -r replanned_at _ _ _ _ _ _ _ _ recorded_verified _ \
+		< <(tail -n 1 "$ledger")
+	[[ -n "$replanned_at" && "$replanned_at" != replanned_at ]] || return 1
+	if [[ ! "$recorded_verified" =~ ^[0-9]+$ ]]; then
+		recorded_verified="$(task_verified_item_count_at "$root" "$replanned_at")"
+	fi
+	printf '%s\n' "$recorded_verified"
+}
+
+root_verified_gain_since_last_auto_replan()
+{
+	local root="$1" current previous
+	current="$(task_verified_item_count "$root")"
+	previous="$(root_last_auto_replan_verified_item_count "$root" 2>/dev/null || true)"
+	if [[ ! "$previous" =~ ^[0-9]+$ ]]; then
+		printf '0\n'
+		return 0
+	fi
+	(( current >= previous )) || { printf '0\n'; return 0; }
+	printf '%s\n' "$((current - previous))"
+}
+
+root_same_blocker_without_verified_gain()
+{
+	local root="$1" blocker="$2" last_blocker gain
+	[[ -n "$blocker" && "$blocker" != "-" ]] || return 1
+	last_blocker="$(root_last_auto_replan_blocker "$root" 2>/dev/null || true)"
+	[[ "$blocker" == "$last_blocker" ]] || return 1
+	gain="$(root_verified_gain_since_last_auto_replan "$root")"
+	[[ "$gain" == 0 ]]
 }
 
 record_root_replan_baseline()
@@ -1033,6 +1195,7 @@ record_root_replan_baseline()
 	{
 		printf 'replan_rows=%s\n' "$rows"
 		printf 'passed_criteria=%s\n' "$(task_passed_declared_criterion_count "$root")"
+		printf 'verified_items=%s\n' "$(task_verified_item_count "$root")"
 		printf 'reset_at=%s\n' "$(timestamp_utc)"
 	} > "$tmp"
 	chmod 600 "$tmp"
@@ -1045,6 +1208,38 @@ root_last_auto_replan_blocker()
 	ledger="$(task_replan_ledger_file "$1")"
 	[[ -f "$ledger" ]] || return 1
 	awk -F '\t' 'NR > 1 {value=$8} END {if (value != "" && value != "-") print value}' "$ledger"
+}
+
+ensure_root_replan_ledger_schema()
+{
+	local root="$1" ledger header tmp existing_header=""
+	local replanned_at task_id trigger_task target_criterion strategy_id change_type
+	local strategy_fingerprint blocker_fingerprint passed_criterion_count verified_item_count extra
+	ledger="$(task_replan_ledger_file "$root")"
+	header=$'replanned_at\ttask_id\ttrigger_task\ttarget_criterion\tstrategy_id\tchange_type\tstrategy_fingerprint\tblocker_fingerprint\tpassed_criterion_count\tverified_item_count'
+	if [[ ! -f "$ledger" ]]; then
+		printf '%s\n' "$header" > "$ledger"
+		chmod 600 "$ledger"
+		return 0
+	fi
+	if IFS= read -r existing_header < "$ledger" && [[ "$existing_header" == "$header" ]]; then
+		return 0
+	fi
+	[[ "$existing_header" == $'replanned_at\ttask_id\ttrigger_task\ttarget_criterion\tstrategy_id\tchange_type\tstrategy_fingerprint\tblocker_fingerprint\tpassed_criterion_count' ]] ||
+		die "unsupported automatic replan ledger schema: $ledger"
+	tmp="$ledger.tmp.$$"
+	printf '%s\n' "$header" > "$tmp"
+	while IFS=$'\t' read -r replanned_at task_id trigger_task target_criterion strategy_id change_type \
+		strategy_fingerprint blocker_fingerprint passed_criterion_count extra; do
+		[[ -z "$extra" ]] || die "malformed automatic replan ledger row: $ledger"
+		verified_item_count="$(task_verified_item_count_at "$root" "$replanned_at")"
+		printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+			"$replanned_at" "$task_id" "$trigger_task" "$target_criterion" "$strategy_id" \
+			"$change_type" "$strategy_fingerprint" "$blocker_fingerprint" \
+			"$passed_criterion_count" "$verified_item_count" >> "$tmp"
+	done < <(tail -n +2 "$ledger")
+	chmod 600 "$tmp"
+	mv "$tmp" "$ledger"
 }
 
 mark_root_needs_human()
@@ -1102,7 +1297,7 @@ mark_root_needs_replan()
 		printf 'Checkpoints-Without-Criterion: %s\n\n' "$(root_checkpoint_without_criterion_streak "$root")"
 		printf 'Blocking-Fingerprint: %s\n\n' "$blocking_fingerprint"
 		if (( HARNESS_AUTO_REPLAN_ENABLED == 1 )); then
-			printf 'All checkpoint artifacts, review records, progress history, and repository changes are preserved. The supervisor will request one fresh-context, materially different continuation of the first unmet criterion. If that bounded recovery cannot change strategy or does not complete a criterion, the root will require human intervention.\n'
+			printf 'All checkpoint artifacts, review records, progress history, and repository changes are preserved. The supervisor will request one fresh-context, materially different continuation of the first unmet leaf. Any new verified checkpoint resets escalation; human intervention is reserved for repeated strategies without durable gain or an explicit human-only boundary.\n'
 		else
 			printf 'All checkpoint artifacts, review records, progress history, and repository changes are preserved. Automatic replanning is disabled; reassess the active item, then run harness-unblock-root to grant a fresh convergence window.\n'
 		fi
@@ -1753,7 +1948,7 @@ write_manager_snapshot()
 		printf 'codex_home=%s\n' "$MANAGER_CODEX_HOME"
 		printf 'runtime_path_prefix=%s\n' "$HARNESS_RUNTIME_PATH_PREFIX"
 		printf 'auto_replan_enabled=%s\n' "$HARNESS_AUTO_REPLAN_ENABLED"
-		printf 'max_auto_replans_without_criterion=%s\n' "$HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION"
+		printf 'max_auto_replans_without_verified_gain=%s\n' "$HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN"
 		printf 'env_file=%s\n' "$HARNESS_ENV_FILE"
 		printf 'env_sha256=%s\n' "$(env_sha256)"
 		printf 'updated_at=%s\n' "$(timestamp_utc)"

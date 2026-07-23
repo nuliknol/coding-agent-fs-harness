@@ -7,12 +7,13 @@ A local, event-driven two-agent coding harness for Linux.
 - Durable specification planning: the manager records an immutable project
   plan and advances only the first unfinished plan item.
 - Explicit task decomposition: each root has ordered, independently verifiable
-  criteria, and every continuation targets the first unmet criterion.
+  criteria, broad leaves may gain append-only children, and every continuation
+  targets the first unmet leaf.
 - Incremental delivery: verified partial work is checkpointed with source
   snapshots, evidence hashes, and append-only criterion/history ledgers.
-- Bounded automatic replanning: convergence guards start one fresh-context,
-  materially different strategy without discarding checkpoints or workspace
-  changes.
+- Gain-aware automatic replanning: convergence guards rotate to a fresh,
+  materially different strategy without discarding checkpoints; each new
+  verified item resets escalation.
 - Persistent but bounded worker context: root-scoped conversations resume
   across checkpoints and rejections and rotate after repeated rejection.
 - Event-driven execution: ordinary Bash supervisors launch Codex only when
@@ -26,7 +27,8 @@ A local, event-driven two-agent coding harness for Linux.
 - Filesystem observability: assignments, results, reviews, JSONL streams,
   checkpoints, progress, and lifecycle events remain inspectable on disk.
 - Safe restart and recovery: supervisor restarts preserve plans, task state,
-  checkpoints, retained threads, and completed evidence.
+  checkpoints, retained threads, and completed evidence; child processes do
+  not inherit supervisor lifetime locks.
 - Explicit runtime configuration: one trusted `.env` selects repositories,
   state, accounts, models, timing, and child-process runtime paths.
 - Manual Git ownership: the harness does not commit unless the specification
@@ -75,13 +77,14 @@ specification
     -> project plan item
         -> immutable root assignment
             -> ordered root criteria
-                -> bounded worker revisions for the first unmet criterion
+                -> optional append-only child criteria
+                    -> bounded worker revisions for the first unmet leaf
 ```
 
 For a new root, the manager must declare stable `Root-Criterion` IDs with
 independently checkable evidence. A continuation must declare exactly one
-`Target-Criterion`, and the publisher verifies that it is the first criterion
-not already marked `PASSED`. Oversized legacy roots receive an immutable
+`Target-Criterion`, and the publisher verifies that it is the first leaf not
+already marked `PASSED`. Oversized legacy roots receive an immutable
 criterion-definition sidecar when automatic replanning first decomposes them.
 
 Each worker revision ends in one of three manager decisions:
@@ -114,17 +117,25 @@ The harness watches for non-convergence using three independent signals:
 When a configured threshold is reached, the current result is archived and the
 root enters `NEEDS_REPLAN`. With automatic replanning enabled, this is a
 transient state: a fresh manager context must publish one continuation for the
-first unmet criterion using a materially different strategy. A valid strategy
+first unmet leaf using a materially different strategy. A valid strategy
 change must narrow scope, change the evidence approach, or isolate a new
 bounded criterion; changing only the task title or strategy label is rejected.
 
-The automatic budget resets when a declared criterion reaches `PASSED`.
-Checkpointed smaller increments remain preserved but cannot extend that budget
-forever. If the manager cannot produce a materially different task, the same
-blocker survives the bounded replan, or the replan budget is exhausted, the
-root enters `NEEDS_HUMAN`. Explicit hard blocks and Oracle scope conflicts are
-always human-only. No checkpoint, criterion record, archived attempt, or live
-workspace change is deleted during these transitions.
+The automatic budget resets whenever a checkpoint records a new stable
+`Verified-Increment` or `Verified-Criterion`. Numeric progress may remain at
+0% or 99%; durable evidence, not the display percentage, governs escalation.
+The checkpoint-without-criterion threshold still rotates strategy and starts a
+fresh context periodically, but it cannot drive a progressing root into
+`NEEDS_HUMAN`.
+
+If an existing first-unmet criterion proves broader than expected, an automatic
+replan may append an ordered child decomposition. Existing root criteria and
+prior child rows are immutable: the harness always schedules the first unmet
+leaf and derives parent completion from its children. Human intervention is
+reserved for multiple materially different strategies with no new verified
+item, inability to produce a materially different bounded task, explicit hard
+blocks, and Oracle scope conflicts. No checkpoint, criterion record, archived
+attempt, or live workspace change is deleted during these transitions.
 
 ## Watch the agents working
 
@@ -448,27 +459,32 @@ manager supervisor consumes this marker automatically:
 
 ```bash
 export HARNESS_AUTO_REPLAN_ENABLED="1"
-export HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION="1"
+export HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN="1"
 ```
+
+`HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION` remains a compatibility alias for
+existing environment files, but now has the verified-gain semantics above.
 
 The automatic manager turn starts with fresh context. For an oversized legacy
 root, it first installs an immutable ordered
 `.criteria-definition.tsv` containing at least two independently verifiable
 remaining child milestones. It then publishes exactly one continuation for the
-first unmet criterion with `Worker-Context: FRESH` and a declared strategy
+first unmet leaf criterion with `Worker-Context: FRESH` and a declared strategy
 change: narrower scope, new evidence, or an isolated criterion. The publisher
 rejects repeated strategy IDs, materially identical strategy fingerprints,
-non-first targets, mutable decompositions, and a surviving deterministic
-blocker.
+non-first targets, replacement decompositions, and a deterministic blocker
+that survives without new durable evidence. When a current leaf is still too
+broad, the manager may append two or more ordered child criteria to
+`.criterion-decomposition.tsv`; it may never alter existing rows.
 
-The automatic budget resets only when a declared criterion reaches `PASSED`.
-Verified smaller increments remain checkpointed, but do not create an
-unbounded retry budget. If no materially different continuation can be
-published, the same blocker survives, or the bounded budget is exhausted, the
-root enters `NEEDS_HUMAN`. Explicit hard blocks and Oracle scope conflicts
-remain human-only. `harness-unblock-root ENV_FILE TASK_ROOT` is the explicit
-operator action for `NEEDS_HUMAN`; it records new convergence and replan
-baselines without deleting history.
+The automatic budget counts materially different replans since the latest
+verified ledger item. Every unique checkpoint or passed criterion resets it,
+even when `Progress-Percent` is unchanged. Human intervention occurs only when
+that no-gain budget is exhausted, no valid materially different continuation
+can be produced, an unchanged blocker survives without gain, or a hard/Oracle
+boundary requires authority. `harness-unblock-root ENV_FILE TASK_ROOT` is the
+explicit operator action for `NEEDS_HUMAN`; it records new convergence and
+replan baselines without deleting history.
 
 Set `HARNESS_AUTO_REPLAN_ENABLED=0` to retain manual `NEEDS_REPLAN` handling.
 Set an individual convergence threshold to `0` to disable only that trigger.

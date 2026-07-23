@@ -32,16 +32,15 @@ trigger_task="$(awk -F': ' '$1 == "Triggered-By" {print $2; exit}' "$replan_mark
 [[ -n "$trigger_task" ]] || trigger_task="$root"
 blocking_fingerprint="$(awk -F': ' '$1 == "Blocking-Fingerprint" {print $2; exit}' "$replan_marker")"
 [[ -n "$blocking_fingerprint" ]] || blocking_fingerprint="-"
-last_blocker="$(root_last_auto_replan_blocker "$root" 2>/dev/null || true)"
-if [[ "$blocking_fingerprint" != "-" && "$blocking_fingerprint" == "$last_blocker" ]]; then
+if root_same_blocker_without_verified_gain "$root" "$blocking_fingerprint"; then
 	mark_root_needs_human "$root" "$trigger_task" \
-		"the same blocker survived a bounded automatic replan: $blocking_fingerprint" >/dev/null
+		"the same blocker survived a bounded automatic replan without durable verified gain: $blocking_fingerprint" >/dev/null
 	exit 0
 fi
-auto_replans="$(root_auto_replans_without_criterion "$root")"
-if (( auto_replans >= HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION )); then
+auto_replans="$(root_auto_replans_without_verified_gain "$root")"
+if (( auto_replans >= HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN )); then
 	mark_root_needs_human "$root" "$trigger_task" \
-		"automatic strategy-change budget exhausted without completing a declared criterion ($auto_replans/$HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION)" >/dev/null
+		"automatic strategy-change budget exhausted without durable verified gain ($auto_replans/$HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN)" >/dev/null
 	exit 0
 fi
 
@@ -81,6 +80,7 @@ development_policy_file="$REPOSITORY/design/development-policy.txt"
 [[ -f "$development_policy_file" ]] || development_policy_file=""
 task_output="$PROJECT_TMP_DIR/$PROJECT-task-$expected_task_id.auto-replan.md"
 criteria_output="$PROJECT_TMP_DIR/$PROJECT-task-$root.criteria-definition.tsv"
+decomposition_output="$PROJECT_TMP_DIR/$PROJECT-task-$expected_task_id.criterion-decomposition.tsv"
 prompt_file="$project_path/control/$PROJECT-task-$root.auto-replan.prompt.md"
 
 criteria_instruction=""
@@ -91,7 +91,7 @@ if task_root_uses_assignment_criteria "$root" || [[ -f "$criteria_definition" ]]
 			'all declared criteria are already passed but the root was not accepted; manager evidence reconciliation is required' >/dev/null
 		exit 0
 	fi
-	criteria_instruction="Use the existing immutable criterion inventory. Target exactly its first unmet criterion: $first_unmet. Do not create or replace CRITERIA_OUTPUT, and call manager-publish-task without a criteria-file argument."
+	criteria_instruction="Use the existing immutable criterion inventory. Its first unmet leaf is: $first_unmet. Do not create or replace CRITERIA_OUTPUT. If repository evidence proves this leaf is unexpectedly broad, you may refine only $first_unmet into at least two ordered independently verifiable children by writing DECOMPOSITION_OUTPUT with the exact header parent_criterion<TAB>child_criterion<TAB>title<TAB>acceptance_evidence. In that case target the first new child and publish with --auto-replan - DECOMPOSITION_OUTPUT. Otherwise target $first_unmet and publish with --auto-replan only. Never rewrite or remove an existing criterion or decomposition row."
 else
 	criteria_instruction="This is an oversized legacy root without an explicit criterion inventory. Create CRITERIA_OUTPUT as criterion_id<TAB>title<TAB>acceptance_evidence with the exact header and at least two ordered, independently verifiable remaining child milestones. The first row must be the bounded target. Do not include completed work as a remaining criterion. Pass CRITERIA_OUTPUT as the final manager-publish-task argument."
 fi
@@ -119,6 +119,7 @@ REPOSITORY=$REPOSITORY
 HARNESS_BIN=$HARNESS_BIN
 TASK_OUTPUT=$task_output
 CRITERIA_OUTPUT=$criteria_output
+DECOMPOSITION_OUTPUT=$decomposition_output
 
 Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and the files above that exist. Inspect only the repository evidence needed to understand the first unmet boundary. Preserve every verified checkpoint.
 
@@ -138,9 +139,9 @@ It must also contain nonempty Objective, Acceptance criteria, and Validation com
 
 Publish the task atomically with:
 
-$HARNESS_BIN/manager-publish-task "$HARNESS_ENV_FILE" "$expected_task_id" "$task_output" --auto-replan [CRITERIA_OUTPUT only when required above]
+$HARNESS_BIN/manager-publish-task "$HARNESS_ENV_FILE" "$expected_task_id" "$task_output" --auto-replan [CRITERIA_OUTPUT only for an undecomposed legacy root] [DECOMPOSITION_OUTPUT only after a '-' criteria placeholder]
 
-The command validates the first-unmet target, immutable decomposition, fresh worker context, strategy uniqueness, material fingerprint, replan budget, and surviving blocker fingerprint. Correct any validation error within this one turn. Publish exactly one task, then terminate immediately. Do not wait, sleep, poll, watch the filesystem, call harness-unblock-root, or resume the old manager thread.
+The command validates the first-unmet leaf, append-only child decomposition, fresh worker context, strategy uniqueness, material fingerprint, verified-gain replan budget, and a blocker that survived without new durable evidence. A unique verified checkpoint or passed criterion resets escalation even when Progress-Percent is unchanged. Correct any validation error within this one turn. Publish exactly one task, then terminate immediately. Do not wait, sleep, poll, watch the filesystem, call harness-unblock-root, or resume the old manager thread.
 PROMPT
 if codex_model_requires_narrow_prompt "$MANAGER_MODEL"; then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT

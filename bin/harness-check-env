@@ -67,8 +67,8 @@ else
 	printf 'Checkpoint convergence guard: %s verified increments without a completed criterion\n' "$HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION"
 fi
 if (( HARNESS_AUTO_REPLAN_ENABLED == 1 )); then
-	printf 'Automatic fresh-context replanning: enabled (%s strategy change(s) without a completed criterion)\n' \
-		"$HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION"
+	printf 'Automatic fresh-context replanning: enabled (%s strategy change(s) without durable verified gain)\n' \
+		"$HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN"
 else
 	printf 'Automatic fresh-context replanning: disabled\n'
 fi
@@ -88,4 +88,4 @@ printf 'Transient provider retry seconds: %s (retries unlimited)\n' "$HARNESS_PR
 printf 'Quota retry seconds: %s (retries unlimited)\n' "$HARNESS_QUOTA_RETRY_SECONDS"
 printf 'Codex wall timeout seconds: %s (0 means unlimited)\n' "$HARNESS_CODEX_WALL_TIMEOUT_SECONDS"
 printf 'Codex idle timeout seconds: %s (0 means unlimited)\n' "$HARNESS_CODEX_IDLE_TIMEOUT_SECONDS"
-printf 'Task lifecycle: verified increments are checkpointed; roots resume by first-unmet criterion; bounded automatic replanning escalates only to NEEDS_HUMAN\n'
+printf 'Task lifecycle: verified increments are checkpointed; broad criteria may gain append-only children; roots resume by first-unmet leaf; verified gain resets bounded automatic-replan escalation\n'

@@ -200,7 +200,7 @@ fi
 if project_completion_recorded && project_plan_all_complete; then
 	printf '\nProject status: COMPLETE. Every project-plan item is accepted.\n'
 elif (( human_count > 0 )); then
-	printf '\nProject status: NEEDS_HUMAN. Bounded automatic recovery was exhausted or could not produce a materially different strategy; verified work is preserved.\n'
+	printf '\nProject status: NEEDS_HUMAN. Multiple materially different strategies made no new durable verified gain, or a human-only boundary was reached; verified work is preserved.\n'
 elif (( blocked_count > 0 )); then
 	printf '\nProject status: BLOCKED. A root task requires human intervention before planning can continue.\n'
 elif (( replanning_count > 0 )); then
@@ -221,6 +221,16 @@ fi
 
 if (( checkpointed_count > 0 )); then
 	printf '\nVerified checkpoints: %s\n' "$checkpointed_count"
+fi
+
+active_status_root="$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" && $3 != "-" {print $3; exit}' "$(project_plan_state_file)" 2>/dev/null || true)"
+if [[ -n "$active_status_root" ]]; then
+	active_leaf="$(task_first_unmet_criterion "$active_status_root" 2>/dev/null || true)"
+	verified_items="$(task_verified_item_count "$active_status_root")"
+	replans_without_gain="$(root_auto_replans_without_verified_gain "$active_status_root")"
+	printf '\nActive root evidence: %s verified item(s); %s automatic replan(s) since the latest durable gain.\n' \
+		"$verified_items" "$replans_without_gain"
+	[[ -z "$active_leaf" ]] || printf 'First unmet leaf criterion: %s\n' "$active_leaf"
 fi
 
 printf '\n%s\n' "$project_progress_line"
