@@ -238,7 +238,13 @@ NOTE
 elif [[ "$kind" == worker ]]; then
 	TASK_ID="$(value TASK_ID)"
 	SESSION="$(value SESSION)"
-	final_message="$(printf '# Task Result\n\nTask-ID: %s\nStatus: COMPLETED\n\n## Summary\n\nMock implementation.\n\n## Modified files\n\n- mock-file\n\n## Implemented behavior\n\n- Mock behavior.\n\n## Validation performed\n\nMock test passed.\n\n## Deviations from assignment\n\nNone.\n\n## Remaining concerns\n\nNone.\n\n## Worker assessment\n\nReady for manager review.\n' "$TASK_ID")"
+	if [[ "$TASK_ID" == 002 ]]; then
+		# A useful worker report with noncanonical metadata/headings must be
+		# normalized at completion rather than rejected later as zero gain.
+		final_message=$'# Worker Result\n\nStatus: BLOCKED\n\nImplemented and validated the bounded task.\n'
+	else
+		final_message="$(printf '# Task Result\n\nTask-ID: %s\nStatus: COMPLETED\n\n## Summary\n\nMock implementation.\n\n## Modified files\n\n- mock-file\n\n## Implemented behavior\n\n- Mock behavior.\n\n## Validation performed\n\nMock test passed.\n\n## Deviations from assignment\n\nNone.\n\n## Remaining concerns\n\nNone.\n\n## Worker assessment\n\nReady for manager review.\n' "$TASK_ID")"
+	fi
 	if [[ "$TASK_ID" == 001 ]]; then
 		# Deliberately expose a result directly. worker-invoke-task must normalize
 		# it through worker-complete-task before manager review can begin.
@@ -368,6 +374,7 @@ grep -q 'SUPERVISOR_REVIEW_LEFT_UNCOMMITTED task=002' "$EVENTS"
 grep -q 'WORKER_SUPERVISOR_TRIGGER task=001' "$EVENTS"
 grep -q 'WORKER_DIRECT_RESULT_NORMALIZED task=001' "$EVENTS"
 grep -q 'WORKER_LAST_MESSAGE_RESULT_NORMALIZED task=002' "$EVENTS"
+grep -q 'WORKER_RESULT_NORMALIZED task=002' "$EVENTS"
 grep -q 'TASK_PUBLISHED task=002' "$EVENTS"
 grep -q 'SUPERVISOR_PLANNING_GAP progress=50 pending=1' "$EVENTS"
 grep -q 'MANAGER_PLAN_COMMITTED' "$EVENTS"
@@ -384,6 +391,16 @@ grep -q -- '--config model_auto_compact_token_limit=240000' "$ARGS_LOG"
 grep -q -- '--add-dir /tmp/testproj' "$ARGS_LOG"
 [[ -f "$TEST_ROOT/state/projects/testproj/archive/testproj-task-001.assignment.md" ]]
 [[ -f "$TEST_ROOT/state/projects/testproj/archive/testproj-task-002.assignment.md" ]]
+normalized_result="$TEST_ROOT/state/projects/testproj/archive/testproj-task-002.result.md"
+grep -Fqx 'Task-ID: 002' "$normalized_result"
+grep -Fqx 'Status: COMPLETED' "$normalized_result"
+grep -Fqx 'Worker-Reported-Status: BLOCKED' "$normalized_result"
+for heading in '## Summary' '## Modified files' '## Implemented behavior' \
+	'## Validation performed' '## Deviations from assignment' \
+	'## Remaining concerns' '## Worker assessment'; do
+	grep -Fqx -- "$heading" "$normalized_result"
+done
+grep -Fq 'Implemented and validated the bounded task.' "$normalized_result"
 [[ ! -e "$TEST_ROOT/state/projects/testproj/control/testproj-task-001.lease" ]]
 [[ ! -e "$TEST_ROOT/state/projects/testproj/control/testproj-task-002.lease" ]]
 first_complete_line="$(grep -n 'TASK_COMPLETED task=001' "$EVENTS" | head -n 1 | cut -d: -f1)"

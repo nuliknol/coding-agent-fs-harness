@@ -128,14 +128,33 @@ The checkpoint-without-criterion threshold still rotates strategy and starts a
 fresh context periodically, but it cannot drive a progressing root into
 `NEEDS_HUMAN`.
 
-If an existing first-unmet criterion proves broader than expected, an automatic
-replan may append an ordered child decomposition. Existing root criteria and
-prior child rows are immutable: the harness always schedules the first unmet
-leaf and derives parent completion from its children. Human intervention is
-reserved for multiple materially different strategies with no new verified
-item, inability to produce a materially different bounded task, explicit hard
-blocks, and Oracle scope conflicts. No checkpoint, criterion record, archived
-attempt, or live workspace change is deleted during these transitions.
+If an existing first-unmet leaf proves broader than expected, an automatic
+replan may append at least two ordered child criteria. Existing root criteria
+and prior child rows are immutable: the harness always schedules the first
+unmet leaf and derives parent completion from all of its children. A child that
+still proves too broad may be decomposed again without rewriting its ancestors.
+The durable `.criterion-decomposition.tsv` uses:
+
+```text
+parent_criterion<TAB>child_criterion<TAB>title<TAB>acceptance_evidence
+```
+
+Only automatic replanning may append it, only the current first-unmet leaf may
+be refined, and child IDs must be new within the root.
+
+The unattended transition rules are:
+
+| Event | Result |
+|---|---|
+| A checkpoint records a new unique criterion or increment | Preserve it and reset zero-gain replan escalation. |
+| Numeric progress is unchanged but a unique checkpoint is verified | Treat it as durable gain; 0% or 99% does not cause a stop. |
+| A convergence threshold is reached | Archive the current outcome and enter transient `NEEDS_REPLAN`; the supervisor starts a fresh manager strategy. |
+| The same blocker reappears after new verified evidence | Permit another bounded strategy because the prior replan produced durable gain. |
+| The configured number of materially different replans produces no new verified item | Enter `NEEDS_HUMAN`. |
+| No materially different bounded task can be published, or a hard/Oracle authority boundary is reached | Enter `NEEDS_HUMAN`. |
+
+No checkpoint, criterion record, archived attempt, or live workspace change is
+deleted during these transitions.
 
 ## Watch the agents working
 
@@ -172,7 +191,6 @@ Repository: /var/home/project
 Harness root: /var/home/project/.local/state/coding-harness
 Manager supervisor: running (PID 3575705)
 Worker supervisor: running (PID 3575962)
-Project progress: 42% (3/7 plan items complete)
 
 PLAN ITEM                STATE        TASK ROOT        TITLE
 ------------------------ ------------ ---------------- -----
@@ -190,6 +208,13 @@ TASK                             STATE        PROGRESS   OWNER                  
 002-revision-05                  ACCEPTED     100%       -                            -
 001-revision-34                  ACCEPTED     100%       -                            -
 004-revision-10                  RUNNING      85%        worker-20260711T220248Z-f0c1e9a9 50s
+
+Verified checkpoints: 6
+
+Active root evidence: 6 verified item(s); 0 automatic replan(s) since the latest durable gain.
+First unmet leaf criterion: exact-search.temporal-projection
+
+Project progress: 42% (3/7 plan items complete)
 user@dev :~/configs$ 
 ```
 
@@ -378,6 +403,18 @@ Restart them and preserve existing state:
 /opt/coding-agent-fs-harness-v4.4/bin/harness-start /path/to/repository/harness.env
 ```
 
+`harness-stop` is graceful. It signals both supervisors but does not kill an
+active manager or worker Codex turn. If a turn is still running after the
+bounded stop wait, the command exits nonzero and reports that the supervisor
+will stop after its child publishes or exits. Run `harness-status`, wait for
+both supervisors to report `stopped`, and then run `harness-start`.
+
+Supervisor lifetime lock descriptors are closed in every manager, worker,
+Oracle, `inotifywait`, and polling child. A completed child therefore cannot
+leave an inherited lock behind and prevent the replacement supervisor from
+starting. `harness-status` reports the new supervisor PIDs after a successful
+restart.
+
 If `manager.thread` already exists, bootstrap is not repeated. Active processes
 do not cause `harness-start` to reset state. Only `harness-init` offers an
 explicit confirmed reset, archives the old state under `$HARNESS_ROOT/resets/`,
@@ -408,9 +445,11 @@ hash manifest under `archive/checkpoints/`. The append-only `.criteria.tsv`,
 `.checkpoints.tsv`, and `.history.tsv` files under `control/progress/` remain
 the recovery ledger. The live repository is never reset or rewritten by this
 transaction. New root assignments declare stable `Root-Criterion` IDs; for
-those roots checkpoint progress is calculated from passed versus declared
-criteria rather than estimated by the manager. Legacy roots without that
-inventory retain monotonic percentage compatibility.
+undecomposed roots checkpoint progress is calculated from passed versus
+declared criteria rather than estimated by the manager. Once a broad criterion
+has append-only children, the monotonic display percentage remains compatible
+with its historical value while leaf criteria and verified items provide the
+authoritative fine-grained progress.
 
 ### Root worker context
 
@@ -486,6 +525,18 @@ boundary requires authority. `harness-unblock-root ENV_FILE TASK_ROOT` is the
 explicit operator action for `NEEDS_HUMAN`; it records new convergence and
 replan baselines without deleting history.
 
+With the default value `1`, one materially different automatic strategy is
+allowed from a given verified-item baseline. If it produces a new verified
+item, the budget immediately resets; if it produces no durable gain, the next
+convergence trigger requires human intervention. Raising the setting permits
+more consecutive materially different no-gain strategies without weakening
+checkpoint preservation or hard/Oracle boundaries.
+
+The append-only `.replans.tsv` ledger records both completed root-criterion and
+total verified-item counts at each strategy change. Existing nine-column
+ledgers are upgraded automatically on the next successful replan by deriving
+their historical verified counts from timestamped criterion-ledger rows.
+
 Set `HARNESS_AUTO_REPLAN_ENABLED=0` to retain manual `NEEDS_REPLAN` handling.
 Set an individual convergence threshold to `0` to disable only that trigger.
 
@@ -509,6 +560,8 @@ restart; no completed plan item or root task is replayed.
 
 `harness-status` reports both levels explicitly, including `REPLANNING` while
 the fresh manager is active and `NEEDS_HUMAN` only at a human-only boundary.
+For the active root it also prints the total verified-item count, automatic
+replans since the latest durable gain, and the first unmet leaf criterion.
 
 ## State location
 
@@ -560,6 +613,12 @@ $HARNESS_ROOT/projects/$PROJECT/
         progress/
             sample-project-task-002.root-assignment.md
             sample-project-task-002.progress.md
+            sample-project-task-002.criteria.tsv
+            sample-project-task-002.checkpoints.tsv
+            sample-project-task-002.history.tsv
+            sample-project-task-002.criteria-definition.tsv
+            sample-project-task-002.criterion-decomposition.tsv
+            sample-project-task-002.replans.tsv
         sessions/
     logs/
         events.log
@@ -569,6 +628,10 @@ $HARNESS_ROOT/projects/$PROJECT/
         manager-review-*.jsonl
         worker-task-*.jsonl
 ```
+
+The criteria-definition file exists for decomposed legacy roots; the
+criterion-decomposition and replan ledgers appear only after those transitions.
+All are durable control state, not disposable logs.
 
 ## Monitoring
 
@@ -631,11 +694,12 @@ or unrelated cleanup. Configure it with `HARNESS_CLOSURE_MODE_*` values or set
 `HARNESS_CLOSURE_MODE_ENABLED=0` to retain single-attempt behavior.
 
 Correct increments are checkpointed rather than rejected. A zero-improvement
-result may still record a stable verified increment, but the rolling zero-gain,
-checkpoint-without-criterion, and total-attempt guards prevent an active root
-from becoming an unbounded conveyor belt. Cumulative progress is monotonic and
-only root-task acceptance criteria count toward it; unrelated repairs
-contribute 0%.
+result may still record a stable verified increment. The rolling zero-gain,
+checkpoint-without-criterion, and total-attempt guards periodically rotate
+strategy and context; they escalate only when materially different strategies
+stop adding durable verified evidence. Cumulative percentage progress remains
+monotonic, while the verified-item ledger records smaller root-scoped gains;
+unrelated repairs contribute neither.
 
 ## Provider retry policy
 
@@ -676,6 +740,15 @@ The worker heartbeat remains active during the retry delay, so the claimed task
 does not become stale. The worker keeps the same task ownership session and
 resumes the attempt's Codex thread when one was created. The manager resumes its
 persistent manager thread.
+
+At the worker completion transaction, harmless report-shape omissions are
+normalized into the canonical result headings while preserving the original
+worker text. `Status: COMPLETED` describes the publication transaction, not root
+acceptance; a worker-authored `BLOCKED`, `PARTIAL`, or similar assessment is
+retained as `Worker-Reported-Status` while the canonical transaction status is
+added. A conflicting task identity is still rejected. This keeps independently
+verified implementation progress checkpointable instead of treating report
+wording or a missing Markdown heading as zero engineering gain.
 
 Authentication/account-disable errors, invalid configuration, sandbox failures,
 malformed output, protocol violations, partial-edit failures, and actual agent
@@ -790,16 +863,22 @@ the current result has been archived. Resuming a replanned root records a new
 convergence baseline, so its next bounded strategy receives a fresh budget
 without deleting prior history.
 
-## Resumable decomposition in 4.4
+## Resumable decomposition and gain-aware replanning in 4.4
 
 Version 4.4 makes root criteria executable lifecycle state rather than prompt
 advice. New roots must declare stable `Root-Criterion` IDs. Continuations of a
-decomposed root must name the first unmet ID with `Target-Criterion`. Legacy
+decomposed root must name the first unmet leaf with `Target-Criterion`. Legacy
 roots receive an immutable criterion-definition sidecar during automatic
-replanning, preserving historical percentages such as 99% while moving future
-verification through explicit child milestones.
+replanning. An unexpectedly broad leaf can gain append-only ordered children,
+including nested children, without replacing the original root inventory.
 
-`NEEDS_REPLAN` is now an automatic bounded transition, not an overnight stop.
-One fresh-context, materially different strategy is allowed until a declared
-criterion passes. Exhaustion, repeated blockers, hard blocks, and Oracle scope
-conflicts remain explicit human-intervention states.
+`NEEDS_REPLAN` is an automatic bounded transition, not an overnight stop. Its
+strategy budget is based on the durable verified-item ledger rather than the
+coarse percentage or only completed parent criteria. Every unique
+`Verified-Increment` or `Verified-Criterion` resets escalation; repeated
+strategies without new evidence, hard blocks, and Oracle scope conflicts remain
+explicit human-intervention states.
+
+Supervisor children now close manager and worker lifetime-lock descriptors.
+Graceful stop/restart therefore preserves an active turn without allowing that
+turn, a polling sleep, or `inotifywait` to strand the old supervisor lock.

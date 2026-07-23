@@ -76,15 +76,40 @@ Every harness command must receive `ENV_FILE` as its first argument.
 
 ## Result report
 
-Include:
+Use these exact metadata lines and second-level headings. Do not rename or omit
+them; write `None.` when a section has no findings.
 
-- Task ID and status.
-- Summary of implementation.
-- Modified files.
-- Implemented behavior.
-- Validation commands and outcomes.
-- Starting progress and which remaining root criteria advanced.
-- Evidence that previously verified behavior was preserved.
-- Deviations from assignment and known limitations or unresolved concerns.
+`Status: COMPLETED` means this bounded worker turn is finished and its report is
+ready for independent review. It does not claim that the target criterion or
+root is complete. Put an unmet acceptance gate, newly exposed failure, or
+blocked assessment under `## Remaining concerns` and `## Worker assessment`;
+never replace the transaction status with `BLOCKED`, `PARTIAL`, or `FAILED`.
+
+```text
+# Task Result
+
+Task-ID: TASK_ID
+Status: COMPLETED
+
+## Summary
+
+## Modified files
+
+## Implemented behavior
+
+## Validation performed
+
+## Deviations from assignment
+
+## Remaining concerns
+
+## Worker assessment
+```
+
+Under those headings include the implementation summary, modified files,
+implemented behavior, validation commands and outcomes, starting progress,
+which remaining root criteria advanced, evidence that previously verified
+behavior was preserved, deviations, and known limitations or unresolved
+concerns.
 
 Write the result report in `PROJECT_TMP_DIR`, then publish it with `worker-complete-task`.

@@ -24,6 +24,15 @@ Every harness command must receive `ENV_FILE` as its first argument. Do not repl
 7. Write and publish the result with `worker-complete-task`.
 8. Terminate after publishing the result. Do not wait for another task in this same turn.
 
+The result must contain `Task-ID: TASK_ID`, `Status: COMPLETED`, and these exact
+second-level headings: `## Summary`, `## Modified files`,
+`## Implemented behavior`, `## Validation performed`,
+`## Deviations from assignment`, `## Remaining concerns`, and
+`## Worker assessment`. Use `None.` for an empty section. `Status: COMPLETED`
+means the bounded turn finished, not that the root criterion passed; record an
+unmet gate or blocked assessment in the final two sections without changing
+the transaction status.
+
 ## Commands
 
 ```text

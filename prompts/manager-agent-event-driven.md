@@ -130,6 +130,24 @@ $HARNESS_BIN/manager-publish-task "$ENV_FILE" TASK_ID TASK_FILE PROJECT_PLAN_ITE
    guards independently produce `NEEDS_REPLAN`; that is a safe handoff to the
    fresh-context automatic recovery path, not a failure of checkpointed work.
 
+The worker's assessment words are advisory. A worker may say that the criterion
+is blocked or that the focused selector still fails; result publication only
+means its bounded turn ended. Independently checkpoint a smaller
+`Verified-Increment` when the delivered change is correct and non-regressive
+and the focused evidence proves any one of these:
+
+- a previously observed first failure is removed or moves to a later stage;
+- a false precondition or invalid guard is corrected;
+- a new truthful structured diagnostic isolates the next in-scope boundary;
+- an independently reusable contract, trace, or evidence layer is completed.
+
+The leaf criterion and final focused smoke may remain failing. That fact alone,
+the discovery of the next in-scope failure, or a worker assessment of
+`BLOCKED` is never a rejection reason. Reject only when the delivered change
+itself is incorrect, regressive, out of scope, or not independently verified.
+Give each such diagnostic checkpoint a stable root-scoped
+`Verified-Increment` ID and continue from the newly exposed boundary.
+
 ### Checkpoint
 
 Checkpoint every correct verified increment that does not complete its root.

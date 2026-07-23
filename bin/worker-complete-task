@@ -45,11 +45,81 @@ owner="$(lease_value "$lease" owner)"
 [[ "$owner" == "$session" ]] || die "task is owned by $owner, not $session"
 
 tmp="$dir/results/$base.result.tmp.$$"
-install -m 600 "$result_file" "$tmp"
+metadata_tmp="$dir/results/$base.result.metadata.tmp.$$"
+normalized_fields=()
+normalize_reported_status=0
+required_headings=(
+	'## Summary'
+	'## Modified files'
+	'## Implemented behavior'
+	'## Validation performed'
+	'## Deviations from assignment'
+	'## Remaining concerns'
+	'## Worker assessment'
+)
+
+# Completion is the only supported publication boundary, so canonicalize
+# harmless report-shape omissions here before the manager can observe the
+# result. The worker-authored text remains intact and the manager must still
+# independently verify every claimed increment. A conflicting task identity
+# remains a hard protocol error. Worker-authored status words such as BLOCKED
+# describe the assessment, not the completion transaction, so preserve them
+# under Worker-Reported-Status and publish the canonical transaction status.
+while IFS= read -r reported_task_id; do
+	[[ "$reported_task_id" == "$task_id" ]] ||
+		die "result Task-ID is $reported_task_id, expected $task_id"
+done < <(sed -n 's/^Task-ID:[[:space:]]*//p' "$result_file")
+while IFS= read -r reported_status; do
+	[[ "$reported_status" == COMPLETED ]] || normalize_reported_status=1
+done < <(sed -n 's/^Status:[[:space:]]*//p' "$result_file")
+
+if (( normalize_reported_status == 1 )); then
+	sed 's/^Status:/Worker-Reported-Status:/' "$result_file" > "$tmp"
+	chmod 600 "$tmp"
+	normalized_fields+=('Worker-Reported-Status')
+else
+	install -m 600 "$result_file" "$tmp"
+fi
+if ! grep -Fqx -- "Task-ID: $task_id" "$tmp" ||
+	! grep -Fqx -- 'Status: COMPLETED' "$tmp"; then
+	{
+		if ! grep -Fqx -- "Task-ID: $task_id" "$tmp"; then
+			printf 'Task-ID: %s\n' "$task_id"
+			normalized_fields+=('Task-ID')
+		fi
+		if ! grep -Fqx -- 'Status: COMPLETED' "$tmp"; then
+			printf 'Status: COMPLETED\n'
+			normalized_fields+=('Status')
+		fi
+		printf '\n'
+		cat "$tmp"
+	} > "$metadata_tmp"
+	chmod 600 "$metadata_tmp"
+	mv "$metadata_tmp" "$tmp"
+fi
+for heading in "${required_headings[@]}"; do
+	if ! grep -Fqx -- "$heading" "$tmp"; then
+		{
+			printf '\n%s\n\n' "$heading"
+			printf 'Not separately structured in the worker-authored report; '
+			printf 'the original report content is preserved above for independent manager review.\n'
+		} >> "$tmp"
+		normalized_fields+=("${heading#\#\# }")
+	fi
+done
+if (( ${#normalized_fields[@]} > 0 )); then
+	normalized_list="$(IFS=,; printf '%s' "${normalized_fields[*]}")"
+	printf '\n<!-- Harness-normalized worker-result fields: %s -->\n' "$normalized_list" >> "$tmp"
+fi
+
 mv "$running" "$assignment_archive"
 rm -f "$lease"
 mv "$tmp" "$result"
 
+if (( ${#normalized_fields[@]} > 0 )); then
+	log_event "WORKER_RESULT_NORMALIZED task=$task_id owner=$session fields=$(printf '%q' "$normalized_list")"
+	trace_event WORKER_RESULT_NORMALIZED "task_id=$task_id" "session=$session" "fields=$normalized_list"
+fi
 log_event "TASK_COMPLETED task=$task_id owner=$session result=$result"
 trace_event TASK_COMPLETED "task_id=$task_id" "session=$session" "input_result=$result_file" "stored_result=$result" "assignment_archive=$assignment_archive"
 printf '%s\n' "$result"
