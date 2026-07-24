@@ -1,0 +1,199 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TASK_ID SESSION RECEIPT_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 4 ]] || usage
+load_harness_env "$1"
+task_id="$2"
+session="$3"
+receipt_file="$4"
+
+ensure_project
+ensure_session "$session"
+validate_task_id "$task_id"
+[[ -f "$receipt_file" ]] || die "continuation receipt does not exist: $receipt_file"
+acquire_project_lock
+
+dir="$(project_dir)"
+base="$(task_base "$task_id")"
+running="$dir/running/$base.running.md"
+lease="$dir/control/$base.lease"
+result="$dir/results/$base.result.md"
+state_file="$(goal_state_file "$task_id")"
+ledger_file="$(goal_iteration_ledger_file "$task_id")"
+marker_file="$(goal_continue_marker_file "$task_id")"
+
+[[ -f "$running" ]] || die "task is not running: $task_id"
+[[ -f "$lease" ]] || die "lease is missing: $task_id"
+[[ ! -e "$result" ]] || die "task already has a terminal result: $task_id"
+[[ -f "$state_file" && -f "$ledger_file" ]] ||
+	die "goal state is missing for task: $task_id"
+assignment_uses_goal_mode "$running" ||
+	die "worker-continue-task is valid only for a LEAF_GOAL assignment"
+owner="$(lease_value "$lease" owner)"
+[[ "$owner" == "$session" ]] || die "task is owned by $owner, not $session"
+
+reported_task="$(require_single_metadata_value "$receipt_file" Task-ID 'goal continuation receipt')"
+reported_goal="$(require_single_metadata_value "$receipt_file" Goal-ID 'goal continuation receipt')"
+reported_iteration="$(require_single_metadata_value "$receipt_file" Iteration 'goal continuation receipt')"
+reported_outcome="$(require_single_metadata_value "$receipt_file" Outcome 'goal continuation receipt')"
+boundary_before="$(require_single_metadata_value "$receipt_file" Boundary-Before 'goal continuation receipt')"
+boundary_after="$(require_single_metadata_value "$receipt_file" Boundary-After 'goal continuation receipt')"
+workspace_before="$(require_single_metadata_value "$receipt_file" Workspace-Fingerprint-Before 'goal continuation receipt')"
+workspace_after="$(require_single_metadata_value "$receipt_file" Workspace-Fingerprint-After 'goal continuation receipt')"
+
+[[ "$reported_task" == "$task_id" ]] ||
+	die "continuation receipt Task-ID is $reported_task, expected $task_id"
+[[ "$reported_goal" == "$(kv_file_value "$state_file" goal_id)" ]] ||
+	die "continuation receipt Goal-ID does not match the active goal"
+[[ "$reported_iteration" =~ ^[1-9][0-9]*$ ]] ||
+	die 'continuation receipt Iteration must be a positive integer'
+[[ "$reported_outcome" == CONTINUE ]] ||
+	die 'continuation receipt Outcome must be CONTINUE'
+
+archive_dir="$(goal_iteration_archive_dir "$task_id")"
+archive_receipt="$archive_dir/iteration-$(printf '%04d' "$reported_iteration").md"
+if [[ -f "$archive_receipt" ]]; then
+	cmp -s "$receipt_file" "$archive_receipt" ||
+		die "iteration $reported_iteration was already committed with different content"
+	printf '%s\n' "$archive_receipt"
+	exit 0
+fi
+
+current_iteration="$(kv_file_value "$state_file" iteration_count)"
+[[ "$current_iteration" =~ ^[0-9]+$ ]] || die 'goal iteration state is invalid'
+(( reported_iteration == current_iteration + 1 )) ||
+	die "continuation receipt Iteration must be $((current_iteration + 1))"
+[[ "$(kv_file_value "$state_file" strategy_review_required)" == 0 ]] ||
+	die 'continuation is closed after repeated identical iterations; publish Goal-Outcome: NEEDS_DECOMPOSITION'
+[[ "$boundary_before" == "$(kv_file_value "$state_file" last_boundary)" ]] ||
+	die 'Boundary-Before does not match the durable goal boundary'
+[[ "$workspace_before" == "$(kv_file_value "$state_file" last_workspace)" ]] ||
+	die 'Workspace-Fingerprint-Before does not match the durable goal state'
+actual_workspace="$(repository_workspace_fingerprint)"
+[[ "$workspace_after" == "$actual_workspace" ]] ||
+	die "Workspace-Fingerprint-After does not match the repository: $actual_workspace"
+
+for heading in '## Progress made' '## Validation performed' '## Next bounded action' '## Scope check'; do
+	grep -Fqx -- "$heading" "$receipt_file" ||
+		die "continuation receipt is missing required heading: $heading"
+	awk -v heading="$heading" '
+		$0 == heading {inside=1; next}
+		inside && /^## / {exit}
+		inside && $0 !~ /^[[:space:]]*$/ {found=1}
+		END {exit found ? 0 : 1}
+	' "$receipt_file" || die "continuation receipt section is empty: $heading"
+done
+
+material_fingerprint="$(
+	{
+		printf '%s\n%s\n' "$boundary_after" "$workspace_after"
+		awk '
+			/^## (Progress made|Validation performed|Next bounded action|Scope check)$/ {inside=1; print; next}
+			inside && /^## / {inside=0}
+			inside && $0 !~ /^[[:space:]]*$/ {gsub(/[[:space:]]+/, " "); print}
+		' "$receipt_file"
+	} | sha256sum | awk '{print "sha256:" $1}'
+)"
+last_material="$(kv_file_value "$state_file" last_material_fingerprint)"
+movement='evidence'
+if [[ "$workspace_after" != "$workspace_before" ]]; then
+	movement='workspace'
+elif [[ "$boundary_after" != "$boundary_before" ]]; then
+	movement='boundary'
+elif [[ "$material_fingerprint" == "$last_material" ]]; then
+	movement='identical'
+fi
+
+identical_streak="$(kv_file_value "$state_file" identical_iterations)"
+[[ "$identical_streak" =~ ^[0-9]+$ ]] || identical_streak=0
+if [[ "$movement" == identical ]]; then
+	identical_streak=$((identical_streak + 1))
+else
+	identical_streak=0
+fi
+
+mkdir -p "$archive_dir"
+chmod 700 "$archive_dir"
+install -m 600 "$receipt_file" "$archive_receipt"
+printf '%s\t%s\tCONTINUE\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+	"$(timestamp_utc)" "$reported_iteration" "$boundary_before" "$boundary_after" \
+	"$workspace_before" "$workspace_after" "$material_fingerprint" "$movement" \
+	"$identical_streak" "$archive_receipt" >> "$ledger_file"
+
+goal_state_set "$state_file" state ITERATING
+goal_state_set "$state_file" iteration_count "$reported_iteration"
+goal_state_set "$state_file" identical_iterations "$identical_streak"
+goal_state_set "$state_file" protocol_failures 0
+goal_state_set "$state_file" last_boundary "$boundary_after"
+goal_state_set "$state_file" last_workspace "$workspace_after"
+goal_state_set "$state_file" last_material_fingerprint "$material_fingerprint"
+goal_state_set "$state_file" updated_at "$(timestamp_utc)"
+if [[ "$movement" != identical ]]; then
+	goal_state_set "$state_file" last_movement_at "$(timestamp_utc)"
+fi
+if (( reported_iteration % HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS == 0 )); then
+	generation="$(kv_file_value "$state_file" context_generation)"
+	[[ "$generation" =~ ^[0-9]+$ ]] || generation=0
+	goal_state_set "$state_file" context_generation "$((generation + 1))"
+	goal_state_set "$state_file" thread_id ""
+	goal_state_set "$state_file" thread_context rotation-requested
+	goal_thread_store "$task_id" "" rotation-requested
+fi
+if (( identical_streak >= HARNESS_GOAL_MAX_IDENTICAL_ITERATIONS )); then
+	if [[ "$(kv_file_value "$state_file" thread_context)" != rotation-requested ]]; then
+		generation="$(kv_file_value "$state_file" context_generation)"
+		[[ "$generation" =~ ^[0-9]+$ ]] || generation=0
+		goal_state_set "$state_file" context_generation "$((generation + 1))"
+		goal_state_set "$state_file" thread_id ""
+		goal_state_set "$state_file" thread_context rotation-requested
+		goal_thread_store "$task_id" "" rotation-requested
+	fi
+	goal_state_set "$state_file" state STRATEGY_REVIEW
+	goal_state_set "$state_file" strategy_review_required 1
+fi
+
+{
+	printf 'iteration=%s\n' "$reported_iteration"
+	printf 'receipt=%s\n' "$archive_receipt"
+	printf 'movement=%s\n' "$movement"
+	printf 'strategy_review_required=%s\n' "$(kv_file_value "$state_file" strategy_review_required)"
+	printf 'committed_at=%s\n' "$(timestamp_utc)"
+} > "$marker_file.tmp.$$"
+chmod 600 "$marker_file.tmp.$$"
+mv "$marker_file.tmp.$$" "$marker_file"
+
+summary_file="$(goal_summary_file "$task_id")"
+{
+	printf '# Worker Leaf Goal Status\n\n'
+	printf 'Task-ID: %s\n' "$task_id"
+	printf 'Goal-ID: %s\n' "$reported_goal"
+	printf 'Target-Criterion: %s\n' "$(kv_file_value "$state_file" target_criterion)"
+	printf 'Goal-Success-Evidence: %s\n' "$(metadata_value "$running" Goal-Success-Evidence)"
+	printf 'Focused-Validation: %s\n' "$(metadata_value "$running" Focused-Validation)"
+	printf 'Allowed-Scope: %s\n' "$(metadata_value "$running" Allowed-Scope)"
+	printf 'Hard-Block-Conditions: %s\n' "$(metadata_value "$running" Hard-Block-Conditions)"
+	printf 'State: %s\n' "$(kv_file_value "$state_file" state)"
+	printf 'Iterations: %s\n' "$reported_iteration"
+	printf 'Last-Movement: %s\n' "$movement"
+	printf 'Boundary: %s\n' "$boundary_after"
+	printf 'Workspace-Fingerprint: %s\n' "$workspace_after"
+	printf 'Latest-Receipt: %s\n\n' "$archive_receipt"
+	awk '
+		/^## (Progress made|Validation performed|Next bounded action|Scope check)$/ {inside=1}
+		inside {print}
+	' "$archive_receipt"
+} > "$summary_file.tmp.$$"
+chmod 600 "$summary_file.tmp.$$"
+mv "$summary_file.tmp.$$" "$summary_file"
+
+log_event "WORKER_GOAL_CONTINUED task=$task_id goal=$reported_goal iteration=$reported_iteration movement=$movement identical_streak=$identical_streak receipt=$archive_receipt"
+printf '%s\n' "$archive_receipt"

@@ -16,7 +16,8 @@ Root-Criterion: feature.validation
 <!-- Continuations replace Root-Criterion declarations with exactly one
 Target-Criterion naming the first unmet immutable criterion. Automatic replans
 also declare Worker-Context, Replan-Strategy-ID, Strategy-Change, and
-Supersedes-Task as directed by the launcher. -->
+Supersedes-Task as directed by the launcher. When
+HARNESS_WORKER_GOAL_MODE=1, use leaf-goal-task-template.md instead. -->
 
 ## Objective
 

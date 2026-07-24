@@ -16,6 +16,7 @@ require_manager_configuration
 require_manager_codex
 require_worker_codex
 require_oracle_codex
+require_goal_mode_clean_boundary
 
 printf 'Environment file: %s\n' "$HARNESS_ENV_FILE"
 printf 'Project: %s\n' "$PROJECT"
@@ -67,10 +68,10 @@ else
 	printf 'Checkpoint convergence guard: %s verified increments without a completed criterion\n' "$HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION"
 fi
 if (( HARNESS_AUTO_REPLAN_ENABLED == 1 )); then
-	printf 'Automatic fresh-context replanning: enabled (%s strategy change(s) without durable verified gain)\n' \
+	printf 'Automatic persistent-manager replanning: enabled (%s strategy change(s) without durable verified gain)\n' \
 		"$HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN"
 else
-	printf 'Automatic fresh-context replanning: disabled\n'
+	printf 'Automatic persistent-manager replanning: disabled\n'
 fi
 printf 'Rejected-root worker thread reuse: %s\n' "$([[ "$HARNESS_REUSE_WORKER_THREADS" == 1 ]] && printf enabled || printf disabled)"
 if (( HARNESS_WORKER_THREAD_MAX_REJECTIONS == 0 )); then
@@ -84,8 +85,16 @@ if (( HARNESS_CLOSURE_MODE_ENABLED == 1 )); then
 else
 	printf 'Bounded closure mode: disabled\n'
 fi
+if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
+	printf 'Worker leaf-goal mode: enabled (%s identical iterations, context rotation every %s iterations)\n' \
+		"$HARNESS_GOAL_MAX_IDENTICAL_ITERATIONS" "$HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS"
+	printf 'Leaf-goal process budget: %s fixes, %s focused-smoke runs\n' \
+		"$HARNESS_GOAL_PROCESS_MAX_FIXES" "$HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS"
+else
+	printf 'Worker leaf-goal mode: disabled (legacy one-turn assignments)\n'
+fi
 printf 'Transient provider retry seconds: %s (retries unlimited)\n' "$HARNESS_PROVIDER_RETRY_SECONDS"
 printf 'Quota retry seconds: %s (retries unlimited)\n' "$HARNESS_QUOTA_RETRY_SECONDS"
 printf 'Codex wall timeout seconds: %s (0 means unlimited)\n' "$HARNESS_CODEX_WALL_TIMEOUT_SECONDS"
 printf 'Codex idle timeout seconds: %s (0 means unlimited)\n' "$HARNESS_CODEX_IDLE_TIMEOUT_SECONDS"
-printf 'Task lifecycle: verified increments are checkpointed; broad criteria may gain append-only children; roots resume by first-unmet leaf; verified gain resets bounded automatic-replan escalation\n'
+printf 'Task lifecycle: verified increments are checkpointed; broad criteria may gain append-only children; roots resume by first-unmet leaf; leaf-goal CONTINUE receipts remain worker-internal; verified gain resets bounded automatic-replan escalation\n'

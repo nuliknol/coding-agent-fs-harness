@@ -1,4 +1,4 @@
-# Coding Agent Filesystem Harness v4.4 (for Codex CLI)
+# Coding Agent Filesystem Harness v4.5 (for Codex CLI)
 
 A local, event-driven two-agent coding harness for Linux.
 
@@ -11,9 +11,12 @@ A local, event-driven two-agent coding harness for Linux.
   targets the first unmet leaf.
 - Incremental delivery: verified partial work is checkpointed with source
   snapshots, evidence hashes, and append-only criterion/history ledgers.
-- Gain-aware automatic replanning: convergence guards rotate to a fresh,
-  materially different strategy without discarding checkpoints; each new
-  verified item resets escalation.
+- Opt-in leaf-goal workers: one independently verifiable leaf can span multiple
+  bounded Codex processes, with durable continuation receipts and one manager
+  review only at a terminal outcome.
+- Gain-aware automatic replanning: convergence guards ask the persistent
+  project manager for a materially different strategy without discarding
+  checkpoints; each new verified item resets escalation.
 - Persistent but bounded worker context: root-scoped conversations resume
   across checkpoints and rejections and rotate after repeated rejection.
 - Event-driven execution: ordinary Bash supervisors launch Codex only when
@@ -44,14 +47,17 @@ manager-bootstrap
 
 worker-supervisor (local Bash, no tokens)
     -> detects task 001
-    -> launches one worker `codex exec`
-    -> worker implements, publishes result, exits
+    -> launches a worker `codex exec`
+    -> legacy mode: worker publishes one result and exits
+    -> leaf-goal mode: worker may publish CONTINUE and exit
+       -> launcher resumes the same logical goal
+       -> only COMPLETE / NEEDS_DECOMPOSITION / HARD_BLOCKED publishes a result
 
 manager-supervisor (local Bash, no tokens)
-    -> detects result 001
+    -> detects terminal result 001
     -> resumes manager Codex thread
     -> manager accepts/checkpoints/rejects and publishes the next task
-    -> convergence guards may request a fresh automatic replan
+    -> convergence guards may request a persistent-manager automatic replan
     -> if acceptance leaves a planning gap, resumes a dedicated planning turn
     -> manager exits
 
@@ -66,6 +72,9 @@ records the Codex thread ID and resumes that conversation for the next revision
 without leaving any process alive. Acceptance or abort clears the thread.
 `Worker-Context: FRESH` requests an independent replacement, and
 `HARNESS_WORKER_THREAD_MAX_REJECTIONS` rotates long-lived rejected contexts.
+In leaf-goal mode, the thread is task/goal-scoped instead: each `CONTINUE`
+receipt preserves the current boundary and workspace fingerprint, and the
+launcher resumes that goal without waking the manager.
 
 ## How task decomposition and replanning work
 
@@ -78,7 +87,9 @@ specification
         -> immutable root assignment
             -> ordered root criteria
                 -> optional append-only child criteria
-                    -> bounded worker revisions for the first unmet leaf
+                    -> one logical worker goal for the first unmet leaf
+                        -> bounded internal iterations
+                            -> one terminal manager review
 ```
 
 For a new root, the manager must declare stable `Root-Criterion` IDs with
@@ -102,6 +113,39 @@ can be repaired. Only a checkpoint or passed criterion enters the durable
 verified ledger. An explicit abort/reset remains an operator-controlled
 transaction.
 
+### Leaf-goal execution (opt in)
+
+Set `HARNESS_WORKER_GOAL_MODE=1` only at a clean task boundary. New assignments
+must then use `Execution-Mode: LEAF_GOAL` and identify one first-unmet leaf,
+its observable success evidence, focused validation, allowed scope, baseline
+boundary, and genuine hard-block conditions. See
+`templates/leaf-goal-task-template.md`.
+
+A leaf goal has three terminal outcomes:
+
+| Worker outcome | Manager behavior |
+|---|---|
+| `COMPLETE` | Independently verify it, then checkpoint the leaf or accept the root. |
+| `NEEDS_DECOMPOSITION` | Preserve any verified increment, then automatically request a materially different strategy or append-only child criteria. |
+| `HARD_BLOCKED` | Require independent proof that an explicit assignment hard-block condition is met before pausing for a human. |
+
+If useful bounded work remains, the worker publishes `Outcome: CONTINUE` with
+`worker-continue-task`. That command validates task ownership, the next
+iteration number, before/after boundary, actual repository fingerprint, and
+required evidence sections. It archives the receipt and updates goal state;
+it does not create a result file, so it cannot trigger a manager review.
+Repeated materially identical receipts rotate worker context and close
+continuation in favor of a `NEEDS_DECOMPOSITION` strategy handoff.
+If the manager rejects a claimed `COMPLETE` outcome, a repair assignment for
+the same leaf reuses its `Goal-ID`; the publisher carries forward the logical
+goal's receipt ledger, iteration number, usage counters, review count, and
+worker thread unless the manager explicitly requests fresh context.
+
+Provider retries happen inside the current iteration. A process crash or
+supervisor restart leaves the running assignment, lease, goal ledger, thread
+record, and live repository intact. `harness-recover --reset-stale` requeues
+the same task without resetting its iteration count or boundary.
+
 `Improvement: 0%` means the coarse legacy percentage did not move; it does not
 mean the attempt or its evidence was deleted. This is especially common for a
 legacy root pinned at 99%, where there is no integer step before final
@@ -116,7 +160,7 @@ The harness watches for non-convergence using three independent signals:
 
 When a configured threshold is reached, the current result is archived and the
 root enters `NEEDS_REPLAN`. With automatic replanning enabled, this is a
-transient state: a fresh manager context must publish one continuation for the
+transient state: the persistent project manager must publish one continuation for the
 first unmet leaf using a materially different strategy. A valid strategy
 change must narrow scope, change the evidence approach, or isolate a new
 bounded criterion; changing only the task title or strategy label is rejected.
@@ -124,8 +168,8 @@ bounded criterion; changing only the task title or strategy label is rejected.
 The automatic budget resets whenever a checkpoint records a new stable
 `Verified-Increment` or `Verified-Criterion`. Numeric progress may remain at
 0% or 99%; durable evidence, not the display percentage, governs escalation.
-The checkpoint-without-criterion threshold still rotates strategy and starts a
-fresh context periodically, but it cannot drive a progressing root into
+The checkpoint-without-criterion threshold still rotates strategy, but it
+cannot drive a progressing root into
 `NEEDS_HUMAN`.
 
 If an existing first-unmet leaf proves broader than expected, an automatic
@@ -148,7 +192,7 @@ The unattended transition rules are:
 |---|---|
 | A checkpoint records a new unique criterion or increment | Preserve it and reset zero-gain replan escalation. |
 | Numeric progress is unchanged but a unique checkpoint is verified | Treat it as durable gain; 0% or 99% does not cause a stop. |
-| A convergence threshold is reached | Archive the current outcome and enter transient `NEEDS_REPLAN`; the supervisor starts a fresh manager strategy. |
+| A convergence threshold is reached | Archive the current outcome and enter transient `NEEDS_REPLAN`; the supervisor resumes the persistent manager for a different strategy. |
 | The same blocker reappears after new verified evidence | Permit another bounded strategy because the prior replan produced durable gain. |
 | The configured number of materially different replans produces no new verified item | Enter `NEEDS_HUMAN`. |
 | No materially different bounded task can be published, or a hard/Oracle authority boundary is reached | Enter `NEEDS_HUMAN`. |
@@ -266,7 +310,7 @@ export PROJECT="sample-project"
 export REPOSITORY="/path/to/repository"
 export SPECIFICATION="$REPOSITORY/work/specification.md"
 
-export HARNESS_HOME="/opt/coding-agent-fs-harness-v4.4"
+export HARNESS_HOME="/opt/coding-agent-fs-harness-v4.5"
 export HARNESS_BIN="$HARNESS_HOME/bin"
 export HARNESS_ROOT="$HOME/.local/state/coding-harness"
 # Optional but recommended for service launches when the Codex shebang runtime
@@ -325,17 +369,17 @@ The file is trusted Bash input and is sourced by every command.
 ## First initialization
 
 ```bash
-/opt/coding-agent-fs-harness-v4.4/bin/harness-check-env /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.5/bin/harness-check-env /path/to/repository/harness.env
 ```
 
 ```bash
-/opt/coding-agent-fs-harness-v4.4/bin/harness-init /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.5/bin/harness-init /path/to/repository/harness.env
 ```
 
 Start the complete system:
 
 ```bash
-/opt/coding-agent-fs-harness-v4.4/bin/harness-start /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.5/bin/harness-start /path/to/repository/harness.env
 ```
 
 `harness-init` and `harness-start` serialize on the environment file path. A
@@ -394,13 +438,13 @@ export ORACLE_SANDBOX="danger-full-access"
 Stop both local supervisors:
 
 ```bash
-/opt/coding-agent-fs-harness-v4.4/bin/harness-stop /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.5/bin/harness-stop /path/to/repository/harness.env
 ```
 
 Restart them and preserve existing state:
 
 ```bash
-/opt/coding-agent-fs-harness-v4.4/bin/harness-start /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.5/bin/harness-start /path/to/repository/harness.env
 ```
 
 `harness-stop` is graceful. It signals both supervisors but does not kill an
@@ -504,8 +548,10 @@ export HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN="1"
 `HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION` remains a compatibility alias for
 existing environment files, but now has the verified-gain semantics above.
 
-The automatic manager turn starts with fresh context. For an oversized legacy
-root, it first installs an immutable ordered
+The automatic strategy turn resumes the persistent project-scoped manager.
+Durable plan, progress, criteria, checkpoint, and replan files override older
+conversation context. For an oversized legacy root, the manager first installs
+an immutable ordered
 `.criteria-definition.tsv` containing at least two independently verifiable
 remaining child milestones. It then publishes exactly one continuation for the
 first unmet leaf criterion with `Worker-Context: FRESH` and a declared strategy
@@ -559,16 +605,18 @@ one task for the first unfinished plan item. The same recovery happens after a
 restart; no completed plan item or root task is replayed.
 
 `harness-status` reports both levels explicitly, including `REPLANNING` while
-the fresh manager is active and `NEEDS_HUMAN` only at a human-only boundary.
+the persistent manager is active and `NEEDS_HUMAN` only at a human-only boundary.
 For the active root it also prints the total verified-item count, automatic
-replans since the latest durable gain, and the first unmet leaf criterion.
+replans since the latest durable gain, and the first unmet leaf criterion. In
+goal mode it also reports the goal state, internal iteration count, context
+generation, durable boundary, last material movement, and workspace drift.
 
 ## State location
 
 Print the exact harness project-state path:
 
 ```bash
-/opt/coding-agent-fs-harness-v4.4/bin/harness-state-path /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.5/bin/harness-state-path /path/to/repository/harness.env
 ```
 
 For the example configuration, it is:
@@ -586,7 +634,7 @@ The separate scratch directory for task and result markdown is:
 Print the source repository path separately:
 
 ```bash
-/opt/coding-agent-fs-harness-v4.4/bin/harness-repository-path /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.5/bin/harness-repository-path /path/to/repository/harness.env
 ```
 
 ## Runtime files
@@ -603,6 +651,15 @@ $HARNESS_ROOT/projects/$PROJECT/
         sample-project-task-001.assignment.md
         sample-project-task-001.result.md
         sample-project-task-001.accepted.md
+        goal-iterations/
+            sample-project-task-002/
+                iteration-0001.md
+        goals/
+            sample-project-task-001/
+                sample-project-task-001.goal
+                sample-project-task-001.iterations.tsv
+                sample-project-task-001.thread
+                sample-project-task-001.summary.md
     control/
         manager.thread
         project-plan.tsv
@@ -610,6 +667,11 @@ $HARNESS_ROOT/projects/$PROJECT/
         supervisor.pid
         worker-supervisor.pid
         sample-project-task-002.lease
+        goals/
+            sample-project-task-002.goal
+            sample-project-task-002.iterations.tsv
+            sample-project-task-002.thread
+            sample-project-task-002.summary.md
         progress/
             sample-project-task-002.root-assignment.md
             sample-project-task-002.progress.md
@@ -631,14 +693,15 @@ $HARNESS_ROOT/projects/$PROJECT/
 
 The criteria-definition file exists for decomposed legacy roots; the
 criterion-decomposition and replan ledgers appear only after those transitions.
-All are durable control state, not disposable logs.
+Goal files appear only for assignments stamped `LEAF_GOAL`. All are durable
+control state, not disposable logs.
 
 ## Monitoring
 
 Status:
 
 ```bash
-/opt/coding-agent-fs-harness-v4.4/bin/harness-status /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.5/bin/harness-status /path/to/repository/harness.env
 ```
 
 Unified state transitions:
@@ -662,6 +725,23 @@ tail -F "$HOME/.local/state/coding-harness/projects/sample-project/logs/supervis
 Task-specific machine-readable streams are also written as `worker-task-*.jsonl` and `manager-review-*.jsonl`.
 When the final audit is active, `harness-watch-agents` also displays its
 `oracle-audit-*.jsonl` messages under an `ORACLE` label.
+In leaf-goal mode, each newly committed receipt is announced as
+`WORKER CONTINUING GOAL`; the JSONL watcher switches to each resumed worker
+process while retaining the same task and goal identity.
+
+## Validation
+
+Run both the legacy regression suite and the opt-in leaf-goal canary:
+
+```bash
+bash tests/test-harness.sh
+bash tests/test-leaf-goal.sh
+```
+
+The leaf-goal test covers assignment validation, code-only continuation,
+same-thread resume, one terminal manager result, idempotent receipts, repeated
+identical-iteration rotation, archived goal state, and boundary-safe
+enable/disable refusal.
 
 ## Heartbeats and long tasks
 
@@ -693,6 +773,22 @@ suites, relaxed acceptance, public API changes, speculative capacity increases,
 or unrelated cleanup. Configure it with `HARNESS_CLOSURE_MODE_*` values or set
 `HARNESS_CLOSURE_MODE_ENABLED=0` to retain single-attempt behavior.
 
+Leaf-goal mode generalizes that loop across bounded Codex processes and is
+opt-in:
+
+```bash
+export HARNESS_WORKER_GOAL_MODE="1"
+export HARNESS_GOAL_MAX_IDENTICAL_ITERATIONS="3"
+export HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS="8"
+export HARNESS_GOAL_PROCESS_MAX_FIXES="3"
+export HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS="4"
+```
+
+`HARNESS_GOAL_PROCESS_*` bounds one process, not the logical goal. Reaching a
+bound publishes a continuation rather than claiming completion. Context
+rotation also preserves goal state and workspace. Closure mode remains a
+separate compatibility path for legacy assignments.
+
 Correct increments are checkpointed rather than rejected. A zero-improvement
 result may still record a stable verified increment. The rolling zero-gain,
 checkpoint-without-criterion, and total-attempt guards periodically rotate
@@ -721,6 +817,7 @@ The policy applies to:
 - manager result review;
 - manager next-item planning;
 - worker task execution.
+- every internal leaf-goal iteration.
 
 Configure it in the environment file:
 
@@ -765,7 +862,7 @@ control/PROJECT-task-ID.worker-failed.md
 Inspect the task log and then reset it explicitly:
 
 ```bash
-/opt/coding-agent-fs-harness-v4.4/bin/harness-reset-task /path/to/repository/harness.env TASK_ID --force
+/opt/coding-agent-fs-harness-v4.5/bin/harness-reset-task /path/to/repository/harness.env TASK_ID --force
 ```
 
 The worker supervisor detects the newly restored ready task and performs one new invocation.
@@ -783,7 +880,7 @@ The state directory is compatible. Stop the v3 manager supervisor first, exit th
 Update at least:
 
 ```bash
-export HARNESS_HOME="/opt/coding-agent-fs-harness-v4.4"
+export HARNESS_HOME="/opt/coding-agent-fs-harness-v4.5"
 export HARNESS_BIN="$HARNESS_HOME/bin"
 export MANAGER_CODEX_HOME="$HOME/.codex/manager-account"
 export MANAGER_CODEX_BIN="$HOME/.local/bin/codex"
@@ -797,11 +894,11 @@ export WORKER_SANDBOX="danger-full-access"
 Then:
 
 ```bash
-/opt/coding-agent-fs-harness-v4.4/bin/harness-check-env /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.5/bin/harness-check-env /path/to/repository/harness.env
 ```
 
 ```bash
-/opt/coding-agent-fs-harness-v4.4/bin/harness-start /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v4.5/bin/harness-start /path/to/repository/harness.env
 ```
 
 If task `002` is already `READY`, the v4 worker supervisor claims it automatically.
@@ -882,3 +979,31 @@ explicit human-intervention states.
 Supervisor children now close manager and worker lifetime-lock descriptors.
 Graceful stop/restart therefore preserves an active turn without allowing that
 turn, a polling sleep, or `inotifywait` to strand the old supervisor lock.
+
+## Leaf-goal workers in 4.5
+
+Version 4.5 adds an opt-in logical worker goal above individual `codex exec`
+processes. `worker-continue-task` commits validated, idempotent iteration
+receipts; `worker-invoke-task` resumes the goal until a terminal outcome; and
+the persistent manager is invoked only for that terminal result. Goal state,
+iteration ledger, compact summary, and thread metadata are durable and exposed
+through status, watch, and recovery commands.
+
+Automatic replanning now remains in the project-scoped manager conversation.
+A `NEEDS_DECOMPOSITION` terminal result routes directly to the existing
+append-only decomposition machinery, while verified partial work is
+checkpointed before the strategy handoff. An independently verified
+`HARD_BLOCKED` outcome retains fail-closed human intervention.
+
+Goal mode remains disabled by default. To enable it safely:
+
+1. Stop the supervisors and confirm there is no ready, running, or review task.
+2. Set `HARNESS_WORKER_GOAL_MODE=1` and the desired `HARNESS_GOAL_*` limits.
+3. Run `harness-check-env`, then restart the harness. The next manager
+   assignment is stamped `LEAF_GOAL`.
+
+Do not toggle the flag over an existing assignment. The worker refuses to claim
+a legacy assignment after goal mode is enabled, and refuses to claim a goal
+assignment after it is disabled. To roll back, finish or explicitly
+abort/reconcile the active goal, stop at the next clean boundary, set the flag
+to `0`, and restart. No existing v4.4 state is migrated automatically.

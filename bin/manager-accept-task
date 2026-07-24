@@ -114,6 +114,7 @@ archive_lingering_result()
 
 if [[ -f "$accepted" ]]; then
 	archive_lingering_result
+	goal_record_manager_decision "$task_id" ACCEPTED
 	clear_worker_thread_for_root "$task_id" accepted
 	trace_event TASK_ACCEPT_IDEMPOTENT "task_id=$task_id" "accepted_file=$accepted"
 	printf '%s\n' "$accepted"
@@ -202,6 +203,7 @@ if (( ${#accepted_criteria[@]} > 0 )); then
 fi
 update_task_progress "$task_id" 100 "$accept_improvement" ACCEPT "$note_file"
 complete_project_plan_item_for_task "$task_id"
+goal_record_manager_decision "$task_id" ACCEPTED
 clear_worker_thread_for_root "$task_id" accepted
 
 rm -f "$dir/control/$base.lease" "$dir/control/$base.abort.md" "$dir/control/$base.worker-triggered" "$dir/control/$base.worker-failed.md" "$dir/control/$base.worker-supervisor-failed.md"

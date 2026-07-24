@@ -149,6 +149,9 @@ load_harness_env()
 	unset HARNESS_REUSE_WORKER_THREADS HARNESS_WORKER_THREAD_MAX_REJECTIONS
 	unset HARNESS_CLOSURE_MODE_ENABLED HARNESS_CLOSURE_MODE_MIN_PROGRESS
 	unset HARNESS_CLOSURE_MODE_MAX_FIXES HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS
+	unset HARNESS_WORKER_GOAL_MODE HARNESS_GOAL_MAX_IDENTICAL_ITERATIONS
+	unset HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS HARNESS_GOAL_PROCESS_MAX_FIXES
+	unset HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS
 	unset HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
 	unset HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
 	unset HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_KILL_GRACE_SECONDS
@@ -203,8 +206,9 @@ load_harness_env()
 	HARNESS_MAX_ZERO_GAIN_WINDOW="${HARNESS_MAX_ZERO_GAIN_WINDOW:-3}"
 	HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION="${HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION:-4}"
 	# A convergence pause is normally recovered without an operator. The
-	# recovery turn starts with fresh manager and worker context, may install a
-	# durable criterion decomposition for a legacy root, and must publish a
+	# recovery turn resumes the persistent manager, starts a fresh worker
+	# strategy, may install a durable criterion decomposition for a legacy root,
+	# and must publish a
 	# materially different first-unmet-criterion continuation. A newly verified
 	# checkpoint or criterion resets the escalation budget; percentage progress
 	# is deliberately not used as a proxy for durable gain.
@@ -225,6 +229,15 @@ load_harness_env()
 	HARNESS_CLOSURE_MODE_MIN_PROGRESS="${HARNESS_CLOSURE_MODE_MIN_PROGRESS:-95}"
 	HARNESS_CLOSURE_MODE_MAX_FIXES="${HARNESS_CLOSURE_MODE_MAX_FIXES:-2}"
 	HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS="${HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS:-3}"
+	# Opt-in leaf-goal execution keeps one worker on one independently
+	# verifiable criterion across several Codex turns. Internal CONTINUE
+	# receipts never enter the manager result mailbox; only terminal goal
+	# outcomes do. Legacy one-turn workers remain the default.
+	HARNESS_WORKER_GOAL_MODE="${HARNESS_WORKER_GOAL_MODE:-0}"
+	HARNESS_GOAL_MAX_IDENTICAL_ITERATIONS="${HARNESS_GOAL_MAX_IDENTICAL_ITERATIONS:-3}"
+	HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS="${HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS:-8}"
+	HARNESS_GOAL_PROCESS_MAX_FIXES="${HARNESS_GOAL_PROCESS_MAX_FIXES:-3}"
+	HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS="${HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS:-4}"
 	# Provider-side failures retry forever. Short transient failures use a
 	# one-minute cadence; account usage-window exhaustion reports and probes every
 	# five minutes until Codex confirms quota is available again.
@@ -331,6 +344,17 @@ load_harness_env()
 	[[ "$HARNESS_CLOSURE_MODE_MAX_FIXES" =~ ^[0-9]+$ ]] || die 'HARNESS_CLOSURE_MODE_MAX_FIXES must be a nonnegative integer'
 	[[ "$HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS must be a positive integer'
 	(( HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS > HARNESS_CLOSURE_MODE_MAX_FIXES )) || die 'HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS must be greater than HARNESS_CLOSURE_MODE_MAX_FIXES'
+	[[ "$HARNESS_WORKER_GOAL_MODE" =~ ^[01]$ ]] || die 'HARNESS_WORKER_GOAL_MODE must be 0 or 1'
+	[[ "$HARNESS_GOAL_MAX_IDENTICAL_ITERATIONS" =~ ^[1-9][0-9]*$ ]] ||
+		die 'HARNESS_GOAL_MAX_IDENTICAL_ITERATIONS must be a positive integer'
+	[[ "$HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS" =~ ^[1-9][0-9]*$ ]] ||
+		die 'HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS must be a positive integer'
+	[[ "$HARNESS_GOAL_PROCESS_MAX_FIXES" =~ ^[1-9][0-9]*$ ]] ||
+		die 'HARNESS_GOAL_PROCESS_MAX_FIXES must be a positive integer'
+	[[ "$HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS" =~ ^[1-9][0-9]*$ ]] ||
+		die 'HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS must be a positive integer'
+	(( HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS >= HARNESS_GOAL_PROCESS_MAX_FIXES )) ||
+		die 'HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS must be at least HARNESS_GOAL_PROCESS_MAX_FIXES'
 	[[ "$HARNESS_PROVIDER_RETRY_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_PROVIDER_RETRY_SECONDS must be an integer'
 	(( HARNESS_PROVIDER_RETRY_SECONDS > 0 )) || die 'HARNESS_PROVIDER_RETRY_SECONDS must be greater than zero'
 	[[ "$HARNESS_QUOTA_RETRY_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_QUOTA_RETRY_SECONDS must be an integer'
@@ -372,6 +396,9 @@ load_harness_env()
 	export HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION
 	export HARNESS_REUSE_WORKER_THREADS HARNESS_WORKER_THREAD_MAX_REJECTIONS
 	export HARNESS_CLOSURE_MODE_ENABLED HARNESS_CLOSURE_MODE_MIN_PROGRESS HARNESS_CLOSURE_MODE_MAX_FIXES HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS
+	export HARNESS_WORKER_GOAL_MODE HARNESS_GOAL_MAX_IDENTICAL_ITERATIONS
+	export HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS HARNESS_GOAL_PROCESS_MAX_FIXES
+	export HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS
 	export HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
 	export HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_KILL_GRACE_SECONDS
 	export WORKER_HEARTBEAT_SECONDS
@@ -454,6 +481,50 @@ validate_session()
 {
 	local session="$1"
 	[[ "$session" =~ ^[A-Za-z0-9][A-Za-z0-9._:@-]*$ ]] || die "invalid session id: $session"
+}
+
+validate_goal_id()
+{
+	local goal_id="$1"
+	[[ "$goal_id" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]] ||
+		die "invalid goal id: $goal_id"
+}
+
+metadata_count()
+{
+	local file="$1" field="$2"
+	awk -v field="$field" '
+		index($0, field ":") == 1 {
+			rest = substr($0, length(field) + 2)
+			if (rest ~ /^[[:space:]]/) count++
+		}
+		END {print count + 0}
+	' "$file"
+}
+
+metadata_value()
+{
+	local file="$1" field="$2"
+	awk -v field="$field" '
+		index($0, field ":") == 1 {
+			value = substr($0, length(field) + 2)
+			sub(/^[[:space:]]+/, "", value)
+			print value
+			exit
+		}
+	' "$file"
+}
+
+require_single_metadata_value()
+{
+	local file="$1" field="$2" context="${3:-document}" count value
+	count="$(metadata_count "$file" "$field")"
+	(( count == 1 )) || die "$context must contain exactly one $field line"
+	value="$(metadata_value "$file" "$field")"
+	[[ -n "$value" ]] || die "$context has an empty $field value"
+	[[ "$value" != *$'\t'* && "$value" != *$'\n'* && "$value" != *$'\r'* ]] ||
+		die "$context $field must be one tab-free line"
+	printf '%s\n' "$value"
 }
 
 project_dir()
@@ -774,6 +845,168 @@ task_checkpoint_artifact_dir()
 	printf '%s/archive/checkpoints/%s' "$(project_dir)" "$(task_base "$task_id")"
 }
 
+goal_control_dir()
+{
+	printf '%s/control/goals' "$(project_dir)"
+}
+
+goal_state_file()
+{
+	printf '%s/%s.goal' "$(goal_control_dir)" "$(task_base "$1")"
+}
+
+goal_iteration_ledger_file()
+{
+	printf '%s/%s.iterations.tsv' "$(goal_control_dir)" "$(task_base "$1")"
+}
+
+goal_thread_file()
+{
+	printf '%s/%s.thread' "$(goal_control_dir)" "$(task_base "$1")"
+}
+
+goal_summary_file()
+{
+	printf '%s/%s.summary.md' "$(goal_control_dir)" "$(task_base "$1")"
+}
+
+goal_continue_marker_file()
+{
+	printf '%s/%s.continue' "$(goal_control_dir)" "$(task_base "$1")"
+}
+
+goal_iteration_archive_dir()
+{
+	printf '%s/archive/goal-iterations/%s' "$(project_dir)" "$(task_base "$1")"
+}
+
+assignment_uses_goal_mode()
+{
+	[[ -f "$1" ]] && [[ "$(metadata_value "$1" Execution-Mode)" == LEAF_GOAL ]]
+}
+
+task_goal_is_active()
+{
+	local state_file state
+	state_file="$(goal_state_file "$1")"
+	[[ -f "$state_file" ]] || return 1
+	state="$(kv_file_value "$state_file" state 2>/dev/null || true)"
+	[[ "$state" =~ ^(READY|RUNNING|ITERATING|STRATEGY_REVIEW|REVIEW)$ ]]
+}
+
+require_goal_mode_clean_boundary()
+{
+	local dir artifact assignment task_id
+	dir="$(project_dir)"
+	[[ -d "$dir" ]] || return 0
+	shopt -s nullglob
+	for artifact in "$dir/tasks/$PROJECT-task-"*.ready.md \
+		"$dir/running/$PROJECT-task-"*.running.md; do
+		[[ -f "$artifact" ]] || continue
+		if assignment_uses_goal_mode "$artifact"; then
+			(( HARNESS_WORKER_GOAL_MODE == 1 )) ||
+				die 'HARNESS_WORKER_GOAL_MODE cannot be disabled while a LEAF_GOAL assignment is active'
+		elif (( HARNESS_WORKER_GOAL_MODE == 1 )); then
+			die 'HARNESS_WORKER_GOAL_MODE cannot be enabled while a legacy assignment is active'
+		fi
+	done
+	for artifact in "$dir/results/$PROJECT-task-"*.result.md; do
+		[[ -f "$artifact" ]] || continue
+		task_id="$(task_id_from_filename "$artifact")"
+		assignment="$dir/archive/$(task_base "$task_id").assignment.md"
+		[[ -f "$assignment" ]] || continue
+		if assignment_uses_goal_mode "$assignment"; then
+			(( HARNESS_WORKER_GOAL_MODE == 1 )) ||
+				die 'HARNESS_WORKER_GOAL_MODE cannot be disabled while a LEAF_GOAL result awaits review'
+		elif (( HARNESS_WORKER_GOAL_MODE == 1 )); then
+			die 'HARNESS_WORKER_GOAL_MODE cannot be enabled while a legacy result awaits review'
+		fi
+	done
+}
+
+goal_state_set()
+{
+	local file="$1" key="$2" value="$3" tmp
+	[[ -f "$file" ]] || die "goal state does not exist: $file"
+	[[ "$key" =~ ^[a-z][a-z0-9_]*$ ]] || die "invalid goal-state key: $key"
+	[[ "$value" != *$'\n'* && "$value" != *$'\r'* ]] ||
+		die "goal-state value must be one line: $key"
+	tmp="$file.tmp.$$"
+	awk -F= -v key="$key" -v value="$value" '
+		BEGIN {updated=0}
+		$1 == key && !updated {print key "=" value; updated=1; next}
+		{print}
+		END {if (!updated) print key "=" value}
+	' "$file" > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$file"
+}
+
+goal_thread_store()
+{
+	local task_id="$1" thread_id="$2" context="$3" file tmp
+	file="$(goal_thread_file "$task_id")"
+	tmp="$file.tmp.$$"
+	{
+		printf 'task_id=%s\n' "$task_id"
+		printf 'goal_id=%s\n' "$(kv_file_value "$(goal_state_file "$task_id")" goal_id)"
+		printf 'thread_id=%s\n' "$thread_id"
+		printf 'context=%s\n' "$context"
+		printf 'updated_at=%s\n' "$(timestamp_utc)"
+	} > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$file"
+}
+
+goal_record_manager_decision()
+{
+	local task_id="$1" decision="$2" state_file reviews prior_decision archive_dir source
+	state_file="$(goal_state_file "$task_id")"
+	[[ -f "$state_file" ]] || return 0
+	reviews="$(kv_file_value "$state_file" manager_reviews 2>/dev/null || printf 0)"
+	[[ "$reviews" =~ ^[0-9]+$ ]] || reviews=0
+	prior_decision="$(kv_file_value "$state_file" manager_decision 2>/dev/null || true)"
+	goal_state_set "$state_file" state "$decision"
+	goal_state_set "$state_file" manager_decision "$decision"
+	if [[ "$prior_decision" != "$decision" &&
+		"$decision" =~ ^(ACCEPTED|CHECKPOINTED|REJECTED|BLOCKED)$ ]]; then
+		goal_state_set "$state_file" manager_reviews "$((reviews + 1))"
+	fi
+	goal_state_set "$state_file" manager_reviewed_at "$(timestamp_utc)"
+	goal_state_set "$state_file" updated_at "$(timestamp_utc)"
+	archive_dir="$(project_dir)/archive/goals/$(task_base "$task_id")"
+	mkdir -p "$archive_dir"
+	chmod 700 "$archive_dir"
+	for source in "$state_file" "$(goal_iteration_ledger_file "$task_id")" \
+		"$(goal_thread_file "$task_id")" "$(goal_summary_file "$task_id")"; do
+		[[ -f "$source" ]] || continue
+		install -m 600 "$source" "$archive_dir/${source##*/}"
+	done
+}
+
+repository_workspace_fingerprint()
+{
+	if git -C "$REPOSITORY" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+		{
+			git -C "$REPOSITORY" rev-parse HEAD 2>/dev/null || printf 'UNBORN\n'
+			git -C "$REPOSITORY" status --porcelain=v1 --untracked-files=all
+			git -C "$REPOSITORY" diff --binary --no-ext-diff HEAD 2>/dev/null ||
+				git -C "$REPOSITORY" diff --binary --no-ext-diff
+			while IFS= read -r -d '' untracked_path; do
+				printf 'untracked=%s\t' "$untracked_path"
+				if [[ -L "$REPOSITORY/$untracked_path" ]]; then
+					printf 'symlink:%s\n' "$(readlink "$REPOSITORY/$untracked_path")"
+				else
+					sha256sum "$REPOSITORY/$untracked_path"
+				fi
+			done < <(git -C "$REPOSITORY" ls-files --others --exclude-standard -z)
+		} | sha256sum | awk '{print "sha256:" $1}'
+	else
+		find "$REPOSITORY" -xdev -type f -printf '%P\t%s\t%T@\n' 2>/dev/null |
+			LC_ALL=C sort | sha256sum | awk '{print "sha256:" $1}'
+	fi
+}
+
 worker_thread_state_file()
 {
 	local root
@@ -788,6 +1021,20 @@ codex_thread_id_from_jsonl()
 		jq -rs '[.[] | select(.type == "thread.started") | .thread_id][0] // empty' "$log_file" 2>/dev/null
 	else
 		sed -n 's/.*"type"[[:space:]]*:[[:space:]]*"thread.started".*"thread_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$log_file" | head -n 1
+	fi
+}
+
+codex_usage_value_from_jsonl()
+{
+	local log_file="$1" field="$2"
+	[[ -f "$log_file" ]] || { printf '0\n'; return 0; }
+	if command -v jq >/dev/null 2>&1; then
+		jq -rs --arg field "$field" '
+			[.[] | select(.type == "turn.completed") | (.usage[$field] // 0)]
+			| add // 0
+		' "$log_file" 2>/dev/null || printf '0\n'
+	else
+		printf '0\n'
 	fi
 }
 
@@ -1297,7 +1544,7 @@ mark_root_needs_replan()
 		printf 'Checkpoints-Without-Criterion: %s\n\n' "$(root_checkpoint_without_criterion_streak "$root")"
 		printf 'Blocking-Fingerprint: %s\n\n' "$blocking_fingerprint"
 		if (( HARNESS_AUTO_REPLAN_ENABLED == 1 )); then
-			printf 'All checkpoint artifacts, review records, progress history, and repository changes are preserved. The supervisor will request one fresh-context, materially different continuation of the first unmet leaf. Any new verified checkpoint resets escalation; human intervention is reserved for repeated strategies without durable gain or an explicit human-only boundary.\n'
+			printf 'All checkpoint artifacts, review records, progress history, and repository changes are preserved. The supervisor will resume the persistent manager to request one materially different continuation of the first unmet leaf with fresh worker context. Any new verified checkpoint resets escalation; human intervention is reserved for repeated strategies without durable gain or an explicit human-only boundary.\n'
 		else
 			printf 'All checkpoint artifacts, review records, progress history, and repository changes are preserved. Automatic replanning is disabled; reassess the active item, then run harness-unblock-root to grant a fresh convergence window.\n'
 		fi
@@ -1603,8 +1850,8 @@ initialize_project_state()
 	chmod 700 "$HARNESS_ROOT"
 	mkdir -p "$(project_tmp_dir)"
 	chmod 700 "$(project_tmp_dir)"
-	mkdir -p "$(project_dir)"/{tasks,running,results,archive,control/sessions,control/progress,logs}
-	chmod 700 "$(project_dir)" "$(project_dir)"/{tasks,running,results,archive,control,control/sessions,control/progress,logs}
+	mkdir -p "$(project_dir)"/{tasks,running,results,archive/goal-iterations,archive/goals,control/sessions,control/progress,control/goals,logs}
+	chmod 700 "$(project_dir)" "$(project_dir)"/{tasks,running,results,archive,archive/goal-iterations,archive/goals,control,control/sessions,control/progress,control/goals,logs}
 
 	write_project_snapshot
 	write_manager_snapshot
@@ -1979,6 +2226,11 @@ write_worker_snapshot()
 		printf 'closure_min_progress=%s\n' "$HARNESS_CLOSURE_MODE_MIN_PROGRESS"
 		printf 'closure_max_fixes=%s\n' "$HARNESS_CLOSURE_MODE_MAX_FIXES"
 		printf 'closure_max_smoke_runs=%s\n' "$HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS"
+		printf 'goal_mode=%s\n' "$HARNESS_WORKER_GOAL_MODE"
+		printf 'goal_max_identical_iterations=%s\n' "$HARNESS_GOAL_MAX_IDENTICAL_ITERATIONS"
+		printf 'goal_context_rotation_iterations=%s\n' "$HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS"
+		printf 'goal_process_max_fixes=%s\n' "$HARNESS_GOAL_PROCESS_MAX_FIXES"
+		printf 'goal_process_max_smoke_runs=%s\n' "$HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS"
 		printf 'env_file=%s\n' "$HARNESS_ENV_FILE"
 		printf 'env_sha256=%s\n' "$(env_sha256)"
 		printf 'updated_at=%s\n' "$(timestamp_utc)"

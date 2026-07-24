@@ -88,13 +88,22 @@ archive_lingering_result()
 
 if [[ -f "$rejected" ]]; then
 	archive_lingering_result
+	goal_record_manager_decision "$task_id" REJECTED
 	retain_worker_thread_for_rejection "$task_id"
 	trace_event TASK_REJECT_IDEMPOTENT "task_id=$task_id" "rejected_file=$rejected"
-	printf '%s\n' "$rejected"
+	if [[ -f "$result_archive" &&
+		"$(metadata_value "$result_archive" Goal-Outcome)" == NEEDS_DECOMPOSITION ]]; then
+		mark_root_needs_replan "$task_id" \
+			'worker leaf goal requested criterion decomposition or a materially different strategy' \
+			GOAL_NEEDS_DECOMPOSITION
+	else
+		printf '%s\n' "$rejected"
+	fi
 	exit 0
 fi
 
 [[ -f "$result" ]] || die "result does not exist: $task_id"
+goal_outcome="$(metadata_value "$result" Goal-Outcome)"
 
 mv "$result" "$result_archive"
 tmp="$rejected.tmp.$$"
@@ -111,10 +120,16 @@ tmp="$rejected.tmp.$$"
 chmod 600 "$tmp"
 mv "$tmp" "$rejected"
 update_task_progress "$task_id" "$progress_percent" "$improvement_percent" REJECT "$note_file"
+goal_record_manager_decision "$task_id" REJECTED
 retain_worker_thread_for_rejection "$task_id"
 log_event "TASK_REJECTED task=$task_id"
 trace_event TASK_REJECTED "task_id=$task_id" "rejected_file=$rejected" "result_archive=$result_archive" "note_file=$note_file"
-if replan_marker="$(maybe_mark_root_needs_replan "$task_id" REJECT)"; then
+if [[ "$goal_outcome" == NEEDS_DECOMPOSITION ]]; then
+	replan_marker="$(mark_root_needs_replan "$task_id" \
+		'worker leaf goal requested criterion decomposition or a materially different strategy' \
+		GOAL_NEEDS_DECOMPOSITION)"
+	printf '%s\n' "$replan_marker"
+elif replan_marker="$(maybe_mark_root_needs_replan "$task_id" REJECT)"; then
 	printf '%s\n' "$replan_marker"
 else
 	printf '%s\n' "$rejected"

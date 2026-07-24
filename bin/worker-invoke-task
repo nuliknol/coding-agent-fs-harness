@@ -26,6 +26,12 @@ dir="$(project_dir)"
 base="$(task_base "$task_id")"
 ready="$dir/tasks/$base.ready.md"
 [[ -f "$ready" ]] || die "task is not ready: $task_id"
+if assignment_uses_goal_mode "$ready"; then
+	(( HARNESS_WORKER_GOAL_MODE == 1 )) ||
+		die 'refusing to claim an active LEAF_GOAL after HARNESS_WORKER_GOAL_MODE was disabled'
+elif (( HARNESS_WORKER_GOAL_MODE == 1 )); then
+	die 'refusing to claim a legacy assignment after HARNESS_WORKER_GOAL_MODE was enabled; change mode only at a clean task boundary'
+fi
 
 session="$("$HARNESS_BIN/harness-new-session" "$HARNESS_ENV_FILE" worker)"
 trace_event WORKER_SESSION_CREATED "task_id=$task_id" "session=$session"
@@ -42,12 +48,42 @@ development_policy_file="$REPOSITORY/design/development-policy.txt"
 trace_event WORKER_TASK_CLAIMED "task_id=$task_id" "session=$session" "task_file=$task_file"
 
 worker_thread_file="$(worker_thread_state_file "$task_root")"
+goal_mode=0
+goal_state=""
+goal_id=""
+goal_target=""
+goal_summary=""
+goal_ledger=""
+if assignment_uses_goal_mode "$task_file"; then
+	goal_mode=1
+	(( HARNESS_WORKER_GOAL_MODE == 1 )) ||
+		die 'an active LEAF_GOAL cannot run after HARNESS_WORKER_GOAL_MODE is disabled'
+	goal_state="$(goal_state_file "$task_id")"
+	goal_summary="$(goal_summary_file "$task_id")"
+	goal_ledger="$(goal_iteration_ledger_file "$task_id")"
+	[[ -f "$goal_state" && -f "$goal_ledger" ]] ||
+		die "goal state is missing for task: $task_id"
+	goal_id="$(kv_file_value "$goal_state" goal_id)"
+	goal_target="$(kv_file_value "$goal_state" target_criterion)"
+	goal_state_set "$goal_state" state RUNNING
+	goal_state_set "$goal_state" active_session "$session"
+	goal_state_set "$goal_state" updated_at "$(timestamp_utc)"
+fi
 worker_context_mode="fresh"
 worker_context_reason="no_retained_thread"
 worker_resume_thread_id=""
 worker_thread_rejections=0
 worker_last_outcome=""
-if (( HARNESS_REUSE_WORKER_THREADS == 0 )); then
+if (( goal_mode == 1 )); then
+	worker_resume_thread_id="$(kv_file_value "$goal_state" thread_id 2>/dev/null || true)"
+	if [[ "$worker_resume_thread_id" =~ ^[A-Za-z0-9-]+$ ]]; then
+		worker_context_mode="resumed"
+		worker_context_reason="same_leaf_goal"
+	else
+		worker_resume_thread_id=""
+		worker_context_reason="$(kv_file_value "$goal_state" thread_context 2>/dev/null || printf goal_fresh)"
+	fi
+elif (( HARNESS_REUSE_WORKER_THREADS == 0 )); then
 	worker_context_reason="reuse_disabled"
 elif [[ "$task_id" == "$task_root" ]]; then
 	worker_context_reason="new_root_task"
@@ -80,8 +116,8 @@ if (( HARNESS_CLOSURE_MODE_ENABLED == 1 )) &&
 	(( starting_progress >= HARNESS_CLOSURE_MODE_MIN_PROGRESS && starting_progress < 100 )); then
 	closure_mode=1
 fi
-log_event "WORKER_CONTEXT_SELECTED task=$task_id root=$task_root mode=$worker_context_mode reason=$worker_context_reason thread_id=${worker_resume_thread_id:-none} retained_rejections=$worker_thread_rejections closure_mode=$closure_mode"
-trace_event WORKER_CONTEXT_SELECTED "task_id=$task_id" "task_root=$task_root" "mode=$worker_context_mode" "reason=$worker_context_reason" "thread_id=${worker_resume_thread_id:-}" "retained_rejections=$worker_thread_rejections" "closure_mode=$closure_mode"
+log_event "WORKER_CONTEXT_SELECTED task=$task_id root=$task_root mode=$worker_context_mode reason=$worker_context_reason thread_id=${worker_resume_thread_id:-none} retained_rejections=$worker_thread_rejections closure_mode=$closure_mode goal_mode=$goal_mode goal_id=${goal_id:--}"
+trace_event WORKER_CONTEXT_SELECTED "task_id=$task_id" "task_root=$task_root" "mode=$worker_context_mode" "reason=$worker_context_reason" "thread_id=${worker_resume_thread_id:-}" "retained_rejections=$worker_thread_rejections" "closure_mode=$closure_mode" "goal_mode=$goal_mode" "goal_id=${goal_id:-}"
 
 prompt_file="$dir/control/$base.worker.prompt.md"
 cat > "$prompt_file.tmp.$$" <<PROMPT
@@ -106,9 +142,46 @@ WORKER_RETAINED_REJECTIONS=$worker_thread_rejections
 CLOSURE_MODE=$closure_mode
 CLOSURE_MAX_FIXES=$HARNESS_CLOSURE_MODE_MAX_FIXES
 CLOSURE_MAX_SMOKE_RUNS=$HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS
+WORKER_GOAL_MODE=$goal_mode
+GOAL_ID=$goal_id
+GOAL_TARGET_CRITERION=$goal_target
+GOAL_STATE_FILE=$goal_state
+GOAL_SUMMARY_FILE=$goal_summary
+GOAL_ITERATION_LEDGER_FILE=$goal_ledger
+GOAL_PROCESS_MAX_FIXES=$HARNESS_GOAL_PROCESS_MAX_FIXES
+GOAL_PROCESS_MAX_SMOKE_RUNS=$HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS
 
 The task is already claimed by this launcher. Read DEVELOPMENT_POLICY_FILE when present, then ROOT_ASSIGNMENT_FILE, PROGRESS_FILE, and TASK_FILE completely. The current files are authoritative even when this turn resumes an earlier worker conversation. Preserve verified work and continue from STARTING_PROGRESS_PERCENT rather than reimplementing the root task from zero. Implement exactly the remaining bounded assignment, validate only the developed feature according to the prototype policy, write any scratch files and the result report under PROJECT_TMP_DIR, publish the result with worker-complete-task, and terminate. Do not wait for another task. Do not create, stage, or commit Git changes.
 PROMPT
+if (( goal_mode == 1 )); then
+	goal_iteration="$(kv_file_value "$goal_state" iteration_count)"
+	goal_boundary="$(kv_file_value "$goal_state" last_boundary)"
+	goal_workspace="$(kv_file_value "$goal_state" last_workspace)"
+	cat >> "$prompt_file.tmp.$$" <<PROMPT
+
+Leaf-goal execution is active. This is one logical goal for the independently verifiable criterion GOAL_TARGET_CRITERION, even if it requires several Codex turns. Read GOAL_SUMMARY_FILE and GOAL_ITERATION_LEDGER_FILE when they contain prior iterations. Continue diagnosing, implementing, and running focused validation until exactly one of these terminal outcomes is true:
+
+- COMPLETE: the goal success evidence and focused validation in TASK_FILE pass.
+- NEEDS_DECOMPOSITION: the criterion is still too broad or repeated strategy attempts cannot make material movement.
+- HARD_BLOCKED: an explicit Hard-Block-Conditions boundary in TASK_FILE is actually met.
+
+Current durable iteration: $goal_iteration
+Current boundary: $goal_boundary
+Current workspace fingerprint: $goal_workspace
+
+When another bounded turn is useful, write a receipt under PROJECT_TMP_DIR with exactly one Task-ID, Goal-ID, Iteration, Outcome: CONTINUE, Boundary-Before, Boundary-After, Workspace-Fingerprint-Before, and Workspace-Fingerprint-After line, plus nonempty sections named "## Progress made", "## Validation performed", "## Next bounded action", and "## Scope check". Iteration must be $((goal_iteration + 1)); the before values must equal the current durable values above. Obtain the exact after value with:
+
+$HARNESS_BIN/harness-workspace-fingerprint "$HARNESS_ENV_FILE"
+
+Publish the receipt with:
+
+$HARNESS_BIN/worker-continue-task "$HARNESS_ENV_FILE" "$task_id" "$session" RECEIPT_FILE
+
+After that command succeeds, end this Codex turn. The harness will resume the same logical goal automatically. A CONTINUE receipt must record a changed boundary, changed workspace, or genuinely new evidence/strategy. Process-local work should stay within $HARNESS_GOAL_PROCESS_MAX_FIXES small corrections and $HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS focused smoke executions before publishing CONTINUE.
+
+For a terminal result, include "Goal-ID: $goal_id" and exactly one "Goal-Outcome: COMPLETE|NEEDS_DECOMPOSITION|HARD_BLOCKED", retain the normal worker result headings, publish it with worker-complete-task, and terminate. Do not use NEEDS_DECOMPOSITION merely because another ordinary diagnostic/fix turn is required. Do not use HARD_BLOCKED for test failure, complexity, token pressure, or lack of immediate progress.
+PROMPT
+fi
 if (( closure_mode == 1 )); then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
 
@@ -162,7 +235,11 @@ normalize_direct_result()
 			rm -f "$staged_result"
 			log_event "WORKER_DIRECT_RESULT_NORMALIZED task=$task_id session=$session"
 		else
-			if [[ ! -e "$result" && -f "$staged_result" ]]; then
+			if (( goal_mode == 1 )) && [[ -f "$staged_result" ]]; then
+				invalid_direct="$dir/control/$base.invalid-direct-result-attempt-$attempt.md"
+				mv "$staged_result" "$invalid_direct"
+				log_event "WORKER_GOAL_INVALID_DIRECT_RESULT task=$task_id session=$session file=$invalid_direct"
+			elif [[ ! -e "$result" && -f "$staged_result" ]]; then
 				mv "$staged_result" "$result"
 			fi
 			protocol_reason="direct_result_normalization_failed:$normalize_status"
@@ -175,6 +252,10 @@ normalize_last_message_result()
 	local normalize_status
 	if (( status == 0 )) &&
 		[[ -s "$last_message" && ! -f "$result" && -f "$running" && -f "$lease" && ! -e "$assignment_archive" ]]; then
+		if (( goal_mode == 1 )) &&
+			! grep -Eq '^Goal-Outcome:[[:space:]]*(COMPLETE|NEEDS_DECOMPOSITION|HARD_BLOCKED)[[:space:]]*$' "$last_message"; then
+			return 0
+		fi
 		set +e
 		"$HARNESS_BIN/worker-complete-task" "$HARNESS_ENV_FILE" "$task_id" "$session" "$last_message" >/dev/null
 		normalize_status=$?
@@ -212,6 +293,10 @@ heartbeat_pid=$!
 trace_event WORKER_HEARTBEAT_STARTED "task_id=$task_id" "session=$session" "heartbeat_pid=$heartbeat_pid" "interval=$WORKER_HEARTBEAT_SECONDS"
 
 while true; do
+	goal_iteration_before=0
+	if (( goal_mode == 1 )); then
+		goal_iteration_before="$(kv_file_value "$goal_state" iteration_count)"
+	fi
 	stamp="$(date -u '+%Y%m%dT%H%M%SZ')"
 	attempt_label="$(printf '%03d' "$attempt")"
 	json_log="$dir/logs/worker-task-$task_id-$stamp-attempt-$attempt_label.jsonl"
@@ -230,18 +315,70 @@ while true; do
 	observed_thread_id="$(codex_thread_id_from_jsonl "$json_log" 2>/dev/null || true)"
 	if [[ "$observed_thread_id" =~ ^[A-Za-z0-9-]+$ ]]; then
 		worker_resume_thread_id="$observed_thread_id"
+		if (( goal_mode == 1 )) &&
+			[[ "$(kv_file_value "$goal_state" thread_context 2>/dev/null || true)" != rotation-requested ]]; then
+			goal_state_set "$goal_state" thread_id "$observed_thread_id"
+			goal_state_set "$goal_state" thread_context resumed
+			goal_thread_store "$task_id" "$observed_thread_id" resumed
+		fi
 	fi
 	classification="$(kv_file_value "${json_log%.jsonl}.classification" classification 2>/dev/null || true)"
+	if (( goal_mode == 1 )); then
+		goal_turns="$(kv_file_value "$goal_state" process_turns 2>/dev/null || printf 0)"
+		goal_input="$(kv_file_value "$goal_state" cumulative_input_tokens 2>/dev/null || printf 0)"
+		goal_output="$(kv_file_value "$goal_state" cumulative_output_tokens 2>/dev/null || printf 0)"
+		[[ "$goal_turns" =~ ^[0-9]+$ ]] || goal_turns=0
+		[[ "$goal_input" =~ ^[0-9]+$ ]] || goal_input=0
+		[[ "$goal_output" =~ ^[0-9]+$ ]] || goal_output=0
+		turn_input="$(codex_usage_value_from_jsonl "$json_log" input_tokens)"
+		turn_output="$(codex_usage_value_from_jsonl "$json_log" output_tokens)"
+		[[ "$turn_input" =~ ^[0-9]+$ ]] || turn_input=0
+		[[ "$turn_output" =~ ^[0-9]+$ ]] || turn_output=0
+		goal_state_set "$goal_state" process_turns "$((goal_turns + 1))"
+		goal_state_set "$goal_state" cumulative_input_tokens "$((goal_input + turn_input))"
+		goal_state_set "$goal_state" cumulative_output_tokens "$((goal_output + turn_output))"
+	fi
 	trace_event CODEX_EXEC_END "role=worker" "task_id=$task_id" "session=$session" "attempt=$attempt" "status=$status" "classification=${classification:-unknown}" "json_log=$json_log" "stderr_log=$stderr_log" "last_message=$last_message"
 
 	normalize_direct_result
 	normalize_last_message_result
 	if completion_committed; then
+		if (( goal_mode == 1 )) && [[ "$observed_thread_id" =~ ^[A-Za-z0-9-]+$ ]]; then
+			goal_state_set "$goal_state" thread_id "$observed_thread_id"
+			goal_thread_store "$task_id" "$observed_thread_id" terminal
+		fi
 		cleanup_heartbeat
 		log_event "WORKER_INVOCATION_FINISHED task=$task_id session=$session status=$status result=published attempt=$attempt"
 		trace_event WORKER_RESULT_PUBLISHED "task_id=$task_id" "session=$session" "attempt=$attempt" "status=$status" "result=$result"
 		printf 'Worker completed task %s and published its result.\n' "$task_id"
 		exit 0
+	fi
+
+	if (( goal_mode == 1 )); then
+		goal_iteration_after="$(kv_file_value "$goal_state" iteration_count)"
+		if (( goal_iteration_after > goal_iteration_before )); then
+			goal_movement="$(kv_file_value "$(goal_continue_marker_file "$task_id")" movement 2>/dev/null || printf unknown)"
+			strategy_review="$(kv_file_value "$goal_state" strategy_review_required)"
+			context_state="$(kv_file_value "$goal_state" thread_context)"
+			if [[ "$context_state" == rotation-requested ]]; then
+				worker_resume_thread_id=""
+				goal_state_set "$goal_state" thread_context rotated
+				goal_thread_store "$task_id" "" rotated
+				worker_context_mode="fresh"
+				worker_context_reason="goal_iteration_rotation"
+			fi
+			printf '\nGoal iteration %s is durably committed with movement=%s. Re-read GOAL_SUMMARY_FILE and GOAL_STATE_FILE. Continue the same leaf goal from its new boundary. ' \
+				"$goal_iteration_after" "$goal_movement" >> "$prompt_file"
+			if [[ "$strategy_review" == 1 ]]; then
+				printf 'Repeated materially identical iterations closed CONTINUE. Publish a truthful terminal Goal-Outcome: NEEDS_DECOMPOSITION so the persistent manager can change strategy or append child criteria.\n' >> "$prompt_file"
+			else
+				printf 'Publish the next CONTINUE receipt or a truthful terminal goal result.\n' >> "$prompt_file"
+			fi
+			attempt=$((attempt + 1))
+			log_event "WORKER_GOAL_RESUMING task=$task_id goal=$goal_id iteration=$goal_iteration_after movement=$goal_movement context=$worker_context_mode"
+			trace_event WORKER_GOAL_RESUMING "task_id=$task_id" "goal_id=$goal_id" "iteration=$goal_iteration_after" "movement=$goal_movement" "context=$worker_context_mode"
+			continue
+		fi
 	fi
 
 	retry_kind="$(codex_provider_retry_kind "$classification" 2>/dev/null || true)"
@@ -279,6 +416,50 @@ while true; do
 			attempt=$((attempt + 1))
 			log_event "WORKER_MODEL_FALLBACK task=$task_id session=$session classification=$classification model=$current_model"
 			continue
+		fi
+	fi
+
+	if (( goal_mode == 1 )); then
+		case "$classification" in
+			authentication_error|sandbox_denied|configuration_error)
+				break
+				;;
+		esac
+		protocol_failures="$(kv_file_value "$goal_state" protocol_failures)"
+		[[ "$protocol_failures" =~ ^[0-9]+$ ]] || protocol_failures=0
+		protocol_failures=$((protocol_failures + 1))
+		goal_state_set "$goal_state" protocol_failures "$protocol_failures"
+		if (( protocol_failures < HARNESS_GOAL_MAX_IDENTICAL_ITERATIONS )); then
+			printf '\nThe prior goal turn ended without committing either a CONTINUE receipt or terminal result (classification=%s, exit=%s). Preserve the workspace and retry the protocol now. Re-read GOAL_STATE_FILE; do not repeat completed actions.\n' \
+				"${classification:-unknown}" "$status" >> "$prompt_file"
+			attempt=$((attempt + 1))
+			log_event "WORKER_GOAL_PROTOCOL_RETRY task=$task_id goal=$goal_id failures=$protocol_failures classification=${classification:-unknown}"
+			continue
+		fi
+
+		handoff="$PROJECT_TMP_DIR/$base.goal-protocol-handoff.$$"
+		{
+			printf '# Worker Task Result\n\n'
+			printf 'Task-ID: %s\n' "$task_id"
+			printf 'Status: COMPLETED\n'
+			printf 'Goal-ID: %s\n' "$goal_id"
+			printf 'Goal-Outcome: NEEDS_DECOMPOSITION\n\n'
+			printf '## Summary\n\nThe leaf-goal execution protocol made no durable transition for %s consecutive recoverable turns.\n\n' "$protocol_failures"
+			printf '## Modified files\n\nWorkspace changes, if any, are preserved for manager inspection.\n\n'
+			printf '## Implemented behavior\n\nNo implementation claim is synthesized by the harness.\n\n'
+			printf '## Validation performed\n\nSee the worker JSONL and goal iteration ledger; no unrecorded validation is claimed.\n\n'
+			printf '## Deviations from assignment\n\nThe worker failed to publish a valid continuation or terminal receipt.\n\n'
+			printf '## Remaining concerns\n\nThe persistent manager should narrow/decompose the criterion or publish a materially different strategy.\n\n'
+			printf '## Worker assessment\n\nNEEDS_DECOMPOSITION due to repeated goal protocol failure; this is not a claim that code progress was absent.\n'
+		} > "$handoff"
+		chmod 600 "$handoff"
+		"$HARNESS_BIN/worker-complete-task" "$HARNESS_ENV_FILE" "$task_id" "$session" "$handoff" >/dev/null
+		rm -f "$handoff"
+		if completion_committed; then
+			cleanup_heartbeat
+			log_event "WORKER_GOAL_STRATEGY_HANDOFF task=$task_id goal=$goal_id failures=$protocol_failures"
+			printf 'Worker goal %s requested manager decomposition after repeated protocol failures.\n' "$goal_id"
+			exit 0
 		fi
 	fi
 

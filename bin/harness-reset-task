@@ -35,6 +35,11 @@ aborted_assignment="$dir/archive/$base.aborted.assignment.md"
 if [[ -f "$ready" ]]; then
 	if [[ "$force" == '--force' ]]; then
 		rm -f "$dir/control/$base.worker-triggered" "$dir/control/$base.worker-failed.md" "$dir/control/$base.worker-supervisor-failed.md"
+		if [[ -f "$(goal_state_file "$task_id")" ]]; then
+			goal_state_set "$(goal_state_file "$task_id")" state READY
+			goal_state_set "$(goal_state_file "$task_id")" active_session ""
+			goal_state_set "$(goal_state_file "$task_id")" updated_at "$(timestamp_utc)"
+		fi
 		log_event "TASK_REQUEUED task=$task_id state=ready"
 		printf '%s
 ' "$ready"
@@ -68,6 +73,11 @@ else
 fi
 
 rm -f "$lease" "$dir/control/$base.worker-triggered" "$dir/control/$base.worker-failed.md" "$dir/control/$base.worker-supervisor-failed.md"
+if [[ -f "$(goal_state_file "$task_id")" ]]; then
+	goal_state_set "$(goal_state_file "$task_id")" state READY
+	goal_state_set "$(goal_state_file "$task_id")" active_session ""
+	goal_state_set "$(goal_state_file "$task_id")" updated_at "$(timestamp_utc)"
+fi
 if [[ "$force" == '--force' ]]; then
 	rm -f "$abort"
 fi

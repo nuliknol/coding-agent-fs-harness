@@ -38,6 +38,7 @@ if [[ -f "$dir/control/worker-supervisor.pid" ]]; then
 fi
 printf 'Manager supervisor: %s\n' "$manager_supervisor"
 printf 'Worker supervisor: %s\n' "$worker_supervisor"
+printf 'Worker leaf-goal mode: %s\n' "$([[ "$HARNESS_WORKER_GOAL_MODE" == 1 ]] && printf enabled || printf disabled)"
 if oracle_enabled; then
 	if [[ -f "$(project_block_file)" ]]; then
 		printf 'Oracle audit: BLOCKED (%s)\n' "$(project_block_file)"
@@ -204,10 +205,10 @@ elif (( human_count > 0 )); then
 elif (( blocked_count > 0 )); then
 	printf '\nProject status: BLOCKED. A root task requires human intervention before planning can continue.\n'
 elif (( replanning_count > 0 )); then
-	printf '\nProject status: REPLANNING. A fresh manager is decomposing the root and publishing one first-unmet-criterion continuation.\n'
+	printf '\nProject status: REPLANNING. The persistent manager is decomposing the root and publishing one first-unmet-criterion continuation.\n'
 elif (( replan_count > 0 )); then
 	if (( HARNESS_AUTO_REPLAN_ENABLED == 1 )); then
-		printf '\nProject status: NEEDS_REPLAN. Verified checkpoints are preserved; automatic fresh-context recovery is pending.\n'
+		printf '\nProject status: NEEDS_REPLAN. Verified checkpoints are preserved; automatic persistent-manager recovery is pending.\n'
 	else
 		printf '\nProject status: NEEDS_REPLAN. Automatic recovery is disabled; reassess and explicitly resume the root.\n'
 	fi
@@ -232,5 +233,63 @@ if [[ -n "$active_status_root" ]]; then
 		"$verified_items" "$replans_without_gain"
 	[[ -z "$active_leaf" ]] || printf 'First unmet leaf criterion: %s\n' "$active_leaf"
 fi
+
+for goal_file in "$(goal_control_dir)"/"$PROJECT-task-"*.goal; do
+	[[ -f "$goal_file" ]] || continue
+	goal_state="$(kv_file_value "$goal_file" state 2>/dev/null || true)"
+	[[ "$goal_state" =~ ^(READY|RUNNING|ITERATING|STRATEGY_REVIEW|REVIEW)$ ]] || continue
+	goal_task="$(kv_file_value "$goal_file" task_id)"
+	goal_iterations="$(kv_file_value "$goal_file" iteration_count)"
+	goal_target="$(kv_file_value "$goal_file" target_criterion)"
+	goal_id="$(kv_file_value "$goal_file" goal_id)"
+	goal_boundary="$(kv_file_value "$goal_file" last_boundary)"
+	goal_movement_at="$(kv_file_value "$goal_file" last_movement_at)"
+	goal_generation="$(kv_file_value "$goal_file" context_generation)"
+	goal_turns="$(kv_file_value "$goal_file" process_turns 2>/dev/null || printf 0)"
+	goal_input="$(kv_file_value "$goal_file" cumulative_input_tokens 2>/dev/null || printf 0)"
+	goal_output="$(kv_file_value "$goal_file" cumulative_output_tokens 2>/dev/null || printf 0)"
+	goal_reviews="$(kv_file_value "$goal_file" manager_reviews 2>/dev/null || printf 0)"
+	goal_thread="$(kv_file_value "$goal_file" thread_id)"
+	goal_workspace="$(kv_file_value "$goal_file" last_workspace)"
+	current_workspace="$(repository_workspace_fingerprint)"
+	goal_workspace_drift=no
+	[[ "$goal_workspace" == "$current_workspace" ]] || goal_workspace_drift=yes
+	goal_root="$(kv_file_value "$goal_file" task_root)"
+	goal_leaf_total=0
+	goal_leaf_passed=0
+	while IFS= read -r goal_leaf; do
+		[[ -n "$goal_leaf" ]] || continue
+		goal_leaf_total=$((goal_leaf_total + 1))
+		if task_criterion_is_passed "$goal_root" "$goal_leaf"; then
+			goal_leaf_passed=$((goal_leaf_passed + 1))
+		fi
+	done < <(task_root_leaf_criteria "$goal_root")
+	goal_latest_classification='not-yet-recorded'
+	goal_latest_log=""
+	for candidate_log in "$dir/logs/worker-task-$goal_task-"*.jsonl; do
+		[[ -f "$candidate_log" ]] || continue
+		if [[ -z "$goal_latest_log" || "$candidate_log" -nt "$goal_latest_log" ]]; then
+			goal_latest_log="$candidate_log"
+		fi
+	done
+	if [[ -n "$goal_latest_log" ]]; then
+		goal_latest_classification="$(kv_file_value "${goal_latest_log%.jsonl}.classification" classification 2>/dev/null || printf unknown)"
+	fi
+	[[ -n "$goal_thread" ]] || goal_thread='fresh/not-yet-recorded'
+	printf '\nActive worker goal: %s (%s)\n' "$goal_id" "$goal_state"
+	printf 'Goal task / target: %s / %s\n' "$goal_task" "$goal_target"
+	printf 'Internal iterations: %s; context generation: %s; thread: %s\n' \
+		"$goal_iterations" "$goal_generation" "$goal_thread"
+	printf 'Worker process turns: %s\n' "$goal_turns"
+	printf 'Verified leaf criteria: %s/%s; manager reviews: %s\n' \
+		"$goal_leaf_passed" "$goal_leaf_total" "$goal_reviews"
+	printf 'Cumulative processed tokens (not current context size): input=%s output=%s\n' \
+		"$goal_input" "$goal_output"
+	printf 'Latest worker/provider classification: %s\n' "$goal_latest_classification"
+	printf 'Last durable boundary: %s\n' "$goal_boundary"
+	printf 'Last material movement: %s\n' "$goal_movement_at"
+	printf 'Workspace changed since last receipt: %s\n' "$goal_workspace_drift"
+	break
+done
 
 printf '\n%s\n' "$project_progress_line"

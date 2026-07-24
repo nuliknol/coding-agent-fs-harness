@@ -105,9 +105,17 @@ archive_lingering_result()
 
 if [[ -f "$checkpointed" ]]; then
 	archive_lingering_result
+	goal_record_manager_decision "$task_id" CHECKPOINTED
 	retain_worker_thread_for_checkpoint "$task_id"
 	trace_event TASK_CHECKPOINT_IDEMPOTENT "task_id=$task_id" "checkpoint_file=$checkpointed"
-	printf '%s\n' "$checkpointed"
+	if [[ -f "$result_archive" &&
+		"$(metadata_value "$result_archive" Goal-Outcome)" == NEEDS_DECOMPOSITION ]]; then
+		mark_root_needs_replan "$task_id" \
+			'verified leaf-goal progress was checkpointed, but the remaining criterion requires decomposition or a materially different strategy' \
+			GOAL_NEEDS_DECOMPOSITION
+	else
+		printf '%s\n' "$checkpointed"
+	fi
 	exit 0
 fi
 
@@ -115,6 +123,7 @@ fi
 [[ -f "$assignment_archive" ]] || die "archived assignment is missing: $task_id"
 [[ ! -e "$running" ]] || die "task is still running: $task_id"
 [[ ! -e "$lease" ]] || die "worker lease still exists: $task_id"
+goal_outcome="$(metadata_value "$result" Goal-Outcome)"
 validate_worker_result "$result"
 validate_checkpoint_review "$note_file"
 initialize_task_progress "$task_id" "$assignment_archive"
@@ -305,6 +314,7 @@ printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(timestamp_utc)" "$task_id" \
 	"$improvement_percent" "$review_sha" "$artifact_dir" >> "$checkpoint_ledger"
 
 update_task_progress "$task_id" "$progress_percent" "$improvement_percent" CHECKPOINT "$note_file"
+goal_record_manager_decision "$task_id" CHECKPOINTED
 retain_worker_thread_for_checkpoint "$task_id"
 rm -f "$dir/control/$base.lease" "$dir/control/$base.abort.md" \
 	"$dir/control/$base.worker-triggered" "$dir/control/$base.worker-failed.md" \
@@ -312,7 +322,12 @@ rm -f "$dir/control/$base.lease" "$dir/control/$base.abort.md" \
 log_event "TASK_CHECKPOINTED task=$task_id root=$root criteria=${#verified_criteria[@]} increments=${#verified_increments[@]} artifact=$artifact_dir"
 trace_event TASK_CHECKPOINTED "task_id=$task_id" "task_root=$root" "checkpoint_file=$checkpointed" "artifact_dir=$artifact_dir"
 
-if replan_marker="$(maybe_mark_root_needs_replan "$task_id" CHECKPOINT)"; then
+if [[ "$goal_outcome" == NEEDS_DECOMPOSITION ]]; then
+	replan_marker="$(mark_root_needs_replan "$task_id" \
+		'verified leaf-goal progress was checkpointed, but the remaining criterion requires decomposition or a materially different strategy' \
+		GOAL_NEEDS_DECOMPOSITION)"
+	printf '%s\n' "$replan_marker"
+elif replan_marker="$(maybe_mark_root_needs_replan "$task_id" CHECKPOINT)"; then
 	printf '%s\n' "$replan_marker"
 else
 	printf '%s\n' "$checkpointed"

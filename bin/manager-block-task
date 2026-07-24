@@ -38,6 +38,8 @@ running="$dir/running/$base.running.md"
 lease="$dir/control/$base.lease"
 progress_percent="$(review_percent "$note_file" Progress-Percent)"
 improvement_percent="$(review_percent "$note_file" Improvement-Percent)"
+goal_outcome=""
+[[ ! -f "$result" ]] || goal_outcome="$(metadata_value "$result" Goal-Outcome)"
 
 [[ -n "$progress_percent" ]] || progress_percent="$(task_progress_percent "$root")"
 [[ -n "$improvement_percent" ]] || improvement_percent=0
@@ -49,30 +51,33 @@ validate_percent "$improvement_percent" 'Improvement-Percent'
 [[ ! -e "$lease" ]] || die "worker lease still exists: $task_id"
 
 if [[ -f "$blocked" ]]; then
+	goal_record_manager_decision "$task_id" BLOCKED
 	printf '%s\n' "$blocked"
 	exit 0
 fi
 
-(( HARNESS_MAX_IDENTICAL_BLOCKERS > 0 )) ||
-	die 'deterministic task blocking is disabled; reject the task and publish a continuation'
-(( improvement_percent == 0 )) ||
-	die 'a task can be blocked only by an identical zero-improvement circuit breaker'
-blocking_fingerprint="$(awk -F': ' '$1 == "Blocking-Fingerprint" {print $2; exit}' "$note_file")"
-[[ "$blocking_fingerprint" =~ ^sha256:[0-9a-fA-F]{64}$ ]] ||
-	die 'blocked review note must contain Blocking-Fingerprint: sha256:<64-hex-digest>'
+if [[ "$goal_outcome" != HARD_BLOCKED ]]; then
+	(( HARNESS_MAX_IDENTICAL_BLOCKERS > 0 )) ||
+		die 'deterministic task blocking is disabled; reject the task and publish a continuation'
+	(( improvement_percent == 0 )) ||
+		die 'a task can be blocked only by an identical zero-improvement circuit breaker'
+	blocking_fingerprint="$(awk -F': ' '$1 == "Blocking-Fingerprint" {print $2; exit}' "$note_file")"
+	[[ "$blocking_fingerprint" =~ ^sha256:[0-9a-fA-F]{64}$ ]] ||
+		die 'blocked review note must contain Blocking-Fingerprint: sha256:<64-hex-digest>'
 
-matching_rejections=0
-shopt -s nullglob
-for prior_rejection in "$dir/archive/$PROJECT-task-$root.rejected.md" \
-	"$dir/archive/$PROJECT-task-$root-revision-"*.rejected.md; do
-	[[ -f "$prior_rejection" ]] || continue
-	if grep -Fqx 'Improvement-Percent: 0%' "$prior_rejection" &&
-		grep -Fqx "Blocking-Fingerprint: $blocking_fingerprint" "$prior_rejection"; then
-		matching_rejections=$((matching_rejections + 1))
-	fi
-done
-(( matching_rejections + 1 >= HARNESS_MAX_IDENTICAL_BLOCKERS )) ||
-	die "blocking fingerprint has not reached the configured threshold: $((matching_rejections + 1))/$HARNESS_MAX_IDENTICAL_BLOCKERS"
+	matching_rejections=0
+	shopt -s nullglob
+	for prior_rejection in "$dir/archive/$PROJECT-task-$root.rejected.md" \
+		"$dir/archive/$PROJECT-task-$root-revision-"*.rejected.md; do
+		[[ -f "$prior_rejection" ]] || continue
+		if grep -Fqx 'Improvement-Percent: 0%' "$prior_rejection" &&
+			grep -Fqx "Blocking-Fingerprint: $blocking_fingerprint" "$prior_rejection"; then
+			matching_rejections=$((matching_rejections + 1))
+		fi
+	done
+	(( matching_rejections + 1 >= HARNESS_MAX_IDENTICAL_BLOCKERS )) ||
+		die "blocking fingerprint has not reached the configured threshold: $((matching_rejections + 1))/$HARNESS_MAX_IDENTICAL_BLOCKERS"
+fi
 
 [[ -f "$result" ]] || die "result does not exist: $task_id"
 mv "$result" "$result_archive"
@@ -106,6 +111,7 @@ chmod 600 "$tmp"
 mv "$tmp" "$root_block"
 
 update_task_progress "$task_id" "$progress_percent" "$improvement_percent" BLOCKED "$note_file"
+goal_record_manager_decision "$task_id" BLOCKED
 rm -f "$dir/control/$base.lease" "$dir/control/$base.worker-triggered" "$dir/control/$base.worker-failed.md" "$dir/control/$base.worker-supervisor-failed.md"
 log_event "TASK_BLOCKED task=$task_id root=$root reason=$reason"
 trace_event TASK_BLOCKED "task_id=$task_id" "task_root=$root" "blocked_file=$blocked" "root_block_file=$root_block"

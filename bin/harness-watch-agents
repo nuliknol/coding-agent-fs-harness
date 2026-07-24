@@ -12,9 +12,9 @@ Usage: ${0##*/} ENV_FILE [--new-only]
 
 Watch worker, manager, and final Oracle natural-language messages for the
 currently active harness work. The watcher automatically follows new tasks and
-capacity-retry attempt logs. It exits after draining final messages when the
+provider-retry and leaf-goal iteration logs. It exits after draining final messages when the
 project completes or reaches a human-only intervention state. Automatic
-fresh-context replanning is followed like any other manager turn.
+persistent-manager replanning is followed like any other manager turn.
 
 Options:
   --new-only   Do not replay existing messages from logs that are active when
@@ -50,6 +50,7 @@ declare -A next_line=()
 declare -A initialized=()
 declare -A announced_rejection=()
 declare -A announced_checkpoint=()
+declare -A announced_goal_iteration=()
 worker_log=""
 manager_log=""
 oracle_log=""
@@ -238,6 +239,15 @@ initialize_checkpoint_records()
 	done
 }
 
+initialize_goal_iteration_records()
+{
+	local record
+	for record in "$dir/archive/goal-iterations/$PROJECT-task-"*/iteration-*.md; do
+		[[ -f "$record" ]] || continue
+		announced_goal_iteration[$record]=1
+	done
+}
+
 print_new_rejections()
 {
 	local record task improvement progress
@@ -271,6 +281,23 @@ print_new_checkpoints()
 		[[ -n "$improvement" ]] || improvement='not recorded'
 		[[ -n "$progress" ]] || progress='not recorded'
 		printf '\n[MANAGER CHECKPOINTED task=%s]\nCumulative progress: %s\nImprovement: %s\n' "$task" "$progress" "$improvement"
+	done
+}
+
+print_new_goal_iterations()
+{
+	local record task goal iteration movement marker
+	for record in "$dir/archive/goal-iterations/$PROJECT-task-"*/iteration-*.md; do
+		[[ -f "$record" ]] || continue
+		[[ -z "${announced_goal_iteration[$record]:-}" ]] || continue
+		announced_goal_iteration[$record]=1
+		task="$(metadata_value "$record" Task-ID)"
+		goal="$(metadata_value "$record" Goal-ID)"
+		iteration="$(metadata_value "$record" Iteration)"
+		marker="$(goal_continue_marker_file "$task")"
+		movement="$(kv_file_value "$marker" movement 2>/dev/null || printf recorded)"
+		printf '\n[WORKER CONTINUING GOAL task=%s goal=%s iteration=%s]\nMovement: %s\n' \
+			"$task" "$goal" "$iteration" "$movement"
 	done
 }
 
@@ -339,6 +366,7 @@ printf 'Watching natural-language agent output for project %s. Press Ctrl+C to s
 printf 'State: %s\n' "$dir"
 initialize_rejection_records
 initialize_checkpoint_records
+initialize_goal_iteration_records
 
 while true; do
 	new_worker="$(current_worker_log)"
@@ -376,6 +404,7 @@ while true; do
 	print_new_messages ORACLE "$oracle_log"
 	print_new_rejections
 	print_new_checkpoints
+	print_new_goal_iterations
 
 	terminal_state="$(terminal_project_state || true)"
 	if [[ -n "$terminal_state" ]] && ! agent_invocation_running; then
@@ -387,6 +416,7 @@ while true; do
 		print_new_messages ORACLE "$oracle_log"
 		print_new_rejections
 		print_new_checkpoints
+		print_new_goal_iterations
 		print_terminal_exit "$terminal_state"
 		break
 	fi

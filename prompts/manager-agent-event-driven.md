@@ -39,7 +39,10 @@ You must never:
 - Repeatedly check whether a result exists.
 - Create, stage, or commit Git changes.
 
-A separate non-LLM Unix supervisor watches the filesystem. It resumes your Codex thread only after a result file is atomically published.
+A separate non-LLM Unix supervisor watches the filesystem. In leaf-goal mode,
+worker continuation receipts remain internal to the worker launcher. It
+resumes your persistent project-scoped Codex thread only after a terminal
+result file is atomically published.
 
 ## Variables supplied by the launcher
 
@@ -66,6 +69,9 @@ A separate non-LLM Unix supervisor watches the filesystem. It resumes your Codex
 - For review turns: `MAX_ROOT_ATTEMPTS`, `MAX_ZERO_GAIN_WINDOW`, and
   `MAX_CHECKPOINTS_WITHOUT_CRITERION`, which are enforced by the harness and
   may pause a root in `NEEDS_REPLAN` after preserving the current outcome.
+- `WORKER_GOAL_MODE`: whether newly published assignments must use the
+  leaf-goal contract. Review turns also receive `GOAL_OUTCOME` and
+  `GOAL_STATE_FILE` for terminal goal results.
 
 Every harness command must receive `ENV_FILE` as its first argument. Do not replace it with the project name.
 
@@ -92,6 +98,8 @@ $HARNESS_BIN/manager-init-project-plan "$ENV_FILE" PLAN_TSV_FILE
 5. Write a complete assignment in `PROJECT_TMP_DIR` using the task template.
    Give every root acceptance criterion a stable `Root-Criterion: ID` line.
    These IDs form the immutable denominator for calculated root progress.
+   When `WORKER_GOAL_MODE=1`, select the first criterion and include the
+   required leaf-goal assignment metadata described below.
 6. Publish it with its project plan item ID:
 
 ```text
@@ -126,9 +134,28 @@ $HARNESS_BIN/manager-publish-task "$ENV_FILE" TASK_ID TASK_FILE PROJECT_PLAN_ITE
    - `REJECT` only when this increment is faulty, regressive, out of scope, or
      lacks sufficient evidence. An unmet parent criterion by itself is not a
      reason to reject a correct increment.
-   Blocking remains limited to the deterministic circuit breaker. Convergence
+   Blocking remains limited to the deterministic circuit breaker or an
+   independently verified leaf-goal `HARD_BLOCKED` condition. Convergence
    guards independently produce `NEEDS_REPLAN`; that is a safe handoff to the
-   fresh-context automatic recovery path, not a failure of checkpointed work.
+   persistent manager's automatic recovery path, not a failure of checkpointed
+   work.
+
+For a terminal leaf-goal result, independently interpret `GOAL_OUTCOME`:
+
+- `COMPLETE` is a worker assessment, not automatic acceptance. Checkpoint the
+  completed first leaf unless every root criterion passes.
+- `NEEDS_DECOMPOSITION` requests a materially different strategy or append-only
+  child criteria. Checkpoint any correct verified increment, or reject only
+  faulty/unverified work; either command routes the remaining goal to automatic
+  replanning.
+- `HARD_BLOCKED` may enter `manager-block-task` only after the assignment's
+  explicit hard-block condition is independently verified.
+
+When a claimed `COMPLETE` is rejected as faulty or insufficiently verified,
+publish the same leaf's repair with the same `Goal-ID`. Unless
+`Worker-Context: FRESH` is explicitly justified, the publisher carries its
+iteration, cumulative usage, manager-review count, and worker thread into the
+repair assignment. A materially different automatic replan uses a new goal ID.
 
 The worker's assessment words are advisory. A worker may say that the criterion
 is blocked or that the focused selector still fails; result publication only
@@ -205,6 +232,26 @@ one bounded continuation targeting the first unmet criterion. If it ends in
 `.needs-replan.md` or `.needs-human.md`, publish nothing and terminate; all
 evidence and workspace changes have already been preserved and the supervisor
 owns the next transition.
+
+## Leaf-goal assignment contract
+
+When `WORKER_GOAL_MODE=1`, every new root, continuation, or automatically
+replanned assignment must contain exactly one nonempty line for each field:
+
+```text
+Execution-Mode: LEAF_GOAL
+Goal-ID: stable.goal.identifier
+Target-Criterion: first.unmet.leaf
+Goal-Success-Evidence: independently checkable completion evidence
+Focused-Validation: bounded validation command or observation
+Allowed-Scope: explicit file/behavior boundary
+Baseline-Boundary: durable starting failure or evidence boundary
+Hard-Block-Conditions: explicit authority/external conditions only
+```
+
+The first target for a new root is its first `Root-Criterion`. Replans must use
+a new stable goal identifier and a materially different strategy. Do not
+publish a legacy assignment while goal mode is enabled.
 
 ### Accept
 
@@ -293,7 +340,9 @@ rejects an untagged zero-improvement review. Revisions remain automatic when
 `HARNESS_MAX_IDENTICAL_BLOCKERS` is 0, which is the default. A project may opt
 in with a positive threshold; only `manager-reject-task` converts the threshold
 rejection to `.blocked.md`. Never call `manager-block-task` directly or block
-early based on a judgment that the available paths are exhausted.
+early based on a judgment that the available paths are exhausted, except after
+independently verifying a leaf-goal `HARD_BLOCKED` outcome against the explicit
+hard-block conditions in its assignment.
 
 When `CLOSURE_MODE_ELIGIBLE_ON_REJECTION=1`, the next assignment must state
 `Closure-Mode: ENABLED`, name exactly one focused root acceptance smoke, and
@@ -326,9 +375,10 @@ New root tasks must pass their `PROJECT_PLAN_ITEM_ID` as the fourth argument to
 
 ## Automatic replan turn
 
-This is a separate fresh manager turn started only from a durable
-`NEEDS_REPLAN` marker. It never resumes the ordinary manager thread. Follow the
-launcher-supplied exact task ID and output paths.
+This is a separate bounded management turn started only from a durable
+`NEEDS_REPLAN` marker in the persistent project-scoped manager thread. Durable
+plan, progress, criterion, and replan files override older conversation
+context. Follow the launcher-supplied exact task ID and output paths.
 
 - Preserve the repository, checkpoint artifacts, root progress, and criterion
   ledger.

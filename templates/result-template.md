@@ -7,6 +7,9 @@ Status: COMPLETED
 Task-Root: ROOT_TASK_ID
 Starting-Progress: N%
 
+<!-- For Execution-Mode: LEAF_GOAL, also add exactly one Goal-ID line and one
+Goal-Outcome: COMPLETE|NEEDS_DECOMPOSITION|HARD_BLOCKED line above. -->
+
 ## Summary
 
 Describe what was implemented.

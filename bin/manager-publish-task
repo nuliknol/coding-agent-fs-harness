@@ -31,7 +31,21 @@ fi
 ensure_project
 trace_init manager_publish_task
 trace_script_start "$@"
-trap 'trace_script_exit $?' EXIT
+goal_publish_state=""
+goal_publish_ledger=""
+goal_publish_summary=""
+goal_publish_thread=""
+goal_publish_ready=0
+cleanup_publish()
+{
+	local status="$?"
+	if (( status != 0 && goal_publish_ready == 0 )) && [[ -n "$goal_publish_state" ]]; then
+		rm -f "$goal_publish_state" "$goal_publish_ledger" "$goal_publish_summary" "$goal_publish_thread"
+		rmdir "$(goal_iteration_archive_dir "$task_id")" 2>/dev/null || true
+	fi
+	trace_script_exit "$status"
+}
+trap cleanup_publish EXIT
 validate_task_id "$task_id"
 [[ -f "$task_file" ]] || die "task file does not exist: $task_file"
 acquire_project_lock
@@ -217,6 +231,37 @@ elif [[ -n "$decomposition_candidate" ]]; then
 	die 'child criterion decomposition requires an existing explicit criterion inventory'
 fi
 
+goal_mode=0
+goal_id=""
+goal_target=""
+goal_success_evidence=""
+goal_focused_validation=""
+goal_allowed_scope=""
+goal_baseline_boundary=""
+goal_hard_blocks=""
+if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
+	goal_mode=1
+	[[ "$(require_single_metadata_value "$task_file" Execution-Mode 'goal-mode assignment')" == LEAF_GOAL ]] ||
+		die 'goal-mode assignment must set Execution-Mode: LEAF_GOAL'
+	goal_id="$(require_single_metadata_value "$task_file" Goal-ID 'goal-mode assignment')"
+	validate_goal_id "$goal_id"
+	goal_target="$(require_single_metadata_value "$task_file" Target-Criterion 'goal-mode assignment')"
+	goal_success_evidence="$(require_single_metadata_value "$task_file" Goal-Success-Evidence 'goal-mode assignment')"
+	goal_focused_validation="$(require_single_metadata_value "$task_file" Focused-Validation 'goal-mode assignment')"
+	goal_allowed_scope="$(require_single_metadata_value "$task_file" Allowed-Scope 'goal-mode assignment')"
+	goal_baseline_boundary="$(require_single_metadata_value "$task_file" Baseline-Boundary 'goal-mode assignment')"
+	goal_hard_blocks="$(require_single_metadata_value "$task_file" Hard-Block-Conditions 'goal-mode assignment')"
+	if [[ "$task_id" == "$root" ]]; then
+		[[ "$goal_target" == "${declared_criteria[0]}" ]] ||
+			die "new root goal must target its first declared criterion: ${declared_criteria[0]}"
+	else
+		[[ "$goal_target" == "$target_criterion" ]] ||
+			die "goal Target-Criterion must equal the first unmet leaf: $target_criterion"
+	fi
+elif [[ "$(metadata_value "$task_file" Execution-Mode)" == LEAF_GOAL ]]; then
+	die 'LEAF_GOAL assignment publication requires HARNESS_WORKER_GOAL_MODE=1'
+fi
+
 strategy_id=""
 strategy_change=""
 strategy_fingerprint=""
@@ -238,6 +283,10 @@ if (( auto_replan == 1 )); then
 		die 'Strategy-Change must be NARROW_SCOPE, NEW_EVIDENCE, or ISOLATE_CRITERION'
 	trigger_task="$(awk -F': ' '$1 == "Triggered-By" {print $2; exit}' "$(task_root_replan_file "$root")")"
 	[[ -n "$trigger_task" ]] || die 'automatic replan marker does not identify its triggering task'
+	if (( goal_mode == 1 )) && [[ -f "$(goal_state_file "$trigger_task")" ]] &&
+		[[ "$(kv_file_value "$(goal_state_file "$trigger_task")" goal_id)" == "$goal_id" ]]; then
+		die 'automatic replan must use a new Goal-ID for its materially different strategy'
+	fi
 	[[ "$(single_metadata_value "$task_file" Supersedes-Task)" == "$trigger_task" ]] ||
 		die "automatic replan must supersede triggering task: $trigger_task"
 	for heading in '## Objective' '## Acceptance criteria' '## Validation commands'; do
@@ -302,6 +351,115 @@ else
 	chmod 600 "$tmp"
 fi
 
+if (( goal_mode == 1 )); then
+	goal_dir="$(goal_control_dir)"
+	goal_state="$(goal_state_file "$task_id")"
+	goal_ledger="$(goal_iteration_ledger_file "$task_id")"
+	goal_summary="$(goal_summary_file "$task_id")"
+	goal_thread="$(goal_thread_file "$task_id")"
+	goal_publish_state="$goal_state"
+	goal_publish_ledger="$goal_ledger"
+	goal_publish_summary="$goal_summary"
+	goal_publish_thread="$goal_thread"
+	[[ ! -e "$goal_state" && ! -e "$goal_ledger" && ! -e "$goal_summary" && ! -e "$goal_thread" ]] ||
+		die "goal state already exists for task: $task_id"
+	mkdir -p "$goal_dir" "$(goal_iteration_archive_dir "$task_id")"
+	chmod 700 "$goal_dir" "$(goal_iteration_archive_dir "$task_id")"
+	goal_resumed_from=""
+	goal_previous_ledger=""
+	goal_iteration_start=0
+	goal_context_generation=0
+	goal_process_turns=0
+	goal_cumulative_input=0
+	goal_cumulative_output=0
+	goal_manager_reviews=0
+	goal_thread_id=""
+	goal_thread_context=fresh
+	if [[ "$task_id" != "$root" &&
+		"$(metadata_value "$task_file" Worker-Context)" != FRESH ]]; then
+		latest_goal_update=""
+		for prior_goal_state in "$goal_dir/$PROJECT-task-"*.goal; do
+			[[ -f "$prior_goal_state" ]] || continue
+			[[ "$(kv_file_value "$prior_goal_state" task_root 2>/dev/null || true)" == "$root" ]] || continue
+			[[ "$(kv_file_value "$prior_goal_state" goal_id 2>/dev/null || true)" == "$goal_id" ]] || continue
+			[[ "$(kv_file_value "$prior_goal_state" target_criterion 2>/dev/null || true)" == "$goal_target" ]] || continue
+			[[ "$(kv_file_value "$prior_goal_state" state 2>/dev/null || true)" == REJECTED ]] || continue
+			prior_goal_update="$(kv_file_value "$prior_goal_state" updated_at 2>/dev/null || true)"
+			if [[ -z "$goal_resumed_from" || "$prior_goal_update" > "$latest_goal_update" ]]; then
+				goal_resumed_from="$(kv_file_value "$prior_goal_state" task_id)"
+				latest_goal_update="$prior_goal_update"
+				goal_previous_ledger="$(goal_iteration_ledger_file "$goal_resumed_from")"
+				goal_iteration_start="$(kv_file_value "$prior_goal_state" iteration_count 2>/dev/null || printf 0)"
+				goal_context_generation="$(kv_file_value "$prior_goal_state" context_generation 2>/dev/null || printf 0)"
+				goal_process_turns="$(kv_file_value "$prior_goal_state" process_turns 2>/dev/null || printf 0)"
+				goal_cumulative_input="$(kv_file_value "$prior_goal_state" cumulative_input_tokens 2>/dev/null || printf 0)"
+				goal_cumulative_output="$(kv_file_value "$prior_goal_state" cumulative_output_tokens 2>/dev/null || printf 0)"
+				goal_manager_reviews="$(kv_file_value "$prior_goal_state" manager_reviews 2>/dev/null || printf 0)"
+				goal_thread_id="$(kv_file_value "$prior_goal_state" thread_id 2>/dev/null || true)"
+				goal_thread_context=manager-rejected-resume
+			fi
+		done
+	fi
+	for numeric_goal_value in goal_iteration_start goal_context_generation goal_process_turns \
+		goal_cumulative_input goal_cumulative_output goal_manager_reviews; do
+		[[ "${!numeric_goal_value}" =~ ^[0-9]+$ ]] || printf -v "$numeric_goal_value" 0
+	done
+	[[ "$goal_thread_id" =~ ^[A-Za-z0-9-]+$ ]] || goal_thread_id=""
+	goal_workspace="$(repository_workspace_fingerprint)"
+	goal_assignment_sha="$(sha256sum "$tmp" | awk '{print $1}')"
+	goal_state_tmp="$goal_state.tmp.$$"
+	{
+		printf 'project=%s\n' "$PROJECT"
+		printf 'task_id=%s\n' "$task_id"
+		printf 'task_root=%s\n' "$root"
+		printf 'goal_id=%s\n' "$goal_id"
+		printf 'target_criterion=%s\n' "$goal_target"
+		printf 'state=READY\n'
+		printf 'iteration_count=%s\n' "$goal_iteration_start"
+		printf 'identical_iterations=0\n'
+		printf 'protocol_failures=0\n'
+		printf 'process_turns=%s\n' "$goal_process_turns"
+		printf 'cumulative_input_tokens=%s\n' "$goal_cumulative_input"
+		printf 'cumulative_output_tokens=%s\n' "$goal_cumulative_output"
+		printf 'context_generation=%s\n' "$goal_context_generation"
+		printf 'thread_id=%s\n' "$goal_thread_id"
+		printf 'thread_context=%s\n' "$goal_thread_context"
+		printf 'strategy_review_required=0\n'
+		printf 'last_boundary=%s\n' "$goal_baseline_boundary"
+		printf 'last_workspace=%s\n' "$goal_workspace"
+		printf 'last_material_fingerprint=-\n'
+		printf 'last_movement_at=%s\n' "$(timestamp_utc)"
+		printf 'manager_reviews=%s\n' "$goal_manager_reviews"
+		printf 'resumed_from_task=%s\n' "$goal_resumed_from"
+		printf 'assignment_sha256=%s\n' "$goal_assignment_sha"
+		printf 'created_at=%s\n' "$(timestamp_utc)"
+		printf 'updated_at=%s\n' "$(timestamp_utc)"
+	} > "$goal_state_tmp"
+	chmod 600 "$goal_state_tmp"
+	mv "$goal_state_tmp" "$goal_state"
+	goal_thread_store "$task_id" "$goal_thread_id" "$goal_thread_context"
+	if [[ -n "$goal_resumed_from" && -f "$goal_previous_ledger" ]]; then
+		install -m 600 "$goal_previous_ledger" "$goal_ledger"
+	else
+		printf 'recorded_at\titeration\toutcome\tboundary_before\tboundary_after\tworkspace_before\tworkspace_after\tmaterial_fingerprint\tmovement\tidentical_streak\treceipt\n' \
+			> "$goal_ledger"
+		chmod 600 "$goal_ledger"
+	fi
+	{
+		printf '# Worker Leaf Goal\n\n'
+		printf 'Task-ID: %s\n' "$task_id"
+		printf 'Goal-ID: %s\n' "$goal_id"
+		printf 'Target-Criterion: %s\n' "$goal_target"
+		printf 'Goal-Success-Evidence: %s\n' "$goal_success_evidence"
+		printf 'Focused-Validation: %s\n' "$goal_focused_validation"
+		printf 'Allowed-Scope: %s\n' "$goal_allowed_scope"
+		printf 'Baseline-Boundary: %s\n' "$goal_baseline_boundary"
+		printf 'Hard-Block-Conditions: %s\n' "$goal_hard_blocks"
+		printf '\nIteration receipts are authoritative in: %s\n' "$goal_ledger"
+	} > "$goal_summary"
+	chmod 600 "$goal_summary"
+fi
+
 if (( auto_replan == 1 )); then
 	if [[ ! -f "$criteria_definition" ]]; then
 		[[ -z "$criteria_candidate" ]] || install -m 600 "$criteria_candidate" "$criteria_definition"
@@ -328,11 +486,12 @@ if (( auto_replan == 1 )); then
 		"$(task_verified_item_count "$root")" >> "$replan_ledger"
 fi
 mv "$tmp" "$ready"
+goal_publish_ready=1
 if (( auto_replan == 1 )); then
 	rm -f "$(task_root_replan_file "$root")" "$(task_root_replanning_file "$root")"
 fi
 activate_project_plan_item "$plan_item_id" "$root"
 
-log_event "TASK_PUBLISHED task=$task_id root=$root plan_item=$plan_item_id starting_progress=$starting_progress target_criterion=${target_criterion:--} auto_replan=$auto_replan file=$ready"
-trace_event TASK_PUBLISHED "task_id=$task_id" "task_root=$root" "plan_item=$plan_item_id" "starting_progress=$starting_progress" "target_criterion=${target_criterion:--}" "auto_replan=$auto_replan" "source_file=$task_file" "ready_file=$ready" "progress_file=$progress"
+log_event "TASK_PUBLISHED task=$task_id root=$root plan_item=$plan_item_id starting_progress=$starting_progress target_criterion=${target_criterion:--} auto_replan=$auto_replan goal_mode=$goal_mode goal_id=${goal_id:--} file=$ready"
+trace_event TASK_PUBLISHED "task_id=$task_id" "task_root=$root" "plan_item=$plan_item_id" "starting_progress=$starting_progress" "target_criterion=${target_criterion:--}" "auto_replan=$auto_replan" "goal_mode=$goal_mode" "goal_id=${goal_id:-}" "source_file=$task_file" "ready_file=$ready" "progress_file=$progress"
 printf '%s\n' "$ready"

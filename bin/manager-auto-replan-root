@@ -45,6 +45,9 @@ if (( auto_replans >= HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN )); then
 fi
 
 project_path="$(project_dir)"
+manager_thread_file="$project_path/control/manager.thread"
+[[ -f "$manager_thread_file" ]] || die 'manager thread is not registered; run manager-bootstrap'
+manager_thread_id="$(kv_file_value "$manager_thread_file" thread_id)"
 running_marker="$(task_root_replanning_file "$root")"
 if [[ -f "$running_marker" ]]; then
 	running_pid="$(kv_file_value "$running_marker" pid 2>/dev/null || true)"
@@ -97,7 +100,7 @@ else
 fi
 
 cat > "$prompt_file.tmp.$$" <<PROMPT
-The root hit a convergence guard after its latest outcome was safely archived. Perform one automatic recovery turn with fresh context. This is not permission to broaden scope, discard checkpoints, alter the project plan, or retry the same assignment.
+The root hit a convergence guard after its latest outcome was safely archived. Perform one automatic recovery turn in the persistent project-scoped manager thread. Treat the durable files below as authoritative over older conversation context. This is not permission to broaden scope, discard checkpoints, alter the project plan, or retry the same assignment.
 
 ENV_FILE=$HARNESS_ENV_FILE
 PROJECT=$PROJECT
@@ -117,6 +120,7 @@ DEVELOPMENT_POLICY_FILE=$development_policy_file
 SPECIFICATION=$SPECIFICATION
 REPOSITORY=$REPOSITORY
 HARNESS_BIN=$HARNESS_BIN
+WORKER_GOAL_MODE=$HARNESS_WORKER_GOAL_MODE
 TASK_OUTPUT=$task_output
 CRITERIA_OUTPUT=$criteria_output
 DECOMPOSITION_OUTPUT=$decomposition_output
@@ -141,8 +145,14 @@ Publish the task atomically with:
 
 $HARNESS_BIN/manager-publish-task "$HARNESS_ENV_FILE" "$expected_task_id" "$task_output" --auto-replan [CRITERIA_OUTPUT only for an undecomposed legacy root] [DECOMPOSITION_OUTPUT only after a '-' criteria placeholder]
 
-The command validates the first-unmet leaf, append-only child decomposition, fresh worker context, strategy uniqueness, material fingerprint, verified-gain replan budget, and a blocker that survived without new durable evidence. A unique verified checkpoint or passed criterion resets escalation even when Progress-Percent is unchanged. Correct any validation error within this one turn. Publish exactly one task, then terminate immediately. Do not wait, sleep, poll, watch the filesystem, call harness-unblock-root, or resume the old manager thread.
+The command validates the first-unmet leaf, append-only child decomposition, fresh worker context, strategy uniqueness, material fingerprint, verified-gain replan budget, and a blocker that survived without new durable evidence. A unique verified checkpoint or passed criterion resets escalation even when Progress-Percent is unchanged. Correct any validation error within this one turn. Publish exactly one task, then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or call harness-unblock-root.
 PROMPT
+if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
+	cat >> "$prompt_file.tmp.$$" <<PROMPT
+
+Worker leaf-goal mode is enabled. The replacement assignment must also contain exactly one nonempty line for each of: Execution-Mode: LEAF_GOAL, Goal-ID, Goal-Success-Evidence, Focused-Validation, Allowed-Scope, Baseline-Boundary, and Hard-Block-Conditions. Its existing Target-Criterion line is the goal target. Use a new stable Goal-ID for the materially different strategy.
+PROMPT
+fi
 if codex_model_requires_narrow_prompt "$MANAGER_MODEL"; then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
 
@@ -175,23 +185,23 @@ while true; do
 	json_log="$project_path/logs/manager-replan-$root-$stamp-attempt-$attempt_label.jsonl"
 	stderr_log="$project_path/logs/manager-replan-$root-$stamp-attempt-$attempt_label.stderr.log"
 	last_message="$project_path/logs/manager-replan-$root-$stamp-attempt-$attempt_label.md"
-	log_event "MANAGER_REPLAN_STARTED root=$root trigger=$trigger_task expected_task=$expected_task_id attempt=$attempt context=fresh"
-	trace_event MANAGER_REPLAN_ATTEMPT "root=$root" "trigger_task=$trigger_task" "expected_task=$expected_task_id" "attempt=$attempt" "json_log=$json_log"
+	log_event "MANAGER_REPLAN_STARTED root=$root trigger=$trigger_task expected_task=$expected_task_id attempt=$attempt context=persistent thread_id=$manager_thread_id"
+	trace_event MANAGER_REPLAN_ATTEMPT "root=$root" "trigger_task=$trigger_task" "expected_task=$expected_task_id" "attempt=$attempt" "context=persistent" "thread_id=$manager_thread_id" "json_log=$json_log"
 	set +e
 	"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" manager_replan "$current_model" \
-		"$prompt_file" "$json_log" "$stderr_log" "$last_message"
+		"$prompt_file" "$json_log" "$stderr_log" "$last_message" resume "$manager_thread_id"
 	status=$?
 	set -e
 	classification="$(kv_file_value "${json_log%.jsonl}.classification" classification 2>/dev/null || true)"
 	if task_published; then
 		log_event "MANAGER_REPLAN_COMMITTED root=$root task=$expected_task_id attempt=$attempt"
 		trace_event MANAGER_REPLAN_COMMITTED "root=$root" "task_id=$expected_task_id" "attempt=$attempt"
-		printf 'Manager automatically replanned root %s as %s with fresh context.\n' "$root" "$expected_task_id"
+		printf 'Persistent manager automatically replanned root %s as %s.\n' "$root" "$expected_task_id"
 		exit 0
 	fi
 	if (( status == 0 )); then
 		mark_root_needs_human "$root" "$trigger_task" \
-			'the fresh manager turn could not publish one valid materially different continuation' >/dev/null
+			'the persistent manager turn could not publish one valid materially different continuation' >/dev/null
 		exit 0
 	fi
 	retry_kind="$(codex_provider_retry_kind "$classification" 2>/dev/null || true)"

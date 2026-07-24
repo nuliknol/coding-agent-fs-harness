@@ -332,11 +332,11 @@ grep -q 'Deterministic blocker circuit breaker: disabled' "$TEST_ROOT/check-env.
 grep -q 'Root-attempt replanning guard: 12 reviewed attempts' "$TEST_ROOT/check-env.out"
 grep -q 'Zero-gain replanning guard: 3 consecutive reviews' "$TEST_ROOT/check-env.out"
 grep -q 'Checkpoint convergence guard: 4 verified increments without a completed criterion' "$TEST_ROOT/check-env.out"
-grep -q 'Automatic fresh-context replanning: enabled (1 strategy change(s) without durable verified gain)' "$TEST_ROOT/check-env.out"
+grep -q 'Automatic persistent-manager replanning: enabled (1 strategy change(s) without durable verified gain)' "$TEST_ROOT/check-env.out"
 grep -q 'Rejected-root worker thread reuse: enabled' "$TEST_ROOT/check-env.out"
 grep -q 'Worker thread rejection rotation: 8 retained rejections' "$TEST_ROOT/check-env.out"
 grep -q 'Bounded closure mode: enabled at 95% (2 fixes, 3 focused-smoke runs)' "$TEST_ROOT/check-env.out"
-grep -q 'broad criteria may gain append-only children; roots resume by first-unmet leaf; verified gain resets bounded automatic-replan escalation' "$TEST_ROOT/check-env.out"
+grep -q 'broad criteria may gain append-only children; roots resume by first-unmet leaf; leaf-goal CONTINUE receipts remain worker-internal; verified gain resets bounded automatic-replan escalation' "$TEST_ROOT/check-env.out"
 grep -q 'Transient provider retry seconds: 1 (retries unlimited)' "$TEST_ROOT/check-env.out"
 grep -q 'Quota retry seconds: 1 (retries unlimited)' "$TEST_ROOT/check-env.out"
 "$HARNESS_BIN/harness-init" "$TEST_ROOT/harness.env" >/dev/null
@@ -1118,6 +1118,7 @@ export HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN="1"
 ENV
 chmod 600 "$AUTO_ROOT/harness.env"
 "$HARNESS_BIN/harness-init" "$AUTO_ROOT/harness.env" >/dev/null
+"$HARNESS_BIN/manager-register-thread" "$AUTO_ROOT/harness.env" auto-manager-thread >/dev/null
 printf 'P0\tLegacy oversized root\n' > "$AUTO_ROOT/plan.tsv"
 "$HARNESS_BIN/manager-init-project-plan" "$AUTO_ROOT/harness.env" "$AUTO_ROOT/plan.tsv" >/dev/null
 auto_project="$AUTO_ROOT/state/projects/autoreplanproj"
@@ -1180,8 +1181,8 @@ grep -q 'MANAGER_REPLAN_COMMITTED root=001 task=001-revision-08' "$auto_project/
 grep -q '^Progress-Percent: 99%$' "$auto_progress/autoreplanproj-task-001.progress.md"
 args_after_replan="$(wc -l < "$ARGS_LOG")"
 (( args_after_replan == args_before_replan + 1 ))
-if tail -n 1 "$ARGS_LOG" | grep -q ' resume '; then
-	printf 'Expected automatic replanning to start a fresh manager context.\n' >&2
+if ! tail -n 1 "$ARGS_LOG" | grep -q 'resume auto-manager-thread'; then
+	printf 'Expected automatic replanning to resume the persistent manager context.\n' >&2
 	exit 1
 fi
 

@@ -13,6 +13,7 @@ usage()
 [[ $# -eq 1 ]] || usage
 load_harness_env "$1"
 ensure_project
+require_goal_mode_clean_boundary
 trace_init manager_supervisor_start
 trace_script_start "$@"
 trap 'trace_script_exit $?' EXIT

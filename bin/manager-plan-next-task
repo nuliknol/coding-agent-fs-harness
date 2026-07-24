@@ -52,12 +52,27 @@ active_criteria_file=""
 active_criteria_definition_file=""
 active_criterion_decomposition_file=""
 active_first_unmet_criterion=""
+active_repair_goal_id=""
+active_repair_goal_task=""
 if [[ -n "$active_root_before" && "$active_root_before" != '-' ]]; then
 	active_progress_file="$(task_progress_file "$active_root_before")"
 	active_criteria_file="$(task_criterion_ledger_file "$active_root_before")"
 	active_criteria_definition_file="$(task_criteria_definition_file "$active_root_before")"
 	active_criterion_decomposition_file="$(task_criterion_decomposition_file "$active_root_before")"
 	active_first_unmet_criterion="$(task_first_unmet_criterion "$active_root_before" 2>/dev/null || true)"
+	latest_repair_update=""
+	for prior_goal_state in "$(goal_control_dir)"/"$PROJECT-task-"*.goal; do
+		[[ -f "$prior_goal_state" ]] || continue
+		[[ "$(kv_file_value "$prior_goal_state" task_root 2>/dev/null || true)" == "$active_root_before" ]] || continue
+		[[ "$(kv_file_value "$prior_goal_state" target_criterion 2>/dev/null || true)" == "$active_first_unmet_criterion" ]] || continue
+		[[ "$(kv_file_value "$prior_goal_state" state 2>/dev/null || true)" == REJECTED ]] || continue
+		prior_update="$(kv_file_value "$prior_goal_state" updated_at 2>/dev/null || true)"
+		if [[ -z "$active_repair_goal_id" || "$prior_update" > "$latest_repair_update" ]]; then
+			active_repair_goal_id="$(kv_file_value "$prior_goal_state" goal_id)"
+			active_repair_goal_task="$(kv_file_value "$prior_goal_state" task_id)"
+			latest_repair_update="$prior_update"
+		fi
+	done
 fi
 
 cat > "$prompt_file.tmp.$$" <<PROMPT
@@ -80,9 +95,20 @@ ACTIVE_CRITERIA_FILE=$active_criteria_file
 ACTIVE_CRITERIA_DEFINITION_FILE=$active_criteria_definition_file
 ACTIVE_CRITERION_DECOMPOSITION_FILE=$active_criterion_decomposition_file
 ACTIVE_FIRST_UNMET_CRITERION=$active_first_unmet_criterion
+ACTIVE_REPAIR_GOAL_ID=$active_repair_goal_id
+ACTIVE_REPAIR_GOAL_TASK=$active_repair_goal_task
+WORKER_GOAL_MODE=$HARNESS_WORKER_GOAL_MODE
 
 Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and follow it. Read DEVELOPMENT_POLICY_FILE when present, then read PROJECT_PLAN_FILE and PROJECT_PLAN_STATE_FILE completely. If ACTIVE_TASK_ROOT is set, also read ACTIVE_PROGRESS_FILE, ACTIVE_CRITERIA_FILE, ACTIVE_CRITERIA_DEFINITION_FILE, and ACTIVE_CRITERION_DECOMPOSITION_FILE when present, then publish one newly bounded continuation of that same root with Target-Criterion equal to ACTIVE_FIRST_UNMET_CRITERION. Otherwise select the first PENDING item in specification order and publish a new root whose independently verifiable criteria are declared with stable Root-Criterion lines. Inspect the specification and actual repository state, write exactly one bounded task under PROJECT_TMP_DIR, and publish it with manager-publish-task including its PROJECT_PLAN_ITEM_ID. Preserve completed implementation and begin at the first unmet leaf criterion. Then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or repeat completed plan items.
 PROMPT
+if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
+	cat >> "$prompt_file.tmp.$$" <<PROMPT
+
+Worker leaf-goal mode is enabled. Every newly published assignment must contain exactly one nonempty line for each of: Execution-Mode: LEAF_GOAL, Goal-ID, Target-Criterion, Goal-Success-Evidence, Focused-Validation, Allowed-Scope, Baseline-Boundary, and Hard-Block-Conditions. Target the first unmet leaf (or the first Root-Criterion for a new root), use a stable goal identifier, and make the success evidence independently verifiable. Do not carry a legacy one-turn execution marker into this clean task boundary.
+
+If ACTIVE_REPAIR_GOAL_ID is nonempty, this planning gap follows a rejected terminal result for the same first-unmet leaf. Reuse ACTIVE_REPAIR_GOAL_ID in the repair assignment so its durable logical-goal state and thread resume; inspect ACTIVE_REPAIR_GOAL_TASK for the rejected boundary. Otherwise create a new stable goal identifier.
+PROMPT
+fi
 if codex_model_requires_narrow_prompt "$MANAGER_MODEL"; then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
 
