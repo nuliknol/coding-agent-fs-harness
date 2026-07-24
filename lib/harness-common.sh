@@ -229,11 +229,12 @@ load_harness_env()
 	HARNESS_CLOSURE_MODE_MIN_PROGRESS="${HARNESS_CLOSURE_MODE_MIN_PROGRESS:-95}"
 	HARNESS_CLOSURE_MODE_MAX_FIXES="${HARNESS_CLOSURE_MODE_MAX_FIXES:-2}"
 	HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS="${HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS:-3}"
-	# Opt-in leaf-goal execution keeps one worker on one independently
-	# verifiable criterion across several Codex turns. Internal CONTINUE
-	# receipts never enter the manager result mailbox; only terminal goal
-	# outcomes do. Legacy one-turn workers remain the default.
-	HARNESS_WORKER_GOAL_MODE="${HARNESS_WORKER_GOAL_MODE:-0}"
+	# Leaf-goal execution keeps one worker on one independently verifiable
+	# criterion across several Codex turns. Internal CONTINUE receipts never
+	# enter the manager result mailbox; only terminal goal outcomes do. New
+	# assignments use this lifecycle by default; set 0 explicitly at a clean
+	# task boundary to retain the legacy one-turn worker.
+	HARNESS_WORKER_GOAL_MODE="${HARNESS_WORKER_GOAL_MODE:-1}"
 	HARNESS_GOAL_MAX_IDENTICAL_ITERATIONS="${HARNESS_GOAL_MAX_IDENTICAL_ITERATIONS:-3}"
 	HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS="${HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS:-8}"
 	HARNESS_GOAL_PROCESS_MAX_FIXES="${HARNESS_GOAL_PROCESS_MAX_FIXES:-3}"

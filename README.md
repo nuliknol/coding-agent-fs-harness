@@ -11,7 +11,7 @@ A local, event-driven two-agent coding harness for Linux.
   targets the first unmet leaf.
 - Incremental delivery: verified partial work is checkpointed with source
   snapshots, evidence hashes, and append-only criterion/history ledgers.
-- Opt-in leaf-goal workers: one independently verifiable leaf can span multiple
+- Default leaf-goal workers: one independently verifiable leaf can span multiple
   bounded Codex processes, with durable continuation receipts and one manager
   review only at a terminal outcome.
 - Gain-aware automatic replanning: convergence guards ask the persistent
@@ -113,13 +113,14 @@ can be repaired. Only a checkpoint or passed criterion enters the durable
 verified ledger. An explicit abort/reset remains an operator-controlled
 transaction.
 
-### Leaf-goal execution (opt in)
+### Leaf-goal execution
 
-Set `HARNESS_WORKER_GOAL_MODE=1` only at a clean task boundary. New assignments
-must then use `Execution-Mode: LEAF_GOAL` and identify one first-unmet leaf,
-its observable success evidence, focused validation, allowed scope, baseline
-boundary, and genuine hard-block conditions. See
-`templates/leaf-goal-task-template.md`.
+Leaf-goal execution is enabled by default. New assignments use
+`Execution-Mode: LEAF_GOAL` and identify one first-unmet leaf, its observable
+success evidence, focused validation, allowed scope, baseline boundary, and
+genuine hard-block conditions. See `templates/leaf-goal-task-template.md`.
+Set `HARNESS_WORKER_GOAL_MODE=0` only at a clean task boundary when temporary
+legacy one-turn compatibility is required.
 
 A leaf goal has three terminal outcomes:
 
@@ -731,7 +732,8 @@ process while retaining the same task and goal identity.
 
 ## Validation
 
-Run both the legacy regression suite and the opt-in leaf-goal canary:
+Run both the explicitly configured legacy regression suite and the default
+leaf-goal regression suite:
 
 ```bash
 bash tests/test-harness.sh
@@ -774,7 +776,7 @@ or unrelated cleanup. Configure it with `HARNESS_CLOSURE_MODE_*` values or set
 `HARNESS_CLOSURE_MODE_ENABLED=0` to retain single-attempt behavior.
 
 Leaf-goal mode generalizes that loop across bounded Codex processes and is
-opt-in:
+enabled by default:
 
 ```bash
 export HARNESS_WORKER_GOAL_MODE="1"
@@ -982,7 +984,8 @@ turn, a polling sleep, or `inotifywait` to strand the old supervisor lock.
 
 ## Leaf-goal workers in 4.5
 
-Version 4.5 adds an opt-in logical worker goal above individual `codex exec`
+Version 4.5 makes a logical worker goal the default lifecycle above individual
+`codex exec`
 processes. `worker-continue-task` commits validated, idempotent iteration
 receipts; `worker-invoke-task` resumes the goal until a terminal outcome; and
 the persistent manager is invoked only for that terminal result. Goal state,
@@ -995,15 +998,21 @@ append-only decomposition machinery, while verified partial work is
 checkpointed before the strategy handoff. An independently verified
 `HARD_BLOCKED` outcome retains fail-closed human intervention.
 
-Goal mode remains disabled by default. To enable it safely:
+Goal mode is enabled by default for newly published assignments. New
+configurations should leave the default in place or set
+`HARNESS_WORKER_GOAL_MODE=1` explicitly. To upgrade an existing project that
+has an active legacy assignment:
 
-1. Stop the supervisors and confirm there is no ready, running, or review task.
-2. Set `HARNESS_WORKER_GOAL_MODE=1` and the desired `HARNESS_GOAL_*` limits.
+1. Keep `HARNESS_WORKER_GOAL_MODE=0` until its ready, running, or review
+   transaction is resolved.
+2. Stop at the resulting clean task boundary and set
+   `HARNESS_WORKER_GOAL_MODE=1`.
 3. Run `harness-check-env`, then restart the harness. The next manager
    assignment is stamped `LEAF_GOAL`.
 
 Do not toggle the flag over an existing assignment. The worker refuses to claim
-a legacy assignment after goal mode is enabled, and refuses to claim a goal
-assignment after it is disabled. To roll back, finish or explicitly
+a legacy assignment while goal mode is enabled, and refuses to claim a goal
+assignment after it is disabled. To use the legacy compatibility path, finish
+or explicitly
 abort/reconcile the active goal, stop at the next clean boundary, set the flag
 to `0`, and restart. No existing v4.4 state is migrated automatically.
