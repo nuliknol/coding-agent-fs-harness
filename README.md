@@ -17,6 +17,9 @@ A local, event-driven two-agent coding harness for Linux.
 - Gain-aware automatic replanning: convergence guards ask the persistent
   project manager for a materially different strategy without discarding
   checkpoints; each new verified item resets escalation.
+- Manager remediation for local blockers: an exhausted ordinary-replan budget
+  or unchanged local code/build/integration blocker becomes a visible task
+  executed with the manager model, not a human-intervention stop.
 - Persistent but bounded worker context: root-scoped conversations resume
   across checkpoints and rejections and rotate after repeated rejection.
 - Event-driven execution: ordinary Bash supervisors launch Codex only when
@@ -58,6 +61,7 @@ manager-supervisor (local Bash, no tokens)
     -> resumes manager Codex thread
     -> manager accepts/checkpoints/rejects and publishes the next task
     -> convergence guards may request a persistent-manager automatic replan
+    -> repeated local blockers become bounded manager-remediation tasks
     -> if acceptance leaves a planning gap, resumes a dedicated planning turn
     -> manager exits
 
@@ -173,6 +177,13 @@ The checkpoint-without-criterion threshold still rotates strategy, but it
 cannot drive a progressing root into
 `NEEDS_HUMAN`.
 
+If the ordinary strategy budget is exhausted, or the same blocking fingerprint
+survives without durable gain, the manager publishes a
+`Manager-Remediation: 1` task. Its `Remediation-Scope` may include directly
+implicated local prerequisite files that an earlier worker leaf treated as
+baseline, while the original criterion and acceptance gate remain immutable.
+The task is executed with the manager model in fresh task context.
+
 If an existing first-unmet leaf proves broader than expected, an automatic
 replan may append at least two ordered child criteria. Existing root criteria
 and prior child rows are immutable: the harness always schedules the first
@@ -195,8 +206,9 @@ The unattended transition rules are:
 | Numeric progress is unchanged but a unique checkpoint is verified | Treat it as durable gain; 0% or 99% does not cause a stop. |
 | A convergence threshold is reached | Archive the current outcome and enter transient `NEEDS_REPLAN`; the supervisor resumes the persistent manager for a different strategy. |
 | The same blocker reappears after new verified evidence | Permit another bounded strategy because the prior replan produced durable gain. |
-| The configured number of materially different replans produces no new verified item | Enter `NEEDS_HUMAN`. |
-| No materially different bounded task can be published, or a hard/Oracle authority boundary is reached | Enter `NEEDS_HUMAN`. |
+| The configured number of materially different replans produces no new verified item | Publish a visible manager-model remediation task for the directly implicated local prerequisite. |
+| The same local blocker survives without verified gain | Publish a bounded manager remediation; do not classify a coding/build/integration problem as human-dependent. |
+| Authorization, unavailable secret, external manual state, or unresolved product/specification authority is required | Enter `NEEDS_HUMAN`. |
 
 No checkpoint, criterion record, archived attempt, or live workspace change is
 deleted during these transitions.
@@ -519,11 +531,11 @@ The fingerprint-specific circuit breaker is disabled by default
 human-intervention block. The general convergence guards below still apply. A
 project may explicitly set a positive fingerprint threshold. At that threshold,
 `manager-reject-task`
-atomically archives the result as `BLOCKED` and prevents another continuation;
-`manager-block-task` independently verifies the configured threshold and
-matching archived fingerprints, so it cannot be used to block early. Use
-`harness-unblock-root ENV_FILE TASK_ROOT` after correcting the condition or
-changing the task authority, scope, or plan.
+atomically archives the rejection and requests a manager-remediation task;
+the local code/build blocker does not become a human-only stop.
+`manager-block-task` independently verifies the configured threshold when
+called directly, but normal manager review reserves it for a verified
+`HARD_BLOCKED` human dependency.
 
 ### Convergence guards and automatic replan configuration
 
@@ -565,24 +577,35 @@ broad, the manager may append two or more ordered child criteria to
 
 The automatic budget counts materially different replans since the latest
 verified ledger item. Every unique checkpoint or passed criterion resets it,
-even when `Progress-Percent` is unchanged. Human intervention occurs only when
-that no-gain budget is exhausted, no valid materially different continuation
-can be produced, an unchanged blocker survives without gain, or a hard/Oracle
-boundary requires authority. `harness-unblock-root ENV_FILE TASK_ROOT` is the
-explicit operator action for `NEEDS_HUMAN`; it records new convergence and
-replan baselines without deleting history.
+even when `Progress-Percent` is unchanged. Exhausting that budget, or seeing an
+unchanged local blocker without gain, switches to manager remediation. The
+manager authors a fresh `REPAIR_PREREQUISITE` assignment, names a bounded
+`Remediation-Scope`, and the task launcher executes it with `MANAGER_MODEL`.
+This is explicit authority to repair directly implicated local code, build, or
+integration prerequisites even when an earlier worker leaf excluded them; it
+is not authority to weaken acceptance, change unrelated behavior, or modify
+external systems.
 
 With the default value `1`, one materially different automatic strategy is
 allowed from a given verified-item baseline. If it produces a new verified
 item, the budget immediately resets; if it produces no durable gain, the next
-convergence trigger requires human intervention. Raising the setting permits
-more consecutive materially different no-gain strategies without weakening
-checkpoint preservation or hard/Oracle boundaries.
+convergence trigger routes to the manager model for prerequisite repair.
+Raising the setting permits more ordinary no-gain strategies before that
+manager-remediation transition.
 
 The append-only `.replans.tsv` ledger records both completed root-criterion and
 total verified-item counts at each strategy change. Existing nine-column
 ledgers are upgraded automatically on the next successful replan by deriving
 their historical verified counts from timestamped criterion-ledger rows.
+The append-only `.manager-remediations.tsv` ledger separately records every
+manager blocker occurrence, its fingerprint/class/scope, and the manager model.
+
+`NEEDS_HUMAN` is reserved for a documented dependency on a person: missing
+authorization, an unavailable secret, an external manual state transition, or
+an unresolved product/specification decision. `harness-unblock-root ENV_FILE
+TASK_ROOT` remains the explicit operator action for such a boundary. Legacy
+`NEEDS_HUMAN` markers created solely by the old no-gain/unchanged-blocker rule
+are automatically reclassified to manager remediation on supervisor startup.
 
 Set `HARNESS_AUTO_REPLAN_ENABLED=0` to retain manual `NEEDS_REPLAN` handling.
 Set an individual convergence threshold to `0` to disable only that trigger.
@@ -606,11 +629,15 @@ one task for the first unfinished plan item. The same recovery happens after a
 restart; no completed plan item or root task is replayed.
 
 `harness-status` reports both levels explicitly, including `REPLANNING` while
-the persistent manager is active and `NEEDS_HUMAN` only at a human-only boundary.
-For the active root it also prints the total verified-item count, automatic
-replans since the latest durable gain, and the first unmet leaf criterion. In
-goal mode it also reports the goal state, internal iteration count, context
-generation, durable boundary, last material movement, and workspace drift.
+the persistent manager is active, `MANAGER_REMEDIATION` while a manager-model
+repair task is active, and `NEEDS_HUMAN` only at a human-only boundary. The
+task table identifies `MANAGER_FIX` execution, and a durable summary reports
+manager-remediation blocker occurrences, unique fingerprints, and active
+tasks. For the active root it also prints the total verified-item count,
+automatic replans since the latest durable gain, and the first unmet leaf
+criterion. In goal mode it also reports the goal state, internal iteration
+count, context generation, durable boundary, last material movement, and
+workspace drift.
 
 ## State location
 

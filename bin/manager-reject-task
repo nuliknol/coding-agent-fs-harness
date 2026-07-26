@@ -47,6 +47,7 @@ validate_percent "$progress_percent" 'Progress-Percent'
 # only when the same unmet gate is being retried; different failures continue
 # through normal bounded review.
 blocking_fingerprint="$(awk -F': ' '$1 == "Blocking-Fingerprint" {print $2; exit}' "$note_file")"
+circuit_breaker_recovery=0
 if [[ "$improvement_percent" == 0 ]]; then
 	[[ "$blocking_fingerprint" =~ ^sha256:[0-9a-fA-F]{64}$ ]] ||
 		die 'zero-improvement rejection requires Blocking-Fingerprint: sha256:<64-hex-digest>'
@@ -61,10 +62,8 @@ if [[ "$improvement_percent" == 0 ]]; then
 		fi
 	done
 	if (( HARNESS_MAX_IDENTICAL_BLOCKERS > 0 && matching_rejections + 1 >= HARNESS_MAX_IDENTICAL_BLOCKERS )); then
-		retain_worker_thread_for_rejection "$task_id"
-		log_event "TASK_CIRCUIT_BREAKER task=$task_id root=$root fingerprint=$blocking_fingerprint prior_matches=$matching_rejections limit=$HARNESS_MAX_IDENTICAL_BLOCKERS"
-		"$HARNESS_BIN/manager-block-task" "$HARNESS_ENV_FILE" "$task_id" "$note_file" "identical zero-progress blocker fingerprint $blocking_fingerprint reached limit $HARNESS_MAX_IDENTICAL_BLOCKERS" --lock-held
-		exit 0
+		circuit_breaker_recovery=1
+		log_event "TASK_CIRCUIT_BREAKER_MANAGER_REMEDIATION task=$task_id root=$root fingerprint=$blocking_fingerprint prior_matches=$matching_rejections limit=$HARNESS_MAX_IDENTICAL_BLOCKERS"
 	fi
 fi
 result="$dir/results/$base.result.md"
@@ -124,7 +123,12 @@ goal_record_manager_decision "$task_id" REJECTED
 retain_worker_thread_for_rejection "$task_id"
 log_event "TASK_REJECTED task=$task_id"
 trace_event TASK_REJECTED "task_id=$task_id" "rejected_file=$rejected" "result_archive=$result_archive" "note_file=$note_file"
-if [[ "$goal_outcome" == NEEDS_DECOMPOSITION ]]; then
+if (( circuit_breaker_recovery == 1 )); then
+	replan_marker="$(mark_root_needs_replan "$task_id" \
+		"identical local blocker fingerprint $blocking_fingerprint reached limit $HARNESS_MAX_IDENTICAL_BLOCKERS; manager remediation is required" \
+		DETERMINISTIC_BLOCKER)"
+	printf '%s\n' "$replan_marker"
+elif [[ "$goal_outcome" == NEEDS_DECOMPOSITION ]]; then
 	replan_marker="$(mark_root_needs_replan "$task_id" \
 		'worker leaf goal requested criterion decomposition or a materially different strategy' \
 		GOAL_NEEDS_DECOMPOSITION)"

@@ -117,6 +117,7 @@ elif [[ "$kind" == plan ]]; then
 elif [[ "$kind" == replan ]]; then
 	TASK_ROOT="$(value TASK_ROOT)"
 	TASK_ID="$(value EXPECTED_TASK_ID)"
+	RECOVERY_MODE="$(value RECOVERY_MODE)"
 	TASK_OUTPUT="$(value TASK_OUTPUT)"
 	CRITERIA_OUTPUT="$(value CRITERIA_OUTPUT)"
 	CRITERIA_DEFINITION_FILE="$(value CRITERIA_DEFINITION_FILE)"
@@ -139,6 +140,16 @@ elif [[ "$kind" == replan ]]; then
 		}
 		NR > 1 && !passed[$1] {print $1; exit}
 	' "$criteria_source")"
+	publish_flag="--auto-replan"
+	strategy_change="ISOLATE_CRITERION"
+	strategy_id="mock.strategy.$count"
+	remediation_metadata=""
+	if [[ "$RECOVERY_MODE" == MANAGER_REMEDIATION ]]; then
+		publish_flag="--manager-remediation"
+		strategy_change="REPAIR_PREREQUISITE"
+		strategy_id="mock.manager-remediation.$count"
+		remediation_metadata=$'Manager-Remediation: 1\nBlocker-Class: LOCAL_CODE_PREREQUISITE\nRemediation-Scope: src/mock-blocking-prerequisite.c'
+	fi
 	cat > "$TASK_OUTPUT" <<TASK
 # Task Assignment
 
@@ -146,9 +157,10 @@ Task-ID: $TASK_ID
 Task-Root: $TASK_ROOT
 Target-Criterion: $target
 Worker-Context: FRESH
-Replan-Strategy-ID: mock.strategy.$count
-Strategy-Change: ISOLATE_CRITERION
+Replan-Strategy-ID: $strategy_id
+Strategy-Change: $strategy_change
 Supersedes-Task: $TRIGGER_TASK
+$remediation_metadata
 
 ## Objective
 
@@ -163,7 +175,7 @@ Isolate only $target with a new focused evidence boundary.
 mock-focused-$count
 TASK
 	"$HARNESS_BIN/manager-publish-task" "$ENV_FILE" "$TASK_ID" "$TASK_OUTPUT" \
-		--auto-replan "${criteria_arg[@]}" >/dev/null
+		"$publish_flag" "${criteria_arg[@]}" >/dev/null
 elif [[ "$kind" == review ]]; then
 	TASK_ID="$(value TASK_ID)"
 	if [[ "$TASK_ID" == 002 && "$count" == 1 ]]; then
@@ -593,7 +605,7 @@ grep -q '^Task-Root: 005$' "$continuation"
 grep -q '^Starting-Progress: 50%$' "$continuation"
 grep -q 'Preserve all previously verified work' "$continuation"
 "$HARNESS_BIN/harness-status" "$TEST_ROOT/harness.env" > "$TEST_ROOT/progress-status.out"
-grep -Eq '005-revision-01 +READY +50%' "$TEST_ROOT/progress-status.out"
+grep -Eq '005-revision-01 +READY +WORKER +50%' "$TEST_ROOT/progress-status.out"
 expected_task_order=$'003\n002\n001\n005-revision-01'
 actual_task_order="$(awk '$1 ~ /^(001|002|003|005-revision-01)$/ {print $1}' \
 	"$TEST_ROOT/progress-status.out")"
@@ -626,8 +638,9 @@ grep -q 'deterministic task blocking is disabled' "$TEST_ROOT/disabled-block.err
 [[ -f "$TEST_ROOT/state/projects/testproj/tasks/testproj-task-005-revision-02.ready.md" ]]
 rm -f "$TEST_ROOT/state/projects/testproj/tasks/testproj-task-005-revision-02.ready.md"
 
-# An opt-in circuit breaker still works, but the blocking command independently
-# refuses an early intervention before the configured fingerprint threshold.
+# An opt-in deterministic threshold still refuses early intervention. Once
+# reached, ordinary rejection is archived and manager remediation is requested
+# instead of converting the local coding blocker into a human-only stop.
 CIRCUIT_ROOT="$TEST_ROOT/circuit"
 mkdir -p "$CIRCUIT_ROOT/repo" "$CIRCUIT_ROOT/manager-home" "$CIRCUIT_ROOT/worker-home"
 printf 'test specification\n' > "$CIRCUIT_ROOT/repo/spec.md"
@@ -678,14 +691,22 @@ printf 'worker result\n' > \
 	"$CIRCUIT_ROOT/state/projects/circuitproj/results/circuitproj-task-001-revision-01.result.md"
 circuit_output="$("$HARNESS_BIN/manager-reject-task" "$CIRCUIT_ROOT/harness.env" \
 	001-revision-01 "$CIRCUIT_ROOT/review-001.md")"
-[[ "$circuit_output" == *.blocked.md ]]
-[[ -f "$CIRCUIT_ROOT/state/projects/circuitproj/archive/circuitproj-task-001-revision-01.blocked.md" ]]
-[[ -f "$CIRCUIT_ROOT/state/projects/circuitproj/control/progress/circuitproj-task-001.blocked.md" ]]
-grep -q 'TASK_CIRCUIT_BREAKER task=001-revision-01' \
+[[ "$circuit_output" == *.needs-replan.md ]]
+[[ -f "$CIRCUIT_ROOT/state/projects/circuitproj/archive/circuitproj-task-001-revision-01.rejected.md" ]]
+[[ ! -f "$CIRCUIT_ROOT/state/projects/circuitproj/control/progress/circuitproj-task-001.blocked.md" ]]
+grep -q '^Trigger-Outcome: DETERMINISTIC_BLOCKER$' \
+	"$CIRCUIT_ROOT/state/projects/circuitproj/control/progress/circuitproj-task-001.needs-replan.md"
+grep -q 'TASK_CIRCUIT_BREAKER_MANAGER_REMEDIATION task=001-revision-01' \
 	"$CIRCUIT_ROOT/state/projects/circuitproj/logs/events.log"
 
-# A task-level human-intervention pause is also terminal for the output
-# watcher, even though the durable project is intentionally not complete.
+# A genuine authority dependency remains terminal for the output watcher, even
+# though deterministic local blockers no longer use that state.
+(
+	source "$CIRCUIT_ROOT/harness.env"
+	source "$HARNESS_HOME/lib/harness-common.sh"
+	mark_root_needs_human 001 001-revision-01 \
+		'missing authorization requires an operator decision' >/dev/null
+)
 blocked_watch_output="$CIRCUIT_ROOT/watch-agents-blocked.out"
 HARNESS_WATCH_POLL_SECONDS=0.05 timeout 2 \
 	"$HARNESS_BIN/harness-watch-agents" "$CIRCUIT_ROOT/harness.env" \
@@ -976,7 +997,7 @@ grep -q $'001\tCHECKPOINT\t50\t50\t' \
 	"$checkpoint_project/control/progress/checkpointproj-task-001.history.tsv"
 grep -Eq $'^P0\tACTIVE\t001\t' "$checkpoint_project/control/project-plan-state.tsv"
 "$HARNESS_BIN/harness-status" "$CHECKPOINT_ROOT/harness.env" > "$CHECKPOINT_ROOT/status-1.out"
-grep -Eq '001 +CHECKPOINTED +50%' "$CHECKPOINT_ROOT/status-1.out"
+grep -Eq '001 +CHECKPOINTED +WORKER +50%' "$CHECKPOINT_ROOT/status-1.out"
 
 for revision in 01 02; do
 	task_id="001-revision-$revision"
@@ -1099,8 +1120,9 @@ grep -Eq $'^P0\tCOMPLETE\t001\t' "$checkpoint_project/control/project-plan-state
 # Convergence recovery is automatic and bounded. A legacy root receives an
 # immutable criterion decomposition, the fresh manager must isolate the first
 # unmet criterion with a materially new strategy, and a fresh worker context is
-# forced. A second replan without a new verified item becomes human-only; any
-# unique verified increment or criterion resets that one-replan budget.
+# forced. If ordinary replans exhaust their no-gain budget, a visible
+# manager-model remediation task repairs the local prerequisite; any unique
+# verified increment or criterion resets the ordinary-replan budget.
 AUTO_ROOT="$TEST_ROOT/auto-replan"
 mkdir -p "$AUTO_ROOT/repo" "$AUTO_ROOT/manager-home" "$AUTO_ROOT/worker-home"
 printf 'test specification\n' > "$AUTO_ROOT/repo/spec.md"
@@ -1114,8 +1136,10 @@ export HARNESS_WORKER_GOAL_MODE="0"
 export HARNESS_ROOT="$AUTO_ROOT/state"
 export MANAGER_CODEX_HOME="$AUTO_ROOT/manager-home"
 export MANAGER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export MANAGER_MODEL="manager-remediation-test-model"
 export WORKER_CODEX_HOME="$AUTO_ROOT/worker-home"
 export WORKER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export WORKER_MODEL="worker-test-model"
 export HARNESS_POLL_SECONDS="0.1"
 export HARNESS_USE_INOTIFY="0"
 export HARNESS_AUTO_REPLAN_ENABLED="1"
@@ -1220,7 +1244,7 @@ if "$HARNESS_BIN/manager-publish-task" "$AUTO_ROOT/harness.env" 001-revision-09 
 	printf 'Expected a label-only strategy change to be rejected as materially identical.\n' >&2
 	exit 1
 fi
-grep -q 'automatic replan is not materially different from an earlier bounded strategy' \
+grep -q 'manager recovery is not materially different from an earlier bounded strategy' \
 	"$AUTO_ROOT/materially-same.err"
 rm -f "$auto_progress/autoreplanproj-task-001.needs-replan.md"
 
@@ -1234,16 +1258,33 @@ Trigger-Outcome: CHECKPOINT
 Blocking-Fingerprint: -
 MARKER
 "$HARNESS_BIN/manager-auto-replan-root" "$AUTO_ROOT/harness.env" 001 >/dev/null
-auto_human="$auto_progress/autoreplanproj-task-001.needs-human.md"
-[[ -f "$auto_human" ]]
-grep -q 'automatic strategy-change budget exhausted without durable verified gain' "$auto_human"
-"$HARNESS_BIN/harness-status" "$AUTO_ROOT/harness.env" > "$AUTO_ROOT/human-status.out"
-grep -q 'Project status: NEEDS_HUMAN.' "$AUTO_ROOT/human-status.out"
-"$HARNESS_BIN/harness-unblock-root" "$AUTO_ROOT/harness.env" 001 >/dev/null
+auto_remediation="$auto_project/tasks/autoreplanproj-task-001-revision-09.ready.md"
+auto_remediation_ledger="$auto_progress/autoreplanproj-task-001.manager-remediations.tsv"
+[[ -f "$auto_remediation" ]]
+[[ ! -f "$auto_progress/autoreplanproj-task-001.needs-human.md" ]]
+grep -q '^Manager-Remediation: 1$' "$auto_remediation"
+grep -q '^Strategy-Change: REPAIR_PREREQUISITE$' "$auto_remediation"
+grep -q '^Remediation-Scope: src/mock-blocking-prerequisite.c$' "$auto_remediation"
+grep -q $'^.*\t001-revision-09\t001-revision-08\tlegacy.first\t-\tLOCAL_CODE_PREREQUISITE\tsrc/mock-blocking-prerequisite.c\tmanager-remediation-test-model$' \
+	"$auto_remediation_ledger"
+"$HARNESS_BIN/harness-status" "$AUTO_ROOT/harness.env" > "$AUTO_ROOT/remediation-status.out"
+grep -Eq '^001-revision-09[[:space:]]+READY[[:space:]]+MANAGER_FIX' "$AUTO_ROOT/remediation-status.out"
+grep -q 'Project status: MANAGER_REMEDIATION.' "$AUTO_ROOT/remediation-status.out"
+grep -q 'Manager remediation blockers: 1 occurrence(s), 0 unique fingerprint(s); 1 active task(s).' \
+	"$AUTO_ROOT/remediation-status.out"
+
+args_before_remediation_execution="$(wc -l < "$ARGS_LOG")"
+"$HARNESS_BIN/worker-invoke-task" "$AUTO_ROOT/harness.env" 001-revision-09 >/dev/null
+(( $(wc -l < "$ARGS_LOG") == args_before_remediation_execution + 1 ))
+tail -n 1 "$ARGS_LOG" | grep -q -- '--model manager-remediation-test-model'
+grep -q '^EXECUTION_MODE=MANAGER_REMEDIATION$' \
+	"$auto_project/control/autoreplanproj-task-001-revision-09.worker.prompt.md"
+mv "$auto_project/results/autoreplanproj-task-001-revision-09.result.md" \
+	"$auto_project/archive/autoreplanproj-task-001-revision-09.checkpointed.md"
 
 cat > "$auto_progress/autoreplanproj-task-001.criteria.tsv" <<'TSV'
 item_id	state	verified_by	evidence_sha256	updated_at
-legacy.first	PASSED	001-revision-08	sha256:first	2026-07-22T00:00:00Z
+legacy.first	PASSED	001-revision-09	sha256:first	2026-07-22T00:00:00Z
 TSV
 (
 	source "$AUTO_ROOT/harness.env"
@@ -1254,44 +1295,60 @@ cat > "$auto_progress/autoreplanproj-task-001.needs-replan.md" <<'MARKER'
 # Root Task Needs Replanning
 
 Task-Root: 001
-Triggered-By: 001-revision-08
-Trigger-Outcome: CHECKPOINT
-Blocking-Fingerprint: sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-MARKER
-"$HARNESS_BIN/manager-auto-replan-root" "$AUTO_ROOT/harness.env" 001 >/dev/null
-auto_ready_final="$auto_project/tasks/autoreplanproj-task-001-revision-09.ready.md"
-[[ -f "$auto_ready_final" ]]
-grep -q '^Target-Criterion: legacy.final$' "$auto_ready_final"
-[[ "$(awk 'END {print NR}' "$auto_replans")" == 3 ]]
-grep -q $'^.*\t001-revision-09\t001-revision-08\tlegacy.final\tmock.strategy.2\tISOLATE_CRITERION\tsha256:.*\tsha256:dddd.*\t1\t1$' "$auto_replans"
-mv "$auto_ready_final" "$auto_project/archive/autoreplanproj-task-001-revision-09.checkpointed.md"
-printf 'legacy.increment.after-replan\tVERIFIED\t001-revision-09\tsha256:increment\t2026-07-23T13:00:00Z\n' \
-	>> "$auto_progress/autoreplanproj-task-001.criteria.tsv"
-cat > "$auto_progress/autoreplanproj-task-001.needs-replan.md" <<'MARKER'
-# Root Task Needs Replanning
-
-Task-Root: 001
 Triggered-By: 001-revision-09
 Trigger-Outcome: CHECKPOINT
 Blocking-Fingerprint: sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 MARKER
 "$HARNESS_BIN/manager-auto-replan-root" "$AUTO_ROOT/harness.env" 001 >/dev/null
-auto_ready_after_gain="$auto_project/tasks/autoreplanproj-task-001-revision-10.ready.md"
-[[ -f "$auto_ready_after_gain" ]]
-grep -q '^Target-Criterion: legacy.final$' "$auto_ready_after_gain"
-grep -q $'^.*\t001-revision-10\t001-revision-09\tlegacy.final\tmock.strategy.3\tISOLATE_CRITERION\tsha256:.*\tsha256:dddd.*\t1\t2$' "$auto_replans"
-mv "$auto_ready_after_gain" "$auto_project/archive/autoreplanproj-task-001-revision-10.checkpointed.md"
+auto_ready_final="$auto_project/tasks/autoreplanproj-task-001-revision-10.ready.md"
+[[ -f "$auto_ready_final" ]]
+grep -q '^Target-Criterion: legacy.final$' "$auto_ready_final"
+[[ "$(awk 'END {print NR}' "$auto_replans")" == 4 ]]
+grep -q $'^.*\t001-revision-10\t001-revision-09\tlegacy.final\tmock.strategy.3\tISOLATE_CRITERION\tsha256:.*\tsha256:dddd.*\t1\t1$' "$auto_replans"
+mv "$auto_ready_final" "$auto_project/archive/autoreplanproj-task-001-revision-10.checkpointed.md"
+printf 'legacy.increment.after-replan\tVERIFIED\t001-revision-10\tsha256:increment\t2026-07-23T13:00:00Z\n' \
+	>> "$auto_progress/autoreplanproj-task-001.criteria.tsv"
 cat > "$auto_progress/autoreplanproj-task-001.needs-replan.md" <<'MARKER'
 # Root Task Needs Replanning
 
 Task-Root: 001
 Triggered-By: 001-revision-10
-Trigger-Outcome: REJECT
+Trigger-Outcome: CHECKPOINT
 Blocking-Fingerprint: sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 MARKER
 "$HARNESS_BIN/manager-auto-replan-root" "$AUTO_ROOT/harness.env" 001 >/dev/null
-[[ -f "$auto_human" ]]
-grep -q 'the same blocker survived a bounded automatic replan without durable verified gain' "$auto_human"
+auto_ready_after_gain="$auto_project/tasks/autoreplanproj-task-001-revision-11.ready.md"
+[[ -f "$auto_ready_after_gain" ]]
+grep -q '^Target-Criterion: legacy.final$' "$auto_ready_after_gain"
+grep -q $'^.*\t001-revision-11\t001-revision-10\tlegacy.final\tmock.strategy.4\tISOLATE_CRITERION\tsha256:.*\tsha256:dddd.*\t1\t2$' "$auto_replans"
+mv "$auto_ready_after_gain" "$auto_project/archive/autoreplanproj-task-001-revision-11.checkpointed.md"
+printf 'Blocking-Fingerprint: sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\n' \
+	>> "$auto_progress/autoreplanproj-task-001.progress.md"
+cat > "$auto_progress/autoreplanproj-task-001.needs-human.md" <<'MARKER'
+# Root Task Needs Human Intervention
+
+Task-Root: 001
+Triggered-By: 001-revision-11
+Reason: the same blocker survived a bounded automatic replan without durable verified gain: sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+MARKER
+"$HARNESS_BIN/harness-supervisor-start" "$AUTO_ROOT/harness.env" >/dev/null
+for _ in $(seq 1 200); do
+	[[ -f "$auto_project/tasks/autoreplanproj-task-001-revision-12.ready.md" ]] && break
+	sleep 0.05
+done
+"$HARNESS_BIN/harness-supervisor-stop" "$AUTO_ROOT/harness.env" >/dev/null
+auto_same_blocker_remediation="$auto_project/tasks/autoreplanproj-task-001-revision-12.ready.md"
+[[ -f "$auto_same_blocker_remediation" ]]
+[[ ! -f "$auto_progress/autoreplanproj-task-001.needs-human.md" ]]
+grep -q 'LEGACY_HUMAN_RECLASSIFIED_MANAGER_REMEDIATION root=001 trigger=001-revision-11' \
+	"$auto_project/logs/events.log"
+grep -q '^Manager-Remediation: 1$' "$auto_same_blocker_remediation"
+grep -q '^Target-Criterion: legacy.final$' "$auto_same_blocker_remediation"
+grep -q $'^.*\t001-revision-12\t001-revision-11\tlegacy.final\tsha256:dddd.*\tLOCAL_CODE_PREREQUISITE\t' \
+	"$auto_remediation_ledger"
+"$HARNESS_BIN/harness-status" "$AUTO_ROOT/harness.env" > "$AUTO_ROOT/same-blocker-remediation-status.out"
+grep -q 'Manager remediation blockers: 2 occurrence(s), 1 unique fingerprint(s); 1 active task(s).' \
+	"$AUTO_ROOT/same-blocker-remediation-status.out"
 
 # A broad immutable leaf can be refined only by appending ordered children.
 # The original parent remains in the root inventory and scheduling advances

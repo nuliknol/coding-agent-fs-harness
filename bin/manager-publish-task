@@ -8,6 +8,7 @@ usage()
 {
 	printf 'Usage: %s ENV_FILE TASK_ID TASK_FILE [PROJECT_PLAN_ITEM_ID]\n' "${0##*/}" >&2
 	printf '       %s ENV_FILE TASK_ID TASK_FILE --auto-replan [LEGACY_CRITERIA_TSV|-] [CHILD_DECOMPOSITION_TSV]\n' "${0##*/}" >&2
+	printf '       %s ENV_FILE TASK_ID TASK_FILE --manager-remediation [LEGACY_CRITERIA_TSV|-] [CHILD_DECOMPOSITION_TSV]\n' "${0##*/}" >&2
 	exit 2
 }
 
@@ -17,10 +18,17 @@ task_id="$2"
 task_file="$3"
 plan_item_id=""
 auto_replan=0
+manager_remediation=0
+recovery_publish=0
 criteria_candidate=""
 decomposition_candidate=""
-if [[ "${4:-}" == '--auto-replan' ]]; then
-	auto_replan=1
+if [[ "${4:-}" == '--auto-replan' || "${4:-}" == '--manager-remediation' ]]; then
+	recovery_publish=1
+	if [[ "${4:-}" == '--manager-remediation' ]]; then
+		manager_remediation=1
+	else
+		auto_replan=1
+	fi
 	criteria_candidate="${5:-}"
 	[[ "$criteria_candidate" != "-" ]] || criteria_candidate=""
 	decomposition_candidate="${6:-}"
@@ -58,9 +66,9 @@ root_assignment="$(task_root_assignment_file "$root")"
 criteria_definition="$(task_criteria_definition_file "$root")"
 criterion_decomposition="$(task_criterion_decomposition_file "$root")"
 
-if (( auto_replan == 1 )); then
-	[[ "$task_id" != "$root" ]] || die 'an automatic replan must publish a revision of an existing root'
-	task_root_needs_replan "$root" || die "automatic replan marker is missing for root: $root"
+if (( recovery_publish == 1 )); then
+	[[ "$task_id" != "$root" ]] || die 'a recovery task must publish a revision of an existing root'
+	task_root_needs_replan "$root" || die "recovery marker is missing for root: $root"
 	! task_root_is_blocked "$root" || die "hard-blocked root requires human intervention: $root"
 	! task_root_needs_human "$root" || die "root already requires human intervention: $root"
 else
@@ -168,12 +176,12 @@ else
 				die 'legacy root criteria definition is immutable and cannot be replaced'
 		fi
 		validate_criterion_inventory "$criteria_definition" definition
-	elif (( auto_replan == 1 )); then
+	elif (( recovery_publish == 1 )); then
 		[[ -n "$criteria_candidate" ]] ||
-			die 'legacy automatic replan requires a criteria definition TSV'
+			die 'legacy recovery task requires a criteria definition TSV'
 		validate_criterion_inventory "$criteria_candidate" definition
 	elif [[ -n "$criteria_candidate" ]]; then
-		die 'a criteria definition may be installed only by an automatic replan'
+		die 'a criteria definition may be installed only by a manager recovery task'
 	fi
 fi
 
@@ -216,8 +224,8 @@ if (( ${#declared_criteria[@]} > 0 )) && [[ "$task_id" != "$root" ]]; then
 	fi
 	[[ -n "$first_unmet" ]] || die 'all declared root criteria are already passed; accept the root instead of publishing a continuation'
 	if [[ -n "$decomposition_candidate" ]]; then
-		(( auto_replan == 1 )) ||
-			die 'a child criterion decomposition may be installed only by an automatic replan'
+		(( recovery_publish == 1 )) ||
+			die 'a child criterion decomposition may be installed only by a manager recovery task'
 		[[ -z "$(task_criterion_children "$root" "$first_unmet")" ]] ||
 			die "the first unmet criterion is already decomposed: $first_unmet"
 		validate_decomposition_for_root "$decomposition_candidate" "$first_unmet"
@@ -267,31 +275,48 @@ strategy_change=""
 strategy_fingerprint=""
 trigger_task=""
 blocking_fingerprint="-"
-if (( auto_replan == 1 )); then
-	[[ -n "$target_criterion" ]] || die 'automatic replan requires an explicit criterion inventory and target'
+remediation_blocker_class=""
+remediation_scope=""
+if (( recovery_publish == 1 )); then
+	[[ -n "$target_criterion" ]] || die 'manager recovery requires an explicit criterion inventory and target'
 	[[ "$(single_metadata_value "$task_file" Task-ID)" == "$task_id" ]] ||
-		die "automatic replan Task-ID does not match expected revision: $task_id"
+		die "manager recovery Task-ID does not match expected revision: $task_id"
 	[[ "$(single_metadata_value "$task_file" Task-Root)" == "$root" ]] ||
-		die "automatic replan Task-Root does not match: $root"
+		die "manager recovery Task-Root does not match: $root"
 	[[ "$(single_metadata_value "$task_file" Worker-Context)" == FRESH ]] ||
-		die 'automatic replan must set Worker-Context: FRESH'
+		die 'manager recovery must set Worker-Context: FRESH'
 	strategy_id="$(single_metadata_value "$task_file" Replan-Strategy-ID)"
 	[[ "$strategy_id" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]] ||
 		die "invalid Replan-Strategy-ID: $strategy_id"
 	strategy_change="$(single_metadata_value "$task_file" Strategy-Change)"
-	[[ "$strategy_change" =~ ^(NARROW_SCOPE|NEW_EVIDENCE|ISOLATE_CRITERION)$ ]] ||
-		die 'Strategy-Change must be NARROW_SCOPE, NEW_EVIDENCE, or ISOLATE_CRITERION'
+	if (( manager_remediation == 1 )); then
+		[[ "$(single_metadata_value "$task_file" Manager-Remediation)" == 1 ]] ||
+			die 'manager remediation must set Manager-Remediation: 1'
+		[[ "$strategy_change" == REPAIR_PREREQUISITE ]] ||
+			die 'manager remediation must set Strategy-Change: REPAIR_PREREQUISITE'
+		remediation_blocker_class="$(single_metadata_value "$task_file" Blocker-Class)"
+		[[ "$remediation_blocker_class" =~ ^(LOCAL_CODE_PREREQUISITE|LOCAL_BUILD_PREREQUISITE|LOCAL_INTEGRATION_PREREQUISITE)$ ]] ||
+			die 'manager remediation Blocker-Class must identify a local code, build, or integration prerequisite'
+		remediation_scope="$(single_metadata_value "$task_file" Remediation-Scope)"
+		[[ "$remediation_scope" != *$'\t'* ]] ||
+			die 'manager remediation Remediation-Scope must not contain a tab'
+	else
+		[[ -z "$(metadata_value "$task_file" Manager-Remediation)" ]] ||
+			die 'ordinary automatic replans must not set Manager-Remediation'
+		[[ "$strategy_change" =~ ^(NARROW_SCOPE|NEW_EVIDENCE|ISOLATE_CRITERION)$ ]] ||
+			die 'Strategy-Change must be NARROW_SCOPE, NEW_EVIDENCE, or ISOLATE_CRITERION'
+	fi
 	trigger_task="$(awk -F': ' '$1 == "Triggered-By" {print $2; exit}' "$(task_root_replan_file "$root")")"
-	[[ -n "$trigger_task" ]] || die 'automatic replan marker does not identify its triggering task'
+	[[ -n "$trigger_task" ]] || die 'manager recovery marker does not identify its triggering task'
 	if (( goal_mode == 1 )) && [[ -f "$(goal_state_file "$trigger_task")" ]] &&
 		[[ "$(kv_file_value "$(goal_state_file "$trigger_task")" goal_id)" == "$goal_id" ]]; then
-		die 'automatic replan must use a new Goal-ID for its materially different strategy'
+		die 'manager recovery must use a new Goal-ID for its materially different strategy'
 	fi
 	[[ "$(single_metadata_value "$task_file" Supersedes-Task)" == "$trigger_task" ]] ||
-		die "automatic replan must supersede triggering task: $trigger_task"
+		die "manager recovery must supersede triggering task: $trigger_task"
 	for heading in '## Objective' '## Acceptance criteria' '## Validation commands'; do
 		section_has_content "$task_file" "$heading" ||
-			die "automatic replan assignment requires nonempty section: $heading"
+			die "manager recovery assignment requires nonempty section: $heading"
 	done
 	trigger_assignment="$dir/archive/$(task_base "$trigger_task").assignment.md"
 	if [[ -f "$trigger_assignment" ]] &&
@@ -306,17 +331,19 @@ if (( auto_replan == 1 )); then
 	replan_ledger="$(task_replan_ledger_file "$root")"
 	if [[ -f "$replan_ledger" ]]; then
 		! awk -F '\t' -v id="$strategy_id" 'NR > 1 && $5 == id {found=1} END {exit !found}' "$replan_ledger" ||
-			die "automatic replan strategy identifier was already used: $strategy_id"
+			die "manager recovery strategy identifier was already used: $strategy_id"
 		! awk -F '\t' -v fingerprint="$strategy_fingerprint" 'NR > 1 && $7 == fingerprint {found=1} END {exit !found}' "$replan_ledger" ||
-			die 'automatic replan is not materially different from an earlier bounded strategy'
+			die 'manager recovery is not materially different from an earlier bounded strategy'
 	fi
-	auto_replans="$(root_auto_replans_without_verified_gain "$root")"
-	(( auto_replans < HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN )) ||
-		die "automatic replan budget is exhausted without durable verified gain: $auto_replans/$HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN"
 	blocking_fingerprint="$(awk -F': ' '$1 == "Blocking-Fingerprint" {print $2; exit}' "$(task_root_replan_file "$root")")"
 	[[ -n "$blocking_fingerprint" ]] || blocking_fingerprint="-"
-	if root_same_blocker_without_verified_gain "$root" "$blocking_fingerprint"; then
-		die "same blocking fingerprint survived the prior bounded replan without durable verified gain: $blocking_fingerprint"
+	if (( manager_remediation == 0 )); then
+		auto_replans="$(root_auto_replans_without_verified_gain "$root")"
+		(( auto_replans < HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN )) ||
+			die "automatic replan budget is exhausted without durable verified gain: $auto_replans/$HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN"
+		if root_same_blocker_without_verified_gain "$root" "$blocking_fingerprint"; then
+			die "same blocking fingerprint survived the prior bounded replan without durable verified gain: $blocking_fingerprint"
+		fi
 	fi
 fi
 
@@ -344,7 +371,11 @@ else
 			fi
 			printf 'Target-Criterion: %s\n' "$target_criterion"
 		fi
-		printf '\nPreserve all previously verified work. This revision may address only the first unmet criterion shown above. Unrelated failures are known limitations and must not broaden this task.\n\n'
+		if (( manager_remediation == 1 )); then
+			printf '\nPreserve all previously verified work and acceptance criteria. This manager remediation may repair only the directly implicated local prerequisites named by Remediation-Scope, including files outside the earlier worker leaf scope when necessary. It must not relax the original criterion, change unrelated behavior, or expand beyond evidence from the blocking failure.\n\n'
+		else
+			printf '\nPreserve all previously verified work. This revision may address only the first unmet criterion shown above. Unrelated failures are known limitations and must not broaden this task.\n\n'
+		fi
 		printf '%s\n\n' '---'
 		cat "$task_file"
 	} > "$tmp"
@@ -460,7 +491,7 @@ if (( goal_mode == 1 )); then
 	chmod 600 "$goal_summary"
 fi
 
-if (( auto_replan == 1 )); then
+if (( recovery_publish == 1 )); then
 	if [[ ! -f "$criteria_definition" ]]; then
 		[[ -z "$criteria_candidate" ]] || install -m 600 "$criteria_candidate" "$criteria_definition"
 	fi
@@ -484,14 +515,22 @@ if (( auto_replan == 1 )); then
 		"$strategy_change" "$strategy_fingerprint" "$blocking_fingerprint" \
 		"$(task_passed_declared_criterion_count "$root")" \
 		"$(task_verified_item_count "$root")" >> "$replan_ledger"
+	if (( manager_remediation == 1 )); then
+		ensure_root_manager_remediation_ledger_schema "$root"
+		remediation_ledger="$(task_manager_remediation_ledger_file "$root")"
+		printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+			"$(timestamp_utc)" "$task_id" "$trigger_task" "$target_criterion" \
+			"$blocking_fingerprint" "$remediation_blocker_class" "$remediation_scope" \
+			"$MANAGER_MODEL" >> "$remediation_ledger"
+	fi
 fi
 mv "$tmp" "$ready"
 goal_publish_ready=1
-if (( auto_replan == 1 )); then
+if (( recovery_publish == 1 )); then
 	rm -f "$(task_root_replan_file "$root")" "$(task_root_replanning_file "$root")"
 fi
 activate_project_plan_item "$plan_item_id" "$root"
 
-log_event "TASK_PUBLISHED task=$task_id root=$root plan_item=$plan_item_id starting_progress=$starting_progress target_criterion=${target_criterion:--} auto_replan=$auto_replan goal_mode=$goal_mode goal_id=${goal_id:--} file=$ready"
-trace_event TASK_PUBLISHED "task_id=$task_id" "task_root=$root" "plan_item=$plan_item_id" "starting_progress=$starting_progress" "target_criterion=${target_criterion:--}" "auto_replan=$auto_replan" "goal_mode=$goal_mode" "goal_id=${goal_id:-}" "source_file=$task_file" "ready_file=$ready" "progress_file=$progress"
+log_event "TASK_PUBLISHED task=$task_id root=$root plan_item=$plan_item_id starting_progress=$starting_progress target_criterion=${target_criterion:--} auto_replan=$auto_replan manager_remediation=$manager_remediation goal_mode=$goal_mode goal_id=${goal_id:--} file=$ready"
+trace_event TASK_PUBLISHED "task_id=$task_id" "task_root=$root" "plan_item=$plan_item_id" "starting_progress=$starting_progress" "target_criterion=${target_criterion:--}" "auto_replan=$auto_replan" "manager_remediation=$manager_remediation" "goal_mode=$goal_mode" "goal_id=${goal_id:-}" "source_file=$task_file" "ready_file=$ready" "progress_file=$progress"
 printf '%s\n' "$ready"

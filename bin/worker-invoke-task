@@ -15,17 +15,32 @@ load_harness_env "$1"
 task_id="$2"
 ensure_project
 require_repository
-require_worker_codex
 trace_init worker_invoke_task
 trace_script_start "$@"
 trap 'trace_script_exit $?' EXIT
 validate_task_id "$task_id"
-write_worker_snapshot
 
 dir="$(project_dir)"
 base="$(task_base "$task_id")"
 ready="$dir/tasks/$base.ready.md"
 [[ -f "$ready" ]] || die "task is not ready: $task_id"
+manager_remediation=0
+execution_role=worker
+execution_model="$WORKER_MODEL"
+execution_fallback_model="$WORKER_FALLBACK_MODEL"
+execution_mode=WORKER
+if assignment_is_manager_remediation "$ready"; then
+	manager_remediation=1
+	execution_role=manager_remediation
+	execution_model="$MANAGER_MODEL"
+	execution_fallback_model="$MANAGER_FALLBACK_MODEL"
+	execution_mode=MANAGER_REMEDIATION
+	require_manager_codex
+	write_manager_snapshot
+else
+	require_worker_codex
+	write_worker_snapshot
+fi
 if assignment_uses_goal_mode "$ready"; then
 	(( HARNESS_WORKER_GOAL_MODE == 1 )) ||
 		die 'refusing to claim an active LEAF_GOAL after HARNESS_WORKER_GOAL_MODE was disabled'
@@ -38,6 +53,10 @@ trace_event WORKER_SESSION_CREATED "task_id=$task_id" "session=$session"
 claim_output="$("$HARNESS_BIN/worker-claim-task" "$HARNESS_ENV_FILE" "$task_id" "$session")"
 task_file="$(printf '%s\n' "$claim_output" | awk -F= '$1 == "TASK_FILE" {sub(/^[^=]*=/, ""); print; exit}')"
 [[ -f "$task_file" ]] || die "claimed task file is missing: $task_file"
+if (( manager_remediation == 1 )); then
+	assignment_is_manager_remediation "$task_file" ||
+		die 'manager remediation metadata changed during task claim'
+fi
 initialize_task_progress "$task_id" "$task_file"
 task_root="$(task_root_id "$task_id")"
 progress_file="$(task_progress_file "$task_root")"
@@ -116,8 +135,8 @@ if (( HARNESS_CLOSURE_MODE_ENABLED == 1 )) &&
 	(( starting_progress >= HARNESS_CLOSURE_MODE_MIN_PROGRESS && starting_progress < 100 )); then
 	closure_mode=1
 fi
-log_event "WORKER_CONTEXT_SELECTED task=$task_id root=$task_root mode=$worker_context_mode reason=$worker_context_reason thread_id=${worker_resume_thread_id:-none} retained_rejections=$worker_thread_rejections closure_mode=$closure_mode goal_mode=$goal_mode goal_id=${goal_id:--}"
-trace_event WORKER_CONTEXT_SELECTED "task_id=$task_id" "task_root=$task_root" "mode=$worker_context_mode" "reason=$worker_context_reason" "thread_id=${worker_resume_thread_id:-}" "retained_rejections=$worker_thread_rejections" "closure_mode=$closure_mode" "goal_mode=$goal_mode" "goal_id=${goal_id:-}"
+log_event "WORKER_CONTEXT_SELECTED task=$task_id root=$task_root mode=$worker_context_mode reason=$worker_context_reason thread_id=${worker_resume_thread_id:-none} retained_rejections=$worker_thread_rejections closure_mode=$closure_mode goal_mode=$goal_mode goal_id=${goal_id:--} execution_mode=$execution_mode"
+trace_event WORKER_CONTEXT_SELECTED "task_id=$task_id" "task_root=$task_root" "mode=$worker_context_mode" "reason=$worker_context_reason" "thread_id=${worker_resume_thread_id:-}" "retained_rejections=$worker_thread_rejections" "closure_mode=$closure_mode" "goal_mode=$goal_mode" "goal_id=${goal_id:-}" "execution_mode=$execution_mode"
 
 prompt_file="$dir/control/$base.worker.prompt.md"
 cat > "$prompt_file.tmp.$$" <<PROMPT
@@ -143,6 +162,7 @@ CLOSURE_MODE=$closure_mode
 CLOSURE_MAX_FIXES=$HARNESS_CLOSURE_MODE_MAX_FIXES
 CLOSURE_MAX_SMOKE_RUNS=$HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS
 WORKER_GOAL_MODE=$goal_mode
+EXECUTION_MODE=$execution_mode
 GOAL_ID=$goal_id
 GOAL_TARGET_CRITERION=$goal_target
 GOAL_STATE_FILE=$goal_state
@@ -153,6 +173,19 @@ GOAL_PROCESS_MAX_SMOKE_RUNS=$HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS
 
 The task is already claimed by this launcher. Read DEVELOPMENT_POLICY_FILE when present, then ROOT_ASSIGNMENT_FILE, PROGRESS_FILE, and TASK_FILE completely. The current files are authoritative even when this turn resumes an earlier worker conversation. Preserve verified work and continue from STARTING_PROGRESS_PERCENT rather than reimplementing the root task from zero. Implement exactly the remaining bounded assignment, validate only the developed feature according to the prototype policy, write any scratch files and the result report under PROJECT_TMP_DIR, publish the result with worker-complete-task, and terminate. Do not wait for another task. Do not create, stage, or commit Git changes.
 PROMPT
+if (( manager_remediation == 1 )); then
+	remediation_scope="$(require_single_metadata_value "$task_file" Remediation-Scope 'manager remediation assignment')"
+	remediation_class="$(require_single_metadata_value "$task_file" Blocker-Class 'manager remediation assignment')"
+	cat >> "$prompt_file.tmp.$$" <<PROMPT
+
+Manager remediation execution is active because ordinary bounded worker strategies reached a local coding/build/integration blocker. You are running with the manager model specifically to repair that prerequisite, not merely to describe it.
+
+Blocker class: $remediation_class
+Authorized remediation scope: $remediation_scope
+
+You may edit the directly implicated local files in Remediation-Scope even if a prior worker assignment called them baseline or excluded them from its Allowed-Scope. Diagnose from current compiler, linker, test, and repository evidence; make the smallest complete repair; then validate the original Target-Criterion without weakening it. Do not alter the specification, acceptance criteria, unrelated APIs/behavior, external systems, credentials, or authorization boundaries. A normal source, build, test, or integration defect is resolvable here and is not a reason to request human intervention.
+PROMPT
+fi
 if (( goal_mode == 1 )); then
 	goal_iteration="$(kv_file_value "$goal_state" iteration_count)"
 	goal_boundary="$(kv_file_value "$goal_state" last_boundary)"
@@ -190,7 +223,7 @@ Bounded closure mode is active because this continuation starts at ${starting_pr
 Start with the current first failure. Diagnose before editing, apply only the smallest correction directly implicated by that failure, rebuild the affected target, and use the next focused-smoke execution. Repeat only while the failure remains inside TASK_ROOT and the correction does not require a new public API, new scope, relaxed acceptance criterion, fabricated fallback, increased capacity without evidence, or an explicitly prohibited file/behavior. A directly implicated additional root-scope implementation file may be changed when the runtime diagnostic or stack proves it necessary; record why it is inside the closure boundary. Stop immediately on a passing smoke, exhausted budget, an out-of-root failure, or a required design/authority choice. Never substitute broad tests for the single focused gate. Report the exact number of fixes and smoke executions.
 PROMPT
 fi
-if codex_model_requires_narrow_prompt "$WORKER_MODEL"; then
+if codex_model_requires_narrow_prompt "$execution_model"; then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
 
 Context: authorized local development in my own repository. Task type: benign software engineering. Do not perform offensive security, credential extraction, vulnerability exploitation, malware behavior, unauthorized access, network scanning, or bypassing security controls. Use only the listed local project files needed for the requested implementation: TASK_FILE and the files explicitly referenced by that bounded assignment.
@@ -214,7 +247,7 @@ attempt=1
 provider_retries=0
 quota_waits=0
 fallback_stage=0
-current_model="$WORKER_MODEL"
+current_model="$execution_model"
 heartbeat_pid=""
 
 completion_committed()
@@ -303,13 +336,13 @@ while true; do
 	stderr_log="$dir/logs/worker-task-$task_id-$stamp-attempt-$attempt_label.stderr.log"
 	last_message="$dir/logs/worker-task-$task_id-$stamp-attempt-$attempt_label.md"
 
-	log_event "WORKER_INVOCATION_STARTED task=$task_id session=$session model=$WORKER_MODEL attempt=$attempt"
-	trace_event WORKER_INVOCATION_ATTEMPT "task_id=$task_id" "session=$session" "attempt=$attempt" "thread_id=${worker_resume_thread_id:-}" "json_log=$json_log" "last_message=$last_message"
+	log_event "WORKER_INVOCATION_STARTED task=$task_id session=$session model=$current_model execution_mode=$execution_mode attempt=$attempt"
+	trace_event WORKER_INVOCATION_ATTEMPT "task_id=$task_id" "session=$session" "attempt=$attempt" "execution_mode=$execution_mode" "thread_id=${worker_resume_thread_id:-}" "json_log=$json_log" "last_message=$last_message"
 	set +e
-	trace_event CODEX_EXEC_START "role=worker" "task_id=$task_id" "session=$session" "attempt=$attempt" "mode=$([[ -n "$worker_resume_thread_id" ]] && printf resume || printf fresh)" "thread_id=${worker_resume_thread_id:-}" "json_log=$json_log" "stderr_log=$stderr_log" "last_message=$last_message" "model=$current_model"
+	trace_event CODEX_EXEC_START "role=$execution_role" "task_id=$task_id" "session=$session" "attempt=$attempt" "mode=$([[ -n "$worker_resume_thread_id" ]] && printf resume || printf fresh)" "thread_id=${worker_resume_thread_id:-}" "json_log=$json_log" "stderr_log=$stderr_log" "last_message=$last_message" "model=$current_model"
 	resume_args=()
 	[[ -z "$worker_resume_thread_id" ]] || resume_args=(resume "$worker_resume_thread_id")
-	"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" worker "$current_model" "$prompt_file" "$json_log" "$stderr_log" "$last_message" "${resume_args[@]}"
+	"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" "$execution_role" "$current_model" "$prompt_file" "$json_log" "$stderr_log" "$last_message" "${resume_args[@]}"
 	status=$?
 	set -e
 	observed_thread_id="$(codex_thread_id_from_jsonl "$json_log" 2>/dev/null || true)"
@@ -338,7 +371,7 @@ while true; do
 		goal_state_set "$goal_state" cumulative_input_tokens "$((goal_input + turn_input))"
 		goal_state_set "$goal_state" cumulative_output_tokens "$((goal_output + turn_output))"
 	fi
-	trace_event CODEX_EXEC_END "role=worker" "task_id=$task_id" "session=$session" "attempt=$attempt" "status=$status" "classification=${classification:-unknown}" "json_log=$json_log" "stderr_log=$stderr_log" "last_message=$last_message"
+	trace_event CODEX_EXEC_END "role=$execution_role" "task_id=$task_id" "session=$session" "attempt=$attempt" "status=$status" "classification=${classification:-unknown}" "json_log=$json_log" "stderr_log=$stderr_log" "last_message=$last_message"
 
 	normalize_direct_result
 	normalize_last_message_result
@@ -410,9 +443,9 @@ while true; do
 			log_event "WORKER_TERRA_NARROW_RETRY task=$task_id session=$session classification=$classification"
 			continue
 		fi
-		if (( fallback_stage == 1 )) && [[ "$WORKER_FALLBACK_MODEL" != "$current_model" ]]; then
+		if (( fallback_stage == 1 )) && [[ "$execution_fallback_model" != "$current_model" ]]; then
 			fallback_stage=2
-			current_model="$WORKER_FALLBACK_MODEL"
+			current_model="$execution_fallback_model"
 			attempt=$((attempt + 1))
 			log_event "WORKER_MODEL_FALLBACK task=$task_id session=$session classification=$classification model=$current_model"
 			continue

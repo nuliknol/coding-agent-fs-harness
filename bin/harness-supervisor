@@ -161,6 +161,34 @@ project_has_active_task()
 		compgen -G "$dir/control/progress/$PROJECT-task-*.replanning.md" >/dev/null
 }
 
+reclassify_legacy_convergence_human_markers()
+{
+	local marker name root reason trigger_task
+	shopt -s nullglob
+	for marker in "$dir/control/progress/$PROJECT-task-"*.needs-human.md; do
+		[[ -f "$marker" ]] || continue
+		reason="$(awk '/^Reason: / {sub(/^Reason: /, ""); print; exit}' "$marker")"
+		case "$reason" in
+			"the same blocker survived a bounded automatic replan without durable verified gain"*|\
+			"automatic strategy-change budget exhausted without durable verified gain"*)
+				;;
+			*)
+				continue
+				;;
+		esac
+		name="${marker##*/}"
+		root="${name#${PROJECT}-task-}"
+		root="${root%.needs-human.md}"
+		trigger_task="$(awk -F': ' '$1 == "Triggered-By" {print $2; exit}' "$marker")"
+		[[ -n "$trigger_task" ]] || trigger_task="$root"
+		mark_root_needs_replan "$trigger_task" \
+			"legacy convergence pause reclassified as automatic manager remediation: $reason" \
+			MANAGER_REMEDIATION >/dev/null
+		rm -f "$marker"
+		log_event "LEGACY_HUMAN_RECLASSIFIED_MANAGER_REMEDIATION root=$root trigger=$trigger_task reason=$(printf '%q' "$reason")"
+	done
+}
+
 process_auto_replans()
 {
 	local marker name root current status alert tmp
@@ -196,12 +224,11 @@ process_auto_replans()
 			printf 'Needs-Replan-Fingerprint: %s\n\n' "$current"
 			printf 'Failed-At: %s\n\n' "$(timestamp_utc)"
 			printf 'Exit-Status: %s\n\n' "$status"
-			printf 'The supervisor will not repeat this unchanged local failure during its current run. Provider failures retry inside the replan invoker.\n'
+			printf 'The supervisor will not repeat this unchanged local failure during its current run. Provider failures retry inside the replan invoker. The root remains in automatic recovery and is not classified as human-dependent.\n'
 		} > "$tmp"
 		chmod 600 "$tmp"
 		mv "$tmp" "$alert"
-		mark_root_needs_human "$root" "$root" \
-			"automatic replan invoker failed locally (status=$status); inspect $alert before explicitly resuming" >/dev/null
+		log_event "SUPERVISOR_MANAGER_RECOVERY_FAILED root=$root status=$status alert=$alert human_dependency=0"
 	done
 }
 
@@ -309,6 +336,7 @@ while true; do
 	if handle_project_completion; then
 		break
 	fi
+	reclassify_legacy_convergence_human_markers
 	process_auto_replans
 	if handle_project_completion; then
 		break

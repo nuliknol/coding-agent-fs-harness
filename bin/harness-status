@@ -21,6 +21,26 @@ if project_plan_exists; then
 else
 	project_progress_line='Project progress: unavailable (project plan is missing)'
 fi
+project_progress_printed=0
+print_project_progress_footer()
+{
+	(( project_progress_printed == 0 )) || return 0
+	printf '\n%s\n' "$project_progress_line"
+	project_progress_printed=1
+}
+# Status diagnostics are best-effort. Keep the project-level progress summary
+# visible even if an in-flight state file is between atomic metadata updates.
+trap print_project_progress_footer EXIT
+
+status_kv_value()
+{
+	local file="$1" key="$2" fallback="${3:-}" value=""
+	if [[ -f "$file" ]]; then
+		value="$(awk -F= -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' "$file")"
+	fi
+	[[ -n "$value" ]] || value="$fallback"
+	printf '%s' "$value"
+}
 
 printf 'Environment file: %s\n' "$HARNESS_ENV_FILE"
 printf 'Project: %s\n' "$PROJECT"
@@ -57,8 +77,8 @@ if project_plan_exists; then
 	' "$(project_plan_definition_file)" "$(project_plan_state_file)"
 fi
 printf '\n'
-printf '%-32s %-12s %-10s %-28s %-10s\n' 'TASK' 'STATE' 'PROGRESS' 'OWNER' 'AGE'
-printf '%-32s %-12s %-10s %-28s %-10s\n' '--------------------------------' '------------' '----------' '----------------------------' '----------'
+printf '%-32s %-12s %-13s %-10s %-28s %-10s\n' 'TASK' 'STATE' 'EXECUTOR' 'PROGRESS' 'OWNER' 'AGE'
+printf '%-32s %-12s %-13s %-10s %-28s %-10s\n' '--------------------------------' '------------' '-------------' '----------' '----------------------------' '----------'
 
 shopt -s nullglob
 found=0
@@ -70,14 +90,30 @@ blocked_count=0
 replan_count=0
 human_count=0
 replanning_count=0
+manager_remediation_active_count=0
 task_rows=()
+
+task_executor()
+{
+	local task_id="$1" live_file="${2:-}" assignment
+	assignment="$dir/archive/$(task_base "$task_id").assignment.md"
+	if [[ -f "$assignment" ]] && assignment_is_manager_remediation "$assignment"; then
+		printf 'MANAGER_FIX'
+	elif [[ -n "$live_file" ]] && assignment_is_manager_remediation "$live_file"; then
+		printf 'MANAGER_FIX'
+	else
+		printf 'WORKER'
+	fi
+}
 
 for file in "$dir/tasks/$PROJECT-task-"*.ready.md; do
 	found=1
 	active_count=$((active_count + 1))
 	task_id="$(task_id_from_filename "$file")"
+	executor="$(task_executor "$task_id" "$file")"
+	[[ "$executor" != MANAGER_FIX ]] || manager_remediation_active_count=$((manager_remediation_active_count + 1))
 	progress="$(task_progress_percent "$task_id")%"
-	printf -v task_row '%-32s %-12s %-10s %-28s %-10s' "$task_id" 'READY' "$progress" '-' '-'
+	printf -v task_row '%-32s %-12s %-13s %-10s %-28s %-10s' "$task_id" 'READY' "$executor" "$progress" '-' '-'
 	task_rows+=("$task_row")
 done
 
@@ -86,6 +122,8 @@ for file in "$dir/running/$PROJECT-task-"*.running.md; do
 	active_count=$((active_count + 1))
 	task_id="$(task_id_from_filename "$file")"
 	base="$(task_base "$task_id")"
+	executor="$(task_executor "$task_id" "$file")"
+	[[ "$executor" != MANAGER_FIX ]] || manager_remediation_active_count=$((manager_remediation_active_count + 1))
 	progress="$(task_progress_percent "$task_id")%"
 	lease="$dir/control/$base.lease"
 	owner='unknown'
@@ -97,7 +135,7 @@ for file in "$dir/running/$PROJECT-task-"*.running.md; do
 			age="$(( $(epoch_now) - heartbeat_epoch ))s"
 		fi
 	fi
-	printf -v task_row '%-32s %-12s %-10s %-28s %-10s' "$task_id" 'RUNNING' "$progress" "$owner" "$age"
+	printf -v task_row '%-32s %-12s %-13s %-10s %-28s %-10s' "$task_id" 'RUNNING' "$executor" "$progress" "$owner" "$age"
 	task_rows+=("$task_row")
 done
 
@@ -105,8 +143,10 @@ for file in "$dir/results/$PROJECT-task-"*.result.md; do
 	found=1
 	active_count=$((active_count + 1))
 	task_id="$(task_id_from_filename "$file")"
+	executor="$(task_executor "$task_id")"
+	[[ "$executor" != MANAGER_FIX ]] || manager_remediation_active_count=$((manager_remediation_active_count + 1))
 	progress="$(task_progress_percent "$task_id")%"
-	printf -v task_row '%-32s %-12s %-10s %-28s %-10s' "$task_id" 'REVIEW' "$progress" '-' '-'
+	printf -v task_row '%-32s %-12s %-13s %-10s %-28s %-10s' "$task_id" 'REVIEW' "$executor" "$progress" '-' '-'
 	task_rows+=("$task_row")
 done
 
@@ -116,8 +156,9 @@ for file in "$dir/archive/$PROJECT-task-"*.accepted.md; do
 	name="${file##*/}"
 	task_id="${name#${PROJECT}-task-}"
 	task_id="${task_id%.accepted.md}"
+	executor="$(task_executor "$task_id")"
 	progress="$(task_progress_percent "$task_id")%"
-	printf -v task_row '%-32s %-12s %-10s %-28s %-10s' "$task_id" 'ACCEPTED' "$progress" '-' '-'
+	printf -v task_row '%-32s %-12s %-13s %-10s %-28s %-10s' "$task_id" 'ACCEPTED' "$executor" "$progress" '-' '-'
 	task_rows+=("$task_row")
 done
 
@@ -127,8 +168,9 @@ for file in "$dir/archive/$PROJECT-task-"*.checkpointed.md; do
 	name="${file##*/}"
 	task_id="${name#${PROJECT}-task-}"
 	task_id="${task_id%.checkpointed.md}"
+	executor="$(task_executor "$task_id")"
 	progress="$(task_progress_percent "$task_id")%"
-	printf -v task_row '%-32s %-12s %-10s %-28s %-10s' "$task_id" 'CHECKPOINTED' "$progress" '-' '-'
+	printf -v task_row '%-32s %-12s %-13s %-10s %-28s %-10s' "$task_id" 'CHECKPOINTED' "$executor" "$progress" '-' '-'
 	task_rows+=("$task_row")
 done
 
@@ -139,7 +181,7 @@ for file in "$dir/control/$PROJECT-task-"*.abort.md; do
 	task_id="${name#${PROJECT}-task-}"
 	task_id="${task_id%.abort.md}"
 	progress="$(task_progress_percent "$task_id")%"
-	printf -v task_row '%-32s %-12s %-10s %-28s %-10s' "$task_id" 'ABORTED' "$progress" '-' '-'
+	printf -v task_row '%-32s %-12s %-13s %-10s %-28s %-10s' "$task_id" 'ABORTED' '-' "$progress" '-' '-'
 	task_rows+=("$task_row")
 done
 
@@ -150,7 +192,7 @@ for file in "$dir/control/progress/$PROJECT-task-"*.blocked.md; do
 	task_id="${name#${PROJECT}-task-}"
 	task_id="${task_id%.blocked.md}"
 	progress="$(task_progress_percent "$task_id")%"
-	printf -v task_row '%-32s %-12s %-10s %-28s %-10s' "$task_id" 'BLOCKED' "$progress" '-' '-'
+	printf -v task_row '%-32s %-12s %-13s %-10s %-28s %-10s' "$task_id" 'BLOCKED' '-' "$progress" '-' '-'
 	task_rows+=("$task_row")
 done
 
@@ -164,7 +206,7 @@ for file in "$dir/control/progress/$PROJECT-task-"*.needs-replan.md; do
 	fi
 	replan_count=$((replan_count + 1))
 	progress="$(task_progress_percent "$task_id")%"
-	printf -v task_row '%-32s %-12s %-10s %-28s %-10s' "$task_id" 'NEEDS_REPLAN' "$progress" '-' '-'
+	printf -v task_row '%-32s %-12s %-13s %-10s %-28s %-10s' "$task_id" 'NEEDS_REPLAN' 'MANAGER' "$progress" '-' '-'
 	task_rows+=("$task_row")
 done
 
@@ -175,7 +217,7 @@ for file in "$dir/control/progress/$PROJECT-task-"*.replanning.md; do
 	task_id="${name#${PROJECT}-task-}"
 	task_id="${task_id%.replanning.md}"
 	progress="$(task_progress_percent "$task_id")%"
-	printf -v task_row '%-32s %-12s %-10s %-28s %-10s' "$task_id" 'REPLANNING' "$progress" '-' '-'
+	printf -v task_row '%-32s %-12s %-13s %-10s %-28s %-10s' "$task_id" 'REPLANNING' 'MANAGER' "$progress" '-' '-'
 	task_rows+=("$task_row")
 done
 
@@ -186,7 +228,7 @@ for file in "$dir/control/progress/$PROJECT-task-"*.needs-human.md; do
 	task_id="${name#${PROJECT}-task-}"
 	task_id="${task_id%.needs-human.md}"
 	progress="$(task_progress_percent "$task_id")%"
-	printf -v task_row '%-32s %-12s %-10s %-28s %-10s' "$task_id" 'NEEDS_HUMAN' "$progress" '-' '-'
+	printf -v task_row '%-32s %-12s %-13s %-10s %-28s %-10s' "$task_id" 'NEEDS_HUMAN' 'HUMAN' "$progress" '-' '-'
 	task_rows+=("$task_row")
 done
 
@@ -201,7 +243,9 @@ fi
 if project_completion_recorded && project_plan_all_complete; then
 	printf '\nProject status: COMPLETE. Every project-plan item is accepted.\n'
 elif (( human_count > 0 )); then
-	printf '\nProject status: NEEDS_HUMAN. Multiple materially different strategies made no new durable verified gain, or a human-only boundary was reached; verified work is preserved.\n'
+	printf '\nProject status: NEEDS_HUMAN. A documented authorization, secret, external-state, or product/specification decision requires a person; verified work is preserved.\n'
+elif (( manager_remediation_active_count > 0 )); then
+	printf '\nProject status: MANAGER_REMEDIATION. A manager-model task is repairing a directly implicated local prerequisite while preserving the original acceptance gate.\n'
 elif (( blocked_count > 0 )); then
 	printf '\nProject status: BLOCKED. A root task requires human intervention before planning can continue.\n'
 elif (( replanning_count > 0 )); then
@@ -224,6 +268,24 @@ if (( checkpointed_count > 0 )); then
 	printf '\nVerified checkpoints: %s\n' "$checkpointed_count"
 fi
 
+manager_remediation_occurrences=0
+manager_remediation_unique_blockers=0
+remediation_ledgers=("$dir/control/progress/$PROJECT-task-"*.manager-remediations.tsv)
+if (( ${#remediation_ledgers[@]} > 0 )); then
+	for remediation_ledger in "${remediation_ledgers[@]}"; do
+		[[ -f "$remediation_ledger" ]] || continue
+		remediation_rows="$(( $(wc -l < "$remediation_ledger") - 1 ))"
+		(( remediation_rows >= 0 )) || remediation_rows=0
+		manager_remediation_occurrences=$((manager_remediation_occurrences + remediation_rows))
+	done
+	manager_remediation_unique_blockers="$(
+		awk -F '\t' 'FNR > 1 && $5 != "" && $5 != "-" {seen[$5]=1} END {for (item in seen) count++; print count + 0}' \
+			"${remediation_ledgers[@]}"
+	)"
+fi
+printf '\nManager remediation blockers: %s occurrence(s), %s unique fingerprint(s); %s active task(s).\n' \
+	"$manager_remediation_occurrences" "$manager_remediation_unique_blockers" "$manager_remediation_active_count"
+
 active_status_root="$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" && $3 != "-" {print $3; exit}' "$(project_plan_state_file)" 2>/dev/null || true)"
 if [[ -n "$active_status_root" ]]; then
 	active_leaf="$(task_first_unmet_criterion "$active_status_root" 2>/dev/null || true)"
@@ -236,34 +298,36 @@ fi
 
 for goal_file in "$(goal_control_dir)"/"$PROJECT-task-"*.goal; do
 	[[ -f "$goal_file" ]] || continue
-	goal_state="$(kv_file_value "$goal_file" state 2>/dev/null || true)"
+	goal_state="$(status_kv_value "$goal_file" state)"
 	[[ "$goal_state" =~ ^(READY|RUNNING|ITERATING|STRATEGY_REVIEW|REVIEW)$ ]] || continue
-	goal_task="$(kv_file_value "$goal_file" task_id)"
-	goal_iterations="$(kv_file_value "$goal_file" iteration_count)"
-	goal_target="$(kv_file_value "$goal_file" target_criterion)"
-	goal_id="$(kv_file_value "$goal_file" goal_id)"
-	goal_boundary="$(kv_file_value "$goal_file" last_boundary)"
-	goal_movement_at="$(kv_file_value "$goal_file" last_movement_at)"
-	goal_generation="$(kv_file_value "$goal_file" context_generation)"
-	goal_turns="$(kv_file_value "$goal_file" process_turns 2>/dev/null || printf 0)"
-	goal_input="$(kv_file_value "$goal_file" cumulative_input_tokens 2>/dev/null || printf 0)"
-	goal_output="$(kv_file_value "$goal_file" cumulative_output_tokens 2>/dev/null || printf 0)"
-	goal_reviews="$(kv_file_value "$goal_file" manager_reviews 2>/dev/null || printf 0)"
-	goal_thread="$(kv_file_value "$goal_file" thread_id)"
-	goal_workspace="$(kv_file_value "$goal_file" last_workspace)"
-	current_workspace="$(repository_workspace_fingerprint)"
+	goal_task="$(status_kv_value "$goal_file" task_id unknown)"
+	goal_iterations="$(status_kv_value "$goal_file" iteration_count 0)"
+	goal_target="$(status_kv_value "$goal_file" target_criterion unknown)"
+	goal_id="$(status_kv_value "$goal_file" goal_id unknown)"
+	goal_boundary="$(status_kv_value "$goal_file" last_boundary unknown)"
+	goal_movement_at="$(status_kv_value "$goal_file" last_movement_at unknown)"
+	goal_generation="$(status_kv_value "$goal_file" context_generation 0)"
+	goal_turns="$(status_kv_value "$goal_file" process_turns 0)"
+	goal_input="$(status_kv_value "$goal_file" cumulative_input_tokens 0)"
+	goal_output="$(status_kv_value "$goal_file" cumulative_output_tokens 0)"
+	goal_reviews="$(status_kv_value "$goal_file" manager_reviews 0)"
+	goal_thread="$(status_kv_value "$goal_file" thread_id)"
+	goal_workspace="$(status_kv_value "$goal_file" last_workspace unknown)"
+	current_workspace="$(repository_workspace_fingerprint 2>/dev/null || printf unavailable)"
 	goal_workspace_drift=no
 	[[ "$goal_workspace" == "$current_workspace" ]] || goal_workspace_drift=yes
-	goal_root="$(kv_file_value "$goal_file" task_root)"
+	goal_root="$(status_kv_value "$goal_file" task_root)"
 	goal_leaf_total=0
 	goal_leaf_passed=0
-	while IFS= read -r goal_leaf; do
-		[[ -n "$goal_leaf" ]] || continue
-		goal_leaf_total=$((goal_leaf_total + 1))
-		if task_criterion_is_passed "$goal_root" "$goal_leaf"; then
-			goal_leaf_passed=$((goal_leaf_passed + 1))
-		fi
-	done < <(task_root_leaf_criteria "$goal_root")
+	if [[ -n "$goal_root" ]]; then
+		while IFS= read -r goal_leaf; do
+			[[ -n "$goal_leaf" ]] || continue
+			goal_leaf_total=$((goal_leaf_total + 1))
+			if task_criterion_is_passed "$goal_root" "$goal_leaf"; then
+				goal_leaf_passed=$((goal_leaf_passed + 1))
+			fi
+		done < <(task_root_leaf_criteria "$goal_root")
+	fi
 	goal_latest_classification='not-yet-recorded'
 	goal_latest_log=""
 	for candidate_log in "$dir/logs/worker-task-$goal_task-"*.jsonl; do
@@ -273,7 +337,8 @@ for goal_file in "$(goal_control_dir)"/"$PROJECT-task-"*.goal; do
 		fi
 	done
 	if [[ -n "$goal_latest_log" ]]; then
-		goal_latest_classification="$(kv_file_value "${goal_latest_log%.jsonl}.classification" classification 2>/dev/null || printf unknown)"
+		goal_latest_classification="$(status_kv_value \
+			"${goal_latest_log%.jsonl}.classification" classification not-yet-recorded)"
 	fi
 	[[ -n "$goal_thread" ]] || goal_thread='fresh/not-yet-recorded'
 	printf '\nActive worker goal: %s (%s)\n' "$goal_id" "$goal_state"
@@ -292,4 +357,4 @@ for goal_file in "$(goal_control_dir)"/"$PROJECT-task-"*.goal; do
 	break
 done
 
-printf '\n%s\n' "$project_progress_line"
+print_project_progress_footer

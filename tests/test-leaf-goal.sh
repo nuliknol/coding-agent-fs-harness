@@ -237,6 +237,16 @@ goal_ledger="$project_dir/control/goals/goalproj-task-001.iterations.tsv"
 [[ -f "$goal_state" && -f "$goal_ledger" ]]
 grep -q '^state=READY$' "$goal_state"
 
+# A running JSONL may appear before its classification sidecar. Status must
+# treat that telemetry as pending and still finish with project progress.
+pending_log="$project_dir/logs/worker-task-001-20260724T000000Z-attempt-001.jsonl"
+printf '%s\n' '{"type":"turn.started"}' > "$pending_log"
+"$HARNESS_BIN/harness-status" "$TEST_ROOT/harness.env" > "$TEST_ROOT/status-pending.out"
+grep -q 'Latest worker/provider classification: not-yet-recorded' "$TEST_ROOT/status-pending.out"
+tail -n 1 "$TEST_ROOT/status-pending.out" |
+	grep -Eq '^Project progress: [0-9]+% \([0-9]+/[0-9]+ plan items complete\)$'
+rm -f "$pending_log"
+
 "$HARNESS_BIN/worker-invoke-task" "$TEST_ROOT/harness.env" 001 >/dev/null
 result="$project_dir/results/goalproj-task-001.result.md"
 [[ -f "$result" ]]

@@ -30,18 +30,23 @@ fi
 
 trigger_task="$(awk -F': ' '$1 == "Triggered-By" {print $2; exit}' "$replan_marker")"
 [[ -n "$trigger_task" ]] || trigger_task="$root"
+trigger_outcome="$(awk -F': ' '$1 == "Trigger-Outcome" {print $2; exit}' "$replan_marker")"
 blocking_fingerprint="$(awk -F': ' '$1 == "Blocking-Fingerprint" {print $2; exit}' "$replan_marker")"
 [[ -n "$blocking_fingerprint" ]] || blocking_fingerprint="-"
-if root_same_blocker_without_verified_gain "$root" "$blocking_fingerprint"; then
-	mark_root_needs_human "$root" "$trigger_task" \
-		"the same blocker survived a bounded automatic replan without durable verified gain: $blocking_fingerprint" >/dev/null
-	exit 0
+recovery_mode="AUTOMATIC_REPLAN"
+recovery_reason="bounded strategy change remains available"
+if [[ "$trigger_outcome" == DETERMINISTIC_BLOCKER ]]; then
+	recovery_mode="MANAGER_REMEDIATION"
+	recovery_reason="the configured deterministic local-blocker threshold was reached"
+elif root_same_blocker_without_verified_gain "$root" "$blocking_fingerprint"; then
+	recovery_mode="MANAGER_REMEDIATION"
+	recovery_reason="the same local blocker survived a bounded automatic replan without durable verified gain"
 fi
 auto_replans="$(root_auto_replans_without_verified_gain "$root")"
-if (( auto_replans >= HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN )); then
-	mark_root_needs_human "$root" "$trigger_task" \
-		"automatic strategy-change budget exhausted without durable verified gain ($auto_replans/$HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN)" >/dev/null
-	exit 0
+if [[ "$recovery_mode" != MANAGER_REMEDIATION ]] &&
+	(( auto_replans >= HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN )); then
+	recovery_mode="MANAGER_REMEDIATION"
+	recovery_reason="the bounded worker strategy-change budget was exhausted without durable verified gain ($auto_replans/$HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN)"
 fi
 
 project_path="$(project_dir)"
@@ -81,26 +86,38 @@ plan_definition="$(project_plan_definition_file)"
 plan_state="$(project_plan_state_file)"
 development_policy_file="$REPOSITORY/design/development-policy.txt"
 [[ -f "$development_policy_file" ]] || development_policy_file=""
-task_output="$PROJECT_TMP_DIR/$PROJECT-task-$expected_task_id.auto-replan.md"
+task_output="$PROJECT_TMP_DIR/$PROJECT-task-$expected_task_id.$([[ "$recovery_mode" == MANAGER_REMEDIATION ]] && printf manager-remediation || printf auto-replan).md"
 criteria_output="$PROJECT_TMP_DIR/$PROJECT-task-$root.criteria-definition.tsv"
 decomposition_output="$PROJECT_TMP_DIR/$PROJECT-task-$expected_task_id.criterion-decomposition.tsv"
 prompt_file="$project_path/control/$PROJECT-task-$root.auto-replan.prompt.md"
 
 criteria_instruction=""
+publish_flag="--auto-replan"
+recovery_task_metadata=""
+recovery_authority=""
+recovery_validator_contract="The command validates the first-unmet leaf, append-only child decomposition, fresh worker context, strategy uniqueness, material fingerprint, verified-gain replan budget, and a blocker that survived without new durable evidence."
+strategy_change_values="NARROW_SCOPE|NEW_EVIDENCE|ISOLATE_CRITERION"
+if [[ "$recovery_mode" == MANAGER_REMEDIATION ]]; then
+	publish_flag="--manager-remediation"
+	strategy_change_values="REPAIR_PREREQUISITE"
+	recovery_task_metadata=$'Manager-Remediation: 1\nBlocker-Class: LOCAL_CODE_PREREQUISITE|LOCAL_BUILD_PREREQUISITE|LOCAL_INTEGRATION_PREREQUISITE\nRemediation-Scope: DIRECTLY_IMPLICATED_LOCAL_FILES_OR_DIRECTORIES'
+	recovery_authority="This is a manager remediation assignment, not another ordinary worker retry. Inspect the blocker evidence and name the smallest concrete Remediation-Scope that contains the directly implicated local prerequisite sources, build files, or integration files. The execution turn will run with the manager model and may edit those named prerequisites even when they were outside the prior worker leaf Allowed-Scope. It must preserve the original acceptance criteria and may not change unrelated behavior, specifications, public contracts, or external systems."
+	recovery_validator_contract="The command validates the first-unmet leaf, fresh manager execution context, local prerequisite classification and scope, strategy uniqueness, and material fingerprint. Manager remediation intentionally bypasses the exhausted ordinary-replan/no-gain guard; it does not relax acceptance."
+fi
 if task_root_uses_assignment_criteria "$root" || [[ -f "$criteria_definition" ]]; then
 	first_unmet="$(task_first_unmet_criterion "$root" 2>/dev/null || true)"
 	if [[ -z "$first_unmet" ]]; then
-		mark_root_needs_human "$root" "$trigger_task" \
-			'all declared criteria are already passed but the root was not accepted; manager evidence reconciliation is required' >/dev/null
-		exit 0
+		log_event "MANAGER_RECOVERY_RECONCILIATION_REQUIRED root=$root trigger=$trigger_task reason=all_declared_criteria_passed"
+		printf 'Root %s needs manager evidence reconciliation; no human dependency was established.\n' "$root" >&2
+		exit 70
 	fi
-	criteria_instruction="Use the existing immutable criterion inventory. Its first unmet leaf is: $first_unmet. Do not create or replace CRITERIA_OUTPUT. If repository evidence proves this leaf is unexpectedly broad, you may refine only $first_unmet into at least two ordered independently verifiable children by writing DECOMPOSITION_OUTPUT with the exact header parent_criterion<TAB>child_criterion<TAB>title<TAB>acceptance_evidence. In that case target the first new child and publish with --auto-replan - DECOMPOSITION_OUTPUT. Otherwise target $first_unmet and publish with --auto-replan only. Never rewrite or remove an existing criterion or decomposition row."
+	criteria_instruction="Use the existing immutable criterion inventory. Its first unmet leaf is: $first_unmet. Do not create or replace CRITERIA_OUTPUT. If repository evidence proves this leaf is unexpectedly broad, you may refine only $first_unmet into at least two ordered independently verifiable children by writing DECOMPOSITION_OUTPUT with the exact header parent_criterion<TAB>child_criterion<TAB>title<TAB>acceptance_evidence. In that case target the first new child and publish with $publish_flag - DECOMPOSITION_OUTPUT. Otherwise target $first_unmet and publish with $publish_flag only. Never rewrite or remove an existing criterion or decomposition row."
 else
 	criteria_instruction="This is an oversized legacy root without an explicit criterion inventory. Create CRITERIA_OUTPUT as criterion_id<TAB>title<TAB>acceptance_evidence with the exact header and at least two ordered, independently verifiable remaining child milestones. The first row must be the bounded target. Do not include completed work as a remaining criterion. Pass CRITERIA_OUTPUT as the final manager-publish-task argument."
 fi
 
 cat > "$prompt_file.tmp.$$" <<PROMPT
-The root hit a convergence guard after its latest outcome was safely archived. Perform one automatic recovery turn in the persistent project-scoped manager thread. Treat the durable files below as authoritative over older conversation context. This is not permission to broaden scope, discard checkpoints, alter the project plan, or retry the same assignment.
+The root hit a convergence guard after its latest outcome was safely archived. Perform one automatic recovery turn in the persistent project-scoped manager thread. Treat the durable files below as authoritative over older conversation context. Preserve checkpoints and the project plan.
 
 ENV_FILE=$HARNESS_ENV_FILE
 PROJECT=$PROJECT
@@ -121,6 +138,9 @@ SPECIFICATION=$SPECIFICATION
 REPOSITORY=$REPOSITORY
 HARNESS_BIN=$HARNESS_BIN
 WORKER_GOAL_MODE=$HARNESS_WORKER_GOAL_MODE
+RECOVERY_MODE=$recovery_mode
+RECOVERY_REASON=$recovery_reason
+BLOCKING_FINGERPRINT=$blocking_fingerprint
 TASK_OUTPUT=$task_output
 CRITERIA_OUTPUT=$criteria_output
 DECOMPOSITION_OUTPUT=$decomposition_output
@@ -129,6 +149,8 @@ Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and the files above tha
 
 $criteria_instruction
 
+$recovery_authority
+
 Write exactly one materially different bounded continuation to TASK_OUTPUT. It must contain exactly one of each:
 
 Task-ID: $expected_task_id
@@ -136,22 +158,29 @@ Task-Root: $root
 Target-Criterion: FIRST_UNMET_ID
 Worker-Context: FRESH
 Replan-Strategy-ID: NEW_STABLE_ID
-Strategy-Change: NARROW_SCOPE|NEW_EVIDENCE|ISOLATE_CRITERION
+Strategy-Change: $strategy_change_values
 Supersedes-Task: $trigger_task
+$recovery_task_metadata
 
 It must also contain nonempty Objective, Acceptance criteria, and Validation commands level-two sections. The objective must isolate the first unmet criterion. The evidence or scope strategy must materially differ from prior entries in REPLAN_LEDGER_FILE and from the triggering assignment. Do not edit the repository in this planning turn.
 
 Publish the task atomically with:
 
-$HARNESS_BIN/manager-publish-task "$HARNESS_ENV_FILE" "$expected_task_id" "$task_output" --auto-replan [CRITERIA_OUTPUT only for an undecomposed legacy root] [DECOMPOSITION_OUTPUT only after a '-' criteria placeholder]
+$HARNESS_BIN/manager-publish-task "$HARNESS_ENV_FILE" "$expected_task_id" "$task_output" $publish_flag [CRITERIA_OUTPUT only for an undecomposed legacy root] [DECOMPOSITION_OUTPUT only after a '-' criteria placeholder]
 
-The command validates the first-unmet leaf, append-only child decomposition, fresh worker context, strategy uniqueness, material fingerprint, verified-gain replan budget, and a blocker that survived without new durable evidence. A unique verified checkpoint or passed criterion resets escalation even when Progress-Percent is unchanged. Correct any validation error within this one turn. Publish exactly one task, then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or call harness-unblock-root.
+$recovery_validator_contract A unique verified checkpoint or passed criterion resets ordinary convergence escalation even when Progress-Percent is unchanged. Correct any validation error within this one turn. Publish exactly one task, then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or call harness-unblock-root.
 PROMPT
 if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
 
 Worker leaf-goal mode is enabled. The replacement assignment must also contain exactly one nonempty line for each of: Execution-Mode: LEAF_GOAL, Goal-ID, Goal-Success-Evidence, Focused-Validation, Allowed-Scope, Baseline-Boundary, and Hard-Block-Conditions. Its existing Target-Criterion line is the goal target. Use a new stable Goal-ID for the materially different strategy.
 PROMPT
+	if [[ "$recovery_mode" == MANAGER_REMEDIATION ]]; then
+		cat >> "$prompt_file.tmp.$$" <<PROMPT
+
+For manager remediation, Allowed-Scope must include exactly the directly implicated Remediation-Scope plus the original focused validation surface. Baseline-Boundary must name the observed local failure. Hard-Block-Conditions must be reserved for a genuinely human-dependent requirement such as missing authorization, unavailable secrets, an external manual state change, or an unresolved product/specification choice; ordinary coding, build, test, or integration failures are not hard blocks.
+PROMPT
+	fi
 fi
 if codex_model_requires_narrow_prompt "$MANAGER_MODEL"; then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
@@ -185,8 +214,8 @@ while true; do
 	json_log="$project_path/logs/manager-replan-$root-$stamp-attempt-$attempt_label.jsonl"
 	stderr_log="$project_path/logs/manager-replan-$root-$stamp-attempt-$attempt_label.stderr.log"
 	last_message="$project_path/logs/manager-replan-$root-$stamp-attempt-$attempt_label.md"
-	log_event "MANAGER_REPLAN_STARTED root=$root trigger=$trigger_task expected_task=$expected_task_id attempt=$attempt context=persistent thread_id=$manager_thread_id"
-	trace_event MANAGER_REPLAN_ATTEMPT "root=$root" "trigger_task=$trigger_task" "expected_task=$expected_task_id" "attempt=$attempt" "context=persistent" "thread_id=$manager_thread_id" "json_log=$json_log"
+	log_event "MANAGER_REPLAN_STARTED root=$root trigger=$trigger_task expected_task=$expected_task_id recovery_mode=$recovery_mode attempt=$attempt context=persistent thread_id=$manager_thread_id"
+	trace_event MANAGER_REPLAN_ATTEMPT "root=$root" "trigger_task=$trigger_task" "expected_task=$expected_task_id" "recovery_mode=$recovery_mode" "attempt=$attempt" "context=persistent" "thread_id=$manager_thread_id" "json_log=$json_log"
 	set +e
 	"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" manager_replan "$current_model" \
 		"$prompt_file" "$json_log" "$stderr_log" "$last_message" resume "$manager_thread_id"
@@ -194,15 +223,20 @@ while true; do
 	set -e
 	classification="$(kv_file_value "${json_log%.jsonl}.classification" classification 2>/dev/null || true)"
 	if task_published; then
-		log_event "MANAGER_REPLAN_COMMITTED root=$root task=$expected_task_id attempt=$attempt"
-		trace_event MANAGER_REPLAN_COMMITTED "root=$root" "task_id=$expected_task_id" "attempt=$attempt"
-		printf 'Persistent manager automatically replanned root %s as %s.\n' "$root" "$expected_task_id"
+		log_event "MANAGER_REPLAN_COMMITTED root=$root task=$expected_task_id recovery_mode=$recovery_mode attempt=$attempt"
+		trace_event MANAGER_REPLAN_COMMITTED "root=$root" "task_id=$expected_task_id" "recovery_mode=$recovery_mode" "attempt=$attempt"
+		if [[ "$recovery_mode" == MANAGER_REMEDIATION ]]; then
+			printf 'Persistent manager published remediation task %s for root %s.\n' "$expected_task_id" "$root"
+		else
+			printf 'Persistent manager automatically replanned root %s as %s.\n' "$root" "$expected_task_id"
+		fi
 		exit 0
 	fi
 	if (( status == 0 )); then
-		mark_root_needs_human "$root" "$trigger_task" \
-			'the persistent manager turn could not publish one valid materially different continuation' >/dev/null
-		exit 0
+		log_event "MANAGER_RECOVERY_NOT_PUBLISHED root=$root trigger=$trigger_task recovery_mode=$recovery_mode classification=${classification:-unknown}"
+		printf 'Persistent manager did not publish a valid %s continuation for root %s; recovery remains pending.\n' \
+			"$recovery_mode" "$root" >&2
+		exit 70
 	fi
 	retry_kind="$(codex_provider_retry_kind "$classification" 2>/dev/null || true)"
 	if [[ -n "$retry_kind" ]]; then
@@ -227,7 +261,8 @@ while true; do
 			continue
 		fi
 	fi
-	mark_root_needs_human "$root" "$trigger_task" \
-		"automatic manager replan failed terminally (classification=$classification status=$status)" >/dev/null
-	exit 0
+	log_event "MANAGER_RECOVERY_FAILED root=$root trigger=$trigger_task recovery_mode=$recovery_mode classification=${classification:-unknown} status=$status"
+	printf 'Automatic manager recovery failed for root %s (classification=%s status=%s); no human dependency was established.\n' \
+		"$root" "${classification:-unknown}" "$status" >&2
+	exit "$status"
 done

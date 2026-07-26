@@ -659,6 +659,13 @@ task_replan_ledger_file()
 	printf '%s/control/progress/%s-task-%s.replans.tsv' "$(project_dir)" "$PROJECT" "$root"
 }
 
+task_manager_remediation_ledger_file()
+{
+	local root
+	root="$(task_root_id "$1")"
+	printf '%s/control/progress/%s-task-%s.manager-remediations.tsv' "$(project_dir)" "$PROJECT" "$root"
+}
+
 task_replan_baseline_file()
 {
 	local root
@@ -1488,6 +1495,46 @@ ensure_root_replan_ledger_schema()
 	done < <(tail -n +2 "$ledger")
 	chmod 600 "$tmp"
 	mv "$tmp" "$ledger"
+}
+
+ensure_root_manager_remediation_ledger_schema()
+{
+	local root="$1" ledger header existing_header=""
+	ledger="$(task_manager_remediation_ledger_file "$root")"
+	header=$'recorded_at\ttask_id\ttrigger_task\ttarget_criterion\tblocker_fingerprint\tblocker_class\tremediation_scope\tmanager_model'
+	if [[ ! -f "$ledger" ]]; then
+		printf '%s\n' "$header" > "$ledger"
+		chmod 600 "$ledger"
+		return 0
+	fi
+	IFS= read -r existing_header < "$ledger" || true
+	[[ "$existing_header" == "$header" ]] ||
+		die "unsupported manager remediation ledger schema: $ledger"
+}
+
+root_manager_remediation_count()
+{
+	local ledger rows
+	ledger="$(task_manager_remediation_ledger_file "$1")"
+	[[ -f "$ledger" ]] || { printf '0\n'; return 0; }
+	rows="$(( $(wc -l < "$ledger") - 1 ))"
+	(( rows >= 0 )) || rows=0
+	printf '%s\n' "$rows"
+}
+
+root_manager_remediation_unique_blocker_count()
+{
+	local ledger
+	ledger="$(task_manager_remediation_ledger_file "$1")"
+	[[ -f "$ledger" ]] || { printf '0\n'; return 0; }
+	awk -F '\t' 'NR > 1 && $5 != "" && $5 != "-" {seen[$5]=1} END {for (item in seen) count++; print count + 0}' "$ledger"
+}
+
+assignment_is_manager_remediation()
+{
+	local file="$1"
+	[[ -f "$file" ]] &&
+		[[ "$(metadata_value "$file" Manager-Remediation)" == 1 ]]
 }
 
 mark_root_needs_human()
