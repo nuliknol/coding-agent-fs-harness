@@ -51,6 +51,8 @@ active_progress_file=""
 active_criteria_file=""
 active_criteria_definition_file=""
 active_criterion_decomposition_file=""
+active_manager_remediation_ledger=""
+active_hard_block_ledger=""
 active_first_unmet_criterion=""
 active_repair_goal_id=""
 active_repair_goal_task=""
@@ -59,6 +61,8 @@ if [[ -n "$active_root_before" && "$active_root_before" != '-' ]]; then
 	active_criteria_file="$(task_criterion_ledger_file "$active_root_before")"
 	active_criteria_definition_file="$(task_criteria_definition_file "$active_root_before")"
 	active_criterion_decomposition_file="$(task_criterion_decomposition_file "$active_root_before")"
+	active_manager_remediation_ledger="$(task_manager_remediation_ledger_file "$active_root_before")"
+	active_hard_block_ledger="$(task_hard_block_ledger_file "$active_root_before")"
 	active_first_unmet_criterion="$(task_first_unmet_criterion "$active_root_before" 2>/dev/null || true)"
 	latest_repair_update=""
 	for prior_goal_state in "$(goal_control_dir)"/"$PROJECT-task-"*.goal; do
@@ -94,12 +98,14 @@ ACTIVE_PROGRESS_FILE=$active_progress_file
 ACTIVE_CRITERIA_FILE=$active_criteria_file
 ACTIVE_CRITERIA_DEFINITION_FILE=$active_criteria_definition_file
 ACTIVE_CRITERION_DECOMPOSITION_FILE=$active_criterion_decomposition_file
+ACTIVE_MANAGER_REMEDIATION_LEDGER=$active_manager_remediation_ledger
+ACTIVE_HARD_BLOCK_LEDGER=$active_hard_block_ledger
 ACTIVE_FIRST_UNMET_CRITERION=$active_first_unmet_criterion
 ACTIVE_REPAIR_GOAL_ID=$active_repair_goal_id
 ACTIVE_REPAIR_GOAL_TASK=$active_repair_goal_task
 WORKER_GOAL_MODE=$HARNESS_WORKER_GOAL_MODE
 
-Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and follow it. Read DEVELOPMENT_POLICY_FILE when present, then read PROJECT_PLAN_FILE and PROJECT_PLAN_STATE_FILE completely. If ACTIVE_TASK_ROOT is set, also read ACTIVE_PROGRESS_FILE, ACTIVE_CRITERIA_FILE, ACTIVE_CRITERIA_DEFINITION_FILE, and ACTIVE_CRITERION_DECOMPOSITION_FILE when present, then publish one newly bounded continuation of that same root with Target-Criterion equal to ACTIVE_FIRST_UNMET_CRITERION. Otherwise select the first PENDING item in specification order and publish a new root whose independently verifiable criteria are declared with stable Root-Criterion lines. Inspect the specification and actual repository state, write exactly one bounded task under PROJECT_TMP_DIR, and publish it with manager-publish-task including its PROJECT_PLAN_ITEM_ID. Preserve completed implementation and begin at the first unmet leaf criterion. Then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or repeat completed plan items.
+Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and follow it. Read DEVELOPMENT_POLICY_FILE when present, then read PROJECT_PLAN_FILE and PROJECT_PLAN_STATE_FILE completely. If ACTIVE_TASK_ROOT is set, also read ACTIVE_PROGRESS_FILE, ACTIVE_CRITERIA_FILE, ACTIVE_CRITERIA_DEFINITION_FILE, ACTIVE_CRITERION_DECOMPOSITION_FILE, ACTIVE_MANAGER_REMEDIATION_LEDGER, and ACTIVE_HARD_BLOCK_LEDGER when present, then publish one newly bounded continuation of that same root with Target-Criterion equal to ACTIVE_FIRST_UNMET_CRITERION. Manager-remediation ledger entries and their checkpoint artifacts are separately attributed baseline prerequisites, not feature-worker implementation changes; a scope acceptance leaf must disclose and validate them but must evaluate the feature-owned delta without charging those paths to the ordinary worker. Direct follow-up fixes causally exposed by a recorded manager remediation retain the same baseline-remediation provenance. An ordinary worker exclusive-file, forbidden-file, or ownership rule does not require human approval for such a bounded repair when observable product behavior and public contracts remain unchanged. Otherwise select the first PENDING item in specification order and publish a new root whose independently verifiable criteria are declared with stable Root-Criterion lines. Inspect the specification and actual repository state, write exactly one bounded task under PROJECT_TMP_DIR, and publish it with manager-publish-task including its PROJECT_PLAN_ITEM_ID. Preserve completed implementation and begin at the first unmet leaf criterion. Then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or repeat completed plan items.
 PROMPT
 if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT

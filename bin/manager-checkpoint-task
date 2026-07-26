@@ -103,6 +103,24 @@ archive_lingering_result()
 	fi
 }
 
+mark_checkpoint_decomposition_replan()
+{
+	local blocker_class remediation_scope
+	if assignment_is_manager_remediation "$assignment_archive"; then
+		blocker_class="$(require_single_metadata_value "$assignment_archive" Blocker-Class \
+			'manager remediation assignment')"
+		remediation_scope="$(require_single_metadata_value "$assignment_archive" Remediation-Scope \
+			'manager remediation assignment')"
+		mark_root_needs_replan "$task_id" \
+			'checkpointed manager baseline remediation exposed another directly implicated prerequisite' \
+			MANAGER_REMEDIATION_CONTINUATION "$blocker_class" "$remediation_scope"
+	else
+		mark_root_needs_replan "$task_id" \
+			'verified leaf-goal progress was checkpointed, but the remaining criterion requires decomposition or a materially different strategy' \
+			GOAL_NEEDS_DECOMPOSITION
+	fi
+}
+
 if [[ -f "$checkpointed" ]]; then
 	archive_lingering_result
 	goal_record_manager_decision "$task_id" CHECKPOINTED
@@ -110,9 +128,7 @@ if [[ -f "$checkpointed" ]]; then
 	trace_event TASK_CHECKPOINT_IDEMPOTENT "task_id=$task_id" "checkpoint_file=$checkpointed"
 	if [[ -f "$result_archive" &&
 		"$(metadata_value "$result_archive" Goal-Outcome)" == NEEDS_DECOMPOSITION ]]; then
-		mark_root_needs_replan "$task_id" \
-			'verified leaf-goal progress was checkpointed, but the remaining criterion requires decomposition or a materially different strategy' \
-			GOAL_NEEDS_DECOMPOSITION
+		mark_checkpoint_decomposition_replan
 	else
 		printf '%s\n' "$checkpointed"
 	fi
@@ -323,9 +339,7 @@ log_event "TASK_CHECKPOINTED task=$task_id root=$root criteria=${#verified_crite
 trace_event TASK_CHECKPOINTED "task_id=$task_id" "task_root=$root" "checkpoint_file=$checkpointed" "artifact_dir=$artifact_dir"
 
 if [[ "$goal_outcome" == NEEDS_DECOMPOSITION ]]; then
-	replan_marker="$(mark_root_needs_replan "$task_id" \
-		'verified leaf-goal progress was checkpointed, but the remaining criterion requires decomposition or a materially different strategy' \
-		GOAL_NEEDS_DECOMPOSITION)"
+	replan_marker="$(mark_checkpoint_decomposition_replan)"
 	printf '%s\n' "$replan_marker"
 elif replan_marker="$(maybe_mark_root_needs_replan "$task_id" CHECKPOINT)"; then
 	printf '%s\n' "$replan_marker"

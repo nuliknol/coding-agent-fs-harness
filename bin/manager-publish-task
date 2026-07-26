@@ -295,8 +295,8 @@ if (( recovery_publish == 1 )); then
 		[[ "$strategy_change" == REPAIR_PREREQUISITE ]] ||
 			die 'manager remediation must set Strategy-Change: REPAIR_PREREQUISITE'
 		remediation_blocker_class="$(single_metadata_value "$task_file" Blocker-Class)"
-		[[ "$remediation_blocker_class" =~ ^(LOCAL_CODE_PREREQUISITE|LOCAL_BUILD_PREREQUISITE|LOCAL_INTEGRATION_PREREQUISITE)$ ]] ||
-			die 'manager remediation Blocker-Class must identify a local code, build, or integration prerequisite'
+		[[ "$remediation_blocker_class" =~ ^(LOCAL_CODE_PREREQUISITE|LOCAL_BUILD_PREREQUISITE|LOCAL_INTEGRATION_PREREQUISITE|LOCAL_SCOPE_PREREQUISITE)$ ]] ||
+			die 'manager remediation Blocker-Class must identify a local code, build, integration, or workstream-scope prerequisite'
 		remediation_scope="$(single_metadata_value "$task_file" Remediation-Scope)"
 		[[ "$remediation_scope" != *$'\t'* ]] ||
 			die 'manager remediation Remediation-Scope must not contain a tab'

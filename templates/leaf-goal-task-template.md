@@ -13,7 +13,7 @@ Goal-Success-Evidence: State the exact independently verifiable passing evidence
 Focused-Validation: State the affected build and one focused validation command.
 Allowed-Scope: State the exact file and behavior boundary.
 Baseline-Boundary: State the durable starting failure, diagnostic, or evidence boundary.
-Hard-Block-Conditions: List only explicit authority, external dependency, or specification conflicts.
+Hard-Block-Conditions: List only explicit authority, external dependency, or incompatible observable product/specification outcomes. Worker file ownership, exclusive/forbidden paths, and baseline restrictions route to manager baseline remediation.
 
 <!-- New roots must also declare all immutable Root-Criterion lines. A new
 root's Target-Criterion is its first Root-Criterion. Continuations omit the

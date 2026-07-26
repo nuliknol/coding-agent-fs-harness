@@ -1539,7 +1539,7 @@ record_root_hard_block()
 	local task_id="$1" blocker_class="$2" disposition="$3"
 	local remediation_scope="${4:--}" reason="${5:--}" root ledger
 	root="$(task_root_id "$task_id")"
-	[[ "$blocker_class" =~ ^(LOCAL_CODE_PREREQUISITE|LOCAL_BUILD_PREREQUISITE|LOCAL_INTEGRATION_PREREQUISITE|HUMAN_AUTHORIZATION|HUMAN_SECRET|HUMAN_EXTERNAL_STATE|HUMAN_PRODUCT_SPECIFICATION)$ ]] ||
+	[[ "$blocker_class" =~ ^(LOCAL_CODE_PREREQUISITE|LOCAL_BUILD_PREREQUISITE|LOCAL_INTEGRATION_PREREQUISITE|LOCAL_SCOPE_PREREQUISITE|HUMAN_AUTHORIZATION|HUMAN_SECRET|HUMAN_EXTERNAL_STATE|HUMAN_PRODUCT_SPECIFICATION)$ ]] ||
 		die "invalid hard-block class: $blocker_class"
 	[[ "$disposition" =~ ^(MANAGER_REMEDIATION|NEEDS_HUMAN)$ ]] ||
 		die "invalid hard-block disposition: $disposition"
@@ -1556,7 +1556,7 @@ record_root_hard_block()
 
 hard_block_class_is_local()
 {
-	[[ "$1" =~ ^(LOCAL_CODE_PREREQUISITE|LOCAL_BUILD_PREREQUISITE|LOCAL_INTEGRATION_PREREQUISITE)$ ]]
+	[[ "$1" =~ ^(LOCAL_CODE_PREREQUISITE|LOCAL_BUILD_PREREQUISITE|LOCAL_INTEGRATION_PREREQUISITE|LOCAL_SCOPE_PREREQUISITE)$ ]]
 }
 
 hard_block_class_is_human()

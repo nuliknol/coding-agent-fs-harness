@@ -41,6 +41,7 @@ goal_outcome=""
 blocker_class="$(metadata_value "$note_file" Blocker-Class)"
 remediation_scope="$(metadata_value "$note_file" Remediation-Scope)"
 human_dependency_evidence="$(metadata_value "$note_file" Human-Dependency-Evidence)"
+product_decision_evidence="$(metadata_value "$note_file" Product-Decision-Evidence)"
 [[ ! -f "$result" ]] || goal_outcome="$(metadata_value "$result" Goal-Outcome)"
 
 [[ -n "$progress_percent" ]] || progress_percent="$(task_progress_percent "$root")"
@@ -97,8 +98,12 @@ elif hard_block_class_is_local "$blocker_class"; then
 elif hard_block_class_is_human "$blocker_class"; then
 	[[ -n "$human_dependency_evidence" ]] ||
 		die 'a human-dependent HARD_BLOCKED review requires Human-Dependency-Evidence'
+	if [[ "$blocker_class" == HUMAN_PRODUCT_SPECIFICATION ]]; then
+		[[ -n "$product_decision_evidence" ]] ||
+			die 'HUMAN_PRODUCT_SPECIFICATION requires Product-Decision-Evidence naming incompatible observable product outcomes; file ownership or worker scope alone is LOCAL_SCOPE_PREREQUISITE'
+	fi
 else
-	die 'HARD_BLOCKED review requires Blocker-Class: LOCAL_CODE_PREREQUISITE|LOCAL_BUILD_PREREQUISITE|LOCAL_INTEGRATION_PREREQUISITE|HUMAN_AUTHORIZATION|HUMAN_SECRET|HUMAN_EXTERNAL_STATE|HUMAN_PRODUCT_SPECIFICATION'
+	die 'HARD_BLOCKED review requires Blocker-Class: LOCAL_CODE_PREREQUISITE|LOCAL_BUILD_PREREQUISITE|LOCAL_INTEGRATION_PREREQUISITE|LOCAL_SCOPE_PREREQUISITE|HUMAN_AUTHORIZATION|HUMAN_SECRET|HUMAN_EXTERNAL_STATE|HUMAN_PRODUCT_SPECIFICATION'
 fi
 
 [[ -f "$result" ]] || die "result does not exist: $task_id"
@@ -153,6 +158,9 @@ tmp="$blocked.tmp.$$"
 	printf 'Reason: %s\n\n' "$reason"
 	printf 'Blocker-Class: %s\n\n' "$blocker_class"
 	printf 'Human-Dependency-Evidence: %s\n\n' "$human_dependency_evidence"
+	if [[ "$blocker_class" == HUMAN_PRODUCT_SPECIFICATION ]]; then
+		printf 'Product-Decision-Evidence: %s\n\n' "$product_decision_evidence"
+	fi
 	printf '## Review notes\n\n'
 	cat "$note_file"
 	printf '\n'

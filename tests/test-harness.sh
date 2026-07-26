@@ -744,7 +744,7 @@ RESULT
 cat > "$HARD_ROOT/review.md" <<'NOTE'
 Progress-Percent: 0%
 Improvement-Percent: 0%
-Blocker-Class: LOCAL_CODE_PREREQUISITE
+Blocker-Class: LOCAL_SCOPE_PREREQUISITE
 Remediation-Scope: src/private-provider.c tests/focused-provider-smoke.c
 NOTE
 hard_block_output="$("$HARNESS_BIN/manager-block-task" "$HARD_ROOT/harness.env" \
@@ -756,11 +756,11 @@ hard_block_output="$("$HARNESS_BIN/manager-block-task" "$HARD_ROOT/harness.env" 
 [[ ! -f "$hard_progress/hardblockproj-task-001.needs-human.md" ]]
 grep -q '^Trigger-Outcome: HARD_BLOCKED_LOCAL$' \
 	"$hard_progress/hardblockproj-task-001.needs-replan.md"
-grep -q '^Blocker-Class: LOCAL_CODE_PREREQUISITE$' \
+grep -q '^Blocker-Class: LOCAL_SCOPE_PREREQUISITE$' \
 	"$hard_progress/hardblockproj-task-001.needs-replan.md"
 grep -q '^Remediation-Scope: src/private-provider.c tests/focused-provider-smoke.c$' \
 	"$hard_progress/hardblockproj-task-001.needs-replan.md"
-grep -q $'\t001\t001\tLOCAL_CODE_PREREQUISITE\tMANAGER_REMEDIATION\t' \
+grep -q $'\t001\t001\tLOCAL_SCOPE_PREREQUISITE\tMANAGER_REMEDIATION\t' \
 	"$hard_progress/hardblockproj-task-001.hard-blocks.tsv"
 cat > "$hard_project/control/manager.thread" <<'THREAD'
 thread_id=hard-block-manager-thread
@@ -781,6 +781,98 @@ grep -q 'Manager remediation blockers: 1 occurrence(s), 0 unique fingerprint(s);
 	"$HARD_ROOT/status.out"
 grep -q 'Hard-block claims: 1 occurrence(s); 1 routed to manager remediation; 0 confirmed human-dependent.' \
 	"$HARD_ROOT/status.out"
+
+# If a manager remediation checkpoints a useful repair but exposes another
+# directly implicated prerequisite, the next recovery must remain manager
+# baseline remediation instead of losing provenance as an ordinary feature
+# continuation.
+mv "$hard_remediation" \
+	"$hard_project/archive/hardblockproj-task-001-revision-01.assignment.md"
+cat > "$hard_project/results/hardblockproj-task-001-revision-01.result.md" <<'RESULT'
+# Task Result
+
+Task-ID: 001-revision-01
+Status: COMPLETED
+Goal-Outcome: NEEDS_DECOMPOSITION
+
+## Summary
+
+The first baseline prerequisite is repaired and the next one is isolated.
+
+## Modified files
+
+None in this fixture.
+
+## Implemented behavior
+
+The manager remediation advanced the focused boundary.
+
+## Validation performed
+
+The focused fixture validation passed.
+
+## Deviations from assignment
+
+None.
+
+## Remaining concerns
+
+One directly implicated prerequisite remains.
+
+## Worker assessment
+
+The useful repair should be checkpointed before manager remediation continues.
+RESULT
+cat > "$HARD_ROOT/remediation-checkpoint-review.md" <<'NOTE'
+# Manager Review Record
+
+Task-ID: 001-revision-01
+Decision: CHECKPOINT
+Progress-Percent: 0%
+Improvement-Percent: 0%
+Verified-Increment: fixture.local-hard-block.baseline-repair
+Checkpoint-Path: NONE
+
+## Specification comparison
+
+The baseline repair preserves the observable fixture requirement.
+
+## Increment verification
+
+- [PASS] baseline repair — the focused boundary advanced
+
+## Validation executed
+
+- [PASS] focused fixture — exit status 0
+
+## Scope and regression review
+
+The repair remains separately attributed manager remediation.
+
+## Remaining root criteria
+
+The original focused criterion remains pending.
+
+## Conclusion
+
+Checkpoint the repair and continue manager remediation.
+NOTE
+remediation_checkpoint_output="$("$HARNESS_BIN/manager-checkpoint-task" \
+	"$HARD_ROOT/harness.env" 001-revision-01 \
+	"$HARD_ROOT/remediation-checkpoint-review.md")"
+[[ "$remediation_checkpoint_output" == *.needs-replan.md ]]
+grep -q '^Trigger-Outcome: MANAGER_REMEDIATION_CONTINUATION$' \
+	"$hard_progress/hardblockproj-task-001.needs-replan.md"
+grep -q '^Blocker-Class: LOCAL_CODE_PREREQUISITE$' \
+	"$hard_progress/hardblockproj-task-001.needs-replan.md"
+grep -q '^Remediation-Scope: src/mock-blocking-prerequisite.c$' \
+	"$hard_progress/hardblockproj-task-001.needs-replan.md"
+"$HARNESS_BIN/manager-auto-replan-root" "$HARD_ROOT/harness.env" 001 >/dev/null
+hard_remediation_continuation="$hard_project/tasks/hardblockproj-task-001-revision-02.ready.md"
+[[ -f "$hard_remediation_continuation" ]]
+grep -q '^Manager-Remediation: 1$' "$hard_remediation_continuation"
+grep -q '^Strategy-Change: REPAIR_PREREQUISITE$' "$hard_remediation_continuation"
+grep -q '^Supersedes-Task: 001-revision-01$' "$hard_remediation_continuation"
 
 # A terminal pause requires an enumerated human dependency and concrete
 # evidence; it uses NEEDS_HUMAN rather than the legacy root-block marker.
@@ -807,6 +899,39 @@ grep -q '^Blocker-Class: HUMAN_AUTHORIZATION$' \
 "$HARNESS_BIN/harness-status" "$HARD_ROOT/harness.env" > "$HARD_ROOT/human-status.out"
 grep -q 'Hard-block claims: 2 occurrence(s); 1 routed to manager remediation; 1 confirmed human-dependent.' \
 	"$HARD_ROOT/human-status.out"
+
+# Product/specification escalation must identify incompatible observable
+# outcomes. A file-ownership or scope-only claim cannot pass this gate.
+printf 'product hard-block assignment\n' > \
+	"$hard_project/archive/hardblockproj-task-product-001.assignment.md"
+cat > "$hard_project/results/hardblockproj-task-product-001.result.md" <<'RESULT'
+# Task Result
+
+Goal-Outcome: HARD_BLOCKED
+RESULT
+cat > "$HARD_ROOT/product-review.md" <<'NOTE'
+Progress-Percent: 0%
+Improvement-Percent: 0%
+Blocker-Class: HUMAN_PRODUCT_SPECIFICATION
+Human-Dependency-Evidence: two behaviors appear to conflict
+NOTE
+if "$HARNESS_BIN/manager-block-task" "$HARD_ROOT/harness.env" \
+	product-001 "$HARD_ROOT/product-review.md" \
+	'product behavior is unresolved' >"$HARD_ROOT/product-invalid.out" \
+	2>"$HARD_ROOT/product-invalid.err"; then
+	printf 'scope-only HUMAN_PRODUCT_SPECIFICATION unexpectedly passed validation\n' >&2
+	exit 1
+fi
+grep -q 'HUMAN_PRODUCT_SPECIFICATION requires Product-Decision-Evidence' \
+	"$HARD_ROOT/product-invalid.err"
+cat >> "$HARD_ROOT/product-review.md" <<'NOTE'
+Product-Decision-Evidence: public API returns legacy values or normalized values, and the specification does not choose between them
+NOTE
+product_block_output="$("$HARNESS_BIN/manager-block-task" "$HARD_ROOT/harness.env" \
+	product-001 "$HARD_ROOT/product-review.md" 'product behavior is unresolved')"
+[[ "$product_block_output" == *.needs-human.md ]]
+grep -q '^Product-Decision-Evidence: public API returns legacy values or normalized values' \
+	"$hard_project/archive/hardblockproj-task-product-001.blocked.md"
 
 # A genuine authority dependency remains terminal for the output watcher, even
 # though deterministic local blockers no longer use that state.

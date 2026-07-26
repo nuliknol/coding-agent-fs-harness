@@ -180,9 +180,15 @@ cannot drive a progressing root into
 If the ordinary strategy budget is exhausted, or the same blocking fingerprint
 survives without durable gain, the manager publishes a
 `Manager-Remediation: 1` task. Its `Remediation-Scope` may include directly
-implicated local prerequisite files that an earlier worker leaf treated as
-baseline, while the original criterion and acceptance gate remain immutable.
-The task is executed with the manager model in fresh task context.
+implicated local prerequisite files that an ordinary worker ownership rule,
+exclusive/forbidden-file list, baseline label, or earlier allowed scope
+excluded. The manager acts as integration owner for that bounded repair.
+Affected paths remain separately attributed baseline-remediation provenance
+instead of becoming part of the feature worker's owned implementation delta.
+If a checkpointed remediation exposes another prerequisite, that provenance is
+carried into the next manager-remediation task. The original observable
+acceptance behavior remains immutable, and the task runs with the manager model
+in fresh task context.
 
 If an existing first-unmet leaf proves broader than expected, an automatic
 replan may append at least two ordered child criteria. Existing root criteria
@@ -208,8 +214,8 @@ The unattended transition rules are:
 | The same blocker reappears after new verified evidence | Permit another bounded strategy because the prior replan produced durable gain. |
 | The configured number of materially different replans produces no new verified item | Publish a visible manager-model remediation task for the directly implicated local prerequisite. |
 | The same local blocker survives without verified gain | Publish a bounded manager remediation; do not classify a coding/build/integration problem as human-dependent. |
-| A leaf is hard-blocked by its worker scope, frozen baseline sources, missing private testability, or an overconstrained derived criterion | Archive that leaf attempt and publish a manager-remediation task with authority over the directly implicated repository-local prerequisite. |
-| Authorization, unavailable secret, external manual state, or unresolved product/specification authority is required | Enter `NEEDS_HUMAN`. |
+| A leaf is hard-blocked by worker scope, an exclusive/forbidden-file ownership rule, frozen baseline sources, missing private testability, or an overconstrained derived criterion | Archive that leaf attempt and publish a manager baseline-remediation task with authority over the directly implicated repository-local prerequisite. |
+| Authorization, unavailable secret, external manual state, or incompatible observable product/API/data outcomes not resolved by the specification require a person | Enter `NEEDS_HUMAN`. |
 
 No checkpoint, criterion record, archived attempt, or live workspace change is
 deleted during these transitions.
@@ -536,9 +542,14 @@ atomically archives the rejection and requests a manager-remediation task;
 the local code/build blocker does not become a human-only stop.
 `manager-block-task` independently verifies the configured threshold when
 called directly. For a verified `HARD_BLOCKED` result it additionally requires
-an explicit blocker classification. Local code/build/integration classes route
-to manager remediation; only an evidenced authorization, secret, external
-state, or governing product/specification class enters `NEEDS_HUMAN`.
+an explicit blocker classification. Local code/build/integration/scope classes
+route to manager remediation. `LOCAL_SCOPE_PREREQUISITE` covers ordinary worker
+ownership, exclusive/forbidden-file, and frozen-baseline boundaries when a
+bounded integration-owner repair preserves observable behavior. Only an
+evidenced authorization, secret, external state, or governing
+product/specification class enters `NEEDS_HUMAN`; the product/specification
+class additionally requires `Product-Decision-Evidence` naming incompatible
+observable outcomes, so file ownership alone cannot trigger it.
 
 ### Convergence guards and automatic replan configuration
 
@@ -602,13 +613,18 @@ ledgers are upgraded automatically on the next successful replan by deriving
 their historical verified counts from timestamped criterion-ledger rows.
 The append-only `.manager-remediations.tsv` ledger separately records every
 manager blocker occurrence, its fingerprint/class/scope, and the manager model.
+Together with checkpoint artifacts, it is the provenance boundary between
+baseline remediation and the feature worker's owned implementation delta. A
+final scope audit discloses and validates those repairs without charging them
+to the ordinary worker.
 The append-only `.hard-blocks.tsv` ledger records every independently reviewed
 hard-block claim and whether it was routed to manager remediation or confirmed
 human-dependent.
 
 `NEEDS_HUMAN` is reserved for a documented dependency on a person: missing
 authorization, an unavailable secret, an external manual state transition, or
-an unresolved product/specification decision. `harness-unblock-root ENV_FILE
+incompatible observable product/specification outcomes that the governing
+specification does not resolve. `harness-unblock-root ENV_FILE
 TASK_ROOT` remains the explicit operator action for such a boundary. Legacy
 `NEEDS_HUMAN` markers created solely by the old no-gain/unchanged-blocker rule
 are automatically reclassified to manager remediation on supervisor startup.

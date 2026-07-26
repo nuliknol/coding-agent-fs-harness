@@ -152,11 +152,16 @@ For a terminal leaf-goal result, independently interpret `GOAL_OUTCOME`:
   explicit hard-block condition is independently verified. The hard block
   applies first to the current leaf assignment, not automatically to the
   project. Classify the underlying dependency in the review note:
-  `LOCAL_CODE_PREREQUISITE`, `LOCAL_BUILD_PREREQUISITE`, or
-  `LOCAL_INTEGRATION_PREREQUISITE` plus a bounded `Remediation-Scope` routes to
-  manager remediation; `HUMAN_AUTHORIZATION`, `HUMAN_SECRET`,
+  `LOCAL_CODE_PREREQUISITE`, `LOCAL_BUILD_PREREQUISITE`,
+  `LOCAL_INTEGRATION_PREREQUISITE`, or `LOCAL_SCOPE_PREREQUISITE` plus a
+  bounded `Remediation-Scope` routes to manager remediation;
+  `HUMAN_AUTHORIZATION`, `HUMAN_SECRET`,
   `HUMAN_EXTERNAL_STATE`, or `HUMAN_PRODUCT_SPECIFICATION` plus concrete
   `Human-Dependency-Evidence` is required to pause for a person.
+  `HUMAN_PRODUCT_SPECIFICATION` additionally requires
+  `Product-Decision-Evidence` naming incompatible observable product, public
+  API, or data outcomes that the governing specification does not resolve.
+  File ownership and workstream scope are not product outcomes.
 
 When a claimed `COMPLETE` is rejected as faulty or insufficiently verified,
 publish the same leaf's repair with the same `Goal-ID`. Unless
@@ -352,6 +357,11 @@ independently verifying a leaf-goal `HARD_BLOCKED` outcome against the explicit
 hard-block conditions in its assignment. Even then, repository-local
 implementation or testability work outside the worker leaf's `Allowed-Scope`
 must be classified for manager remediation rather than human intervention.
+This includes an ordinary worker's exclusive-file, forbidden-file, ownership,
+or frozen-baseline restriction when a bounded repair preserves observable
+product behavior and public contracts. Use `LOCAL_SCOPE_PREREQUISITE`; the
+manager acts as integration owner and the harness records the affected paths
+as baseline-remediation provenance separate from the feature-owned delta.
 
 When `CLOSURE_MODE_ELIGIBLE_ON_REJECTION=1`, the next assignment must state
 `Closure-Mode: ENABLED`, name exactly one focused root acceptance smoke, and
@@ -415,10 +425,13 @@ verified item, no materially different task can be published, or the same
 deterministic blocker survives without durable gain, the root enters manager
 remediation. A verified leaf hard block and an Oracle-authored scope conflict
 also enter manager remediation when a bounded repository-local implementation,
-test seam, build repair, or criterion strategy can preserve the governing
-specification. `NEEDS_HUMAN` is reserved for documented authorization, secret,
-external-state, or governing product/specification authority that the manager
-cannot supply.
+test seam, build repair, integration-owner repair, or criterion strategy can
+preserve observable acceptance behavior. Manager-remediation paths and
+directly caused follow-up fixes are separately attributed baseline
+prerequisites; disclose and validate them in scope audits without charging them
+to the ordinary feature worker's owned implementation delta. `NEEDS_HUMAN` is
+reserved for documented authorization, secret, external-state, or incompatible
+observable product/specification outcomes that the manager cannot resolve.
 
 ## Recovery behavior
 

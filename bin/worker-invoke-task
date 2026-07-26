@@ -178,12 +178,12 @@ if (( manager_remediation == 1 )); then
 	remediation_class="$(require_single_metadata_value "$task_file" Blocker-Class 'manager remediation assignment')"
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
 
-Manager remediation execution is active because ordinary bounded worker strategies reached a local coding/build/integration blocker. You are running with the manager model specifically to repair that prerequisite, not merely to describe it.
+Manager baseline-remediation execution is active because ordinary bounded worker strategies reached a local coding/build/integration/ownership blocker. You are running with the manager model specifically to repair that prerequisite, not merely to describe it.
 
 Blocker class: $remediation_class
 Authorized remediation scope: $remediation_scope
 
-You may edit the directly implicated local files in Remediation-Scope even if a prior worker assignment called them baseline or excluded them from its Allowed-Scope. Diagnose from current compiler, linker, test, and repository evidence; make the smallest complete repair; then validate the original Target-Criterion without weakening it. Do not alter the specification, acceptance criteria, unrelated APIs/behavior, external systems, credentials, or authorization boundaries. A normal source, build, test, or integration defect is resolvable here and is not a reason to request human intervention.
+You may edit the directly implicated local files in Remediation-Scope even if an ordinary worker ownership rule, exclusive-file list, forbidden-file list, baseline label, or prior Allowed-Scope excluded them. The harness records these paths as manager baseline remediation, separate from the feature worker's owned implementation delta. Diagnose from current compiler, linker, test, and repository evidence; make the smallest complete repair; then validate the original Target-Criterion without weakening its observable behavior. Do not alter the specification, acceptance behavior, unrelated APIs/behavior, external systems, credentials, or authorization boundaries. A normal source, build, test, integration, or file-ownership defect is resolvable here and is not a reason to request human intervention.
 PROMPT
 fi
 if (( goal_mode == 1 )); then

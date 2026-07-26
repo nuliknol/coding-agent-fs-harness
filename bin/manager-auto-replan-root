@@ -37,12 +37,15 @@ trigger_blocker_class="$(awk -F': ' '$1 == "Blocker-Class" {print $2; exit}' "$r
 trigger_remediation_scope="$(awk -F': ' '$1 == "Remediation-Scope" {print $2; exit}' "$replan_marker")"
 recovery_mode="AUTOMATIC_REPLAN"
 recovery_reason="bounded strategy change remains available"
-if [[ "$trigger_outcome" == DETERMINISTIC_BLOCKER ]]; then
+	if [[ "$trigger_outcome" == DETERMINISTIC_BLOCKER ]]; then
 	recovery_mode="MANAGER_REMEDIATION"
 	recovery_reason="the configured deterministic local-blocker threshold was reached"
-elif [[ "$trigger_outcome" == HARD_BLOCKED_LOCAL ]]; then
-	recovery_mode="MANAGER_REMEDIATION"
-	recovery_reason="a verified leaf hard block identified a repository-local prerequisite outside the earlier worker scope"
+	elif [[ "$trigger_outcome" == HARD_BLOCKED_LOCAL ]]; then
+		recovery_mode="MANAGER_REMEDIATION"
+		recovery_reason="a verified leaf hard block identified a repository-local prerequisite outside the earlier worker scope"
+	elif [[ "$trigger_outcome" == MANAGER_REMEDIATION_CONTINUATION ]]; then
+		recovery_mode="MANAGER_REMEDIATION"
+		recovery_reason="a checkpointed baseline remediation exposed one more directly implicated local prerequisite"
 elif [[ "$trigger_outcome" == LEGACY_HARD_BLOCKED ]]; then
 	recovery_mode="MANAGER_REMEDIATION"
 	recovery_reason="a legacy terminal hard block requires manager-level repository-local reconsideration before any human escalation"
@@ -108,8 +111,8 @@ strategy_change_values="NARROW_SCOPE|NEW_EVIDENCE|ISOLATE_CRITERION"
 if [[ "$recovery_mode" == MANAGER_REMEDIATION ]]; then
 	publish_flag="--manager-remediation"
 	strategy_change_values="REPAIR_PREREQUISITE"
-	recovery_task_metadata=$'Manager-Remediation: 1\nBlocker-Class: LOCAL_CODE_PREREQUISITE|LOCAL_BUILD_PREREQUISITE|LOCAL_INTEGRATION_PREREQUISITE\nRemediation-Scope: DIRECTLY_IMPLICATED_LOCAL_FILES_OR_DIRECTORIES'
-	recovery_authority="This is a manager remediation assignment, not another ordinary worker retry. Inspect the blocker evidence and name the smallest concrete Remediation-Scope that contains the directly implicated local prerequisite sources, test seams, build files, or integration files. The execution turn will run with the manager model and may edit those named prerequisites even when they were outside the prior worker leaf Allowed-Scope. A manager-authored leaf requirement that is stricter than the governing specification may be replaced by a different evidence strategy for the same immutable criterion; do not weaken the governing specification or acceptance behavior. Preserve public contracts unless the governing specification itself requires a public change. It must not change unrelated behavior or external systems."
+	recovery_task_metadata=$'Manager-Remediation: 1\nBlocker-Class: LOCAL_CODE_PREREQUISITE|LOCAL_BUILD_PREREQUISITE|LOCAL_INTEGRATION_PREREQUISITE|LOCAL_SCOPE_PREREQUISITE\nRemediation-Scope: DIRECTLY_IMPLICATED_LOCAL_FILES_OR_DIRECTORIES'
+	recovery_authority="This is a manager remediation assignment, not another ordinary worker retry. The manager acts as the integration owner for bounded repository-local prerequisites. Inspect the blocker evidence and name the smallest concrete Remediation-Scope that contains the directly implicated local prerequisite sources, test seams, build files, integration files, or workstream-owned files. The execution turn will run with the manager model and may edit those named prerequisites even when an ordinary worker ownership rule, exclusive-file list, forbidden-file list, baseline label, or prior Allowed-Scope excluded them. Such paths remain separately attributed to manager baseline remediation through the durable remediation ledger and checkpoint artifacts; they are not part of the feature worker's owned implementation delta. Preserve observable product behavior and public contracts unless the governing specification itself requires a public change. Do not change unrelated behavior or external systems."
 	recovery_validator_contract="The command validates the first-unmet leaf, fresh manager execution context, local prerequisite classification and scope, strategy uniqueness, and material fingerprint. Manager remediation intentionally bypasses the exhausted ordinary-replan/no-gain guard; it does not relax acceptance."
 fi
 if task_root_uses_assignment_criteria "$root" || [[ -f "$criteria_definition" ]]; then
@@ -188,7 +191,7 @@ PROMPT
 	if [[ "$recovery_mode" == MANAGER_REMEDIATION ]]; then
 		cat >> "$prompt_file.tmp.$$" <<PROMPT
 
-For manager remediation, Allowed-Scope must include exactly the directly implicated Remediation-Scope plus the original focused validation surface. Consider TRIGGER_BLOCKER_CLASS and TRIGGER_REMEDIATION_SCOPE as evidence, then refine them from repository inspection rather than copying an overbroad placeholder. Baseline-Boundary must name the observed local failure. Hard-Block-Conditions must be reserved for a genuinely human-dependent requirement such as missing authorization, unavailable secrets, an external manual state change, or an unresolved governing product/specification choice; ordinary coding, private testability, build, test, integration, worker-scope, and baseline-source restrictions are not human hard blocks.
+For manager remediation, Allowed-Scope must include exactly the directly implicated Remediation-Scope plus the original focused validation surface. Consider TRIGGER_BLOCKER_CLASS and TRIGGER_REMEDIATION_SCOPE as evidence, then refine them from repository inspection rather than copying an overbroad placeholder. Baseline-Boundary must name the observed local failure. Use LOCAL_SCOPE_PREREQUISITE when the only obstacle is an ordinary worker ownership, exclusive-file, forbidden-file, or baseline-source rule and the repair preserves observable behavior. Hard-Block-Conditions must be reserved for a genuinely human-dependent requirement such as missing authorization, unavailable secrets, an external manual state change, or incompatible observable product outcomes that the specification does not resolve; ordinary coding, private testability, build, test, integration, worker-scope, ownership, and baseline-source restrictions are not human hard blocks.
 PROMPT
 	fi
 fi
