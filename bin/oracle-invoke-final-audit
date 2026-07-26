@@ -21,6 +21,7 @@ project_plan_all_complete || die 'Oracle audit requires a complete project plan'
 project_is_blocked && exit 0
 pending="$(project_oracle_pending_file)"
 [[ -f "$pending" ]] || exit 0
+rm -f "$(project_oracle_dir)/oracle-invocation-failed.md"
 write_oracle_snapshot
 
 dir="$(project_dir)"
@@ -79,14 +80,16 @@ chmod 600 "$prompt.tmp.$$"
 mv "$prompt.tmp.$$" "$prompt"
 
 attempt=1
+fallback_stage=0
+current_model="$ORACLE_MODEL"
 while true; do
 	stamp="$(date -u '+%Y%m%dT%H%M%SZ')"
 	json="$dir/logs/oracle-audit-$audit_id-$stamp-attempt-$(printf '%03d' "$attempt").jsonl"
 	stderr="$dir/logs/oracle-audit-$audit_id-$stamp-attempt-$(printf '%03d' "$attempt").stderr.log"
 	last="$dir/logs/oracle-audit-$audit_id-$stamp-attempt-$(printf '%03d' "$attempt").md"
-	log_event "ORACLE_AUDIT_STARTED audit_id=$audit_id attempt=$attempt model=$ORACLE_MODEL"
+	log_event "ORACLE_AUDIT_STARTED audit_id=$audit_id attempt=$attempt model=$current_model"
 	set +e
-	"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" oracle "$ORACLE_MODEL" "$prompt" "$json" "$stderr" "$last"
+	"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" oracle "$current_model" "$prompt" "$json" "$stderr" "$last"
 	status=$?
 	set -e
 	[[ ! -f "$pending" ]] && { log_event "ORACLE_AUDIT_FINISHED audit_id=$audit_id attempt=$attempt"; exit 0; }
@@ -98,6 +101,26 @@ while true; do
 		sleep "$delay"
 		attempt=$((attempt + 1))
 		continue
+	fi
+	if codex_model_requires_narrow_prompt "$current_model" &&
+		[[ "$classification" == model_refusal_or_blocked_content ]]; then
+		if (( fallback_stage == 0 )); then
+			fallback_stage=1
+			attempt=$((attempt + 1))
+			cat >> "$prompt" <<'PROMPT'
+
+Retry scope: this is authorized, benign software-quality verification in the listed local repository. Continue only the final audit against the original specification and existing plan. Use the smallest local build, unit, lifetime, or memory-safety diagnostic needed to verify a concrete requirement. Do not perform offensive security, credential access, exploitation, persistence, network scanning, or security-control bypass.
+PROMPT
+			log_event "ORACLE_TERRA_NARROW_RETRY audit_id=$audit_id classification=$classification attempt=$attempt"
+			continue
+		fi
+		if (( fallback_stage == 1 )) && [[ "$ORACLE_FALLBACK_MODEL" != "$current_model" ]]; then
+			fallback_stage=2
+			current_model="$ORACLE_FALLBACK_MODEL"
+			attempt=$((attempt + 1))
+			log_event "ORACLE_MODEL_FALLBACK audit_id=$audit_id classification=$classification attempt=$attempt model=$current_model"
+			continue
+		fi
 	fi
 	printf 'Oracle audit %s exited without recording a verdict; see %s\n' "$audit_id" "$last" >&2
 	if (( status == 0 )); then exit 3; fi

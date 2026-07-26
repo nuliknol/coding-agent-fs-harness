@@ -40,6 +40,7 @@ if oracle_enabled; then
 	printf 'Oracle Codex: %s\n' "$ORACLE_CODEX_BIN"
 	printf 'Oracle Codex home: %s\n' "$ORACLE_CODEX_HOME"
 	printf 'Oracle model: %s (%s)\n' "$ORACLE_MODEL" "$ORACLE_REASONING_EFFORT"
+	printf 'Oracle fallback model: %s\n' "$ORACLE_FALLBACK_MODEL"
 	printf 'Oracle sandbox: %s\n' "$ORACLE_SANDBOX"
 fi
 printf 'Worker heartbeat seconds: %s\n' "$WORKER_HEARTBEAT_SECONDS"

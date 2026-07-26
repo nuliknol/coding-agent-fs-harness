@@ -15,6 +15,7 @@ load_harness_env "$1"
 ensure_project
 
 dir="$(project_dir)"
+oracle_invocation_failure="$(project_oracle_dir)/oracle-invocation-failed.md"
 if project_plan_exists; then
 	printf -v project_progress_line 'Project progress: %s%% (%s/%s plan items complete)' \
 		"$(project_plan_progress_percent)" "$(project_plan_complete_count)" "$(project_plan_total_count)"
@@ -64,6 +65,8 @@ printf 'Worker leaf-goal mode: %s\n' "$([[ "$HARNESS_WORKER_GOAL_MODE" == 1 ]] &
 if oracle_enabled; then
 	if [[ -f "$(project_block_file)" ]]; then
 		printf 'Oracle audit: BLOCKED (%s)\n' "$(project_block_file)"
+	elif [[ -f "$oracle_invocation_failure" ]]; then
+		printf 'Oracle audit: INVOCATION_FAILED (%s)\n' "$oracle_invocation_failure"
 	elif [[ -f "$(project_oracle_pending_file)" ]]; then
 		printf 'Oracle audit: PENDING\n'
 	else
@@ -260,6 +263,8 @@ elif (( replan_count > 0 )); then
 	fi
 elif project_is_blocked; then
 	project_status_line='Project status: BLOCKED. The Oracle requires human approval before planning can continue.'
+elif [[ -f "$oracle_invocation_failure" ]]; then
+	project_status_line='Project status: ORACLE_AUDIT_FAILED. The final independent audit invocation failed locally; verified work is preserved and the audit requires an automatic retry or supervisor restart.'
 elif [[ -f "$dir/control/manager-plan.running" ]]; then
 	project_status_line='Project status: PLANNING. The manager is preparing the next bounded task.'
 elif (( active_count > 0 )); then

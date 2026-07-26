@@ -112,7 +112,7 @@ elif (( failure_signal )) && { [[ "$http_status" =~ ^(408|425|429|500|502|503|50
 elif [[ ! -s "$json_log" ]]; then
  if (( status == 0 )); then classification="empty_final_output"; else classification="process_nonzero_exit"; fi
 elif ! jq -e -s 'all(.[]; type == "object" and (.type | type == "string"))' "$json_log" >/dev/null 2>&1; then classification="json_event_parse_failure"
-elif printf '%s\n' "$error_event_text" | grep -Eqi 'refus|blocked content|safety check|cannot assist'; then classification="model_refusal_or_blocked_content"
+elif printf '%s\n' "$error_event_text" | grep -Eqi 'refus|blocked content|safety check|cannot assist|flagged for possible cyber(security)? risk|trusted access for cyber'; then classification="model_refusal_or_blocked_content"
 elif jq -e 'select(.type == "turn.failed")' "$json_log" >/dev/null 2>&1; then classification="turn_failed"
 elif jq -e 'select(.type == "error")' "$json_log" >/dev/null 2>&1; then classification="error_event"
 elif (( status != 0 )); then classification="process_nonzero_exit"

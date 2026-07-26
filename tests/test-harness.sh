@@ -97,6 +97,17 @@ if [[ "$count" == 1 && ( "$key" == plan || "$key" == worker-002 ) ]]; then
 	exit 1
 fi
 
+# Exercise Oracle recovery from the exact model-service moderation wording that
+# previously left a completed project indefinitely pending. The first failure
+# must narrow the prompt; the second must switch to the configured fallback.
+if [[ "$key" == oracle-1 && "$count" -le 2 ]]; then
+	if [[ "$count" == 2 ]]; then
+		printf '%s\n' "$prompt" | grep -q '^Retry scope: this is authorized, benign software-quality verification'
+	fi
+	printf '%s\n' '{"type":"turn.failed","error":{"message":"This content was flagged for possible cybersecurity risk. To get authorized for security work, join the Trusted Access for Cyber program."}}'
+	exit 1
+fi
+
 printf '{"type":"thread.started","thread_id":"%s"}\n' "${resume_thread_id:-mock-thread-001}"
 printf '{"type":"turn.started"}\n'
 HARNESS_BIN="$(value HARNESS_BIN)"
@@ -1836,6 +1847,11 @@ oracle_prompt="$ORACLE_ROOT/state/projects/oracleproj/control/oracle-audit-1.pro
 grep -q 'at least one `Original-Requirement-ID: ...`' "$oracle_prompt"
 grep -q '`Remediation-Authority: AUTOMATIC`' "$oracle_prompt"
 grep -q '`HUMAN_APPROVAL`' "$oracle_prompt"
+[[ "$(cat "$ORACLE_ROOT/state/mock-counts/oracle-1")" == 3 ]]
+grep -q 'ORACLE_TERRA_NARROW_RETRY audit_id=1 classification=model_refusal_or_blocked_content attempt=2' \
+	"$ORACLE_ROOT/state/projects/oracleproj/logs/events.log"
+grep -q 'ORACLE_MODEL_FALLBACK audit_id=1 classification=model_refusal_or_blocked_content attempt=3 model=gpt-5.5' \
+	"$ORACLE_ROOT/state/projects/oracleproj/logs/events.log"
 [[ -f "$ORACLE_ROOT/state/projects/oracleproj/control/project.complete" ]]
 [[ ! -f "$ORACLE_ROOT/state/projects/oracleproj/control/oracle/oracle.pending.md" ]]
 
@@ -1896,6 +1912,10 @@ oracle_failure_alert="$ORACLE_RETRY_ROOT/state/projects/oracleretryproj/control/
 grep -q '^Exit-Status: 7$' "$oracle_failure_alert"
 [[ "$(grep -c 'SUPERVISOR_ORACLE_FAILED' \
 	"$ORACLE_RETRY_ROOT/state/projects/oracleretryproj/logs/events.log")" == 1 ]]
+"$HARNESS_BIN/harness-status" "$ORACLE_RETRY_ROOT/harness.env" > "$ORACLE_RETRY_ROOT/status.out"
+grep -Fq "Oracle audit: INVOCATION_FAILED ($oracle_failure_alert)" "$ORACLE_RETRY_ROOT/status.out"
+grep -Fq 'Project status: ORACLE_AUDIT_FAILED.' "$ORACLE_RETRY_ROOT/status.out"
+! grep -q '^Oracle audit: PENDING$' "$ORACLE_RETRY_ROOT/status.out"
 
 ORACLE_FAIL_ROOT="$TEST_ROOT/oracle-fail"
 mkdir -p "$ORACLE_FAIL_ROOT/repo" "$ORACLE_FAIL_ROOT/manager-home" "$ORACLE_FAIL_ROOT/worker-home"

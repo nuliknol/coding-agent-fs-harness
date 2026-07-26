@@ -442,14 +442,21 @@ After approving that block and making the necessary human-directed change, run
 `bin/harness-unblock-project ENV_FILE`, then restart the harness.
 
 Transient provider and quota failures are retried within the same Oracle
-invocation. A terminal local invocation failure is recorded in
+invocation. A GPT-5.6 model refusal or blocked-content response gets one
+immediate retry with a narrower authorized-local-audit prompt, followed by
+`ORACLE_FALLBACK_MODEL` (which defaults to `MANAGER_FALLBACK_MODEL`). A terminal
+local invocation failure is recorded in
 `control/oracle/oracle-invocation-failed.md`; the supervisor suppresses further
 attempts for that unchanged pending audit until the supervisor is restarted or
 the pending audit changes. This prevents a deterministic setup error from
 becoming a rapid retry loop or a false human-intervention request.
 
+`harness-status` reports that terminal state as `INVOCATION_FAILED` /
+`ORACLE_AUDIT_FAILED` instead of presenting it as an ordinary pending audit.
+
 ```bash
 export ORACLE_MODEL="gpt-5.6-sol"
+export ORACLE_FALLBACK_MODEL="gpt-5.5"
 export ORACLE_REASONING_EFFORT="xhigh"
 export ORACLE_SANDBOX="danger-full-access"
 ```
