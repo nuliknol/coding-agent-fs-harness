@@ -1,6 +1,6 @@
 # Coding Agent Filesystem Harness v4.5 (for Codex CLI)
 
-A local, event-driven two-agent coding harness for Linux.
+A local, event-driven two-agent (or three-agent) coding harness for Linux.
 
 ## Features
 
@@ -132,7 +132,7 @@ A leaf goal has three terminal outcomes:
 |---|---|
 | `COMPLETE` | Independently verify it, then checkpoint the leaf or accept the root. |
 | `NEEDS_DECOMPOSITION` | Preserve any verified increment, then automatically request a materially different strategy or append-only child criteria. |
-| `HARD_BLOCKED` | Require independent proof that an explicit assignment hard-block condition is met before pausing for a human. |
+| `HARD_BLOCKED` | Independently verify the leaf block, then route repository-local prerequisites to manager remediation; pause only for an evidenced human dependency. |
 
 If useful bounded work remains, the worker publishes `Outcome: CONTINUE` with
 `worker-continue-task`. That command validates task ownership, the next
@@ -208,6 +208,7 @@ The unattended transition rules are:
 | The same blocker reappears after new verified evidence | Permit another bounded strategy because the prior replan produced durable gain. |
 | The configured number of materially different replans produces no new verified item | Publish a visible manager-model remediation task for the directly implicated local prerequisite. |
 | The same local blocker survives without verified gain | Publish a bounded manager remediation; do not classify a coding/build/integration problem as human-dependent. |
+| A leaf is hard-blocked by its worker scope, frozen baseline sources, missing private testability, or an overconstrained derived criterion | Archive that leaf attempt and publish a manager-remediation task with authority over the directly implicated repository-local prerequisite. |
 | Authorization, unavailable secret, external manual state, or unresolved product/specification authority is required | Enter `NEEDS_HUMAN`. |
 
 No checkpoint, criterion record, archived attempt, or live workspace change is
@@ -534,8 +535,10 @@ project may explicitly set a positive fingerprint threshold. At that threshold,
 atomically archives the rejection and requests a manager-remediation task;
 the local code/build blocker does not become a human-only stop.
 `manager-block-task` independently verifies the configured threshold when
-called directly, but normal manager review reserves it for a verified
-`HARD_BLOCKED` human dependency.
+called directly. For a verified `HARD_BLOCKED` result it additionally requires
+an explicit blocker classification. Local code/build/integration classes route
+to manager remediation; only an evidenced authorization, secret, external
+state, or governing product/specification class enters `NEEDS_HUMAN`.
 
 ### Convergence guards and automatic replan configuration
 
@@ -599,6 +602,9 @@ ledgers are upgraded automatically on the next successful replan by deriving
 their historical verified counts from timestamped criterion-ledger rows.
 The append-only `.manager-remediations.tsv` ledger separately records every
 manager blocker occurrence, its fingerprint/class/scope, and the manager model.
+The append-only `.hard-blocks.tsv` ledger records every independently reviewed
+hard-block claim and whether it was routed to manager remediation or confirmed
+human-dependent.
 
 `NEEDS_HUMAN` is reserved for a documented dependency on a person: missing
 authorization, an unavailable secret, an external manual state transition, or
@@ -606,6 +612,9 @@ an unresolved product/specification decision. `harness-unblock-root ENV_FILE
 TASK_ROOT` remains the explicit operator action for such a boundary. Legacy
 `NEEDS_HUMAN` markers created solely by the old no-gain/unchanged-blocker rule
 are automatically reclassified to manager remediation on supervisor startup.
+Legacy terminal `.blocked.md` root markers are also reconsidered on startup;
+unless they already contain a valid evidenced human classification, they become
+manager remediation so older worker-scope decisions do not remain terminal.
 
 Set `HARNESS_AUTO_REPLAN_ENABLED=0` to retain manual `NEEDS_REPLAN` handling.
 Set an individual convergence threshold to `0` to disable only that trigger.
@@ -633,7 +642,8 @@ the persistent manager is active, `MANAGER_REMEDIATION` while a manager-model
 repair task is active, and `NEEDS_HUMAN` only at a human-only boundary. The
 task table identifies `MANAGER_FIX` execution, and a durable summary reports
 manager-remediation blocker occurrences, unique fingerprints, and active
-tasks. For the active root it also prints the total verified-item count,
+tasks. A separate hard-block summary reports total claims, manager-remediation
+routes, and confirmed human dependencies. For the active root it also prints the total verified-item count,
 automatic replans since the latest durable gain, and the first unmet leaf
 criterion. In goal mode it also reports the goal state, internal iteration
 count, context generation, durable boundary, last material movement, and
@@ -1002,8 +1012,10 @@ including nested children, without replacing the original root inventory.
 strategy budget is based on the durable verified-item ledger rather than the
 coarse percentage or only completed parent criteria. Every unique
 `Verified-Increment` or `Verified-Criterion` resets escalation; repeated
-strategies without new evidence, hard blocks, and Oracle scope conflicts remain
-explicit human-intervention states.
+strategies without new evidence and repository-local hard blocks or Oracle
+scope conflicts route to manager remediation. Human intervention remains
+explicit and requires authority, secret, external-state, or governing
+product/specification evidence.
 
 Supervisor children now close manager and worker lifetime-lock descriptors.
 Graceful stop/restart therefore preserves an active turn without allowing that
@@ -1023,7 +1035,9 @@ Automatic replanning now remains in the project-scoped manager conversation.
 A `NEEDS_DECOMPOSITION` terminal result routes directly to the existing
 append-only decomposition machinery, while verified partial work is
 checkpointed before the strategy handoff. An independently verified
-`HARD_BLOCKED` outcome retains fail-closed human intervention.
+`HARD_BLOCKED` outcome is fail-closed at the leaf boundary, then classified:
+repository-local prerequisites route to manager remediation and only a
+documented human dependency pauses the project.
 
 Goal mode is enabled by default for newly published assignments. New
 configurations should leave the default in place or set

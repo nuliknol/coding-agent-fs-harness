@@ -189,6 +189,52 @@ reclassify_legacy_convergence_human_markers()
 	done
 }
 
+reclassify_legacy_hard_block_markers()
+{
+	local marker name root reason trigger_task blocked_review blocker_class
+	local remediation_scope human_evidence
+	shopt -s nullglob
+	for marker in "$dir/control/progress/$PROJECT-task-"*.blocked.md; do
+		[[ -f "$marker" ]] || continue
+		name="${marker##*/}"
+		root="${name#${PROJECT}-task-}"
+		root="${root%.blocked.md}"
+		trigger_task="$(awk -F': ' '$1 == "Blocked-By-Task" {print $2; exit}' "$marker")"
+		[[ -n "$trigger_task" ]] || trigger_task="$root"
+		reason="$(awk '/^Reason: / {sub(/^Reason: /, ""); print; exit}' "$marker")"
+		[[ -n "$reason" ]] || reason="legacy hard block requires manager-level classification"
+		blocked_review="$dir/archive/$(task_base "$trigger_task").blocked.md"
+		blocker_class=""
+		remediation_scope=""
+		human_evidence=""
+		if [[ -f "$blocked_review" ]]; then
+			blocker_class="$(metadata_value "$blocked_review" Blocker-Class)"
+			remediation_scope="$(metadata_value "$blocked_review" Remediation-Scope)"
+			human_evidence="$(metadata_value "$blocked_review" Human-Dependency-Evidence)"
+		fi
+		if hard_block_class_is_human "$blocker_class" && [[ -n "$human_evidence" ]]; then
+			mark_root_needs_human "$root" "$trigger_task" "$reason" \
+				"$blocker_class" "$human_evidence" >/dev/null
+			record_root_hard_block "$trigger_task" "$blocker_class" NEEDS_HUMAN - "$reason"
+			rm -f "$marker"
+			log_event "LEGACY_HARD_BLOCK_RECLASSIFIED_NEEDS_HUMAN root=$root trigger=$trigger_task blocker_class=$blocker_class reason=$(printf '%q' "$reason")"
+			continue
+		fi
+		if ! hard_block_class_is_local "$blocker_class"; then
+			blocker_class="LOCAL_CODE_PREREQUISITE"
+		fi
+		[[ -n "$remediation_scope" ]] ||
+			remediation_scope="repository-local implementation or testability prerequisite identified by the legacy hard-block review"
+		mark_root_needs_replan "$trigger_task" \
+			"legacy hard block reclassified for manager remediation: $reason" \
+			LEGACY_HARD_BLOCKED "$blocker_class" "$remediation_scope" >/dev/null
+		record_root_hard_block "$trigger_task" "$blocker_class" MANAGER_REMEDIATION \
+			"$remediation_scope" "$reason"
+		rm -f "$marker"
+		log_event "LEGACY_HARD_BLOCK_RECLASSIFIED_MANAGER_REMEDIATION root=$root trigger=$trigger_task blocker_class=$blocker_class remediation_scope=$(printf '%q' "$remediation_scope") reason=$(printf '%q' "$reason")"
+	done
+}
+
 process_auto_replans()
 {
 	local marker name root current status alert tmp
@@ -336,6 +382,7 @@ while true; do
 	if handle_project_completion; then
 		break
 	fi
+	reclassify_legacy_hard_block_markers
 	reclassify_legacy_convergence_human_markers
 	process_auto_replans
 	if handle_project_completion; then

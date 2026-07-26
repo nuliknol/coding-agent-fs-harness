@@ -247,7 +247,7 @@ elif (( human_count > 0 )); then
 elif (( manager_remediation_active_count > 0 )); then
 	printf '\nProject status: MANAGER_REMEDIATION. A manager-model task is repairing a directly implicated local prerequisite while preserving the original acceptance gate.\n'
 elif (( blocked_count > 0 )); then
-	printf '\nProject status: BLOCKED. A root task requires human intervention before planning can continue.\n'
+	printf '\nProject status: BLOCKED. A legacy hard-block marker is awaiting manager classification; restart the manager supervisor to recover it.\n'
 elif (( replanning_count > 0 )); then
 	printf '\nProject status: REPLANNING. The persistent manager is decomposing the root and publishing one first-unmet-criterion continuation.\n'
 elif (( replan_count > 0 )); then
@@ -285,6 +285,28 @@ if (( ${#remediation_ledgers[@]} > 0 )); then
 fi
 printf '\nManager remediation blockers: %s occurrence(s), %s unique fingerprint(s); %s active task(s).\n' \
 	"$manager_remediation_occurrences" "$manager_remediation_unique_blockers" "$manager_remediation_active_count"
+
+hard_block_claims=0
+hard_blocks_routed_manager=0
+hard_blocks_needing_human=0
+hard_block_ledgers=("$dir/control/progress/$PROJECT-task-"*.hard-blocks.tsv)
+if (( ${#hard_block_ledgers[@]} > 0 )); then
+	for hard_block_ledger in "${hard_block_ledgers[@]}"; do
+		[[ -f "$hard_block_ledger" ]] || continue
+		hard_block_rows="$(( $(wc -l < "$hard_block_ledger") - 1 ))"
+		(( hard_block_rows >= 0 )) || hard_block_rows=0
+		hard_block_claims=$((hard_block_claims + hard_block_rows))
+	done
+	read -r hard_blocks_routed_manager hard_blocks_needing_human < <(
+		awk -F '\t' '
+			FNR > 1 && $5 == "MANAGER_REMEDIATION" {manager++}
+			FNR > 1 && $5 == "NEEDS_HUMAN" {human++}
+			END {print manager + 0, human + 0}
+		' "${hard_block_ledgers[@]}"
+	)
+fi
+printf 'Hard-block claims: %s occurrence(s); %s routed to manager remediation; %s confirmed human-dependent.\n' \
+	"$hard_block_claims" "$hard_blocks_routed_manager" "$hard_blocks_needing_human"
 
 active_status_root="$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" && $3 != "-" {print $3; exit}' "$(project_plan_state_file)" 2>/dev/null || true)"
 if [[ -n "$active_status_root" ]]; then

@@ -666,6 +666,13 @@ task_manager_remediation_ledger_file()
 	printf '%s/control/progress/%s-task-%s.manager-remediations.tsv' "$(project_dir)" "$PROJECT" "$root"
 }
 
+task_hard_block_ledger_file()
+{
+	local root
+	root="$(task_root_id "$1")"
+	printf '%s/control/progress/%s-task-%s.hard-blocks.tsv' "$(project_dir)" "$PROJECT" "$root"
+}
+
 task_replan_baseline_file()
 {
 	local root
@@ -1512,6 +1519,51 @@ ensure_root_manager_remediation_ledger_schema()
 		die "unsupported manager remediation ledger schema: $ledger"
 }
 
+ensure_root_hard_block_ledger_schema()
+{
+	local root="$1" ledger header existing_header=""
+	ledger="$(task_hard_block_ledger_file "$root")"
+	header=$'recorded_at\ttask_id\ttask_root\tblocker_class\tdisposition\tremediation_scope\treason'
+	if [[ ! -f "$ledger" ]]; then
+		printf '%s\n' "$header" > "$ledger"
+		chmod 600 "$ledger"
+		return 0
+	fi
+	IFS= read -r existing_header < "$ledger" || true
+	[[ "$existing_header" == "$header" ]] ||
+		die "unsupported hard-block ledger schema: $ledger"
+}
+
+record_root_hard_block()
+{
+	local task_id="$1" blocker_class="$2" disposition="$3"
+	local remediation_scope="${4:--}" reason="${5:--}" root ledger
+	root="$(task_root_id "$task_id")"
+	[[ "$blocker_class" =~ ^(LOCAL_CODE_PREREQUISITE|LOCAL_BUILD_PREREQUISITE|LOCAL_INTEGRATION_PREREQUISITE|HUMAN_AUTHORIZATION|HUMAN_SECRET|HUMAN_EXTERNAL_STATE|HUMAN_PRODUCT_SPECIFICATION)$ ]] ||
+		die "invalid hard-block class: $blocker_class"
+	[[ "$disposition" =~ ^(MANAGER_REMEDIATION|NEEDS_HUMAN)$ ]] ||
+		die "invalid hard-block disposition: $disposition"
+	[[ "$remediation_scope" != *$'\t'* && "$remediation_scope" != *$'\n'* && "$remediation_scope" != *$'\r'* ]] ||
+		die 'hard-block remediation scope must be one tab-free line'
+	[[ "$reason" != *$'\t'* && "$reason" != *$'\n'* && "$reason" != *$'\r'* ]] ||
+		die 'hard-block reason must be one tab-free line'
+	ensure_root_hard_block_ledger_schema "$root"
+	ledger="$(task_hard_block_ledger_file "$root")"
+	printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+		"$(timestamp_utc)" "$task_id" "$root" "$blocker_class" "$disposition" \
+		"${remediation_scope:--}" "${reason:--}" >> "$ledger"
+}
+
+hard_block_class_is_local()
+{
+	[[ "$1" =~ ^(LOCAL_CODE_PREREQUISITE|LOCAL_BUILD_PREREQUISITE|LOCAL_INTEGRATION_PREREQUISITE)$ ]]
+}
+
+hard_block_class_is_human()
+{
+	[[ "$1" =~ ^(HUMAN_AUTHORIZATION|HUMAN_SECRET|HUMAN_EXTERNAL_STATE|HUMAN_PRODUCT_SPECIFICATION)$ ]]
+}
+
 root_manager_remediation_count()
 {
 	local ledger rows
@@ -1539,7 +1591,8 @@ assignment_is_manager_remediation()
 
 mark_root_needs_human()
 {
-	local root="$1" trigger_task="$2" reason="$3" marker tmp
+	local root="$1" trigger_task="$2" reason="$3"
+	local blocker_class="${4:-}" human_evidence="${5:-}" marker tmp
 	root="$(task_root_id "$root")"
 	marker="$(task_root_human_file "$root")"
 	if [[ ! -f "$marker" ]]; then
@@ -1552,6 +1605,12 @@ mark_root_needs_human()
 			printf 'Paused-At: %s\n\n' "$(timestamp_utc)"
 			printf 'Progress-Percent: %s%%\n\n' "$(task_progress_percent "$root")"
 			printf 'Reason: %s\n\n' "$reason"
+			if [[ -n "$blocker_class" ]]; then
+				printf 'Blocker-Class: %s\n\n' "$blocker_class"
+			fi
+			if [[ -n "$human_evidence" ]]; then
+				printf 'Human-Dependency-Evidence: %s\n\n' "$human_evidence"
+			fi
 			printf 'Verified checkpoints, criterion evidence, review history, and repository changes are preserved. An operator must inspect this marker and explicitly run harness-unblock-root after changing the strategy, authority, or external blocking condition.\n'
 		} > "$tmp"
 		chmod 600 "$tmp"
@@ -1564,7 +1623,9 @@ mark_root_needs_human()
 
 mark_root_needs_replan()
 {
-	local task_id="$1" reason="$2" trigger="$3" root marker progress blocking_fingerprint tmp
+	local task_id="$1" reason="$2" trigger="$3"
+	local blocker_class="${4:-}" remediation_scope="${5:-}"
+	local root marker progress blocking_fingerprint tmp
 	root="$(task_root_id "$task_id")"
 	marker="$(task_root_replan_file "$root")"
 	if [[ -f "$marker" ]]; then
@@ -1586,6 +1647,12 @@ mark_root_needs_replan()
 		printf 'Paused-At: %s\n\n' "$(timestamp_utc)"
 		printf 'Progress-Percent: %s%%\n\n' "$(task_progress_percent "$root")"
 		printf 'Reason: %s\n\n' "$reason"
+		if [[ -n "$blocker_class" ]]; then
+			printf 'Blocker-Class: %s\n\n' "$blocker_class"
+		fi
+		if [[ -n "$remediation_scope" ]]; then
+			printf 'Remediation-Scope: %s\n\n' "$remediation_scope"
+		fi
 		printf 'Reviewed-Attempts: %s\n' "$(root_reviewed_attempt_count "$root")"
 		printf 'Reviewed-Attempts-Since-Last-Replan: %s\n' "$(root_reviewed_attempts_since_replan "$root")"
 		printf 'Zero-Gain-Streak: %s\n' "$(root_zero_gain_streak "$root")"

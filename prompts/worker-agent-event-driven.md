@@ -167,7 +167,9 @@ means the assigned leaf evidence passes. `NEEDS_DECOMPOSITION` means a
 materially smaller criterion or different manager strategy is required after
 bounded attempts. `HARD_BLOCKED` is reserved for an explicit hard-block
 condition in the assignment; test failures, complexity, and token pressure are
-not hard blocks.
+not hard blocks. `HARD_BLOCKED` describes the current leaf boundary only; the
+manager separately determines whether the underlying dependency is
+repository-local remediation or genuinely requires a person.
 
 Under those headings include the implementation summary, modified files,
 implemented behavior, validation commands and outcomes, starting progress,

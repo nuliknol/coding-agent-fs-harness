@@ -33,11 +33,19 @@ trigger_task="$(awk -F': ' '$1 == "Triggered-By" {print $2; exit}' "$replan_mark
 trigger_outcome="$(awk -F': ' '$1 == "Trigger-Outcome" {print $2; exit}' "$replan_marker")"
 blocking_fingerprint="$(awk -F': ' '$1 == "Blocking-Fingerprint" {print $2; exit}' "$replan_marker")"
 [[ -n "$blocking_fingerprint" ]] || blocking_fingerprint="-"
+trigger_blocker_class="$(awk -F': ' '$1 == "Blocker-Class" {print $2; exit}' "$replan_marker")"
+trigger_remediation_scope="$(awk -F': ' '$1 == "Remediation-Scope" {print $2; exit}' "$replan_marker")"
 recovery_mode="AUTOMATIC_REPLAN"
 recovery_reason="bounded strategy change remains available"
 if [[ "$trigger_outcome" == DETERMINISTIC_BLOCKER ]]; then
 	recovery_mode="MANAGER_REMEDIATION"
 	recovery_reason="the configured deterministic local-blocker threshold was reached"
+elif [[ "$trigger_outcome" == HARD_BLOCKED_LOCAL ]]; then
+	recovery_mode="MANAGER_REMEDIATION"
+	recovery_reason="a verified leaf hard block identified a repository-local prerequisite outside the earlier worker scope"
+elif [[ "$trigger_outcome" == LEGACY_HARD_BLOCKED ]]; then
+	recovery_mode="MANAGER_REMEDIATION"
+	recovery_reason="a legacy terminal hard block requires manager-level repository-local reconsideration before any human escalation"
 elif root_same_blocker_without_verified_gain "$root" "$blocking_fingerprint"; then
 	recovery_mode="MANAGER_REMEDIATION"
 	recovery_reason="the same local blocker survived a bounded automatic replan without durable verified gain"
@@ -101,7 +109,7 @@ if [[ "$recovery_mode" == MANAGER_REMEDIATION ]]; then
 	publish_flag="--manager-remediation"
 	strategy_change_values="REPAIR_PREREQUISITE"
 	recovery_task_metadata=$'Manager-Remediation: 1\nBlocker-Class: LOCAL_CODE_PREREQUISITE|LOCAL_BUILD_PREREQUISITE|LOCAL_INTEGRATION_PREREQUISITE\nRemediation-Scope: DIRECTLY_IMPLICATED_LOCAL_FILES_OR_DIRECTORIES'
-	recovery_authority="This is a manager remediation assignment, not another ordinary worker retry. Inspect the blocker evidence and name the smallest concrete Remediation-Scope that contains the directly implicated local prerequisite sources, build files, or integration files. The execution turn will run with the manager model and may edit those named prerequisites even when they were outside the prior worker leaf Allowed-Scope. It must preserve the original acceptance criteria and may not change unrelated behavior, specifications, public contracts, or external systems."
+	recovery_authority="This is a manager remediation assignment, not another ordinary worker retry. Inspect the blocker evidence and name the smallest concrete Remediation-Scope that contains the directly implicated local prerequisite sources, test seams, build files, or integration files. The execution turn will run with the manager model and may edit those named prerequisites even when they were outside the prior worker leaf Allowed-Scope. A manager-authored leaf requirement that is stricter than the governing specification may be replaced by a different evidence strategy for the same immutable criterion; do not weaken the governing specification or acceptance behavior. Preserve public contracts unless the governing specification itself requires a public change. It must not change unrelated behavior or external systems."
 	recovery_validator_contract="The command validates the first-unmet leaf, fresh manager execution context, local prerequisite classification and scope, strategy uniqueness, and material fingerprint. Manager remediation intentionally bypasses the exhausted ordinary-replan/no-gain guard; it does not relax acceptance."
 fi
 if task_root_uses_assignment_criteria "$root" || [[ -f "$criteria_definition" ]]; then
@@ -141,6 +149,8 @@ WORKER_GOAL_MODE=$HARNESS_WORKER_GOAL_MODE
 RECOVERY_MODE=$recovery_mode
 RECOVERY_REASON=$recovery_reason
 BLOCKING_FINGERPRINT=$blocking_fingerprint
+TRIGGER_BLOCKER_CLASS=${trigger_blocker_class:--}
+TRIGGER_REMEDIATION_SCOPE=${trigger_remediation_scope:--}
 TASK_OUTPUT=$task_output
 CRITERIA_OUTPUT=$criteria_output
 DECOMPOSITION_OUTPUT=$decomposition_output
@@ -178,7 +188,7 @@ PROMPT
 	if [[ "$recovery_mode" == MANAGER_REMEDIATION ]]; then
 		cat >> "$prompt_file.tmp.$$" <<PROMPT
 
-For manager remediation, Allowed-Scope must include exactly the directly implicated Remediation-Scope plus the original focused validation surface. Baseline-Boundary must name the observed local failure. Hard-Block-Conditions must be reserved for a genuinely human-dependent requirement such as missing authorization, unavailable secrets, an external manual state change, or an unresolved product/specification choice; ordinary coding, build, test, or integration failures are not hard blocks.
+For manager remediation, Allowed-Scope must include exactly the directly implicated Remediation-Scope plus the original focused validation surface. Consider TRIGGER_BLOCKER_CLASS and TRIGGER_REMEDIATION_SCOPE as evidence, then refine them from repository inspection rather than copying an overbroad placeholder. Baseline-Boundary must name the observed local failure. Hard-Block-Conditions must be reserved for a genuinely human-dependent requirement such as missing authorization, unavailable secrets, an external manual state change, or an unresolved governing product/specification choice; ordinary coding, private testability, build, test, integration, worker-scope, and baseline-source restrictions are not human hard blocks.
 PROMPT
 	fi
 fi

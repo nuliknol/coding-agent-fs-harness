@@ -699,6 +699,115 @@ grep -q '^Trigger-Outcome: DETERMINISTIC_BLOCKER$' \
 grep -q 'TASK_CIRCUIT_BREAKER_MANAGER_REMEDIATION task=001-revision-01' \
 	"$CIRCUIT_ROOT/state/projects/circuitproj/logs/events.log"
 
+# A verified leaf hard block caused by repository-local scope is archived as a
+# failed leaf attempt and routed to manager remediation. It must never create a
+# terminal root block merely because the worker's Allowed-Scope was too narrow.
+HARD_ROOT="$TEST_ROOT/local-hard-block"
+mkdir -p "$HARD_ROOT/repo" "$HARD_ROOT/manager-home" "$HARD_ROOT/worker-home"
+printf 'test specification\n' > "$HARD_ROOT/repo/spec.md"
+cat > "$HARD_ROOT/harness.env" <<ENV
+export PROJECT="hardblockproj"
+export REPOSITORY="$HARD_ROOT/repo"
+export SPECIFICATION="\$REPOSITORY/spec.md"
+export HARNESS_HOME="$HARNESS_HOME"
+export HARNESS_BIN="\$HARNESS_HOME/bin"
+export HARNESS_WORKER_GOAL_MODE="0"
+export HARNESS_ROOT="$HARD_ROOT/state"
+export MANAGER_CODEX_HOME="$HARD_ROOT/manager-home"
+export MANAGER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export WORKER_CODEX_HOME="$HARD_ROOT/worker-home"
+export WORKER_CODEX_BIN="$TEST_ROOT/mock-codex"
+ENV
+chmod 600 "$HARD_ROOT/harness.env"
+"$HARNESS_BIN/harness-init" "$HARD_ROOT/harness.env" >/dev/null
+printf 'P0\tLocal hard-block fixture\n' > "$HARD_ROOT/plan.tsv"
+"$HARNESS_BIN/manager-init-project-plan" "$HARD_ROOT/harness.env" \
+	"$HARD_ROOT/plan.tsv" >/dev/null
+cat > "$HARD_ROOT/task.md" <<'TASK'
+# Task
+
+Task-ID: 001
+Root-Criterion: fixture.local-hard-block
+Target-Criterion: fixture.local-hard-block
+TASK
+"$HARNESS_BIN/manager-publish-task" "$HARD_ROOT/harness.env" 001 \
+	"$HARD_ROOT/task.md" P0 >/dev/null
+hard_project="$HARD_ROOT/state/projects/hardblockproj"
+hard_progress="$hard_project/control/progress"
+mv "$hard_project/tasks/hardblockproj-task-001.ready.md" \
+	"$hard_project/archive/hardblockproj-task-001.assignment.md"
+cat > "$hard_project/results/hardblockproj-task-001.result.md" <<'RESULT'
+# Task Result
+
+Goal-Outcome: HARD_BLOCKED
+RESULT
+cat > "$HARD_ROOT/review.md" <<'NOTE'
+Progress-Percent: 0%
+Improvement-Percent: 0%
+Blocker-Class: LOCAL_CODE_PREREQUISITE
+Remediation-Scope: src/private-provider.c tests/focused-provider-smoke.c
+NOTE
+hard_block_output="$("$HARNESS_BIN/manager-block-task" "$HARD_ROOT/harness.env" \
+	001 "$HARD_ROOT/review.md" 'worker scope excludes the required private test seam')"
+[[ "$hard_block_output" == *.needs-replan.md ]]
+[[ -f "$hard_project/archive/hardblockproj-task-001.rejected.md" ]]
+[[ -f "$hard_project/archive/hardblockproj-task-001.rejected-result.md" ]]
+[[ ! -f "$hard_progress/hardblockproj-task-001.blocked.md" ]]
+[[ ! -f "$hard_progress/hardblockproj-task-001.needs-human.md" ]]
+grep -q '^Trigger-Outcome: HARD_BLOCKED_LOCAL$' \
+	"$hard_progress/hardblockproj-task-001.needs-replan.md"
+grep -q '^Blocker-Class: LOCAL_CODE_PREREQUISITE$' \
+	"$hard_progress/hardblockproj-task-001.needs-replan.md"
+grep -q '^Remediation-Scope: src/private-provider.c tests/focused-provider-smoke.c$' \
+	"$hard_progress/hardblockproj-task-001.needs-replan.md"
+grep -q $'\t001\t001\tLOCAL_CODE_PREREQUISITE\tMANAGER_REMEDIATION\t' \
+	"$hard_progress/hardblockproj-task-001.hard-blocks.tsv"
+cat > "$hard_project/control/manager.thread" <<'THREAD'
+thread_id=hard-block-manager-thread
+THREAD
+cat > "$hard_progress/hardblockproj-task-001.criteria-definition.tsv" <<'TSV'
+criterion_id	title	acceptance_evidence
+fixture.local-hard-block	Local hard-block fixture	focused repository-local remediation passes
+TSV
+"$HARNESS_BIN/manager-auto-replan-root" "$HARD_ROOT/harness.env" 001 >/dev/null
+hard_remediation="$hard_project/tasks/hardblockproj-task-001-revision-01.ready.md"
+[[ -f "$hard_remediation" ]]
+grep -q '^Manager-Remediation: 1$' "$hard_remediation"
+grep -q '^Strategy-Change: REPAIR_PREREQUISITE$' "$hard_remediation"
+grep -q '^Supersedes-Task: 001$' "$hard_remediation"
+"$HARNESS_BIN/harness-status" "$HARD_ROOT/harness.env" > "$HARD_ROOT/status.out"
+grep -q 'Project status: MANAGER_REMEDIATION.' "$HARD_ROOT/status.out"
+grep -q 'Manager remediation blockers: 1 occurrence(s), 0 unique fingerprint(s); 1 active task(s).' \
+	"$HARD_ROOT/status.out"
+grep -q 'Hard-block claims: 1 occurrence(s); 1 routed to manager remediation; 0 confirmed human-dependent.' \
+	"$HARD_ROOT/status.out"
+
+# A terminal pause requires an enumerated human dependency and concrete
+# evidence; it uses NEEDS_HUMAN rather than the legacy root-block marker.
+printf 'human hard-block assignment\n' > \
+	"$hard_project/archive/hardblockproj-task-human-001.assignment.md"
+cat > "$hard_project/results/hardblockproj-task-human-001.result.md" <<'RESULT'
+# Task Result
+
+Goal-Outcome: HARD_BLOCKED
+RESULT
+cat > "$HARD_ROOT/human-review.md" <<'NOTE'
+Progress-Percent: 0%
+Improvement-Percent: 0%
+Blocker-Class: HUMAN_AUTHORIZATION
+Human-Dependency-Evidence: release approval must be granted by the repository owner
+NOTE
+human_block_output="$("$HARNESS_BIN/manager-block-task" "$HARD_ROOT/harness.env" \
+	human-001 "$HARD_ROOT/human-review.md" 'repository owner release approval is unavailable')"
+[[ "$human_block_output" == *.needs-human.md ]]
+[[ -f "$hard_project/archive/hardblockproj-task-human-001.blocked.md" ]]
+[[ ! -f "$hard_progress/hardblockproj-task-human-001.blocked.md" ]]
+grep -q '^Blocker-Class: HUMAN_AUTHORIZATION$' \
+	"$hard_progress/hardblockproj-task-human-001.needs-human.md"
+"$HARNESS_BIN/harness-status" "$HARD_ROOT/harness.env" > "$HARD_ROOT/human-status.out"
+grep -q 'Hard-block claims: 2 occurrence(s); 1 routed to manager remediation; 1 confirmed human-dependent.' \
+	"$HARD_ROOT/human-status.out"
+
 # A genuine authority dependency remains terminal for the output watcher, even
 # though deterministic local blockers no longer use that state.
 (
@@ -1324,12 +1433,12 @@ grep -q $'^.*\t001-revision-11\t001-revision-10\tlegacy.final\tmock.strategy.4\t
 mv "$auto_ready_after_gain" "$auto_project/archive/autoreplanproj-task-001-revision-11.checkpointed.md"
 printf 'Blocking-Fingerprint: sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\n' \
 	>> "$auto_progress/autoreplanproj-task-001.progress.md"
-cat > "$auto_progress/autoreplanproj-task-001.needs-human.md" <<'MARKER'
-# Root Task Needs Human Intervention
+cat > "$auto_progress/autoreplanproj-task-001.blocked.md" <<'MARKER'
+# Blocked Root Task
 
 Task-Root: 001
-Triggered-By: 001-revision-11
-Reason: the same blocker survived a bounded automatic replan without durable verified gain: sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+Blocked-By-Task: 001-revision-11
+Reason: legacy worker scope excludes a repository-local prerequisite
 MARKER
 "$HARNESS_BIN/harness-supervisor-start" "$AUTO_ROOT/harness.env" >/dev/null
 for _ in $(seq 1 200); do
@@ -1339,8 +1448,8 @@ done
 "$HARNESS_BIN/harness-supervisor-stop" "$AUTO_ROOT/harness.env" >/dev/null
 auto_same_blocker_remediation="$auto_project/tasks/autoreplanproj-task-001-revision-12.ready.md"
 [[ -f "$auto_same_blocker_remediation" ]]
-[[ ! -f "$auto_progress/autoreplanproj-task-001.needs-human.md" ]]
-grep -q 'LEGACY_HUMAN_RECLASSIFIED_MANAGER_REMEDIATION root=001 trigger=001-revision-11' \
+[[ ! -f "$auto_progress/autoreplanproj-task-001.blocked.md" ]]
+grep -q 'LEGACY_HARD_BLOCK_RECLASSIFIED_MANAGER_REMEDIATION root=001 trigger=001-revision-11' \
 	"$auto_project/logs/events.log"
 grep -q '^Manager-Remediation: 1$' "$auto_same_blocker_remediation"
 grep -q '^Target-Criterion: legacy.final$' "$auto_same_blocker_remediation"
@@ -1348,6 +1457,8 @@ grep -q $'^.*\t001-revision-12\t001-revision-11\tlegacy.final\tsha256:dddd.*\tLO
 	"$auto_remediation_ledger"
 "$HARNESS_BIN/harness-status" "$AUTO_ROOT/harness.env" > "$AUTO_ROOT/same-blocker-remediation-status.out"
 grep -q 'Manager remediation blockers: 2 occurrence(s), 1 unique fingerprint(s); 1 active task(s).' \
+	"$AUTO_ROOT/same-blocker-remediation-status.out"
+grep -q 'Hard-block claims: 1 occurrence(s); 1 routed to manager remediation; 0 confirmed human-dependent.' \
 	"$AUTO_ROOT/same-blocker-remediation-status.out"
 
 # A broad immutable leaf can be refined only by appending ordered children.

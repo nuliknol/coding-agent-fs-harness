@@ -41,7 +41,9 @@ Complete the target leaf criterion without broadening the root.
 - Publish a CONTINUE receipt when another bounded process turn is useful.
 - Use NEEDS_DECOMPOSITION only when a materially smaller criterion or changed
   manager strategy is required.
-- Use HARD_BLOCKED only when an explicit Hard-Block-Conditions boundary is met.
+- Use HARD_BLOCKED only when an explicit Hard-Block-Conditions boundary is met;
+  the manager will separately decide whether recovery is repository-local or
+  genuinely human-dependent.
 
 ## Validation commands
 

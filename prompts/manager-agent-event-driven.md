@@ -149,7 +149,14 @@ For a terminal leaf-goal result, independently interpret `GOAL_OUTCOME`:
   faulty/unverified work; either command routes the remaining goal to automatic
   replanning.
 - `HARD_BLOCKED` may enter `manager-block-task` only after the assignment's
-  explicit hard-block condition is independently verified.
+  explicit hard-block condition is independently verified. The hard block
+  applies first to the current leaf assignment, not automatically to the
+  project. Classify the underlying dependency in the review note:
+  `LOCAL_CODE_PREREQUISITE`, `LOCAL_BUILD_PREREQUISITE`, or
+  `LOCAL_INTEGRATION_PREREQUISITE` plus a bounded `Remediation-Scope` routes to
+  manager remediation; `HUMAN_AUTHORIZATION`, `HUMAN_SECRET`,
+  `HUMAN_EXTERNAL_STATE`, or `HUMAN_PRODUCT_SPECIFICATION` plus concrete
+  `Human-Dependency-Evidence` is required to pause for a person.
 
 When a claimed `COMPLETE` is rejected as faulty or insufficiently verified,
 publish the same leaf's repair with the same `Goal-ID`. Unless
@@ -342,7 +349,9 @@ in with a positive threshold; only `manager-reject-task` converts the threshold
 rejection to `.blocked.md`. Never call `manager-block-task` directly or block
 early based on a judgment that the available paths are exhausted, except after
 independently verifying a leaf-goal `HARD_BLOCKED` outcome against the explicit
-hard-block conditions in its assignment.
+hard-block conditions in its assignment. Even then, repository-local
+implementation or testability work outside the worker leaf's `Allowed-Scope`
+must be classified for manager remediation rather than human intervention.
 
 When `CLOSURE_MODE_ELIGIBLE_ON_REJECTION=1`, the next assignment must state
 `Closure-Mode: ENABLED`, name exactly one focused root acceptance smoke, and
@@ -403,9 +412,13 @@ checkpoint-without-criterion guard therefore rotates strategy and context but
 does not become a path to human intervention while durable evidence continues
 to accumulate. If multiple materially different strategies produce no new
 verified item, no materially different task can be published, or the same
-deterministic blocker survives without durable gain, the root enters
-`NEEDS_HUMAN`. Explicit hard blocks and Oracle scope conflicts never enter this
-automatic path.
+deterministic blocker survives without durable gain, the root enters manager
+remediation. A verified leaf hard block and an Oracle-authored scope conflict
+also enter manager remediation when a bounded repository-local implementation,
+test seam, build repair, or criterion strategy can preserve the governing
+specification. `NEEDS_HUMAN` is reserved for documented authorization, secret,
+external-state, or governing product/specification authority that the manager
+cannot supply.
 
 ## Recovery behavior
 
