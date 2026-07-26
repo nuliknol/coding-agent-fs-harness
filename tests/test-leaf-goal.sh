@@ -243,8 +243,10 @@ pending_log="$project_dir/logs/worker-task-001-20260724T000000Z-attempt-001.json
 printf '%s\n' '{"type":"turn.started"}' > "$pending_log"
 "$HARNESS_BIN/harness-status" "$TEST_ROOT/harness.env" > "$TEST_ROOT/status-pending.out"
 grep -q 'Latest worker/provider classification: not-yet-recorded' "$TEST_ROOT/status-pending.out"
-tail -n 1 "$TEST_ROOT/status-pending.out" |
+tail -n 2 "$TEST_ROOT/status-pending.out" | sed -n '1p' |
 	grep -Eq '^Project progress: [0-9]+% \([0-9]+/[0-9]+ plan items complete\)$'
+tail -n 1 "$TEST_ROOT/status-pending.out" |
+	grep -q '^Project status: ACTIVE\.'
 rm -f "$pending_log"
 
 "$HARNESS_BIN/worker-invoke-task" "$TEST_ROOT/harness.env" 001 >/dev/null

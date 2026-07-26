@@ -21,16 +21,18 @@ if project_plan_exists; then
 else
 	project_progress_line='Project progress: unavailable (project plan is missing)'
 fi
-project_progress_printed=0
-print_project_progress_footer()
+project_status_line='Project status: UNKNOWN. Status collection did not complete.'
+project_footer_printed=0
+print_project_footer()
 {
-	(( project_progress_printed == 0 )) || return 0
-	printf '\n%s\n' "$project_progress_line"
-	project_progress_printed=1
+	(( project_footer_printed == 0 )) || return 0
+	printf '\n%s\n%s\n' "$project_progress_line" "$project_status_line"
+	project_footer_printed=1
 }
-# Status diagnostics are best-effort. Keep the project-level progress summary
-# visible even if an in-flight state file is between atomic metadata updates.
-trap print_project_progress_footer EXIT
+# Status diagnostics are best-effort. Keep the project-level progress and
+# status summary visible even if an in-flight state file is between atomic
+# metadata updates.
+trap print_project_footer EXIT
 
 status_kv_value()
 {
@@ -241,27 +243,40 @@ else
 fi
 
 if project_completion_recorded && project_plan_all_complete; then
-	printf '\nProject status: COMPLETE. Every project-plan item is accepted.\n'
+	project_status_line='Project status: COMPLETE. Every project-plan item is accepted.'
 elif (( human_count > 0 )); then
-	printf '\nProject status: NEEDS_HUMAN. A documented authorization, secret, external-state, or product/specification decision requires a person; verified work is preserved.\n'
+	project_status_line='Project status: NEEDS_HUMAN. A documented authorization, secret, external-state, or product/specification decision requires a person; verified work is preserved.'
 elif (( manager_remediation_active_count > 0 )); then
-	printf '\nProject status: MANAGER_REMEDIATION. A manager-model task is repairing a directly implicated local prerequisite while preserving the original acceptance gate.\n'
+	project_status_line='Project status: MANAGER_REMEDIATION. A manager-model task is repairing a directly implicated local prerequisite while preserving the original acceptance gate.'
 elif (( blocked_count > 0 )); then
-	printf '\nProject status: BLOCKED. A legacy hard-block marker is awaiting manager classification; restart the manager supervisor to recover it.\n'
+	project_status_line='Project status: BLOCKED. A legacy hard-block marker is awaiting manager classification; restart the manager supervisor to recover it.'
 elif (( replanning_count > 0 )); then
-	printf '\nProject status: REPLANNING. The persistent manager is decomposing the root and publishing one first-unmet-criterion continuation.\n'
+	project_status_line='Project status: REPLANNING. The persistent manager is decomposing the root and publishing one first-unmet-criterion continuation.'
 elif (( replan_count > 0 )); then
 	if (( HARNESS_AUTO_REPLAN_ENABLED == 1 )); then
-		printf '\nProject status: NEEDS_REPLAN. Verified checkpoints are preserved; automatic persistent-manager recovery is pending.\n'
+		project_status_line='Project status: NEEDS_REPLAN. Verified checkpoints are preserved; automatic persistent-manager recovery is pending.'
 	else
-		printf '\nProject status: NEEDS_REPLAN. Automatic recovery is disabled; reassess and explicitly resume the root.\n'
+		project_status_line='Project status: NEEDS_REPLAN. Automatic recovery is disabled; reassess and explicitly resume the root.'
 	fi
 elif project_is_blocked; then
-	printf '\nProject status: BLOCKED. The Oracle requires human approval before planning can continue.\n'
+	project_status_line='Project status: BLOCKED. The Oracle requires human approval before planning can continue.'
+elif [[ -f "$dir/control/manager-plan.running" ]]; then
+	project_status_line='Project status: PLANNING. The manager is preparing the next bounded task.'
+elif (( active_count > 0 )); then
+	project_status_line='Project status: ACTIVE. Work is ready, running, or awaiting manager review.'
+elif (( aborted_count > 0 )); then
+	project_status_line='Project status: ABORTED. One or more task roots require operator action.'
+elif project_plan_exists && project_plan_all_complete && oracle_enabled &&
+	[[ -f "$(project_oracle_pending_file)" ]]; then
+	project_status_line='Project status: ORACLE_AUDIT. Every plan item is complete and the final independent audit is pending.'
 elif project_plan_exists && (( active_count == 0 && aborted_count == 0 )) && ! project_plan_all_complete; then
-	printf '\nProject status: INCOMPLETE. No task is active; manager planning is required for the next plan item.\n'
+	project_status_line='Project status: INCOMPLETE. No task is active; manager planning is required for the next plan item.'
 elif project_completion_recorded; then
-	printf '\nProject status: INCOMPLETE. Ignoring an invalid legacy completion marker because the project plan is absent or unfinished.\n'
+	project_status_line='Project status: INCOMPLETE. Ignoring an invalid legacy completion marker because the project plan is absent or unfinished.'
+elif ! project_plan_exists; then
+	project_status_line='Project status: INCOMPLETE. The project plan is missing.'
+else
+	project_status_line='Project status: INCOMPLETE. The project is not complete and no active task was found.'
 fi
 
 if (( checkpointed_count > 0 )); then
@@ -379,4 +394,4 @@ for goal_file in "$(goal_control_dir)"/"$PROJECT-task-"*.goal; do
 	break
 done
 
-print_project_progress_footer
+print_project_footer

@@ -279,6 +279,7 @@ Active root evidence: 6 verified item(s); 0 automatic replan(s) since the latest
 First unmet leaf criterion: exact-search.temporal-projection
 
 Project progress: 42% (3/7 plan items complete)
+Project status: ACTIVE. Work is ready, running, or awaiting manager review.
 user@dev :~/configs$ 
 ```
 
