@@ -1,26 +1,7 @@
 #!/usr/bin/env bash
-
 set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/harness-common.sh"
-
-usage()
-{
-	printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2
-	exit 2
-}
-
-[[ $# -eq 1 ]] || usage
+[[ $# -eq 1 ]] || die "Usage: ${0##*/} ENV_FILE"
 load_harness_env "$1"
-ensure_project
-set +e
-"$HARNESS_BIN/worker-supervisor-stop" "$HARNESS_ENV_FILE"
-worker_status=$?
-"$HARNESS_BIN/manager-supervisor-stop" "$HARNESS_ENV_FILE"
-manager_status=$?
-set -e
-if (( worker_status != 0 || manager_status != 0 )); then
-	printf 'One or more supervisors are waiting for active children; retry after those children exit.\n' >&2
-	exit 3
-fi
-printf 'Harness supervisors stopped. Active Codex child processes, if any, are not forcibly killed.\n'
+"$HARNESS_BIN/harness-supervisor-stop" "$HARNESS_ENV_FILE"

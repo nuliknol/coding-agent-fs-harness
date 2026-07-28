@@ -1,3 +1,0 @@
-criterion_id	title	acceptance_evidence
-feature.behavior	Deliver the bounded behavior	Focused observable smoke passes
-feature.validation	Verify compatibility and regression	Affected build and focused regression pass

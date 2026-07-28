@@ -1,40 +1,20 @@
 #!/usr/bin/env bash
-
 set -Eeuo pipefail
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/harness-common.sh"
 
-usage()
-{
-	printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2
-	exit 2
-}
-
-[[ $# -eq 1 ]] || usage
+[[ $# -eq 1 ]] || die "Usage: ${0##*/} ENV_FILE"
 load_harness_env "$1"
-acquire_env_command_lock harness-init
-require_manager_configuration
+require_dependencies
+mkdir -p "$HARNESS_ROOT"
+exec 9>"$HARNESS_ROOT/.init.lock"
+flock -x 9
+initialize_project
+log_event "PROJECT_INITIALIZED repository=$REPOSITORY specification=$SPECIFICATION policy=$DEVELOPMENT_POLICY"
 
-if [[ -d "$(project_dir)" ]]; then
-	if env_has_running_processes; then
-		if confirm_reset_state "Harness processes are already active for $HARNESS_ENV_FILE."; then
-			reset_project_state
-		else
-			die "harness-init aborted because state is already active for $HARNESS_ENV_FILE"
-		fi
-	else
-		die "project state already exists at $(project_dir); if this is incorrect, delete it first with: rm -rf $(project_dir)"
-	fi
-fi
-
-initialize_project_state
-
-log_event "PROJECT_INITIALIZED repository=$REPOSITORY env_file=$HARNESS_ENV_FILE"
-printf 'Initialized project %s\n' "$PROJECT"
-printf 'Environment file: %s\n' "$HARNESS_ENV_FILE"
-printf 'Harness root: %s\n' "$HARNESS_ROOT"
-printf 'Project tmp dir: %s\n' "$PROJECT_TMP_DIR"
+printf 'Initialized light harness project %s\n' "$PROJECT"
+printf 'State: %s\n' "$(project_dir)"
 printf 'Repository: %s\n' "$REPOSITORY"
-printf 'Specification: %s\n' "$SPECIFICATION"
-printf 'Manager model: %s (%s)\n' "$MANAGER_MODEL" "$MANAGER_REASONING_EFFORT"
-printf 'Worker model: %s (%s)\n' "$WORKER_MODEL" "$WORKER_REASONING_EFFORT"
+printf 'Manager: %s (%s)\n' "$MANAGER_MODEL" "$MANAGER_REASONING_EFFORT"
+printf 'Worker: %s (%s)\n' "$WORKER_MODEL" "$WORKER_REASONING_EFFORT"

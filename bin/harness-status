@@ -1,413 +1,49 @@
 #!/usr/bin/env bash
-
 set -Eeuo pipefail
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/harness-common.sh"
 
-usage()
-{
-	printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2
-	exit 2
-}
-
-[[ $# -eq 1 ]] || usage
+[[ $# -eq 1 ]] || die "Usage: ${0##*/} ENV_FILE"
 load_harness_env "$1"
 ensure_project
-
 dir="$(project_dir)"
-oracle_invocation_failure="$(project_oracle_dir)/oracle-invocation-failed.md"
-oracle_limit_marker="$(project_oracle_limit_file)"
-if project_plan_exists; then
-	printf -v project_progress_line 'Project progress: %s%% (%s/%s plan items complete)' \
-		"$(project_plan_progress_percent)" "$(project_plan_complete_count)" "$(project_plan_total_count)"
-else
-	project_progress_line='Project progress: unavailable (project plan is missing)'
-fi
-project_status_line='Project status: UNKNOWN. Status collection did not complete.'
-project_footer_printed=0
-print_project_footer()
-{
-	(( project_footer_printed == 0 )) || return 0
-	printf '\n%s\n%s\n' "$project_progress_line" "$project_status_line"
-	project_footer_printed=1
-}
-# Status diagnostics are best-effort. Keep the project-level progress and
-# status summary visible even if an in-flight state file is between atomic
-# metadata updates.
-trap print_project_footer EXIT
-
-status_kv_value()
-{
-	local file="$1" key="$2" fallback="${3:-}" value=""
-	if [[ -f "$file" ]]; then
-		value="$(awk -F= -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' "$file")"
-	fi
-	[[ -n "$value" ]] || value="$fallback"
-	printf '%s' "$value"
-}
 
 printf 'Environment file: %s\n' "$HARNESS_ENV_FILE"
 printf 'Project: %s\n' "$PROJECT"
 printf 'Repository: %s\n' "$REPOSITORY"
-printf 'Harness root: %s\n' "$HARNESS_ROOT"
-manager_supervisor='stopped'
-worker_supervisor='stopped'
-if [[ -f "$dir/control/supervisor.pid" ]]; then
-	pid="$(cat "$dir/control/supervisor.pid")"
-	if kill -0 "$pid" 2>/dev/null; then manager_supervisor="running (PID $pid)"; fi
-fi
-if [[ -f "$dir/control/worker-supervisor.pid" ]]; then
-	pid="$(cat "$dir/control/worker-supervisor.pid")"
-	if kill -0 "$pid" 2>/dev/null; then worker_supervisor="running (PID $pid)"; fi
-fi
-printf 'Manager supervisor: %s\n' "$manager_supervisor"
-printf 'Worker supervisor: %s\n' "$worker_supervisor"
-printf 'Worker leaf-goal mode: %s\n' "$([[ "$HARNESS_WORKER_GOAL_MODE" == 1 ]] && printf enabled || printf disabled)"
-if oracle_enabled; then
-	if [[ -f "$(project_block_file)" ]]; then
-		printf 'Oracle audit: BLOCKED (%s)\n' "$(project_block_file)"
-	elif [[ -f "$oracle_limit_marker" ]]; then
-		printf 'Oracle audit: RUN_LIMIT_REACHED (%s)\n' "$oracle_limit_marker"
-	elif [[ -f "$oracle_invocation_failure" ]]; then
-		printf 'Oracle audit: INVOCATION_FAILED (%s)\n' "$oracle_invocation_failure"
-	elif [[ -f "$(project_oracle_pending_file)" ]]; then
-		printf 'Oracle audit: PENDING\n'
-	elif [[ -n "$MAX_ORACLE_RUNS" ]]; then
-		printf 'Oracle audit: enabled (maximum runs: %s)\n' "$MAX_ORACLE_RUNS"
-	else
-		printf 'Oracle audit: enabled\n'
-	fi
-elif [[ "$MAX_ORACLE_RUNS" == 0 ]]; then
-	printf 'Oracle audit: disabled (MAX_ORACLE_RUNS=0)\n'
-fi
-if project_plan_exists; then
-	printf '\n%-24s %-12s %-16s %s\n' 'PLAN ITEM' 'STATE' 'TASK ROOT' 'TITLE'
-	printf '%-24s %-12s %-16s %s\n' '------------------------' '------------' '----------------' '-----'
-	awk -F '\t' '
-		NR == FNR {if ($0 !~ /^#/ && NF >= 2) title[$1] = $2; next}
-		$0 !~ /^#/ && NF >= 4 {printf "%-24s %-12s %-16s %s\n", $1, $2, $3, title[$1]}
-	' "$(project_plan_definition_file)" "$(project_plan_state_file)"
-fi
-printf '\n'
-printf '%-32s %-12s %-13s %-10s %-28s %-10s\n' 'TASK' 'STATE' 'EXECUTOR' 'PROGRESS' 'OWNER' 'AGE'
-printf '%-32s %-12s %-13s %-10s %-28s %-10s\n' '--------------------------------' '------------' '-------------' '----------' '----------------------------' '----------'
-
-shopt -s nullglob
-found=0
-accepted_count=0
-checkpointed_count=0
-active_count=0
-aborted_count=0
-blocked_count=0
-replan_count=0
-human_count=0
-replanning_count=0
-manager_remediation_active_count=0
-task_rows=()
-
-task_executor()
-{
-	local task_id="$1" live_file="${2:-}" assignment
-	assignment="$dir/archive/$(task_base "$task_id").assignment.md"
-	if [[ -f "$assignment" ]] && assignment_is_manager_remediation "$assignment"; then
-		printf 'MANAGER_FIX'
-	elif [[ -n "$live_file" ]] && assignment_is_manager_remediation "$live_file"; then
-		printf 'MANAGER_FIX'
-	else
-		printf 'WORKER'
-	fi
-}
-
-for file in "$dir/tasks/$PROJECT-task-"*.ready.md; do
-	found=1
-	active_count=$((active_count + 1))
-	task_id="$(task_id_from_filename "$file")"
-	executor="$(task_executor "$task_id" "$file")"
-	[[ "$executor" != MANAGER_FIX ]] || manager_remediation_active_count=$((manager_remediation_active_count + 1))
-	progress="$(task_progress_percent "$task_id")%"
-	printf -v task_row '%-32s %-12s %-13s %-10s %-28s %-10s' "$task_id" 'READY' "$executor" "$progress" '-' '-'
-	task_rows+=("$task_row")
-done
-
-for file in "$dir/running/$PROJECT-task-"*.running.md; do
-	found=1
-	active_count=$((active_count + 1))
-	task_id="$(task_id_from_filename "$file")"
-	base="$(task_base "$task_id")"
-	executor="$(task_executor "$task_id" "$file")"
-	[[ "$executor" != MANAGER_FIX ]] || manager_remediation_active_count=$((manager_remediation_active_count + 1))
-	progress="$(task_progress_percent "$task_id")%"
-	lease="$dir/control/$base.lease"
-	owner='unknown'
-	age='unknown'
-	if [[ -f "$lease" ]]; then
-		owner="$(lease_value "$lease" owner)"
-		heartbeat_epoch="$(lease_value "$lease" heartbeat_epoch)"
-		if [[ -n "$heartbeat_epoch" ]]; then
-			age="$(( $(epoch_now) - heartbeat_epoch ))s"
-		fi
-	fi
-	printf -v task_row '%-32s %-12s %-13s %-10s %-28s %-10s' "$task_id" 'RUNNING' "$executor" "$progress" "$owner" "$age"
-	task_rows+=("$task_row")
-done
-
-for file in "$dir/results/$PROJECT-task-"*.result.md; do
-	found=1
-	active_count=$((active_count + 1))
-	task_id="$(task_id_from_filename "$file")"
-	executor="$(task_executor "$task_id")"
-	[[ "$executor" != MANAGER_FIX ]] || manager_remediation_active_count=$((manager_remediation_active_count + 1))
-	progress="$(task_progress_percent "$task_id")%"
-	printf -v task_row '%-32s %-12s %-13s %-10s %-28s %-10s' "$task_id" 'REVIEW' "$executor" "$progress" '-' '-'
-	task_rows+=("$task_row")
-done
-
-for file in "$dir/archive/$PROJECT-task-"*.accepted.md; do
-	found=1
-	accepted_count=$((accepted_count + 1))
-	name="${file##*/}"
-	task_id="${name#${PROJECT}-task-}"
-	task_id="${task_id%.accepted.md}"
-	executor="$(task_executor "$task_id")"
-	progress="$(task_progress_percent "$task_id")%"
-	printf -v task_row '%-32s %-12s %-13s %-10s %-28s %-10s' "$task_id" 'ACCEPTED' "$executor" "$progress" '-' '-'
-	task_rows+=("$task_row")
-done
-
-for file in "$dir/archive/$PROJECT-task-"*.checkpointed.md; do
-	found=1
-	checkpointed_count=$((checkpointed_count + 1))
-	name="${file##*/}"
-	task_id="${name#${PROJECT}-task-}"
-	task_id="${task_id%.checkpointed.md}"
-	executor="$(task_executor "$task_id")"
-	progress="$(task_progress_percent "$task_id")%"
-	printf -v task_row '%-32s %-12s %-13s %-10s %-28s %-10s' "$task_id" 'CHECKPOINTED' "$executor" "$progress" '-' '-'
-	task_rows+=("$task_row")
-done
-
-for file in "$dir/control/$PROJECT-task-"*.abort.md; do
-	found=1
-	aborted_count=$((aborted_count + 1))
-	name="${file##*/}"
-	task_id="${name#${PROJECT}-task-}"
-	task_id="${task_id%.abort.md}"
-	progress="$(task_progress_percent "$task_id")%"
-	printf -v task_row '%-32s %-12s %-13s %-10s %-28s %-10s' "$task_id" 'ABORTED' '-' "$progress" '-' '-'
-	task_rows+=("$task_row")
-done
-
-for file in "$dir/control/progress/$PROJECT-task-"*.blocked.md; do
-	found=1
-	blocked_count=$((blocked_count + 1))
-	name="${file##*/}"
-	task_id="${name#${PROJECT}-task-}"
-	task_id="${task_id%.blocked.md}"
-	progress="$(task_progress_percent "$task_id")%"
-	printf -v task_row '%-32s %-12s %-13s %-10s %-28s %-10s' "$task_id" 'BLOCKED' '-' "$progress" '-' '-'
-	task_rows+=("$task_row")
-done
-
-for file in "$dir/control/progress/$PROJECT-task-"*.needs-replan.md; do
-	found=1
-	name="${file##*/}"
-	task_id="${name#${PROJECT}-task-}"
-	task_id="${task_id%.needs-replan.md}"
-	if [[ -f "$(task_root_replanning_file "$task_id")" ]]; then
-		continue
-	fi
-	replan_count=$((replan_count + 1))
-	progress="$(task_progress_percent "$task_id")%"
-	printf -v task_row '%-32s %-12s %-13s %-10s %-28s %-10s' "$task_id" 'NEEDS_REPLAN' 'MANAGER' "$progress" '-' '-'
-	task_rows+=("$task_row")
-done
-
-for file in "$dir/control/progress/$PROJECT-task-"*.replanning.md; do
-	found=1
-	replanning_count=$((replanning_count + 1))
-	name="${file##*/}"
-	task_id="${name#${PROJECT}-task-}"
-	task_id="${task_id%.replanning.md}"
-	progress="$(task_progress_percent "$task_id")%"
-	printf -v task_row '%-32s %-12s %-13s %-10s %-28s %-10s' "$task_id" 'REPLANNING' 'MANAGER' "$progress" '-' '-'
-	task_rows+=("$task_row")
-done
-
-for file in "$dir/control/progress/$PROJECT-task-"*.needs-human.md; do
-	found=1
-	human_count=$((human_count + 1))
-	name="${file##*/}"
-	task_id="${name#${PROJECT}-task-}"
-	task_id="${task_id%.needs-human.md}"
-	progress="$(task_progress_percent "$task_id")%"
-	printf -v task_row '%-32s %-12s %-13s %-10s %-28s %-10s' "$task_id" 'NEEDS_HUMAN' 'HUMAN' "$progress" '-' '-'
-	task_rows+=("$task_row")
-done
-
-if (( found == 0 )); then
-	printf '%s\n' '(no tasks)'
+printf 'Harness mode: persistent Luna worker with sparse Terra reviews\n'
+if supervisor_running; then
+	printf 'Supervisor: running (PID %s)\n' "$(supervisor_pid)"
 else
-	for ((row_index = ${#task_rows[@]} - 1; row_index >= 0; row_index--)); do
-		printf '%s\n' "${task_rows[row_index]}"
-	done
+	printf 'Supervisor: stopped\n'
 fi
-
-if project_completion_recorded && project_plan_all_complete; then
-	if [[ -f "$oracle_limit_marker" ]]; then
-		project_status_line='Project status: COMPLETE_WITH_ORACLE_LIMIT. Every project-plan item is accepted; no final Oracle PASS was recorded after the configured audit cap.'
-	else
-		project_status_line='Project status: COMPLETE. Every project-plan item is accepted.'
-	fi
-elif (( human_count > 0 )); then
-	project_status_line='Project status: NEEDS_HUMAN. A documented authorization, secret, external-state, or product/specification decision requires a person; verified work is preserved.'
-elif (( manager_remediation_active_count > 0 )); then
-	project_status_line='Project status: MANAGER_REMEDIATION. A manager-model task is repairing a directly implicated local prerequisite while preserving the original acceptance gate.'
-elif (( blocked_count > 0 )); then
-	project_status_line='Project status: BLOCKED. A legacy hard-block marker is awaiting manager classification; restart the manager supervisor to recover it.'
-elif (( replanning_count > 0 )); then
-	project_status_line='Project status: REPLANNING. The persistent manager is decomposing the root and publishing one first-unmet-criterion continuation.'
-elif (( replan_count > 0 )); then
-	if (( HARNESS_AUTO_REPLAN_ENABLED == 1 )); then
-		project_status_line='Project status: NEEDS_REPLAN. Verified checkpoints are preserved; automatic persistent-manager recovery is pending.'
-	else
-		project_status_line='Project status: NEEDS_REPLAN. Automatic recovery is disabled; reassess and explicitly resume the root.'
-	fi
-elif project_is_blocked; then
-	project_status_line='Project status: BLOCKED. The Oracle requires human approval before planning can continue.'
-elif [[ -f "$oracle_invocation_failure" ]]; then
-	project_status_line='Project status: ORACLE_AUDIT_FAILED. The final independent audit invocation failed locally; verified work is preserved and the audit requires an automatic retry or supervisor restart.'
-elif [[ -f "$dir/control/manager-plan.running" ]]; then
-	project_status_line='Project status: PLANNING. The manager is preparing the next bounded task.'
-elif (( active_count > 0 )); then
-	project_status_line='Project status: ACTIVE. Work is ready, running, or awaiting manager review.'
-elif (( aborted_count > 0 )); then
-	project_status_line='Project status: ABORTED. One or more task roots require operator action.'
-elif project_plan_exists && project_plan_all_complete && oracle_enabled &&
-	[[ -f "$(project_oracle_pending_file)" ]]; then
-	project_status_line='Project status: ORACLE_AUDIT. Every plan item is complete and the final independent audit is pending.'
-elif project_plan_exists && (( active_count == 0 && aborted_count == 0 )) && ! project_plan_all_complete; then
-	project_status_line='Project status: INCOMPLETE. No task is active; manager planning is required for the next plan item.'
-elif project_completion_recorded; then
-	project_status_line='Project status: INCOMPLETE. Ignoring an invalid legacy completion marker because the project plan is absent or unfinished.'
-elif ! project_plan_exists; then
-	project_status_line='Project status: INCOMPLETE. The project plan is missing.'
+printf 'Status: %s\n' "$(state_value status)"
+printf 'Phase: %s\n' "$(state_value phase)"
+printf 'Worker/review cycle: %s\n' "$(state_value cycle)"
+printf 'Manager: %s (%s)\n' "$MANAGER_MODEL" "$MANAGER_REASONING_EFFORT"
+printf 'Worker: %s (%s)\n' "$WORKER_MODEL" "$WORKER_REASONING_EFFORT"
+if [[ -f "$dir/control/worker.thread" ]]; then
+	printf 'Persistent worker thread: %s\n' "$(awk 'NR == 1 { print; exit }' "$dir/control/worker.thread")"
 else
-	project_status_line='Project status: INCOMPLETE. The project is not complete and no active task was found.'
+	printf 'Persistent worker thread: not started\n'
 fi
+printf 'Completion addenda: %s\n' \
+	"$(find "$dir/addenda" -maxdepth 1 -name 'addendum-*.md' -type f | wc -l | tr -d ' ')"
 
-if (( checkpointed_count > 0 )); then
-	printf '\nVerified checkpoints: %s\n' "$checkpointed_count"
+manager_input="$(usage_sum_by_thread "$dir/logs" 'manager-*.jsonl' input_tokens)"
+manager_cached="$(usage_sum_by_thread "$dir/logs" 'manager-*.jsonl' cached_input_tokens)"
+manager_output="$(usage_sum_by_thread "$dir/logs" 'manager-*.jsonl' output_tokens)"
+worker_input="$(usage_sum_by_thread "$dir/logs" 'worker-*.jsonl' input_tokens)"
+worker_cached="$(usage_sum_by_thread "$dir/logs" 'worker-*.jsonl' cached_input_tokens)"
+worker_output="$(usage_sum_by_thread "$dir/logs" 'worker-*.jsonl' output_tokens)"
+printf 'Manager tokens: input=%s cached=%s output=%s\n' \
+	"$manager_input" "$manager_cached" "$manager_output"
+printf 'Worker tokens: input=%s cached=%s output=%s\n' \
+	"$worker_input" "$worker_cached" "$worker_output"
+
+if [[ -f "$dir/control/last-error.txt" ]]; then
+	printf 'Last error: %s\n' "$(head -n 1 "$dir/control/last-error.txt")"
 fi
-
-manager_remediation_occurrences=0
-manager_remediation_unique_blockers=0
-remediation_ledgers=("$dir/control/progress/$PROJECT-task-"*.manager-remediations.tsv)
-if (( ${#remediation_ledgers[@]} > 0 )); then
-	for remediation_ledger in "${remediation_ledgers[@]}"; do
-		[[ -f "$remediation_ledger" ]] || continue
-		remediation_rows="$(( $(wc -l < "$remediation_ledger") - 1 ))"
-		(( remediation_rows >= 0 )) || remediation_rows=0
-		manager_remediation_occurrences=$((manager_remediation_occurrences + remediation_rows))
-	done
-	manager_remediation_unique_blockers="$(
-		awk -F '\t' 'FNR > 1 && $5 != "" && $5 != "-" {seen[$5]=1} END {for (item in seen) count++; print count + 0}' \
-			"${remediation_ledgers[@]}"
-	)"
-fi
-printf '\nManager remediation blockers: %s occurrence(s), %s unique fingerprint(s); %s active task(s).\n' \
-	"$manager_remediation_occurrences" "$manager_remediation_unique_blockers" "$manager_remediation_active_count"
-
-hard_block_claims=0
-hard_blocks_routed_manager=0
-hard_blocks_needing_human=0
-hard_block_ledgers=("$dir/control/progress/$PROJECT-task-"*.hard-blocks.tsv)
-if (( ${#hard_block_ledgers[@]} > 0 )); then
-	for hard_block_ledger in "${hard_block_ledgers[@]}"; do
-		[[ -f "$hard_block_ledger" ]] || continue
-		hard_block_rows="$(( $(wc -l < "$hard_block_ledger") - 1 ))"
-		(( hard_block_rows >= 0 )) || hard_block_rows=0
-		hard_block_claims=$((hard_block_claims + hard_block_rows))
-	done
-	read -r hard_blocks_routed_manager hard_blocks_needing_human < <(
-		awk -F '\t' '
-			FNR > 1 && $5 == "MANAGER_REMEDIATION" {manager++}
-			FNR > 1 && $5 == "NEEDS_HUMAN" {human++}
-			END {print manager + 0, human + 0}
-		' "${hard_block_ledgers[@]}"
-	)
-fi
-printf 'Hard-block claims: %s occurrence(s); %s routed to manager remediation; %s confirmed human-dependent.\n' \
-	"$hard_block_claims" "$hard_blocks_routed_manager" "$hard_blocks_needing_human"
-
-active_status_root="$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" && $3 != "-" {print $3; exit}' "$(project_plan_state_file)" 2>/dev/null || true)"
-if [[ -n "$active_status_root" ]]; then
-	active_leaf="$(task_first_unmet_criterion "$active_status_root" 2>/dev/null || true)"
-	verified_items="$(task_verified_item_count "$active_status_root")"
-	replans_without_gain="$(root_auto_replans_without_verified_gain "$active_status_root")"
-	printf '\nActive root evidence: %s verified item(s); %s automatic replan(s) since the latest durable gain.\n' \
-		"$verified_items" "$replans_without_gain"
-	[[ -z "$active_leaf" ]] || printf 'First unmet leaf criterion: %s\n' "$active_leaf"
-fi
-
-for goal_file in "$(goal_control_dir)"/"$PROJECT-task-"*.goal; do
-	[[ -f "$goal_file" ]] || continue
-	goal_state="$(status_kv_value "$goal_file" state)"
-	[[ "$goal_state" =~ ^(READY|RUNNING|ITERATING|STRATEGY_REVIEW|REVIEW)$ ]] || continue
-	goal_task="$(status_kv_value "$goal_file" task_id unknown)"
-	goal_iterations="$(status_kv_value "$goal_file" iteration_count 0)"
-	goal_target="$(status_kv_value "$goal_file" target_criterion unknown)"
-	goal_id="$(status_kv_value "$goal_file" goal_id unknown)"
-	goal_boundary="$(status_kv_value "$goal_file" last_boundary unknown)"
-	goal_movement_at="$(status_kv_value "$goal_file" last_movement_at unknown)"
-	goal_generation="$(status_kv_value "$goal_file" context_generation 0)"
-	goal_turns="$(status_kv_value "$goal_file" process_turns 0)"
-	goal_input="$(status_kv_value "$goal_file" cumulative_input_tokens 0)"
-	goal_output="$(status_kv_value "$goal_file" cumulative_output_tokens 0)"
-	goal_reviews="$(status_kv_value "$goal_file" manager_reviews 0)"
-	goal_thread="$(status_kv_value "$goal_file" thread_id)"
-	goal_workspace="$(status_kv_value "$goal_file" last_workspace unknown)"
-	current_workspace="$(repository_workspace_fingerprint 2>/dev/null || printf unavailable)"
-	goal_workspace_drift=no
-	[[ "$goal_workspace" == "$current_workspace" ]] || goal_workspace_drift=yes
-	goal_root="$(status_kv_value "$goal_file" task_root)"
-	goal_leaf_total=0
-	goal_leaf_passed=0
-	if [[ -n "$goal_root" ]]; then
-		while IFS= read -r goal_leaf; do
-			[[ -n "$goal_leaf" ]] || continue
-			goal_leaf_total=$((goal_leaf_total + 1))
-			if task_criterion_is_passed "$goal_root" "$goal_leaf"; then
-				goal_leaf_passed=$((goal_leaf_passed + 1))
-			fi
-		done < <(task_root_leaf_criteria "$goal_root")
-	fi
-	goal_latest_classification='not-yet-recorded'
-	goal_latest_log=""
-	for candidate_log in "$dir/logs/worker-task-$goal_task-"*.jsonl; do
-		[[ -f "$candidate_log" ]] || continue
-		if [[ -z "$goal_latest_log" || "$candidate_log" -nt "$goal_latest_log" ]]; then
-			goal_latest_log="$candidate_log"
-		fi
-	done
-	if [[ -n "$goal_latest_log" ]]; then
-		goal_latest_classification="$(status_kv_value \
-			"${goal_latest_log%.jsonl}.classification" classification not-yet-recorded)"
-	fi
-	[[ -n "$goal_thread" ]] || goal_thread='fresh/not-yet-recorded'
-	printf '\nActive worker goal: %s (%s)\n' "$goal_id" "$goal_state"
-	printf 'Goal task / target: %s / %s\n' "$goal_task" "$goal_target"
-	printf 'Internal iterations: %s; context generation: %s; thread: %s\n' \
-		"$goal_iterations" "$goal_generation" "$goal_thread"
-	printf 'Worker process turns: %s\n' "$goal_turns"
-	printf 'Verified leaf criteria: %s/%s; manager reviews: %s\n' \
-		"$goal_leaf_passed" "$goal_leaf_total" "$goal_reviews"
-	printf 'Cumulative processed tokens (not current context size): input=%s output=%s\n' \
-		"$goal_input" "$goal_output"
-	printf 'Latest worker/provider classification: %s\n' "$goal_latest_classification"
-	printf 'Last durable boundary: %s\n' "$goal_boundary"
-	printf 'Last material movement: %s\n' "$goal_movement_at"
-	printf 'Workspace changed since last receipt: %s\n' "$goal_workspace_drift"
-	break
-done
-
-print_project_footer
+printf 'Latest events:\n'
+tail -n 8 "$(events_file)" 2>/dev/null || true

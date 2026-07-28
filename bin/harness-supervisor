@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-
+# One persistent Luna worker with sparse fresh Terra goal/review turns.
 set -Eeuo pipefail
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/harness-common.sh"
 
@@ -12,406 +13,272 @@ usage()
 
 [[ $# -eq 1 ]] || usage
 load_harness_env "$1"
+require_dependencies
 ensure_project
-trace_init manager_supervisor
-trace_script_start "$@"
-dir="$(project_dir)"
-write_oracle_snapshot
-manager_invoker="${HARNESS_MANAGER_INVOKER:-$HARNESS_BIN/manager-invoke-result}"
-manager_plan_invoker="${HARNESS_MANAGER_PLAN_INVOKER:-$HARNESS_BIN/manager-plan-next-task}"
-manager_replan_invoker="${HARNESS_MANAGER_REPLAN_INVOKER:-$HARNESS_BIN/manager-auto-replan-root}"
-oracle_invoker="${HARNESS_ORACLE_INVOKER:-$HARNESS_BIN/oracle-invoke-final-audit}"
-manager_pending_exit_status=3
-[[ -x "$manager_invoker" ]] || die "manager invoker is not executable: $manager_invoker"
-[[ -x "$manager_plan_invoker" ]] || die "manager plan invoker is not executable: $manager_plan_invoker"
-if (( HARNESS_AUTO_REPLAN_ENABLED == 1 )); then
-	[[ -x "$manager_replan_invoker" ]] || die "manager replan invoker is not executable: $manager_replan_invoker"
-fi
-if oracle_enabled; then
-	[[ -x "$oracle_invoker" ]] || die "oracle invoker is not executable: $oracle_invoker"
-fi
 
+dir="$(project_dir)"
 exec 8>"$dir/control/supervisor.lock"
 flock -n 8 || die "a supervisor is already running for project: $PROJECT"
 printf '%s\n' "$$" > "$dir/control/supervisor.pid"
-printf '%s\n' "$HARNESS_ENV_FILE" > "$dir/control/supervisor.env-file"
-watch_pid=""
-supervisor_exit_status=0
-current_command=""
-oracle_failed_fingerprint=""
-declare -A replan_failed_fingerprint=()
-
-log_supervisor_failure()
-{
-	local status="$1"
-	local line="$2"
-	local command="$3"
-	log_event "SUPERVISOR_FATAL status=$status line=$line command=$(printf '%q' "$command")"
-	printf 'Supervisor fatal error for %s: status=%s line=%s command=%s\n' \
-		"$PROJECT" "$status" "$line" "$command" >&2
-}
+chmod 600 "$dir/control/supervisor.pid"
 
 cleanup()
 {
-	if [[ -n "$watch_pid" ]]; then
-		kill "$watch_pid" 2>/dev/null || true
-	fi
-	rm -f "$dir/control/supervisor.pid" "$dir/control/supervisor.env-file"
-	trace_script_exit "$supervisor_exit_status"
-	if (( supervisor_exit_status != 0 )); then
-		log_event "SUPERVISOR_EXIT status=$supervisor_exit_status"
+	local recorded
+	recorded="$(supervisor_pid 2>/dev/null || true)"
+	if [[ "$recorded" == "$$" ]]; then
+		rm -f "$dir/control/supervisor.pid"
 	fi
 }
-trap 'supervisor_exit_status=$?; current_command=$BASH_COMMAND; if (( supervisor_exit_status != 0 )); then log_supervisor_failure "$supervisor_exit_status" "$LINENO" "$current_command"; fi' ERR
-trap 'cleanup; exit 0' INT TERM
 trap cleanup EXIT
+trap 'log_event "SUPERVISOR_STOPPED signal=TERM"; exit 0' TERM INT
 
-fingerprint()
+fail_harness()
 {
-	local file="$1"
-	stat -c '%i:%s:%Y' "$file"
+	local reason="$1"
+	printf '%s\n' "$reason" > "$dir/control/last-error.txt"
+	chmod 600 "$dir/control/last-error.txt"
+	write_state FAILED TERMINAL_FAILURE "$(state_value cycle 2>/dev/null || printf 0)"
+	log_event "HARNESS_FAILED reason=$(printf '%q' "$reason")"
+	printf 'Harness failed: %s\n' "$reason" >&2
+	exit 1
 }
 
-process_results()
+invoke_with_retry()
 {
-	local file task_id base marker current previous status alert tmp running lease assignment_archive accepted checkpointed rejected blocked
-	shopt -s nullglob
-	for file in "$dir/results/$PROJECT-task-"*.result.md; do
-		task_id="$(task_id_from_filename "$file")"
-		base="$(task_base "$task_id")"
-		running="$dir/running/$base.running.md"
-		lease="$dir/control/$base.lease"
-		assignment_archive="$dir/archive/$base.assignment.md"
-		accepted="$dir/archive/$base.accepted.md"
-		checkpointed="$dir/archive/$base.checkpointed.md"
-		rejected="$dir/archive/$base.rejected.md"
-		blocked="$dir/archive/$base.blocked.md"
+	local role="$1"
+	local prompt="$2"
+	local stem="$3"
+	shift 3
+	local jsonl="$dir/logs/$stem.jsonl"
+	local stderr_log="$dir/logs/$stem.stderr.log"
+	local output="$dir/outputs/$stem.md"
+	local classification delay status attempt=0
 
-		# A result becomes reviewable only after the worker completion transaction
-		# has archived the assignment and removed the lease. An agent may write a
-		# result file directly before worker-complete-task finishes; ignore that
-		# intermediate state and reconcile it on a later scan.
-		if [[ -e "$running" || -e "$lease" || ! -f "$assignment_archive" ]]; then
-			continue
-		fi
-
-		marker="$dir/control/$base.reviewed-event"
-		current="$(fingerprint "$file")"
-		previous=""
-		[[ ! -f "$marker" ]] || previous="$(kv_file_value "$marker" fingerprint)"
-		[[ "$current" != "$previous" ]] || continue
-
-		log_event "SUPERVISOR_TRIGGER task=$task_id fingerprint=$current"
-		trace_event SUPERVISOR_INVOKE_MANAGER "task_id=$task_id" "fingerprint=$current" "manager_invoker=$manager_invoker"
+	while true; do
+		attempt=$((attempt + 1))
+		log_event "TURN_STARTED role=$role stem=$stem attempt=$attempt"
 		set +e
-		"$manager_invoker" "$HARNESS_ENV_FILE" "$task_id" 8>&-
+		"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" "$role" \
+			"$prompt" "$jsonl" "$stderr_log" "$output" "$@"
 		status=$?
 		set -e
-		trace_event SUPERVISOR_MANAGER_EXIT "task_id=$task_id" "status=$status"
-		if (( status == 0 )); then
-			if [[ -f "$file" ]]; then
-				log_event "SUPERVISOR_RESULT_STILL_PRESENT task=$task_id accepted=$([[ -f "$accepted" ]] && printf 1 || printf 0) checkpointed=$([[ -f "$checkpointed" ]] && printf 1 || printf 0) rejected=$([[ -f "$rejected" ]] && printf 1 || printf 0) blocked=$([[ -f "$blocked" ]] && printf 1 || printf 0)"
-				tmp="$marker.tmp.$$"
-				{
-					printf 'fingerprint=%s\n' "$current"
-					printf 'handled_at=%s\n' "$(timestamp_utc)"
-					printf 'manager_exit_status=0\n'
-				} > "$tmp"
-				chmod 600 "$tmp"
-				mv "$tmp" "$marker"
-				log_event "SUPERVISOR_RESULT_LEFT_PENDING task=$task_id"
-			fi
-		elif (( status == manager_pending_exit_status )); then
-			log_event "SUPERVISOR_REVIEW_LEFT_UNCOMMITTED task=$task_id"
-		else
-			alert="$dir/control/$base.manager-failed.md"
-			tmp="$alert.tmp.$$"
-			{
-				printf '# Manager Invocation Failed\n\n'
-				printf 'Project: %s\n\n' "$PROJECT"
-				printf 'Task-ID: %s\n\n' "$task_id"
-				printf 'Environment-File: %s\n\n' "$HARNESS_ENV_FILE"
-				printf 'Failed-At: %s\n\n' "$(timestamp_utc)"
-				printf 'Exit-Status: %s\n\n' "$status"
-				printf 'Provider quota and transient provider/network failures retry indefinitely inside manager-invoke-result. This failure was classified as terminal or non-provider.\n'
-			} > "$tmp"
-			chmod 600 "$tmp"
-			mv "$tmp" "$alert"
-			printf 'Manager invocation failed for task %s; see %s\n' "$task_id" "$alert" >&2
-			tmp="$marker.tmp.$$"
-			{
-				printf 'fingerprint=%s\n' "$current"
-				printf 'handled_at=%s\n' "$(timestamp_utc)"
-				printf 'manager_exit_status=%s\n' "$status"
-			} > "$tmp"
-			chmod 600 "$tmp"
-			mv "$tmp" "$marker"
+		classification="$(codex_classification "$jsonl")"
+		if (( status == 0 )) && [[ "$classification" == success ]]; then
+			log_event "TURN_COMPLETED role=$role stem=$stem attempt=$attempt"
+			printf '%s\n' "$output"
+			return 0
 		fi
-	done
-}
-
-project_has_active_task()
-{
-	compgen -G "$dir/tasks/$PROJECT-task-*.ready.md" >/dev/null ||
-		compgen -G "$dir/running/$PROJECT-task-*.running.md" >/dev/null ||
-		compgen -G "$dir/results/$PROJECT-task-*.result.md" >/dev/null ||
-		compgen -G "$dir/control/progress/$PROJECT-task-*.blocked.md" >/dev/null ||
-		compgen -G "$dir/control/progress/$PROJECT-task-*.needs-replan.md" >/dev/null ||
-		compgen -G "$dir/control/progress/$PROJECT-task-*.needs-human.md" >/dev/null ||
-		compgen -G "$dir/control/progress/$PROJECT-task-*.replanning.md" >/dev/null
-}
-
-reclassify_legacy_convergence_human_markers()
-{
-	local marker name root reason trigger_task
-	shopt -s nullglob
-	for marker in "$dir/control/progress/$PROJECT-task-"*.needs-human.md; do
-		[[ -f "$marker" ]] || continue
-		reason="$(awk '/^Reason: / {sub(/^Reason: /, ""); print; exit}' "$marker")"
-		case "$reason" in
-			"the same blocker survived a bounded automatic replan without durable verified gain"*|\
-			"automatic strategy-change budget exhausted without durable verified gain"*)
-				;;
-			*)
-				continue
-				;;
-		esac
-		name="${marker##*/}"
-		root="${name#${PROJECT}-task-}"
-		root="${root%.needs-human.md}"
-		trigger_task="$(awk -F': ' '$1 == "Triggered-By" {print $2; exit}' "$marker")"
-		[[ -n "$trigger_task" ]] || trigger_task="$root"
-		mark_root_needs_replan "$trigger_task" \
-			"legacy convergence pause reclassified as automatic manager remediation: $reason" \
-			MANAGER_REMEDIATION >/dev/null
-		rm -f "$marker"
-		log_event "LEGACY_HUMAN_RECLASSIFIED_MANAGER_REMEDIATION root=$root trigger=$trigger_task reason=$(printf '%q' "$reason")"
-	done
-}
-
-reclassify_legacy_hard_block_markers()
-{
-	local marker name root reason trigger_task blocked_review blocker_class
-	local remediation_scope human_evidence
-	shopt -s nullglob
-	for marker in "$dir/control/progress/$PROJECT-task-"*.blocked.md; do
-		[[ -f "$marker" ]] || continue
-		name="${marker##*/}"
-		root="${name#${PROJECT}-task-}"
-		root="${root%.blocked.md}"
-		trigger_task="$(awk -F': ' '$1 == "Blocked-By-Task" {print $2; exit}' "$marker")"
-		[[ -n "$trigger_task" ]] || trigger_task="$root"
-		reason="$(awk '/^Reason: / {sub(/^Reason: /, ""); print; exit}' "$marker")"
-		[[ -n "$reason" ]] || reason="legacy hard block requires manager-level classification"
-		blocked_review="$dir/archive/$(task_base "$trigger_task").blocked.md"
-		blocker_class=""
-		remediation_scope=""
-		human_evidence=""
-		if [[ -f "$blocked_review" ]]; then
-			blocker_class="$(metadata_value "$blocked_review" Blocker-Class)"
-			remediation_scope="$(metadata_value "$blocked_review" Remediation-Scope)"
-			human_evidence="$(metadata_value "$blocked_review" Human-Dependency-Evidence)"
-		fi
-		if hard_block_class_is_human "$blocker_class" && [[ -n "$human_evidence" ]]; then
-			mark_root_needs_human "$root" "$trigger_task" "$reason" \
-				"$blocker_class" "$human_evidence" >/dev/null
-			record_root_hard_block "$trigger_task" "$blocker_class" NEEDS_HUMAN - "$reason"
-			rm -f "$marker"
-			log_event "LEGACY_HARD_BLOCK_RECLASSIFIED_NEEDS_HUMAN root=$root trigger=$trigger_task blocker_class=$blocker_class reason=$(printf '%q' "$reason")"
+		if delay="$(provider_retry_delay "$classification" 2>/dev/null)"; then
+			log_event "TURN_RETRY role=$role stem=$stem classification=$classification delay=$delay"
+			printf '%s turn %s hit %s; retrying in %s seconds.\n' \
+				"$role" "$stem" "$classification" "$delay" >&2
+			sleep "$delay"
 			continue
 		fi
-		if ! hard_block_class_is_local "$blocker_class"; then
-			blocker_class="LOCAL_CODE_PREREQUISITE"
-		fi
-		[[ -n "$remediation_scope" ]] ||
-			remediation_scope="repository-local implementation or testability prerequisite identified by the legacy hard-block review"
-		mark_root_needs_replan "$trigger_task" \
-			"legacy hard block reclassified for manager remediation: $reason" \
-			LEGACY_HARD_BLOCKED "$blocker_class" "$remediation_scope" >/dev/null
-		record_root_hard_block "$trigger_task" "$blocker_class" MANAGER_REMEDIATION \
-			"$remediation_scope" "$reason"
-		rm -f "$marker"
-		log_event "LEGACY_HARD_BLOCK_RECLASSIFIED_MANAGER_REMEDIATION root=$root trigger=$trigger_task blocker_class=$blocker_class remediation_scope=$(printf '%q' "$remediation_scope") reason=$(printf '%q' "$reason")"
+		log_event "TURN_FAILED role=$role stem=$stem classification=$classification status=$status"
+		return 1
 	done
 }
 
-process_auto_replans()
+write_context_header()
 {
-	local marker name root current status alert tmp
-	(( HARNESS_AUTO_REPLAN_ENABLED == 1 )) || return 0
-	shopt -s nullglob
-	for marker in "$dir/control/progress/$PROJECT-task-"*.needs-replan.md; do
-		[[ -f "$marker" ]] || continue
-		name="${marker##*/}"
-		root="${name#${PROJECT}-task-}"
-		root="${root%.needs-replan.md}"
-		current="$(fingerprint "$marker")"
-		[[ "${replan_failed_fingerprint[$root]:-}" != "$current" ]] || continue
-		log_event "SUPERVISOR_INVOKE_MANAGER_REPLAN root=$root fingerprint=$current invoker=$manager_replan_invoker"
-		trace_event SUPERVISOR_INVOKE_MANAGER_REPLAN "root=$root" "fingerprint=$current" "manager_replan_invoker=$manager_replan_invoker"
-		set +e
-		"$manager_replan_invoker" "$HARNESS_ENV_FILE" "$root" 8>&-
-		status=$?
-		set -e
-		trace_event SUPERVISOR_MANAGER_REPLAN_EXIT "root=$root" "status=$status"
-		if (( status == 0 )); then
-			unset 'replan_failed_fingerprint[$root]'
-			rm -f "$dir/control/$PROJECT-task-$root.manager-replan-failed.md"
-			continue
-		fi
-		replan_failed_fingerprint[$root]="$current"
-		alert="$dir/control/$PROJECT-task-$root.manager-replan-failed.md"
-		tmp="$alert.tmp.$$"
-		{
-			printf '# Automatic Manager Replan Invocation Failed\n\n'
-			printf 'Project: %s\n\n' "$PROJECT"
-			printf 'Task-Root: %s\n\n' "$root"
-			printf 'Environment-File: %s\n\n' "$HARNESS_ENV_FILE"
-			printf 'Needs-Replan-Fingerprint: %s\n\n' "$current"
-			printf 'Failed-At: %s\n\n' "$(timestamp_utc)"
-			printf 'Exit-Status: %s\n\n' "$status"
-			printf 'The supervisor will not repeat this unchanged local failure during its current run. Provider failures retry inside the replan invoker. The root remains in automatic recovery and is not classified as human-dependent.\n'
-		} > "$tmp"
-		chmod 600 "$tmp"
-		mv "$tmp" "$alert"
-		log_event "SUPERVISOR_MANAGER_RECOVERY_FAILED root=$root status=$status alert=$alert human_dependency=0"
-	done
-}
-
-process_planning_gap()
-{
-	local status alert tmp
-	project_plan_exists || return 0
-	project_plan_all_complete && return 0
-	project_has_active_task && return 0
-	log_event "SUPERVISOR_PLANNING_GAP progress=$(project_plan_progress_percent) pending=$(project_plan_pending_count)"
-	trace_event SUPERVISOR_INVOKE_MANAGER_PLAN "manager_plan_invoker=$manager_plan_invoker" "project_progress=$(project_plan_progress_percent)"
-	if "$manager_plan_invoker" "$HARNESS_ENV_FILE" 8>&-; then
-		status=0
-	else
-		status=$?
-	fi
-	trace_event SUPERVISOR_MANAGER_PLAN_EXIT "status=$status"
-	if (( status == 0 )); then
-		rm -f "$dir/control/manager-plan-failed.md"
-		return 0
-	fi
-	if (( status == manager_pending_exit_status )); then
-		log_event "SUPERVISOR_PLAN_LEFT_UNCOMMITTED"
-		return 0
-	fi
-	alert="$dir/control/manager-plan-failed.md"
-	tmp="$alert.tmp.$$"
+	local prompt="$1"
 	{
-		printf '# Manager Planning Invocation Failed\n\n'
-		printf 'Project: %s\n\n' "$PROJECT"
-		printf 'Environment-File: %s\n\n' "$HARNESS_ENV_FILE"
-		printf 'Failed-At: %s\n\n' "$(timestamp_utc)"
-		printf 'Exit-Status: %s\n' "$status"
-	} > "$tmp"
-	chmod 600 "$tmp"
-	mv "$tmp" "$alert"
+		printf '\n# Harness context\n\n'
+		printf 'Project: `%s`\n\n' "$PROJECT"
+		printf 'Repository: `%s`\n\n' "$REPOSITORY"
+		printf 'Immutable specification: `%s`\n\n' "$dir/inputs/specification.txt"
+		printf 'Development policy: `%s`\n\n' "$dir/inputs/development-policy.txt"
+	} >> "$prompt"
 }
 
-handle_project_completion()
+generate_goal()
 {
-	local completion_file completed_task oracle_status pending_file pending_fingerprint alert tmp
-	if project_is_blocked; then
-		log_event "SUPERVISOR_PROJECT_BLOCKED file=$(project_block_file)"
-		return 1
+	local prompt="$dir/prompts/manager-goal.md"
+	local output
+	cp "$HARNESS_HOME/prompts/manager-goal.md" "$prompt"
+	write_context_header "$prompt"
+	write_state ACTIVE GOAL_RUNNING 0
+	log_event "GOAL_AUTHORING_STARTED model=$MANAGER_MODEL effort=$MANAGER_REASONING_EFFORT"
+	output="$(invoke_with_retry manager_goal "$prompt" manager-goal)" ||
+		fail_harness 'Terra goal-authoring turn failed'
+	[[ -s "$output" ]] || fail_harness 'Terra returned an empty worker goal'
+	[[ "$(tail -n 1 "$output")" == GOAL_READY ]] ||
+		fail_harness 'Terra worker goal did not end with GOAL_READY'
+	cp "$output" "$dir/control/worker-goal.md"
+	chmod 600 "$dir/control/worker-goal.md"
+	write_state ACTIVE WORKER_REQUIRED 0
+	log_event "GOAL_READY file=$dir/control/worker-goal.md"
+}
+
+prepare_worker_prompt()
+{
+	local cycle="$1"
+	local prompt="$dir/prompts/worker-$(printf '%03d' "$cycle").md"
+	local addendum
+	if (( cycle == 1 )); then
+		cp "$HARNESS_HOME/prompts/worker-goal.md" "$prompt"
+		write_context_header "$prompt"
+		{
+			printf '\n# Manager-authored goal\n\n'
+			cat "$dir/control/worker-goal.md"
+		} >> "$prompt"
+	else
+		addendum="$dir/addenda/addendum-$(printf '%03d' "$((cycle - 1))").md"
+		[[ -f "$addendum" ]] || fail_harness "missing remediation addendum: $addendum"
+		cp "$HARNESS_HOME/prompts/worker-remediation.md" "$prompt"
+		write_context_header "$prompt"
+		{
+			printf '\nManager-authored persistent goal: `%s`\n\n' "$dir/control/worker-goal.md"
+			printf '# Completion addendum to resolve\n\n'
+			cat "$addendum"
+		} >> "$prompt"
 	fi
-	if oracle_enabled && project_plan_all_complete && ! project_completion_recorded; then
-		pending_file="$(project_oracle_pending_file)"
-		if oracle_audit_budget_exhausted; then
-			record_oracle_audit_limit
-			mark_project_complete "oracle-run-limit-$MAX_ORACLE_RUNS" "$(project_oracle_limit_file)"
-		elif [[ -f "$pending_file" ]]; then
-			pending_fingerprint="$(fingerprint "$pending_file")"
-			if [[ "$pending_fingerprint" == "$oracle_failed_fingerprint" ]]; then
-				return 1
-			fi
-			log_event "SUPERVISOR_INVOKE_ORACLE pending=$pending_file fingerprint=$pending_fingerprint"
-			set +e
-			"$oracle_invoker" "$HARNESS_ENV_FILE" 8>&-
-			oracle_status=$?
-			set -e
-			trace_event SUPERVISOR_ORACLE_EXIT "status=$oracle_status"
-			if (( oracle_status != 0 )); then
-				oracle_failed_fingerprint="$pending_fingerprint"
-				alert="$(project_oracle_dir)/oracle-invocation-failed.md"
-				tmp="$alert.tmp.$$"
-				{
-					printf '# Oracle Invocation Failed\n\n'
-					printf 'Project: %s\n\n' "$PROJECT"
-					printf 'Environment-File: %s\n\n' "$HARNESS_ENV_FILE"
-					printf 'Pending-Audit: %s\n\n' "$pending_file"
-					printf 'Pending-Fingerprint: %s\n\n' "$pending_fingerprint"
-					printf 'Failed-At: %s\n\n' "$(timestamp_utc)"
-					printf 'Exit-Status: %s\n\n' "$oracle_status"
-					printf 'The supervisor will not retry this unchanged pending audit again during its current run. Correct the local failure and restart the supervisor to retry.\n'
-				} > "$tmp"
-				chmod 600 "$tmp"
-				mv "$tmp" "$alert"
-				log_event "SUPERVISOR_ORACLE_FAILED status=$oracle_status fingerprint=$pending_fingerprint alert=$alert retry=suppressed"
-			else
-				oracle_failed_fingerprint=""
-				rm -f "$(project_oracle_dir)/oracle-invocation-failed.md"
-			fi
-		fi
-		project_plan_all_complete || return 1
+	printf '%s\n' "$prompt"
+}
+
+run_worker()
+{
+	local cycle="$1"
+	local retry_same_cycle="$2"
+	local prompt output stem thread
+	prompt="$(prepare_worker_prompt "$cycle")"
+	stem="worker-$(printf '%03d' "$cycle")"
+	thread=""
+	[[ ! -f "$dir/control/worker.thread" ]] ||
+		thread="$(awk 'NR == 1 { print; exit }' "$dir/control/worker.thread")"
+	write_state ACTIVE WORKER_RUNNING "$cycle"
+	log_event "WORKER_STARTED cycle=$cycle mode=$([[ -n "$thread" ]] && printf resume || printf fresh) model=$WORKER_MODEL effort=$WORKER_REASONING_EFFORT retry=$retry_same_cycle"
+	if [[ -n "$thread" ]]; then
+		output="$(invoke_with_retry worker "$prompt" "$stem" resume "$thread")" ||
+			fail_harness "Luna worker turn failed in cycle $cycle"
+	else
+		output="$(invoke_with_retry worker "$prompt" "$stem")" ||
+			fail_harness "Luna worker turn failed in cycle $cycle"
+		thread="$(codex_thread_id_from_jsonl "$dir/logs/$stem.jsonl")"
+		[[ "$thread" =~ ^[A-Za-z0-9._:-]+$ ]] ||
+			fail_harness 'Luna worker thread ID was not recorded'
+		printf '%s\n' "$thread" > "$dir/control/worker.thread"
+		chmod 600 "$dir/control/worker.thread"
 	fi
-	completion_file="$(project_complete_file)"
-	[[ -f "$completion_file" ]] || return 1
-	if ! project_plan_all_complete; then
-		log_event "SUPERVISOR_IGNORED_INVALID_COMPLETION file=$completion_file reason=project_plan_incomplete"
-		return 1
+	[[ -s "$output" ]] || fail_harness "Luna worker returned an empty report in cycle $cycle"
+	write_state ACTIVE REVIEW_REQUIRED "$cycle"
+	log_event "WORKER_DELIVERED cycle=$cycle thread=$thread report=$output"
+}
+
+prepare_review_prompt()
+{
+	local cycle="$1"
+	local prompt="$dir/prompts/manager-review-$(printf '%03d' "$cycle").md"
+	local addendum
+	cp "$HARNESS_HOME/prompts/manager-review.md" "$prompt"
+	write_context_header "$prompt"
+	{
+		printf 'Manager-authored persistent goal: `%s`\n\n' "$dir/control/worker-goal.md"
+		printf 'Latest worker report: `%s`\n\n' \
+			"$dir/outputs/worker-$(printf '%03d' "$cycle").md"
+		printf 'This is review cycle %s.\n\n' "$cycle"
+		printf '# Earlier addenda\n\n'
+	} >> "$prompt"
+	shopt -s nullglob
+	for addendum in "$dir/addenda/"*.md; do
+		printf -- '- `%s`\n' "$addendum" >> "$prompt"
+	done
+	shopt -u nullglob
+	printf '%s\n' "$prompt"
+}
+
+review_worker()
+{
+	local cycle="$1"
+	local prompt output stem review decision addendum
+	prompt="$(prepare_review_prompt "$cycle")"
+	stem="manager-review-$(printf '%03d' "$cycle")"
+	write_state ACTIVE REVIEW_RUNNING "$cycle"
+	log_event "MANAGER_REVIEW_STARTED cycle=$cycle model=$MANAGER_MODEL effort=$MANAGER_REASONING_EFFORT"
+	output="$(invoke_with_retry manager_review "$prompt" "$stem")" ||
+		fail_harness "Terra manager review failed in cycle $cycle"
+	[[ -s "$output" ]] || fail_harness "Terra returned an empty review in cycle $cycle"
+	decision="$(sed -n '1{s/^DECISION: //;p;q;}' "$output")"
+	[[ "$decision" == ACCEPT || "$decision" == REVISE ]] ||
+		fail_harness "Terra review cycle $cycle returned invalid decision '$decision'"
+	review="$dir/reviews/review-$(printf '%03d' "$cycle").md"
+	cp "$output" "$review"
+	chmod 600 "$review"
+	log_event "MANAGER_REVIEW_FINISHED cycle=$cycle decision=$decision review=$review"
+
+	if [[ "$decision" == ACCEPT ]]; then
+		cp "$review" "$dir/control/final-acceptance.md"
+		write_state COMPLETE ACCEPTED "$cycle"
+		log_event "PROJECT_COMPLETED cycle=$cycle acceptance=$dir/control/final-acceptance.md"
+		return
 	fi
-	completed_task="$(kv_file_value "$completion_file" task_id)"
-	log_event "SUPERVISOR_PROJECT_COMPLETED task=$completed_task file=$completion_file"
-	trace_event SUPERVISOR_PROJECT_COMPLETED "task_id=$completed_task" "completion_file=$completion_file"
-	terminate_descendants_of_pid "$$"
-	supervisor_exit_status=0
-	return 0
+
+	addendum="$dir/addenda/addendum-$(printf '%03d' "$cycle").md"
+	cp "$review" "$addendum"
+	chmod 600 "$addendum"
+	if (( HARNESS_MAX_MANAGER_REVIEWS > 0 &&
+		cycle >= HARNESS_MAX_MANAGER_REVIEWS )); then
+		write_state PAUSED REVIEW_LIMIT_REACHED "$cycle"
+		log_event "REVIEW_LIMIT_REACHED cycle=$cycle max=$HARNESS_MAX_MANAGER_REVIEWS addendum=$addendum"
+		return
+	fi
+	write_state ACTIVE WORKER_REQUIRED "$cycle"
+	log_event "ADDENDUM_PUBLISHED cycle=$cycle addendum=$addendum"
 }
 
 log_event "SUPERVISOR_STARTED pid=$$ env_file=$HARNESS_ENV_FILE"
-printf 'Supervisor started for %s with PID %s. No LLM is running while idle.\n' "$PROJECT" "$$"
+
+phase="$(state_value phase)"
+cycle="$(state_value cycle)"
+case "$phase" in
+	GOAL_RUNNING)
+		[[ -f "$dir/control/worker-goal.md" ]] &&
+			write_state ACTIVE WORKER_REQUIRED 0 ||
+			write_state ACTIVE GOAL_REQUIRED 0
+		;;
+	WORKER_RUNNING)
+		if [[ ! -f "$dir/control/worker.thread" ]]; then
+			thread="$(codex_thread_id_from_jsonl "$dir/logs/worker-$(printf '%03d' "$cycle").jsonl" 2>/dev/null || true)"
+			if [[ "$thread" =~ ^[A-Za-z0-9._:-]+$ ]]; then
+				printf '%s\n' "$thread" > "$dir/control/worker.thread"
+			fi
+		fi
+		write_state ACTIVE WORKER_RETRY "$cycle"
+		;;
+	REVIEW_RUNNING)
+		write_state ACTIVE REVIEW_REQUIRED "$cycle"
+		;;
+esac
 
 while true; do
-	if handle_project_completion; then
-		break
-	fi
-	process_results
-	if handle_project_completion; then
-		break
-	fi
-	reclassify_legacy_hard_block_markers
-	reclassify_legacy_convergence_human_markers
-	process_auto_replans
-	if handle_project_completion; then
-		break
-	fi
-	process_planning_gap
-	if handle_project_completion; then
-		break
-	fi
-	if [[ "$HARNESS_USE_INOTIFY" == "1" ]] && command -v inotifywait >/dev/null 2>&1; then
-		trace_event SUPERVISOR_WATCH_WAIT_BEGIN "mode=inotify" "timeout=$HARNESS_POLL_SECONDS"
-		inotifywait -q -t "$HARNESS_POLL_SECONDS" -e moved_to -e delete \
-			"$dir/results" "$dir/control" 8>&- >/dev/null 2>&1 &
-		watch_pid=$!
-		if wait "$watch_pid"; then
-			watch_status=0
-		else
-			# inotifywait exits 2 when its short watch interval expires. That is
-			# an ordinary polling tick, not a supervisor failure.
-			watch_status=$?
-		fi
-		trace_event SUPERVISOR_WATCH_WAIT_END "mode=inotify" "watch_pid=$watch_pid" "status=$watch_status"
-		watch_pid=""
-	else
-		trace_event SUPERVISOR_WATCH_WAIT_BEGIN "mode=poll" "timeout=$HARNESS_POLL_SECONDS"
-		sleep "$HARNESS_POLL_SECONDS" 8>&-
-		trace_event SUPERVISOR_WATCH_WAIT_END "mode=poll" "status=0"
-	fi
+	status="$(state_value status)"
+	phase="$(state_value phase)"
+	cycle="$(state_value cycle)"
+	case "$status:$phase" in
+		COMPLETE:ACCEPTED|PAUSED:REVIEW_LIMIT_REACHED)
+			break
+			;;
+		FAILED:*)
+			exit 1
+			;;
+		ACTIVE:GOAL_REQUIRED)
+			generate_goal
+			;;
+		ACTIVE:WORKER_REQUIRED)
+			run_worker "$((cycle + 1))" 0
+			;;
+		ACTIVE:WORKER_RETRY)
+			run_worker "$cycle" 1
+			;;
+		ACTIVE:REVIEW_REQUIRED)
+			review_worker "$cycle"
+			;;
+		*)
+			fail_harness "unsupported state status=$status phase=$phase cycle=$cycle"
+			;;
+	esac
 done
+
+log_event "SUPERVISOR_EXIT status=$(state_value status) phase=$(state_value phase)"

@@ -1,106 +1,26 @@
 #!/usr/bin/env bash
-
 set -Eeuo pipefail
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/harness-common.sh"
 
-usage()
-{
-	printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2
-	exit 2
-}
-
-[[ $# -eq 1 ]] || usage
+[[ $# -eq 1 ]] || die "Usage: ${0##*/} ENV_FILE"
 load_harness_env "$1"
-require_manager_configuration
-require_manager_codex
-require_worker_codex
-require_oracle_codex
-require_goal_mode_clean_boundary
+require_dependencies
 
-printf 'Environment file: %s\n' "$HARNESS_ENV_FILE"
+printf 'Environment: %s\n' "$HARNESS_ENV_FILE"
 printf 'Project: %s\n' "$PROJECT"
 printf 'Repository: %s\n' "$REPOSITORY"
 printf 'Specification: %s\n' "$SPECIFICATION"
-printf 'Harness home: %s\n' "$HARNESS_HOME"
-printf 'Harness bin: %s\n' "$HARNESS_BIN"
-printf 'Harness state root: %s\n' "$HARNESS_ROOT"
-printf 'Project tmp dir: %s\n' "$PROJECT_TMP_DIR"
-printf 'Runtime PATH prefix: %s\n' "${HARNESS_RUNTIME_PATH_PREFIX:-(none)}"
-printf 'Manager Codex: %s\n' "$MANAGER_CODEX_BIN"
-printf 'Manager Codex home: %s\n' "$MANAGER_CODEX_HOME"
-printf 'Manager model: %s (%s)\n' "$MANAGER_MODEL" "$MANAGER_REASONING_EFFORT"
-printf 'Manager sandbox: %s\n' "$MANAGER_SANDBOX"
-printf 'Worker Codex: %s\n' "$WORKER_CODEX_BIN"
-printf 'Worker Codex home: %s\n' "$WORKER_CODEX_HOME"
-printf 'Worker model: %s (%s)\n' "$WORKER_MODEL" "$WORKER_REASONING_EFFORT"
-printf 'Worker sandbox: %s\n' "$WORKER_SANDBOX"
-printf 'Oracle enabled: %s\n' "$ORACLE_ENABLED"
-if [[ -n "$MAX_ORACLE_RUNS" ]]; then
-	printf 'Maximum Oracle runs: %s\n' "$MAX_ORACLE_RUNS"
+printf 'Development policy: %s\n' "$DEVELOPMENT_POLICY"
+printf 'Harness root: %s\n' "$HARNESS_ROOT"
+printf 'Manager: %s (%s), sandbox=%s\n' \
+	"$MANAGER_MODEL" "$MANAGER_REASONING_EFFORT" "$MANAGER_SANDBOX"
+printf 'Worker: %s (%s), sandbox=%s\n' \
+	"$WORKER_MODEL" "$WORKER_REASONING_EFFORT" "$WORKER_SANDBOX"
+if (( HARNESS_MAX_MANAGER_REVIEWS == 0 )); then
+	printf 'Manager review limit: unlimited\n'
 else
-	printf 'Maximum Oracle runs: unlimited (legacy ORACLE_ENABLED behavior)\n'
+	printf 'Manager review limit: %s\n' "$HARNESS_MAX_MANAGER_REVIEWS"
 fi
-if oracle_enabled; then
-	printf 'Oracle Codex: %s\n' "$ORACLE_CODEX_BIN"
-	printf 'Oracle Codex home: %s\n' "$ORACLE_CODEX_HOME"
-	printf 'Oracle model: %s (%s)\n' "$ORACLE_MODEL" "$ORACLE_REASONING_EFFORT"
-	printf 'Oracle fallback model: %s\n' "$ORACLE_FALLBACK_MODEL"
-	printf 'Oracle sandbox: %s\n' "$ORACLE_SANDBOX"
-fi
-printf 'Worker heartbeat seconds: %s\n' "$WORKER_HEARTBEAT_SECONDS"
-printf 'Poll seconds: %s\n' "$HARNESS_POLL_SECONDS"
-printf 'Wait seconds: %s\n' "$HARNESS_WAIT_SECONDS"
-printf 'Stale seconds: %s\n' "$HARNESS_STALE_SECONDS"
-printf 'Use inotify: %s\n' "$HARNESS_USE_INOTIFY"
-if (( HARNESS_MAX_IDENTICAL_BLOCKERS == 0 )); then
-	printf 'Deterministic blocker circuit breaker: disabled\n'
-else
-	printf 'Deterministic blocker circuit breaker: %s identical zero-progress fingerprints\n' "$HARNESS_MAX_IDENTICAL_BLOCKERS"
-fi
-if (( HARNESS_MAX_ROOT_ATTEMPTS == 0 )); then
-	printf 'Root-attempt replanning guard: disabled\n'
-else
-	printf 'Root-attempt replanning guard: %s reviewed attempts\n' "$HARNESS_MAX_ROOT_ATTEMPTS"
-fi
-if (( HARNESS_MAX_ZERO_GAIN_WINDOW == 0 )); then
-	printf 'Zero-gain replanning guard: disabled\n'
-else
-	printf 'Zero-gain replanning guard: %s consecutive reviews without measured or checkpointed gain\n' "$HARNESS_MAX_ZERO_GAIN_WINDOW"
-fi
-if (( HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION == 0 )); then
-	printf 'Checkpoint convergence guard: disabled\n'
-else
-	printf 'Checkpoint convergence guard: %s verified increments without a completed criterion\n' "$HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION"
-fi
-if (( HARNESS_AUTO_REPLAN_ENABLED == 1 )); then
-	printf 'Automatic persistent-manager replanning: enabled (%s strategy change(s) without durable verified gain)\n' \
-		"$HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN"
-else
-	printf 'Automatic persistent-manager replanning: disabled\n'
-fi
-printf 'Rejected-root worker thread reuse: %s\n' "$([[ "$HARNESS_REUSE_WORKER_THREADS" == 1 ]] && printf enabled || printf disabled)"
-if (( HARNESS_WORKER_THREAD_MAX_REJECTIONS == 0 )); then
-	printf 'Worker thread rejection rotation: unlimited\n'
-else
-	printf 'Worker thread rejection rotation: %s retained rejections\n' "$HARNESS_WORKER_THREAD_MAX_REJECTIONS"
-fi
-if (( HARNESS_CLOSURE_MODE_ENABLED == 1 )); then
-	printf 'Bounded closure mode: enabled at %s%% (%s fixes, %s focused-smoke runs)\n' \
-		"$HARNESS_CLOSURE_MODE_MIN_PROGRESS" "$HARNESS_CLOSURE_MODE_MAX_FIXES" "$HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS"
-else
-	printf 'Bounded closure mode: disabled\n'
-fi
-if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
-	printf 'Worker leaf-goal mode: enabled (%s identical iterations, context rotation every %s iterations)\n' \
-		"$HARNESS_GOAL_MAX_IDENTICAL_ITERATIONS" "$HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS"
-	printf 'Leaf-goal process budget: %s fixes, %s focused-smoke runs\n' \
-		"$HARNESS_GOAL_PROCESS_MAX_FIXES" "$HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS"
-else
-	printf 'Worker leaf-goal mode: disabled (legacy one-turn assignments)\n'
-fi
-printf 'Transient provider retry seconds: %s (retries unlimited)\n' "$HARNESS_PROVIDER_RETRY_SECONDS"
-printf 'Quota retry seconds: %s (retries unlimited)\n' "$HARNESS_QUOTA_RETRY_SECONDS"
-printf 'Codex wall timeout seconds: %s (0 means unlimited)\n' "$HARNESS_CODEX_WALL_TIMEOUT_SECONDS"
-printf 'Codex idle timeout seconds: %s (0 means unlimited)\n' "$HARNESS_CODEX_IDLE_TIMEOUT_SECONDS"
-printf 'Task lifecycle: verified increments are checkpointed; broad criteria may gain append-only children; roots resume by first-unmet leaf; leaf-goal CONTINUE receipts remain worker-internal; verified gain resets bounded automatic-replan escalation\n'
+printf 'Configuration is valid.\n'

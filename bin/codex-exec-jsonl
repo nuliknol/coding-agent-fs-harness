@@ -1,125 +1,176 @@
 #!/usr/bin/env bash
-# Run one Codex CLI turn with isolated JSONL/stderr logs and optional watchdogs.
+# Run one Codex turn with isolated JSONL, stderr, and final-message files.
 set -Eeuo pipefail
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/harness-common.sh"
 
-usage() { printf 'Usage: %s ENV_FILE ROLE MODEL PROMPT JSONL STDERR LAST_MESSAGE [resume THREAD_ID]\n' "${0##*/}" >&2; exit 2; }
-[[ $# -ge 7 && $# -le 9 ]] || usage
-env_file="$1" role="$2" model="$3" prompt="$4" json_log="$5" stderr_log="$6" last_message="$7"
-shift 7
+usage()
+{
+	printf 'Usage: %s ENV_FILE ROLE PROMPT JSONL STDERR LAST_MESSAGE [resume THREAD_ID]\n' \
+		"${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -ge 6 && $# -le 8 ]] || usage
+env_file="$1"
+role="$2"
+prompt="$3"
+jsonl="$4"
+stderr_log="$5"
+last_message="$6"
+shift 6
+
 load_harness_env "$env_file"
-[[ -f "$prompt" ]] || die "prompt file does not exist: $prompt"
-umask 077
-mkdir -p "$(dirname "$json_log")" "$(dirname "$stderr_log")"
-: > "$json_log"; : > "$stderr_log"
+ensure_project
+[[ -f "$prompt" ]] || die "prompt does not exist: $prompt"
 
 case "$role" in
-	 manager_bootstrap|manager_review|manager_plan|manager_replan|manager_remediation) bin="$MANAGER_CODEX_BIN"; home="$MANAGER_CODEX_HOME"; sandbox="$MANAGER_SANDBOX"; effort="$MANAGER_REASONING_EFFORT"; extras=("${MANAGER_CODEX_EXTRA_ARGS[@]}") ;;
-	 worker) bin="$WORKER_CODEX_BIN"; home="$WORKER_CODEX_HOME"; sandbox="$WORKER_SANDBOX"; effort="$WORKER_REASONING_EFFORT"; extras=("${WORKER_CODEX_EXTRA_ARGS[@]}") ;;
-	oracle) bin="$ORACLE_CODEX_BIN"; home="$ORACLE_CODEX_HOME"; sandbox="$ORACLE_SANDBOX"; effort="$ORACLE_REASONING_EFFORT"; extras=("${ORACLE_CODEX_EXTRA_ARGS[@]}") ;;
-	 *) die "invalid Codex role: $role" ;;
+	manager_goal|manager_review)
+		codex_bin="$MANAGER_CODEX_BIN"
+		codex_home="$MANAGER_CODEX_HOME"
+		model="$MANAGER_MODEL"
+		effort="$MANAGER_REASONING_EFFORT"
+		sandbox="$MANAGER_SANDBOX"
+		extra_args=("${MANAGER_CODEX_EXTRA_ARGS[@]}")
+		;;
+	worker)
+		codex_bin="$WORKER_CODEX_BIN"
+		codex_home="$WORKER_CODEX_HOME"
+		model="$WORKER_MODEL"
+		effort="$WORKER_REASONING_EFFORT"
+		sandbox="$WORKER_SANDBOX"
+		extra_args=("${WORKER_CODEX_EXTRA_ARGS[@]}")
+		;;
+	*)
+		die "invalid role: $role"
+		;;
 esac
-require_executable_runtime "$role" "$bin"
+require_runtime "$codex_bin"
 
-cmd=(env "CODEX_HOME=$home" "$bin" exec --json --model "$model" --sandbox "$sandbox" --add-dir "$HARNESS_ROOT" --add-dir "$PROJECT_TMP_DIR" --cd "$REPOSITORY" "${extras[@]}" -c 'approval_policy="never"' -c "model_reasoning_effort=\"$effort\"" --output-last-message "$last_message")
+umask 077
+mkdir -p "$(dirname "$jsonl")" "$(dirname "$stderr_log")" "$(dirname "$last_message")"
+: > "$jsonl"
+: > "$stderr_log"
+: > "$last_message"
+
+cmd=(
+	env "CODEX_HOME=$codex_home"
+	"$codex_bin" exec
+	--json
+	--model "$model"
+	--sandbox "$sandbox"
+	--cd "$REPOSITORY"
+	--add-dir "$(project_dir)"
+	"${extra_args[@]}"
+	-c 'approval_policy="never"'
+	-c "model_reasoning_effort=\"$effort\""
+	--output-last-message "$last_message"
+)
 if [[ $# -eq 2 ]]; then
- [[ "$1" == resume ]] || usage
- cmd+=(resume "$2")
-elif [[ $# -ne 0 ]]; then usage
+	[[ "$1" == resume ]] || usage
+	[[ "$2" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid thread ID: $2"
+	cmd+=(resume "$2")
+elif [[ $# -ne 0 ]]; then
+	usage
 fi
 cmd+=(-)
 
-# Keep only a hash of the pre-run Git state.  This lets failures report edits
-# made by the failed turn without logging filenames or proprietary diffs.
 git_state_before=""
 if git -C "$REPOSITORY" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-	git_state_before="$(git -C "$REPOSITORY" status --porcelain=v1 | sha256sum | awk '{print $1}')"
+	git_state_before="$(git -C "$REPOSITORY" status --porcelain=v1 |
+		sha256sum | awk '{print $1}')"
 fi
 
-# stdout is *only* Codex JSON Lines. stderr has its own log, so progress and
-# diagnostics cannot corrupt JSON parsing. Nonzero watchdog settings may bound
-# total runtime or stream inactivity; both are unlimited by default.
-idle_timed_out=0
 if (( HARNESS_CODEX_WALL_TIMEOUT_SECONDS > 0 )); then
- timeout --signal=TERM --kill-after="${HARNESS_CODEX_KILL_GRACE_SECONDS}s" "${HARNESS_CODEX_WALL_TIMEOUT_SECONDS}s" "${cmd[@]}" < "$prompt" > "$json_log" 2> "$stderr_log" &
+	timeout --signal=TERM \
+		--kill-after="${HARNESS_CODEX_KILL_GRACE_SECONDS}s" \
+		"${HARNESS_CODEX_WALL_TIMEOUT_SECONDS}s" \
+		"${cmd[@]}" < "$prompt" > "$jsonl" 2> "$stderr_log" &
 else
- "${cmd[@]}" < "$prompt" > "$json_log" 2> "$stderr_log" &
+	"${cmd[@]}" < "$prompt" > "$jsonl" 2> "$stderr_log" &
 fi
-pid=$!
-last_activity="$(date +%s)"
-while kill -0 "$pid" 2>/dev/null; do
- sleep 1
-	# The child may have exited while the monitor slept but is still waitable.
-	# Do not turn a completed short run into an idle timeout.
-	if ! kill -0 "$pid" 2>/dev/null || [[ "$(ps -o stat= -p "$pid" 2>/dev/null || true)" == Z* ]]; then break; fi
- now="$(date +%s)"
- newest="$last_activity"
- for file in "$json_log" "$stderr_log"; do
-  mtime="$(stat -c %Y "$file" 2>/dev/null || printf 0)"
-  (( mtime > newest )) && newest="$mtime"
- done
- last_activity="$newest"
- if (( HARNESS_CODEX_IDLE_TIMEOUT_SECONDS > 0 && now - last_activity >= HARNESS_CODEX_IDLE_TIMEOUT_SECONDS )); then
-  idle_timed_out=1
-  kill -TERM "$pid" 2>/dev/null || true
-  sleep "$HARNESS_CODEX_KILL_GRACE_SECONDS"
-  kill -KILL "$pid" 2>/dev/null || true
-  break
- fi
+child_pid=$!
+idle_timeout=0
+last_activity="$(date '+%s')"
+while kill -0 "$child_pid" 2>/dev/null; do
+	sleep 1
+	if ! kill -0 "$child_pid" 2>/dev/null ||
+		[[ "$(ps -o stat= -p "$child_pid" 2>/dev/null || true)" == Z* ]]; then
+		break
+	fi
+	now="$(date '+%s')"
+	for file in "$jsonl" "$stderr_log"; do
+		mtime="$(stat -c '%Y' "$file" 2>/dev/null || printf 0)"
+		(( mtime > last_activity )) && last_activity="$mtime"
+	done
+	if (( HARNESS_CODEX_IDLE_TIMEOUT_SECONDS > 0 &&
+		now - last_activity >= HARNESS_CODEX_IDLE_TIMEOUT_SECONDS )); then
+		idle_timeout=1
+		kill -TERM "$child_pid" 2>/dev/null || true
+		sleep "$HARNESS_CODEX_KILL_GRACE_SECONDS"
+		kill -KILL "$child_pid" 2>/dev/null || true
+		break
+	fi
 done
-set +e; wait "$pid"; status=$?; set -e
+set +e
+wait "$child_pid"
+exit_status=$?
+set -e
+
 git_state_changed=0
 if [[ -n "$git_state_before" ]]; then
-	git_state_after="$(git -C "$REPOSITORY" status --porcelain=v1 | sha256sum | awk '{print $1}')"
+	git_state_after="$(git -C "$REPOSITORY" status --porcelain=v1 |
+		sha256sum | awk '{print $1}')"
 	[[ "$git_state_before" == "$git_state_after" ]] || git_state_changed=1
 fi
 
-classification="success"
-error_event_text=""
-error_code=""
-http_status=""
-if [[ -s "$json_log" ]] && jq -e -s 'all(.[]; type == "object")' "$json_log" >/dev/null 2>&1; then
-	error_event_text="$(jq -r '
-		select(.type == "error" or .type == "turn.failed") |
-		[.message?, .error.message?, .error?] |
-		map(select(type == "string")) | join(" ")
-	' "$json_log" 2>/dev/null || true)"
-	error_code="$(jq -rs '
-		[.[] | select(.type == "error" or .type == "turn.failed") |
-		 .code?, .error.code?, .error.type?, .error.error_code?] |
-		map(select(. != null) | tostring) | first // ""
-	' "$json_log" 2>/dev/null || true)"
-	http_status="$(jq -rs '
-		[.[] | select(.type == "error" or .type == "turn.failed") |
-		 .status?, .status_code?, .http_status?, .error.status?,
-		 .error.status_code?, .error.http_status?] |
-		map(select(. != null) | tostring) | first // ""
-	' "$json_log" 2>/dev/null || true)"
+error_text="$(cat "$stderr_log")"
+if [[ -s "$jsonl" ]] && jq -e -s 'all(.[]; type == "object")' "$jsonl" >/dev/null 2>&1; then
+	json_error="$(jq -r '
+		select(.type == "error" or .type == "turn.failed")
+		| [.message?, .error.message?, .error?]
+		| map(select(type == "string")) | join(" ")
+	' "$jsonl" 2>/dev/null || true)"
+	error_text+=$'\n'"$json_error"
 fi
-combined_error_text="$(printf '%s\n' "$error_event_text"; cat "$stderr_log")"
-failure_signal=0
-if (( status != 0 )) || ! jq -e 'select(.type == "turn.completed")' "$json_log" >/dev/null 2>&1; then
-	failure_signal=1
+
+classification=success
+if (( idle_timeout )); then
+	classification=idle_timeout
+elif (( exit_status == 124 )); then
+	classification=wall_clock_timeout
+elif { (( exit_status != 0 )) || [[ ! -s "$jsonl" ]]; } &&
+	printf '%s\n' "$error_text" |
+		grep -Eqi 'usage limit|quota.{0,40}(exceeded|exhausted|reached)|out of (credits|quota)|limit resets'; then
+	classification=provider_quota_exhausted
+elif { (( exit_status != 0 )) || [[ ! -s "$jsonl" ]]; } &&
+	printf '%s\n' "$error_text" |
+		grep -Eqi 'rate.?limit|at capacity|overloaded|too many requests|service unavailable|temporarily unavailable|server error|gateway timeout|connection reset|network error|request timed out'; then
+	classification=provider_transient_error
+elif (( exit_status != 0 && git_state_changed )); then
+	classification=partial_edit_failure
+elif (( exit_status != 0 )); then
+	classification=process_nonzero_exit
+elif ! jq -e -s 'all(.[]; type == "object" and (.type | type == "string"))' \
+	"$jsonl" >/dev/null 2>&1; then
+	classification=json_event_parse_failure
+elif ! jq -e 'select(.type == "turn.completed")' "$jsonl" >/dev/null 2>&1; then
+	classification=turn_incomplete
+elif [[ ! -s "$last_message" ]]; then
+	classification=empty_final_output
 fi
-if (( idle_timed_out )); then classification="idle_timeout"
-elif (( status == 124 )); then classification="wall_clock_timeout"
-elif (( status != 0 && git_state_changed )); then classification="partial_edit_failure"
-elif (( failure_signal )) && printf '%s\n' "$combined_error_text" | grep -Eqi 'sandbox|ask.for.approval|approval.*denied|permission denied'; then classification="local_sandbox_or_approval_denial"
-elif (( failure_signal )) && { [[ "$http_status" =~ ^(401|403)$ ]] || [[ "$error_code" =~ ^(invalid_api_key|authentication_error|unauthorized|permission_denied|account_deactivated)$ ]] || printf '%s\n' "$combined_error_text" | grep -Eqi 'invalid api key|authentication (failed|required)|not authenticated|unauthorized|account (is )?(deactivated|disabled)|login required|sign in again|refresh token.{0,30}(expired|invalid|revoked)'; }; then classification="terminal_authentication_error"
-elif (( failure_signal )) && { [[ "$error_code" =~ (usage_limit|insufficient_quota|quota_(exceeded|expired|exhausted)|billing_hard_limit) ]] || printf '%s\n' "$combined_error_text" | grep -Eqi 'usage limit.{0,80}(reached|exceeded|exhausted|hit)|hit.{0,40}usage limit|reached.{0,40}usage limit|quota.{0,50}(exceeded|expired|exhausted|depleted|reached)|out of (credits|quota)|no (credits|quota) remaining|no weighted tokens|0 .{0,30}tokens .{0,20}left|limit resets? (at|in)|resets? (at|in).{0,80}(hour|minute|second)'; }; then classification="provider_quota_exhausted"
-elif (( failure_signal )) && { [[ "$http_status" =~ ^(408|425|429|500|502|503|504)$ ]] || [[ "$error_code" =~ (rate_limit|capacity|overloaded|server_error|service_unavailable|temporarily_unavailable|timeout|connection_error) ]] || printf '%s\n' "$combined_error_text" | grep -Eqi 'selected model is at capacity|system.{0,40}(at capacity|out of capacity|running out of capacity|overloaded)|too many requests|rate.?limit|http[^0-9]*(408|425|429|500|502|503|504)|service unavailable|temporarily unavailable|server (is )?(busy|overloaded)|internal server error|bad gateway|gateway timeout|connection (reset|refused|closed)|stream disconnected|failed to connect|network (error|unavailable)|request timed out|timed out waiting'; }; then classification="provider_transient_error"
-elif [[ ! -s "$json_log" ]]; then
- if (( status == 0 )); then classification="empty_final_output"; else classification="process_nonzero_exit"; fi
-elif ! jq -e -s 'all(.[]; type == "object" and (.type | type == "string"))' "$json_log" >/dev/null 2>&1; then classification="json_event_parse_failure"
-elif printf '%s\n' "$error_event_text" | grep -Eqi 'refus|blocked content|safety check|cannot assist|flagged for possible cyber(security)? risk|trusted access for cyber'; then classification="model_refusal_or_blocked_content"
-elif jq -e 'select(.type == "turn.failed")' "$json_log" >/dev/null 2>&1; then classification="turn_failed"
-elif jq -e 'select(.type == "error")' "$json_log" >/dev/null 2>&1; then classification="error_event"
-elif (( status != 0 )); then classification="process_nonzero_exit"
-elif ! jq -e 'select(.type == "turn.completed")' "$json_log" >/dev/null 2>&1; then classification="json_event_parse_failure"
-elif [[ ! -s "$last_message" ]]; then classification="empty_final_output"
-fi
-classification_file="${json_log%.jsonl}.classification"
-printf 'classification=%s\nprovider_code=%s\nhttp_status=%s\nexit_status=%s\nidle_timeout=%s\npartial_edits=%s\njsonl=%s\nstderr=%s\nlast_message=%s\n' "$classification" "$error_code" "$http_status" "$status" "$idle_timed_out" "$git_state_changed" "$json_log" "$stderr_log" "$last_message" > "$classification_file"
-printf 'CODEX_CLASSIFICATION=%s\nCODEX_STDERR_LOG=%s\nCODEX_CLASSIFICATION_FILE=%s\n' "$classification" "$stderr_log" "$classification_file" >&2
-exit "$status"
+
+classification_file="${jsonl%.jsonl}.classification"
+{
+	printf 'classification=%s\n' "$classification"
+	printf 'exit_status=%s\n' "$exit_status"
+	printf 'idle_timeout=%s\n' "$idle_timeout"
+	printf 'partial_edits=%s\n' "$git_state_changed"
+	printf 'jsonl=%s\n' "$jsonl"
+	printf 'stderr=%s\n' "$stderr_log"
+	printf 'last_message=%s\n' "$last_message"
+} > "$classification_file"
+chmod 600 "$classification_file"
+
+[[ "$classification" == success ]] || exit 1

@@ -1,41 +1,35 @@
 #!/usr/bin/env bash
-
 set -Eeuo pipefail
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/harness-common.sh"
 
-usage()
-{
-	printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2
-	exit 2
-}
-
-[[ $# -eq 1 ]] || usage
+[[ $# -eq 1 ]] || die "Usage: ${0##*/} ENV_FILE"
 load_harness_env "$1"
 ensure_project
-trace_init manager_supervisor_stop
-trace_script_start "$@"
-trap 'trace_script_exit $?' EXIT
-pid_file="$(project_dir)/control/supervisor.pid"
-[[ -f "$pid_file" ]] || {
-	trace_event SUPERVISOR_STOP_SKIPPED "reason=not_running"
+pid="$(supervisor_pid 2>/dev/null || true)"
+if ! supervisor_running; then
+	rm -f "$(project_dir)/control/supervisor.pid"
 	printf 'Supervisor is not running.\n'
 	exit 0
-}
-pid="$(cat "$pid_file")"
-if kill -0 "$pid" 2>/dev/null; then
-	trace_event SUPERVISOR_STOP_SIGNAL "pid=$pid" "signal=TERM"
-	kill "$pid"
-	for _ in $(seq 1 50); do
-		kill -0 "$pid" 2>/dev/null || break
-		sleep 0.1
-	done
 fi
-if kill -0 "$pid" 2>/dev/null; then
-	trace_event SUPERVISOR_STOP_DEFERRED "pid=$pid" "reason=active_child"
-	printf 'Supervisor PID %s is waiting for an active child and will stop after it exits.\n' "$pid" >&2
-	exit 3
+
+pgid="$(ps -o pgid= -p "$pid" | tr -d ' ')"
+if [[ "$pgid" == "$pid" ]]; then
+	kill -TERM -- "-$pid"
+else
+	kill -TERM "$pid"
 fi
-rm -f "$pid_file" "$(project_dir)/control/supervisor.env-file"
-trace_event SUPERVISOR_STOPPED "pid=$pid"
-printf 'Supervisor stopped.\n'
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+	kill -0 "$pid" 2>/dev/null || {
+		printf 'Stopped supervisor PID %s.\n' "$pid"
+		exit 0
+	}
+	sleep 1
+done
+if [[ "$pgid" == "$pid" ]]; then
+	kill -KILL -- "-$pid" 2>/dev/null || true
+else
+	kill -KILL "$pid" 2>/dev/null || true
+fi
+printf 'Force-stopped supervisor PID %s.\n' "$pid"

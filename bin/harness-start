@@ -1,38 +1,31 @@
 #!/usr/bin/env bash
-
 set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/harness-common.sh"
-
-usage()
-{
-	printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2
-	exit 2
-}
-
-[[ $# -eq 1 ]] || usage
+[[ $# -eq 1 ]] || die "Usage: ${0##*/} ENV_FILE"
 load_harness_env "$1"
-acquire_env_command_lock harness-start
 ensure_project
-require_goal_mode_clean_boundary
-dir="$(project_dir)"
-
-if env_has_running_processes; then
-	printf 'Harness processes already reference this environment; preserving all state and progress.\n'
+status="$(state_value status)"
+phase="$(state_value phase)"
+cycle="$(state_value cycle)"
+if [[ "$status" == COMPLETE ]]; then
+	printf 'Project is already complete; Terra acceptance: %s\n' \
+		"$(project_dir)/control/final-acceptance.md"
+	exit 0
 fi
-
-# Bootstrap before starting the worker watcher so a newly published first task
-# cannot finish before the manager thread ID has been registered.
-if [[ ! -f "$dir/control/manager.thread" ]]; then
-	"$HARNESS_BIN/manager-bootstrap" "$HARNESS_ENV_FILE"
-else
-	printf 'Manager thread already exists; bootstrap was not repeated.\n'
+if [[ "$status" == FAILED ]]; then
+	die "project is in TERMINAL_FAILURE; inspect $(project_dir)/control/last-error.txt"
 fi
-
-"$HARNESS_BIN/manager-supervisor-start" "$HARNESS_ENV_FILE"
-"$HARNESS_BIN/worker-supervisor-start" "$HARNESS_ENV_FILE"
-
-printf '\nHarness is active.\n'
-printf 'Manager watcher: %s\n' "$dir/logs/supervisor.log"
-printf 'Worker watcher: %s\n' "$dir/logs/worker-supervisor.log"
-printf 'Events: %s\n' "$dir/logs/events.log"
+if [[ "$status" == PAUSED && "$phase" == REVIEW_LIMIT_REACHED ]]; then
+	if (( HARNESS_MAX_MANAGER_REVIEWS == 0 ||
+		HARNESS_MAX_MANAGER_REVIEWS > cycle )); then
+		write_state ACTIVE WORKER_REQUIRED "$cycle"
+		log_event "REVIEW_LIMIT_RESUMED cycle=$cycle new_limit=$HARNESS_MAX_MANAGER_REVIEWS"
+	else
+		printf 'Project remains paused at review limit %s. Increase HARNESS_MAX_MANAGER_REVIEWS or set it to 0.\n' \
+			"$HARNESS_MAX_MANAGER_REVIEWS"
+		exit 0
+	fi
+fi
+"$HARNESS_BIN/harness-supervisor-start" "$HARNESS_ENV_FILE"
+printf 'Events: %s\n' "$(events_file)"

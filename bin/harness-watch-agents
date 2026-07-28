@@ -1,426 +1,52 @@
 #!/usr/bin/env bash
-
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/harness-common.sh"
 
-usage()
-{
-	cat >&2 <<USAGE
-Usage: ${0##*/} ENV_FILE [--new-only]
-
-Watch worker, manager, and final Oracle natural-language messages for the
-currently active harness work. The watcher automatically follows new tasks and
-provider-retry and leaf-goal iteration logs. It exits after draining final messages when the
-project completes or reaches a human-only intervention state. Automatic
-persistent-manager replanning is followed like any other manager turn.
-
-Options:
-  --new-only   Do not replay existing messages from logs that are active when
-               the watcher starts. New tasks and retry attempts are shown from
-               their beginning.
-
-Archived checkpoint and rejection decisions are never replayed at startup.
-Decisions created while this watcher is running are announced once.
-USAGE
-	exit 2
-}
-
-[[ $# -ge 1 && $# -le 2 ]] || usage
-ENV_FILE="$1"
-NEW_ONLY=0
-if [[ $# -eq 2 ]]; then
-	[[ "$2" == "--new-only" ]] || usage
-	NEW_ONLY=1
+new_only=0
+if [[ "${1:-}" == --new-only ]]; then
+	new_only=1
+	shift
+fi
+[[ $# -eq 1 ]] || die "Usage: ${0##*/} [--new-only] ENV_FILE"
+load_harness_env "$1"
+ensure_project
+dir="$(project_dir)"
+declare -A seen
+event_seen=0
+if (( new_only )); then
+	event_seen="$(wc -l < "$(events_file)")"
+	while IFS= read -r -d '' file; do
+		seen["$file"]="$(wc -l < "$file")"
+	done < <(find "$dir/logs" -maxdepth 1 -name '*.jsonl' -type f -print0)
 fi
 
-load_harness_env "$ENV_FILE"
-ensure_project
-command -v jq >/dev/null 2>&1 || die 'jq is required'
-
-dir="$(project_dir)"
-logs_dir="$dir/logs"
-watch_seconds="${HARNESS_WATCH_POLL_SECONDS:-1}"
-[[ "$watch_seconds" =~ ^[0-9]+([.][0-9]+)?$ ]] || die 'HARNESS_WATCH_POLL_SECONDS must be numeric'
-
-shopt -s nullglob
-
-declare -A next_line=()
-declare -A initialized=()
-declare -A announced_rejection=()
-declare -A announced_checkpoint=()
-declare -A announced_goal_iteration=()
-worker_log=""
-manager_log=""
-oracle_log=""
-startup=1
-
-latest_matching_log()
-{
-	local pattern="$1"
-	local file newest="" newest_epoch=""
-	for file in $pattern; do
-		[[ -f "$file" ]] || continue
-		local epoch
-		epoch="$(stat -c '%Y' "$file" 2>/dev/null || printf '0')"
-		if [[ -z "$newest" || "$epoch" -gt "$newest_epoch" || ( "$epoch" -eq "$newest_epoch" && "$file" > "$newest" ) ]]; then
-			newest="$file"
-			newest_epoch="$epoch"
-		fi
-	done
-	printf '%s' "$newest"
-}
-
-current_worker_log()
-{
-	local running task_id candidate="" candidate_epoch="" log epoch
-	for running in "$dir/running/$PROJECT-task-"*.running.md; do
-		[[ -f "$running" ]] || continue
-		task_id="$(task_id_from_filename "$running")"
-		log="$(latest_matching_log "$logs_dir/worker-task-$task_id-*.jsonl")"
-		[[ -n "$log" ]] || continue
-		epoch="$(stat -c '%Y' "$log" 2>/dev/null || printf '0')"
-		if [[ -z "$candidate" || "$epoch" -gt "$candidate_epoch" || ( "$epoch" -eq "$candidate_epoch" && "$log" > "$candidate" ) ]]; then
-			candidate="$log"
-			candidate_epoch="$epoch"
-		fi
-	done
-	printf '%s' "$candidate"
-}
-
-current_manager_log()
-{
-	local result task_id candidate="" candidate_epoch="" log epoch planning_turn=0 replan_running
-	for result in "$dir/results/$PROJECT-task-"*.result.md; do
-		[[ -f "$result" ]] || continue
-		task_id="$(task_id_from_filename "$result")"
-		log="$(latest_matching_log "$logs_dir/manager-review-$task_id-*.jsonl")"
-		[[ -n "$log" ]] || continue
-		epoch="$(stat -c '%Y' "$log" 2>/dev/null || printf '0')"
-		if [[ -z "$candidate" || "$epoch" -gt "$candidate_epoch" || ( "$epoch" -eq "$candidate_epoch" && "$log" > "$candidate" ) ]]; then
-			candidate="$log"
-			candidate_epoch="$epoch"
-		fi
-	done
-
-	for replan_running in "$dir/control/progress/$PROJECT-task-"*.replanning.md; do
-		[[ -f "$replan_running" ]] || continue
-		task_id="${replan_running##*/}"
-		task_id="${task_id#${PROJECT}-task-}"
-		task_id="${task_id%.replanning.md}"
-		log="$(latest_matching_log "$logs_dir/manager-replan-$task_id-*-attempt-*.jsonl")"
-		[[ -n "$log" ]] || continue
-		epoch="$(stat -c '%Y' "$log" 2>/dev/null || printf '0')"
-		if [[ -z "$candidate" || "$epoch" -gt "$candidate_epoch" || ( "$epoch" -eq "$candidate_epoch" && "$log" > "$candidate" ) ]]; then
-			candidate="$log"
-			candidate_epoch="$epoch"
-		fi
-	done
-
-	# Before the persistent manager thread exists, expose bootstrap messages too.
-	if [[ -z "$candidate" && ! -f "$dir/control/manager.thread" ]]; then
-		candidate="$(latest_matching_log "$logs_dir/manager-bootstrap-*-attempt-*.jsonl")"
-	fi
-
-	# Planning turns have no result file to anchor them. Follow their latest log
-	# while the explicit running marker exists. The second condition supports a
-	# planning turn that was already running when this watcher version was
-	# installed: an incomplete plan with no active task is exactly a planning gap.
-	if [[ -f "$dir/control/manager-plan.running" ]]; then
-		planning_turn=1
-	elif [[ -f "$(project_plan_state_file)" && ! -f "$(project_complete_file)" ]] &&
-		! compgen -G "$dir/tasks/$PROJECT-task-*.ready.md" >/dev/null &&
-		! compgen -G "$dir/running/$PROJECT-task-*.running.md" >/dev/null &&
-		! compgen -G "$dir/results/$PROJECT-task-*.result.md" >/dev/null; then
-		planning_turn=1
-	fi
-	if [[ -z "$candidate" && "$planning_turn" == 1 ]]; then
-		candidate="$(latest_matching_log "$logs_dir/manager-plan-*-attempt-*.jsonl")"
-	fi
-	printf '%s' "$candidate"
-}
-
-current_oracle_log()
-{
-	# Oracle has no task mailbox: its durable pending marker is its active-work
-	# indicator. Keep draining the selected log after the marker is removed so
-	# the final verdict message is still visible.
-	oracle_enabled || return 0
-	[[ -f "$(project_oracle_pending_file)" ]] || return 0
-	latest_matching_log "$logs_dir/oracle-audit-*.jsonl"
-}
-
-role_and_task_from_log()
-{
-	local role="$1" file="$2" name task
-	name="${file##*/}"
-	case "$role:$name" in
-		WORKER:worker-task-*.jsonl)
-			task="${name#worker-task-}"
-			task="${task%-????????T??????Z-attempt-???.jsonl}"
-			;;
-		MANAGER:manager-review-*.jsonl)
-			task="${name#manager-review-}"
-			task="${task%-????????T??????Z-attempt-???.jsonl}"
-			;;
-		MANAGER:manager-bootstrap-*.jsonl)
-			task="bootstrap"
-			;;
-			MANAGER:manager-plan-*.jsonl)
-				task="planning-next-item"
-				;;
-			MANAGER:manager-replan-*.jsonl)
-				task="${name#manager-replan-}"
-				task="${task%-????????T??????Z-attempt-???.jsonl}"
-				task="replanning-$task"
-				;;
-		ORACLE:oracle-audit-*.jsonl)
-			task="${name#oracle-audit-}"
-			task="${task%%-*}"
-			task="final-audit-$task"
-			;;
-		*)
-			task="unknown"
-			;;
-	esac
-	printf '%s' "$task"
-}
-
-initialize_log()
-{
-	local log="$1" replay_existing="$2" total
-	[[ -n "${initialized[$log]:-}" ]] && return 0
-	total="$(wc -l < "$log")"
-	if (( replay_existing == 1 )); then
-		next_line[$log]=1
-	else
-		next_line[$log]=$((total + 1))
-	fi
-	initialized[$log]=1
-}
-
-print_new_messages()
-{
-	local role="$1" log="$2" start total task
-	[[ -n "$log" && -f "$log" ]] || return 0
-	start="${next_line[$log]:-1}"
-	total="$(wc -l < "$log")"
-	(( total >= start )) || return 0
-	task="$(role_and_task_from_log "$role" "$log")"
-
-	sed -n "${start},${total}p" "$log" | jq --unbuffered -r --arg role "$role" --arg task "$task" '
-		if .type == "item.completed" and .item.type == "agent_message" then
-			"\n[" + $role + " task=" + $task + "]\n" + (.item.text // "")
-		elif .type == "error" then
-			"\n[" + $role + " ERROR task=" + $task + "]\n" + (.message // .error.message // "unknown error")
-		elif .type == "turn.failed" then
-			"\n[" + $role + " TURN FAILED task=" + $task + "]\n" + (.error.message // .message // "unknown error")
-		else empty end
-	'
-	next_line[$log]=$((total + 1))
-}
-
-initialize_rejection_records()
-{
-	local record
-	for record in "$dir/archive/$PROJECT-task-"*.rejected.md; do
-		[[ -f "$record" ]] || continue
-		announced_rejection[$record]=1
-	done
-}
-
-initialize_checkpoint_records()
-{
-	local record
-	for record in "$dir/archive/$PROJECT-task-"*.checkpointed.md; do
-		[[ -f "$record" ]] || continue
-		announced_checkpoint[$record]=1
-	done
-}
-
-initialize_goal_iteration_records()
-{
-	local record
-	for record in "$dir/archive/goal-iterations/$PROJECT-task-"*/iteration-*.md; do
-		[[ -f "$record" ]] || continue
-		announced_goal_iteration[$record]=1
-	done
-}
-
-print_new_rejections()
-{
-	local record task improvement progress
-	for record in "$dir/archive/$PROJECT-task-"*.rejected.md; do
-		[[ -f "$record" ]] || continue
-		[[ -z "${announced_rejection[$record]:-}" ]] || continue
-		announced_rejection[$record]=1
-		task="${record##*/}"
-		task="${task#${PROJECT}-task-}"
-		task="${task%.rejected.md}"
-	improvement="$(awk -F': ' '$1 == "Improvement-Percent" {print $2; exit}' "$record")"
-	progress="$(awk -F': ' '$1 == "Progress-Percent" {print $2; exit}' "$record")"
-	[[ -n "$improvement" ]] || improvement='not recorded'
-	[[ -n "$progress" ]] || progress='not recorded'
-	printf '\n[MANAGER REJECTED task=%s]\nCumulative progress: %s\nImprovement: %s\n' "$task" "$progress" "$improvement"
-done
-}
-
-print_new_checkpoints()
-{
-	local record task improvement progress
-	for record in "$dir/archive/$PROJECT-task-"*.checkpointed.md; do
-		[[ -f "$record" ]] || continue
-		[[ -z "${announced_checkpoint[$record]:-}" ]] || continue
-		announced_checkpoint[$record]=1
-		task="${record##*/}"
-		task="${task#${PROJECT}-task-}"
-		task="${task%.checkpointed.md}"
-		improvement="$(awk -F': ' '$1 == "Improvement-Percent" {print $2; exit}' "$record")"
-		progress="$(awk -F': ' '$1 == "Progress-Percent" {print $2; exit}' "$record")"
-		[[ -n "$improvement" ]] || improvement='not recorded'
-		[[ -n "$progress" ]] || progress='not recorded'
-		printf '\n[MANAGER CHECKPOINTED task=%s]\nCumulative progress: %s\nImprovement: %s\n' "$task" "$progress" "$improvement"
-	done
-}
-
-print_new_goal_iterations()
-{
-	local record task goal iteration movement marker
-	for record in "$dir/archive/goal-iterations/$PROJECT-task-"*/iteration-*.md; do
-		[[ -f "$record" ]] || continue
-		[[ -z "${announced_goal_iteration[$record]:-}" ]] || continue
-		announced_goal_iteration[$record]=1
-		task="$(metadata_value "$record" Task-ID)"
-		goal="$(metadata_value "$record" Goal-ID)"
-		iteration="$(metadata_value "$record" Iteration)"
-		marker="$(goal_continue_marker_file "$task")"
-		movement="$(kv_file_value "$marker" movement 2>/dev/null || printf recorded)"
-		printf '\n[WORKER CONTINUING GOAL task=%s goal=%s iteration=%s]\nMovement: %s\n' \
-			"$task" "$goal" "$iteration" "$movement"
-	done
-}
-
-terminal_project_state()
-{
-	if project_completion_recorded && project_plan_all_complete; then
-		printf 'COMPLETED'
-		return 0
-	fi
-	if project_is_blocked ||
-		compgen -G "$dir/control/progress/$PROJECT-task-*.blocked.md" >/dev/null ||
-		compgen -G "$dir/control/progress/$PROJECT-task-*.needs-human.md" >/dev/null; then
-		printf 'PAUSED_HUMAN_INTERVENTION'
-		return 0
-	fi
-	if (( HARNESS_AUTO_REPLAN_ENABLED == 0 )) &&
-		compgen -G "$dir/control/progress/$PROJECT-task-*.needs-replan.md" >/dev/null; then
-		printf 'PAUSED_REPLAN'
-		return 0
-	fi
-	return 1
-}
-
-agent_invocation_running()
-{
-	local process_args
-	while IFS= read -r process_args; do
-		[[ "$process_args" == *"$HARNESS_ENV_FILE"* ]] || continue
-		case "$process_args" in
-			*"$HARNESS_BIN/worker-invoke-task "*|\
-				*"$HARNESS_BIN/manager-invoke-result "*|\
-				*"$HARNESS_BIN/manager-plan-next-task "*|\
-				*"$HARNESS_BIN/manager-auto-replan-root "*|\
-			*"$HARNESS_BIN/manager-bootstrap "*|\
-			*"$HARNESS_BIN/oracle-invoke-final-audit "*)
-				return 0
-				;;
-		esac
-	done < <(ps -eo args=)
-	return 1
-}
-
-print_terminal_exit()
-{
-	case "$1" in
-		COMPLETED)
-			printf '\nWatcher exiting: project completed.\n'
-			;;
-		PAUSED_HUMAN_INTERVENTION)
-			printf '\nWatcher exiting: project paused for human intervention.\n'
-			;;
-		PAUSED_REPLAN)
-			printf '\nWatcher exiting: project paused for replanning; verified checkpoints are preserved.\n'
-			;;
-	esac
-}
-
-announce_switch()
-{
-	local role="$1" log="$2" task
-	task="$(role_and_task_from_log "$role" "$log")"
-	printf '\n=== %s task=%s log=%s ===\n' "$role" "$task" "${log##*/}"
-}
-
-printf 'Watching natural-language agent output for project %s. Press Ctrl+C to stop.\n' "$PROJECT"
-printf 'State: %s\n' "$dir"
-initialize_rejection_records
-initialize_checkpoint_records
-initialize_goal_iteration_records
-
 while true; do
-	new_worker="$(current_worker_log)"
-	new_manager="$(current_manager_log)"
-	new_oracle="$(current_oracle_log)"
-
-	if [[ -n "$new_worker" && "$new_worker" != "$worker_log" ]]; then
-		worker_log="$new_worker"
-		replay=1
-		if (( startup == 1 && NEW_ONLY == 1 )); then replay=0; fi
-		initialize_log "$worker_log" "$replay"
-		announce_switch WORKER "$worker_log"
+	event_total="$(wc -l < "$(events_file)")"
+	if (( event_total > event_seen )); then
+		sed -n "$((event_seen + 1)),${event_total}p" "$(events_file)"
+		event_seen="$event_total"
 	fi
+	while IFS= read -r -d '' file; do
+		start="${seen[$file]:-0}"
+		total="$(wc -l < "$file")"
+		if (( total > start )); then
+			role="${file##*/}"
+			role="${role%%-*}"
+			sed -n "$((start + 1)),${total}p" "$file" |
+				jq -r --arg role "$role" '
+					select(.type == "item.completed" and
+						.item.type == "agent_message")
+					| "[" + ($role | ascii_upcase) + "] " + .item.text
+				' 2>/dev/null || true
+			seen["$file"]="$total"
+		fi
+	done < <(find "$dir/logs" -maxdepth 1 -name '*.jsonl' -type f -print0)
 
-	if [[ -n "$new_manager" && "$new_manager" != "$manager_log" ]]; then
-		manager_log="$new_manager"
-		replay=1
-		if (( startup == 1 && NEW_ONLY == 1 )); then replay=0; fi
-		initialize_log "$manager_log" "$replay"
-		announce_switch MANAGER "$manager_log"
-	fi
-
-	if [[ -n "$new_oracle" && "$new_oracle" != "$oracle_log" ]]; then
-		oracle_log="$new_oracle"
-		replay=1
-		if (( startup == 1 && NEW_ONLY == 1 )); then replay=0; fi
-		initialize_log "$oracle_log" "$replay"
-		announce_switch ORACLE "$oracle_log"
-	fi
-
-	# Continue draining the previous log after its status file disappears. This
-	# captures final messages emitted just after accept/checkpoint/reject or completion.
-	print_new_messages WORKER "$worker_log"
-	print_new_messages MANAGER "$manager_log"
-	print_new_messages ORACLE "$oracle_log"
-	print_new_rejections
-	print_new_checkpoints
-	print_new_goal_iterations
-
-	terminal_state="$(terminal_project_state || true)"
-	if [[ -n "$terminal_state" ]] && ! agent_invocation_running; then
-		# The state marker can be committed before the invoking agent writes its
-		# final response. Once that invocation is gone, drain the fully flushed
-		# logs once more before ending the watch.
-		print_new_messages WORKER "$worker_log"
-		print_new_messages MANAGER "$manager_log"
-		print_new_messages ORACLE "$oracle_log"
-		print_new_rejections
-		print_new_checkpoints
-		print_new_goal_iterations
-		print_terminal_exit "$terminal_state"
+	status="$(state_value status)"
+	if [[ "$status" != ACTIVE ]] && ! supervisor_running; then
 		break
 	fi
-
-	startup=0
-	sleep "$watch_seconds"
+	sleep 1
 done
