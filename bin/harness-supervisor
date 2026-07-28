@@ -322,7 +322,10 @@ handle_project_completion()
 	fi
 	if oracle_enabled && project_plan_all_complete && ! project_completion_recorded; then
 		pending_file="$(project_oracle_pending_file)"
-		if [[ -f "$pending_file" ]]; then
+		if oracle_audit_budget_exhausted; then
+			record_oracle_audit_limit
+			mark_project_complete "oracle-run-limit-$MAX_ORACLE_RUNS" "$(project_oracle_limit_file)"
+		elif [[ -f "$pending_file" ]]; then
 			pending_fingerprint="$(fingerprint "$pending_file")"
 			if [[ "$pending_fingerprint" == "$oracle_failed_fingerprint" ]]; then
 				return 1

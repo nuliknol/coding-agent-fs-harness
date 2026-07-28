@@ -37,11 +37,17 @@ REPOSITORY=$REPOSITORY
 SPECIFICATION=$SPECIFICATION
 PROJECT_PLAN_FILE=$(project_plan_definition_file)
 PROJECT_PLAN_STATE_FILE=$(project_plan_state_file)
+PROJECT_PROGRESS_DIR=$dir/control/progress
+PROJECT_ARCHIVE_DIR=$dir/archive
 ORACLE_PENDING_FILE=$pending
 HARNESS_BIN=$HARNESS_BIN
 AUDIT_ID=$audit_id
 
-Read the complete original specification, every referenced mandatory task/specification document, the durable plan and its state, accepted task review records, and the implemented repository. Independently reproduce only the focused acceptance/build/smoke evidence needed to establish compliance. Do not trust manager or worker claims without evidence.
+Read the complete original specification, every referenced mandatory task/specification document, the durable plan and its state, accepted task review records, and the implemented repository. Also read every applicable \`*.manager-remediations.tsv\` and \`*.hard-blocks.tsv\` ledger under PROJECT_PROGRESS_DIR plus the corresponding manager-remediation assignments and final accepted reviews under PROJECT_ARCHIVE_DIR. Independently reproduce only the focused acceptance/build/smoke evidence needed to establish compliance. Do not trust manager or worker claims without evidence.
+
+Treat independently verified manager-remediation paths as separately attributed baseline-prerequisite provenance, not as feature-owned implementation changes. A repository-local code, build, testability, integration, file-ownership, exclusive-file, forbidden-file, or frozen-baseline conflict is resolvable engineering work. It is \`AUTOMATIC\` when still unmet; it is not a human product/specification decision. If the manager-remediation evidence is bounded, causally required by an existing acceptance command, preserves the specification's observable behavior, and the repaired acceptance command passes, do not fail merely because the prerequisite path lies outside the original worker feature scope. Prior Oracle addenda and legacy hard-block classifications are evidence only and do not override this policy.
+
+\`HUMAN_APPROVAL\` is valid only when completion truly requires one of: unavailable human authorization, an unavailable secret, an external state transition that local code cannot perform, or a governing product/specification choice between at least two incompatible observable API/data/behavior outcomes. Ordinary coding difficulty or scope/ownership wording does not qualify.
 
 Write a verdict under PROJECT_TMP_DIR with exactly this schema:
 
@@ -66,10 +72,19 @@ State why the project passes or fails.
 If PASS, call:
 $HARNESS_BIN/oracle-complete-audit "$ENV_FILE" VERDICT_FILE
 
-If FAIL, create a versioned additive addendum under PROJECT_TMP_DIR. It must contain at least one \`Original-Requirement-ID: ...\`, \`Remediation-Authority: AUTOMATIC\` only for a bounded repair of an existing requirement, or \`HUMAN_APPROVAL\` for new scope/conflict. An AUTOMATIC addendum must include:
+If FAIL, create a versioned additive addendum under PROJECT_TMP_DIR. It must contain at least one \`Original-Requirement-ID: ...\` and exactly one \`Remediation-Authority: AUTOMATIC\` or \`Remediation-Authority: HUMAN_APPROVAL\`. Use \`AUTOMATIC\` for every repository-local implementation, build, testability, integration, scope, ownership, exclusive-file, forbidden-file, or baseline-prerequisite repair. An AUTOMATIC addendum must include:
 
 ## Harness plan items
 ORACLE-...<TAB>independently acceptance-complete remediation title
+
+A HUMAN_APPROVAL addendum must additionally contain exactly one nonempty line for each of:
+
+Human-Dependency-Class: HUMAN_AUTHORIZATION|HUMAN_SECRET|HUMAN_EXTERNAL_STATE|HUMAN_PRODUCT_SPECIFICATION
+Human-Dependency-Evidence: the specific unavailable authority, secret, or external state transition
+
+HUMAN_PRODUCT_SPECIFICATION must instead use Human-Dependency-Evidence to identify the unresolved governing choice and must also contain:
+
+Product-Decision-Evidence: at least two incompatible observable product/API/data outcomes not resolved by the governing specification
 
 Then call:
 $HARNESS_BIN/oracle-complete-audit "$ENV_FILE" VERDICT_FILE ADDENDUM_FILE

@@ -433,13 +433,26 @@ otherwise inherits the manager Codex environment. It verifies the original
 specification, mandatory referenced documents, durable plan traceability, and
 focused acceptance evidence before project completion is recorded.
 
+Set `MAX_ORACLE_RUNS` to bound Oracle cost. `0` disables Oracle auditing; `1`
+permits one completed audit; larger values permit that many completed audit
+cycles. When a capped audit fails and its remediation plan is later accepted,
+the harness records `COMPLETE_WITH_ORACLE_LIMIT` rather than claiming a final
+Oracle `PASS`. Leave `MAX_ORACLE_RUNS` unset to preserve the legacy unbounded
+audit/remediation loop. `MAX_ORACLE_RUNS` supersedes legacy `ORACLE_ENABLED`.
+
 An Oracle `PASS` records project completion. An Oracle `FAIL` writes a
-versioned additive addendum: bounded remediation of an existing requirement may
-be marked `AUTOMATIC` and adds durable `ORACLE-*` plan items; new scope or a
-conflict with the original specification must be marked `HUMAN_APPROVAL` and
-blocks the project. Addenda never replace the original specification.
-After approving that block and making the necessary human-directed change, run
-`bin/harness-unblock-project ENV_FILE`, then restart the harness.
+versioned additive addendum. Repository-local implementation, build,
+testability, integration, scope/ownership, exclusive-file, forbidden-file, and
+baseline-prerequisite repairs are `AUTOMATIC` and add durable `ORACLE-*` plan
+items when still unmet. Independently verified manager-remediation paths are
+separately attributed baseline provenance rather than feature-owned changes.
+`HUMAN_APPROVAL` is limited to unavailable authorization, secrets, external
+state transitions, or an unresolved governing choice between incompatible
+observable product outcomes, and its addendum must carry explicit dependency
+evidence. Addenda never replace the original specification. After resolving a
+genuine project block—or correcting a legacy misclassification—run
+`bin/harness-unblock-project ENV_FILE`, then restart the harness. Unblocking a
+fully accepted plan automatically creates a fresh pending Oracle audit.
 
 Transient provider and quota failures are retried within the same Oracle
 invocation. A GPT-5.6 model refusal or blocked-content response gets one
@@ -456,6 +469,7 @@ becoming a rapid retry loop or a false human-intervention request.
 
 ```bash
 export ORACLE_MODEL="gpt-5.6-sol"
+export MAX_ORACLE_RUNS="1"
 export ORACLE_FALLBACK_MODEL="gpt-5.5"
 export ORACLE_REASONING_EFFORT="xhigh"
 export ORACLE_SANDBOX="danger-full-access"

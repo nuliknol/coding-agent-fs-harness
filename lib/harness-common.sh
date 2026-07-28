@@ -156,7 +156,7 @@ load_harness_env()
 	unset HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
 	unset HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_KILL_GRACE_SECONDS
 	unset MANAGER_FALLBACK_MODEL WORKER_FALLBACK_MODEL ORACLE_FALLBACK_MODEL
-	unset ORACLE_MODEL ORACLE_REASONING_EFFORT ORACLE_SANDBOX ORACLE_CODEX_BIN ORACLE_CODEX_HOME ORACLE_CODEX_EXTRA_ARGS ORACLE_ENABLED
+	unset ORACLE_MODEL ORACLE_REASONING_EFFORT ORACLE_SANDBOX ORACLE_CODEX_BIN ORACLE_CODEX_HOME ORACLE_CODEX_EXTRA_ARGS ORACLE_ENABLED MAX_ORACLE_RUNS
 	unset HARNESS_MANAGER_INVOKER HARNESS_MANAGER_PLAN_INVOKER HARNESS_MANAGER_REPLAN_INVOKER
 	unset HARNESS_WORKER_INVOKER HARNESS_ORACLE_INVOKER
 	unset CODEX_BIN CODEX_HOME
@@ -266,6 +266,12 @@ load_harness_env()
 	ORACLE_MODEL="${ORACLE_MODEL:-}"
 	ORACLE_FALLBACK_MODEL="${ORACLE_FALLBACK_MODEL:-$MANAGER_FALLBACK_MODEL}"
 	ORACLE_ENABLED="${ORACLE_ENABLED:-$([[ -n "$ORACLE_MODEL" ]] && printf 1 || printf 0)}"
+	# MAX_ORACLE_RUNS supersedes the legacy ORACLE_ENABLED switch when present.
+	# Leave it empty to preserve the legacy unbounded final-audit behavior.
+	MAX_ORACLE_RUNS="${MAX_ORACLE_RUNS:-}"
+	if [[ -n "$MAX_ORACLE_RUNS" ]]; then
+		ORACLE_ENABLED="$([[ "$MAX_ORACLE_RUNS" == 0 ]] && printf 0 || printf 1)"
+	fi
 	ORACLE_REASONING_EFFORT="${ORACLE_REASONING_EFFORT:-xhigh}"
 	ORACLE_SANDBOX="${ORACLE_SANDBOX:-$MANAGER_SANDBOX}"
 
@@ -371,6 +377,7 @@ load_harness_env()
 	[[ "$WORKER_FALLBACK_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid WORKER_FALLBACK_MODEL: $WORKER_FALLBACK_MODEL"
 	[[ "$ORACLE_FALLBACK_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid ORACLE_FALLBACK_MODEL: $ORACLE_FALLBACK_MODEL"
 	[[ "$ORACLE_ENABLED" =~ ^[01]$ ]] || die 'ORACLE_ENABLED must be 0 or 1'
+	[[ -z "$MAX_ORACLE_RUNS" || "$MAX_ORACLE_RUNS" =~ ^[0-9]+$ ]] || die 'MAX_ORACLE_RUNS must be a non-negative integer'
 	if [[ "$ORACLE_ENABLED" == 1 ]]; then
 		[[ "$ORACLE_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid ORACLE_MODEL: $ORACLE_MODEL"
 	fi
@@ -408,7 +415,7 @@ load_harness_env()
 	export MANAGER_CODEX_BIN MANAGER_CODEX_HOME MANAGER_MODEL MANAGER_REASONING_EFFORT MANAGER_SANDBOX
 	export WORKER_CODEX_BIN WORKER_CODEX_HOME WORKER_MODEL WORKER_REASONING_EFFORT WORKER_SANDBOX
 	export MANAGER_FALLBACK_MODEL WORKER_FALLBACK_MODEL ORACLE_FALLBACK_MODEL
-	export ORACLE_MODEL ORACLE_ENABLED ORACLE_REASONING_EFFORT ORACLE_SANDBOX ORACLE_CODEX_BIN ORACLE_CODEX_HOME
+	export ORACLE_MODEL ORACLE_ENABLED MAX_ORACLE_RUNS ORACLE_REASONING_EFFORT ORACLE_SANDBOX ORACLE_CODEX_BIN ORACLE_CODEX_HOME
 	export HARNESS_MANAGER_INVOKER HARNESS_MANAGER_PLAN_INVOKER HARNESS_MANAGER_REPLAN_INVOKER
 	export HARNESS_WORKER_INVOKER HARNESS_ORACLE_INVOKER
 }
@@ -459,6 +466,49 @@ require_worker_codex()
 oracle_enabled()
 {
 	[[ "$ORACLE_ENABLED" == 1 ]]
+}
+
+oracle_audit_run_count()
+{
+	local oracle_dir
+	oracle_dir="$(project_oracle_dir)"
+	[[ -d "$oracle_dir" ]] || { printf '0\n'; return 0; }
+	find "$oracle_dir" -maxdepth 1 -type f -name 'audit-[0-9]*.md' -printf . 2>/dev/null | wc -c
+}
+
+oracle_audit_budget_exhausted()
+{
+	[[ -n "$MAX_ORACLE_RUNS" ]] || return 1
+	(( $(oracle_audit_run_count) >= MAX_ORACLE_RUNS ))
+}
+
+project_oracle_limit_file()
+{
+	printf '%s/oracle-run-limit.md' "$(project_oracle_dir)"
+}
+
+record_oracle_audit_limit()
+{
+	local oracle_dir marker tmp completed_runs
+	oracle_enabled || return 0
+	oracle_audit_budget_exhausted || return 0
+	oracle_dir="$(project_oracle_dir)"
+	mkdir -p "$oracle_dir"
+	chmod 700 "$oracle_dir"
+	marker="$(project_oracle_limit_file)"
+	[[ -f "$marker" ]] && return 0
+	completed_runs="$(oracle_audit_run_count)"
+	tmp="$marker.tmp.$$"
+	{
+		printf '# Oracle Audit Run Limit Reached\n\n'
+		printf 'Project: %s\n\n' "$PROJECT"
+		printf 'Max-Oracle-Runs: %s\n\n' "$MAX_ORACLE_RUNS"
+		printf 'Completed-Oracle-Runs: %s\n\n' "$completed_runs"
+		printf 'Recorded-At: %s\n' "$(timestamp_utc)"
+	} > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$marker"
+	log_event "ORACLE_AUDIT_LIMIT_REACHED max_runs=$MAX_ORACLE_RUNS completed_runs=$completed_runs marker=$marker"
 }
 
 require_oracle_codex()
@@ -2005,6 +2055,7 @@ mark_project_awaiting_oracle()
 {
 	local task_id="$1" note_file="${2:-}" dir pending audit_id tmp
 	oracle_enabled || return 0
+	oracle_audit_budget_exhausted && return 0
 	dir="$(project_oracle_dir)"
 	mkdir -p "$dir"
 	chmod 700 "$dir"
@@ -2363,6 +2414,7 @@ write_oracle_snapshot()
 	tmp="$config.tmp.$$"
 	{
 		printf 'enabled=%s\n' "$ORACLE_ENABLED"
+		printf 'max_runs=%s\n' "${MAX_ORACLE_RUNS:-(unlimited)}"
 		printf 'model=%s\n' "$ORACLE_MODEL"
 		printf 'fallback_model=%s\n' "$ORACLE_FALLBACK_MODEL"
 		printf 'reasoning_effort=%s\n' "$ORACLE_REASONING_EFFORT"

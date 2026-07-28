@@ -51,6 +51,18 @@ fi
 authority="$(awk -F': ' '$1 == "Remediation-Authority" {print $2; exit}' "$addendum")"
 [[ "$authority" == AUTOMATIC || "$authority" == HUMAN_APPROVAL ]] || die 'addendum Remediation-Authority must be AUTOMATIC or HUMAN_APPROVAL'
 grep -Eq '^Original-Requirement-ID: .+' "$addendum" || die 'addendum must identify an original requirement'
+human_dependency_class=""
+human_dependency_evidence=""
+product_decision_evidence=""
+if [[ "$authority" == HUMAN_APPROVAL ]]; then
+	human_dependency_class="$(require_single_metadata_value "$addendum" Human-Dependency-Class 'HUMAN_APPROVAL Oracle addendum')"
+	human_dependency_evidence="$(require_single_metadata_value "$addendum" Human-Dependency-Evidence 'HUMAN_APPROVAL Oracle addendum')"
+	hard_block_class_is_human "$human_dependency_class" ||
+		die 'HUMAN_APPROVAL requires Human-Dependency-Class: HUMAN_AUTHORIZATION|HUMAN_SECRET|HUMAN_EXTERNAL_STATE|HUMAN_PRODUCT_SPECIFICATION; repository-local scope, ownership, build, testability, integration, and baseline prerequisites are AUTOMATIC'
+	if [[ "$human_dependency_class" == HUMAN_PRODUCT_SPECIFICATION ]]; then
+		product_decision_evidence="$(require_single_metadata_value "$addendum" Product-Decision-Evidence 'HUMAN_PRODUCT_SPECIFICATION Oracle addendum')"
+	fi
+fi
 addendum_archive="$oracle_dir/addendum-$audit_id.md"
 install -m 600 "$addendum" "$addendum_archive"
 
@@ -63,12 +75,17 @@ if [[ "$authority" == HUMAN_APPROVAL ]]; then
 		printf 'Audit-ID: %s\n\n' "$audit_id"
 		printf 'Verdict: %s\n\n' "$archive"
 		printf 'Addendum: %s\n\n' "$addendum_archive"
+		printf 'Human-Dependency-Class: %s\n\n' "$human_dependency_class"
+		printf 'Human-Dependency-Evidence: %s\n\n' "$human_dependency_evidence"
+		if [[ "$human_dependency_class" == HUMAN_PRODUCT_SPECIFICATION ]]; then
+			printf 'Product-Decision-Evidence: %s\n\n' "$product_decision_evidence"
+		fi
 		printf 'Blocked-At: %s\n' "$(timestamp_utc)"
 	} > "$tmp"
 	chmod 600 "$tmp"
 	mv "$tmp" "$block"
 	rm -f "$pending"
-	log_event "ORACLE_AUDIT_BLOCKED audit_id=$audit_id verdict=$archive addendum=$addendum_archive"
+	log_event "ORACLE_AUDIT_BLOCKED audit_id=$audit_id human_dependency_class=$human_dependency_class verdict=$archive addendum=$addendum_archive"
 	printf '%s\n' "$block"
 	exit 0
 fi

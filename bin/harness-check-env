@@ -36,6 +36,11 @@ printf 'Worker Codex home: %s\n' "$WORKER_CODEX_HOME"
 printf 'Worker model: %s (%s)\n' "$WORKER_MODEL" "$WORKER_REASONING_EFFORT"
 printf 'Worker sandbox: %s\n' "$WORKER_SANDBOX"
 printf 'Oracle enabled: %s\n' "$ORACLE_ENABLED"
+if [[ -n "$MAX_ORACLE_RUNS" ]]; then
+	printf 'Maximum Oracle runs: %s\n' "$MAX_ORACLE_RUNS"
+else
+	printf 'Maximum Oracle runs: unlimited (legacy ORACLE_ENABLED behavior)\n'
+fi
 if oracle_enabled; then
 	printf 'Oracle Codex: %s\n' "$ORACLE_CODEX_BIN"
 	printf 'Oracle Codex home: %s\n' "$ORACLE_CODEX_HOME"

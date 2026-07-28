@@ -16,6 +16,7 @@ ensure_project
 
 dir="$(project_dir)"
 oracle_invocation_failure="$(project_oracle_dir)/oracle-invocation-failed.md"
+oracle_limit_marker="$(project_oracle_limit_file)"
 if project_plan_exists; then
 	printf -v project_progress_line 'Project progress: %s%% (%s/%s plan items complete)' \
 		"$(project_plan_progress_percent)" "$(project_plan_complete_count)" "$(project_plan_total_count)"
@@ -65,13 +66,19 @@ printf 'Worker leaf-goal mode: %s\n' "$([[ "$HARNESS_WORKER_GOAL_MODE" == 1 ]] &
 if oracle_enabled; then
 	if [[ -f "$(project_block_file)" ]]; then
 		printf 'Oracle audit: BLOCKED (%s)\n' "$(project_block_file)"
+	elif [[ -f "$oracle_limit_marker" ]]; then
+		printf 'Oracle audit: RUN_LIMIT_REACHED (%s)\n' "$oracle_limit_marker"
 	elif [[ -f "$oracle_invocation_failure" ]]; then
 		printf 'Oracle audit: INVOCATION_FAILED (%s)\n' "$oracle_invocation_failure"
 	elif [[ -f "$(project_oracle_pending_file)" ]]; then
 		printf 'Oracle audit: PENDING\n'
+	elif [[ -n "$MAX_ORACLE_RUNS" ]]; then
+		printf 'Oracle audit: enabled (maximum runs: %s)\n' "$MAX_ORACLE_RUNS"
 	else
 		printf 'Oracle audit: enabled\n'
 	fi
+elif [[ "$MAX_ORACLE_RUNS" == 0 ]]; then
+	printf 'Oracle audit: disabled (MAX_ORACLE_RUNS=0)\n'
 fi
 if project_plan_exists; then
 	printf '\n%-24s %-12s %-16s %s\n' 'PLAN ITEM' 'STATE' 'TASK ROOT' 'TITLE'
@@ -246,7 +253,11 @@ else
 fi
 
 if project_completion_recorded && project_plan_all_complete; then
-	project_status_line='Project status: COMPLETE. Every project-plan item is accepted.'
+	if [[ -f "$oracle_limit_marker" ]]; then
+		project_status_line='Project status: COMPLETE_WITH_ORACLE_LIMIT. Every project-plan item is accepted; no final Oracle PASS was recorded after the configured audit cap.'
+	else
+		project_status_line='Project status: COMPLETE. Every project-plan item is accepted.'
+	fi
 elif (( human_count > 0 )); then
 	project_status_line='Project status: NEEDS_HUMAN. A documented authorization, secret, external-state, or product/specification decision requires a person; verified work is preserved.'
 elif (( manager_remediation_active_count > 0 )); then

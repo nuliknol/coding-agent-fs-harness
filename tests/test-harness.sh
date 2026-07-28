@@ -1847,6 +1847,9 @@ oracle_prompt="$ORACLE_ROOT/state/projects/oracleproj/control/oracle-audit-1.pro
 grep -q 'at least one `Original-Requirement-ID: ...`' "$oracle_prompt"
 grep -q '`Remediation-Authority: AUTOMATIC`' "$oracle_prompt"
 grep -q '`HUMAN_APPROVAL`' "$oracle_prompt"
+grep -Fq '`*.manager-remediations.tsv`' "$oracle_prompt"
+grep -q 'exclusive-file.*baseline-prerequisite repair' "$oracle_prompt"
+grep -q '^Human-Dependency-Class: HUMAN_AUTHORIZATION|HUMAN_SECRET|HUMAN_EXTERNAL_STATE|HUMAN_PRODUCT_SPECIFICATION$' "$oracle_prompt"
 [[ "$(cat "$ORACLE_ROOT/state/mock-counts/oracle-1")" == 3 ]]
 grep -q 'ORACLE_TERRA_NARROW_RETRY audit_id=1 classification=model_refusal_or_blocked_content attempt=2' \
 	"$ORACLE_ROOT/state/projects/oracleproj/logs/events.log"
@@ -1955,5 +1958,146 @@ grep -Fqx $'ORACLE-001-01\tImplement and verify the missing behavior' "$ORACLE_F
 grep -Eq $'^ORACLE-001-01\tPENDING\t-' "$ORACLE_FAIL_ROOT/state/projects/oraclefailproj/control/project-plan-state.tsv"
 [[ ! -f "$ORACLE_FAIL_ROOT/state/projects/oraclefailproj/control/project.complete" ]]
 [[ ! -f "$ORACLE_FAIL_ROOT/state/projects/oraclefailproj/control/oracle/oracle.pending.md" ]]
+
+ORACLE_HUMAN_ROOT="$TEST_ROOT/oracle-human"
+mkdir -p "$ORACLE_HUMAN_ROOT/repo" "$ORACLE_HUMAN_ROOT/manager-home" \
+	"$ORACLE_HUMAN_ROOT/worker-home"
+printf 'test specification\n' > "$ORACLE_HUMAN_ROOT/repo/spec.md"
+cat > "$ORACLE_HUMAN_ROOT/harness.env" <<ENV
+export PROJECT="oraclehumanproj"
+export REPOSITORY="$ORACLE_HUMAN_ROOT/repo"
+export SPECIFICATION="\$REPOSITORY/spec.md"
+export HARNESS_HOME="$HARNESS_HOME"
+export HARNESS_BIN="\$HARNESS_HOME/bin"
+export HARNESS_WORKER_GOAL_MODE="0"
+export HARNESS_ROOT="$ORACLE_HUMAN_ROOT/state"
+export MANAGER_CODEX_HOME="$ORACLE_HUMAN_ROOT/manager-home"
+export MANAGER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export WORKER_CODEX_HOME="$ORACLE_HUMAN_ROOT/worker-home"
+export WORKER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export ORACLE_MODEL="gpt-5.6-sol"
+ENV
+chmod 600 "$ORACLE_HUMAN_ROOT/harness.env"
+"$HARNESS_BIN/harness-init" "$ORACLE_HUMAN_ROOT/harness.env" >/dev/null
+printf 'P0\tOracle human-dependency validation test\n' > "$ORACLE_HUMAN_ROOT/plan.tsv"
+"$HARNESS_BIN/manager-init-project-plan" "$ORACLE_HUMAN_ROOT/harness.env" \
+	"$ORACLE_HUMAN_ROOT/plan.tsv" >/dev/null
+sed -i 's/^P0\tPENDING/P0\tCOMPLETE/' \
+	"$ORACLE_HUMAN_ROOT/state/projects/oraclehumanproj/control/project-plan-state.tsv"
+mkdir -p "$ORACLE_HUMAN_ROOT/state/projects/oraclehumanproj/control/oracle"
+printf '# Oracle Audit Pending\n\nProject: oraclehumanproj\n\nAudit-ID: 1\n' > \
+	"$ORACLE_HUMAN_ROOT/state/projects/oraclehumanproj/control/oracle/oracle.pending.md"
+sed 's/Decision: PASS/Decision: FAIL/; s/None\\./A governing product decision is unresolved./; s/The implementation is compliant./A governing decision is required./' \
+	"$ORACLE_ROOT/verdict-pass.md" > "$ORACLE_HUMAN_ROOT/verdict-fail.md"
+cat > "$ORACLE_HUMAN_ROOT/addendum.md" <<'ADDENDUM'
+# Oracle Audit Addendum
+
+Original-Requirement-ID: REQ-ORACLE-HUMAN-1
+Remediation-Authority: HUMAN_APPROVAL
+Human-Dependency-Class: LOCAL_SCOPE_PREREQUISITE
+Human-Dependency-Evidence: a worker-exclusive file must be repaired
+ADDENDUM
+if "$HARNESS_BIN/oracle-complete-audit" "$ORACLE_HUMAN_ROOT/harness.env" \
+	"$ORACLE_HUMAN_ROOT/verdict-fail.md" "$ORACLE_HUMAN_ROOT/addendum.md" \
+	>"$ORACLE_HUMAN_ROOT/local-scope.out" 2>"$ORACLE_HUMAN_ROOT/local-scope.err"; then
+	printf 'Oracle scope-only HUMAN_APPROVAL unexpectedly passed validation.\n' >&2
+	exit 1
+fi
+grep -q 'repository-local scope, ownership, build, testability, integration, and baseline prerequisites are AUTOMATIC' \
+	"$ORACLE_HUMAN_ROOT/local-scope.err"
+[[ -f "$ORACLE_HUMAN_ROOT/state/projects/oraclehumanproj/control/oracle/oracle.pending.md" ]]
+[[ ! -f "$ORACLE_HUMAN_ROOT/state/projects/oraclehumanproj/control/project.blocked.md" ]]
+sed -i 's/Human-Dependency-Class: LOCAL_SCOPE_PREREQUISITE/Human-Dependency-Class: HUMAN_PRODUCT_SPECIFICATION/; s/a worker-exclusive file must be repaired/the governing specification does not choose an observable behavior/' \
+	"$ORACLE_HUMAN_ROOT/addendum.md"
+if "$HARNESS_BIN/oracle-complete-audit" "$ORACLE_HUMAN_ROOT/harness.env" \
+	"$ORACLE_HUMAN_ROOT/verdict-fail.md" "$ORACLE_HUMAN_ROOT/addendum.md" \
+	>"$ORACLE_HUMAN_ROOT/product-missing.out" 2>"$ORACLE_HUMAN_ROOT/product-missing.err"; then
+	printf 'Oracle product HUMAN_APPROVAL without outcome evidence unexpectedly passed validation.\n' >&2
+	exit 1
+fi
+grep -q 'must contain exactly one Product-Decision-Evidence line' \
+	"$ORACLE_HUMAN_ROOT/product-missing.err"
+printf '%s\n' 'Product-Decision-Evidence: public API returns legacy values or normalized values, and the specification does not choose between them' \
+	>> "$ORACLE_HUMAN_ROOT/addendum.md"
+"$HARNESS_BIN/oracle-complete-audit" "$ORACLE_HUMAN_ROOT/harness.env" \
+	"$ORACLE_HUMAN_ROOT/verdict-fail.md" "$ORACLE_HUMAN_ROOT/addendum.md" >/dev/null
+oracle_human_project="$ORACLE_HUMAN_ROOT/state/projects/oraclehumanproj"
+grep -q '^Human-Dependency-Class: HUMAN_PRODUCT_SPECIFICATION$' \
+	"$oracle_human_project/control/project.blocked.md"
+grep -q '^Product-Decision-Evidence: public API returns legacy values or normalized values' \
+	"$oracle_human_project/control/project.blocked.md"
+"$HARNESS_BIN/harness-unblock-project" "$ORACLE_HUMAN_ROOT/harness.env" \
+	> "$ORACLE_HUMAN_ROOT/unblock.out"
+[[ ! -f "$oracle_human_project/control/project.blocked.md" ]]
+grep -q '^Audit-ID: 2$' "$oracle_human_project/control/oracle/oracle.pending.md"
+grep -q '^Triggered-By-Task: oracle-unblock-1$' \
+	"$oracle_human_project/control/oracle/oracle.pending.md"
+grep -q 'fresh Oracle audit is pending' "$ORACLE_HUMAN_ROOT/unblock.out"
+grep -q 'PROJECT_UNBLOCKED source=operator-oracle-retry prior_audit_id=1 oracle_requeued=1' \
+	"$oracle_human_project/logs/events.log"
+"$HARNESS_BIN/harness-status" "$ORACLE_HUMAN_ROOT/harness.env" \
+	> "$ORACLE_HUMAN_ROOT/status.out"
+grep -q '^Oracle audit: PENDING$' "$ORACLE_HUMAN_ROOT/status.out"
+grep -Fq 'Project status: ORACLE_AUDIT.' "$ORACLE_HUMAN_ROOT/status.out"
+
+ORACLE_BUDGET_ROOT="$TEST_ROOT/oracle-budget"
+mkdir -p "$ORACLE_BUDGET_ROOT/repo" "$ORACLE_BUDGET_ROOT/manager-home" \
+	"$ORACLE_BUDGET_ROOT/worker-home"
+printf 'test specification\n' > "$ORACLE_BUDGET_ROOT/repo/spec.md"
+cat > "$ORACLE_BUDGET_ROOT/harness.env" <<ENV
+export PROJECT="oraclebudgetproj"
+export REPOSITORY="$ORACLE_BUDGET_ROOT/repo"
+export SPECIFICATION="\$REPOSITORY/spec.md"
+export HARNESS_HOME="$HARNESS_HOME"
+export HARNESS_BIN="\$HARNESS_HOME/bin"
+export HARNESS_WORKER_GOAL_MODE="0"
+export HARNESS_ROOT="$ORACLE_BUDGET_ROOT/state"
+export MANAGER_CODEX_HOME="$ORACLE_BUDGET_ROOT/manager-home"
+export MANAGER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export WORKER_CODEX_HOME="$ORACLE_BUDGET_ROOT/worker-home"
+export WORKER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export ORACLE_MODEL="gpt-5.6-sol"
+export MAX_ORACLE_RUNS="1"
+ENV
+chmod 600 "$ORACLE_BUDGET_ROOT/harness.env"
+"$HARNESS_BIN/harness-init" "$ORACLE_BUDGET_ROOT/harness.env" >/dev/null
+printf 'P0\tOracle audit budget test\n' > "$ORACLE_BUDGET_ROOT/plan.tsv"
+"$HARNESS_BIN/manager-init-project-plan" "$ORACLE_BUDGET_ROOT/harness.env" \
+	"$ORACLE_BUDGET_ROOT/plan.tsv" >/dev/null
+sed -i 's/^P0\tPENDING/P0\tCOMPLETE/' \
+	"$ORACLE_BUDGET_ROOT/state/projects/oraclebudgetproj/control/project-plan-state.tsv"
+bash -c '
+	source "$1/lib/harness-common.sh"
+	load_harness_env "$2"
+	ensure_project
+	mark_project_awaiting_oracle budget-seed
+' bash "$HARNESS_HOME" "$ORACLE_BUDGET_ROOT/harness.env"
+oracle_budget_project="$ORACLE_BUDGET_ROOT/state/projects/oraclebudgetproj"
+grep -q '^Audit-ID: 1$' "$oracle_budget_project/control/oracle/oracle.pending.md"
+sed 's/Decision: PASS/Decision: FAIL/; s/None\./A bounded remediation is required./; s/The implementation is compliant./A bounded remediation is required./' \
+	"$ORACLE_ROOT/verdict-pass.md" > "$ORACLE_BUDGET_ROOT/verdict-fail.md"
+cat > "$ORACLE_BUDGET_ROOT/addendum.md" <<'ADDENDUM'
+# Oracle Audit Addendum
+
+Original-Requirement-ID: REQ-ORACLE-BUDGET-1
+Remediation-Authority: AUTOMATIC
+
+## Harness plan items
+ORACLE-BUDGET-01	Implement the bounded remediation
+ADDENDUM
+"$HARNESS_BIN/oracle-complete-audit" "$ORACLE_BUDGET_ROOT/harness.env" \
+	"$ORACLE_BUDGET_ROOT/verdict-fail.md" "$ORACLE_BUDGET_ROOT/addendum.md" >/dev/null
+sed -i 's/^ORACLE-BUDGET-01\tPENDING/ORACLE-BUDGET-01\tCOMPLETE/' \
+	"$oracle_budget_project/control/project-plan-state.tsv"
+"$HARNESS_BIN/harness-supervisor" "$ORACLE_BUDGET_ROOT/harness.env" >/dev/null
+[[ -f "$oracle_budget_project/control/project.complete" ]]
+[[ -f "$oracle_budget_project/control/oracle/oracle-run-limit.md" ]]
+[[ ! -f "$oracle_budget_project/control/oracle/oracle.pending.md" ]]
+grep -q '^Max-Oracle-Runs: 1$' "$oracle_budget_project/control/oracle/oracle-run-limit.md"
+grep -q 'ORACLE_AUDIT_LIMIT_REACHED max_runs=1 completed_runs=1' \
+	"$oracle_budget_project/logs/events.log"
+"$HARNESS_BIN/harness-status" "$ORACLE_BUDGET_ROOT/harness.env" > "$ORACLE_BUDGET_ROOT/status.out"
+grep -q '^Oracle audit: RUN_LIMIT_REACHED ' "$ORACLE_BUDGET_ROOT/status.out"
+grep -q '^Project status: COMPLETE_WITH_ORACLE_LIMIT\.' "$ORACLE_BUDGET_ROOT/status.out"
 
 printf 'All v4.4 harness tests passed.\n'
