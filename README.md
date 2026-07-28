@@ -10,9 +10,6 @@ publishes one exhaustive completion addendum and the harness resumes the same
 Luna thread. The loop ends only when Terra accepts the implementation or an
 optional operator review limit is reached.
 
-There is no Oracle, task sharding, leaf decomposition, checkpoint ledger,
-per-feature manager handoff, worker rotation, or production-quality gate.
-
 ## Process
 
 ```text
@@ -45,6 +42,66 @@ until no useful in-scope work remains. Every correction turn uses
 Terra review turns are fresh and sparse. They do not inherit a growing manager
 conversation. Each review reads the immutable specification, development
 policy, repository, worker report, and prior addenda.
+
+## Why use it?
+
+Long autonomous coding runs are efficient, but a model's completion claim is
+not an independent acceptance decision. An implementation can pass its visible
+tests while still missing edge cases, architectural requirements, or parts of
+the governing specification. A separate repository audit improves confidence,
+but manually running that audit and relaying every correction adds operator
+time, context switching, and repeated setup cost.
+
+The light harness automates that acceptance loop:
+
+- **Luna owns implementation.** A lower-cost model keeps one persistent thread
+  for the complete specification, preserving design context across corrections.
+- **Terra owns acceptance.** A stronger model performs sparse, fresh
+  full-repository reviews and converts concrete gaps into exhaustive addenda.
+- **The supervisor owns coordination.** It records every goal, review,
+  correction, model trace, and token total, then resumes the worker without
+  requiring manual copy-and-paste handoffs.
+- **The specification remains authoritative.** The loop ends only when Terra
+  accepts the repository or an explicit operator limit pauses it.
+
+This design concentrates the more expensive model on high-leverage review work
+while assigning most implementation work to the less expensive model. Reusing
+the Luna thread also avoids repeatedly rebuilding the worker's complete project
+context. It is intended for unattended, prototype-oriented development where
+specification coverage matters more than obtaining the cheapest possible first
+pass.
+
+### Benchmark evidence
+
+The reference benchmark used a nontrivial ISO C11 project: a BNF compiler and
+HTML-like recognizer with a persistent eight-thread POSIX worker pool,
+parallel chart parsing, deterministic merging, diagnostics, and stress tests.
+It compared one standalone Terra High run with the light Terra High
+manager/Luna High worker arrangement.
+
+| Measure | Single Terra High | Light harness |
+|---|---:|---:|
+| Public grader | 12/12 | 12/12 |
+| Observed completeness | 71.4% | 95.2% |
+| API-price-equivalent total cost | $0.8631 | $3.2960 |
+| Cost per final C/header line | $0.004543 | $0.001928 |
+| Final physical lines per dollar | 220.14 | 518.81 |
+
+The standalone run remained the least expensive way to pass the visible
+grader. The light harness cost 3.82 times more in total, but its independent
+review loop found and corrected five additional specification failures,
+produced a substantially more maintainable implementation, and achieved a
+57.57% lower nominal cost per final physical line. Compared with the original
+fine-grained full harness, light reduced API-price-equivalent cost by 75.53%.
+
+These figures describe one controlled benchmark, not a universal guarantee.
+Model behavior varies by task, and physical lines of code are not a
+quality-adjusted unit. The stronger result is the combination of improved
+observed completeness, automated acceptance, durable evidence, and lower
+orchestration cost than the full harness. See the
+[benchmark introduction](benchmarks/README.md) and
+[complete comparison report](benchmarks/light-vs-single-terra-high.md) for the
+methodology, raw measurements, and limitations.
 
 ## Development policy
 
@@ -104,9 +161,9 @@ The essential configuration is:
 export PROJECT="my-project-light"
 export REPOSITORY="/path/to/repository"
 export SPECIFICATION="/path/to/specification.md"
-export DEVELOPMENT_POLICY="/var/home/mf/mf/design/development-policy.txt"
-export HARNESS_HOME="/var/home/mf/coding-agent-fs-harness"
-export HARNESS_ROOT="/var/home/mf/.local/state/coding-harness-light"
+export DEVELOPMENT_POLICY="path/to/development-policy.txt"
+export HARNESS_HOME="/home/user/coding-agent-fs-harness"
+export HARNESS_ROOT="/home/user/.local/state/coding-harness-light"
 
 export MANAGER_MODEL="gpt-5.6-terra"
 export MANAGER_REASONING_EFFORT="high"
