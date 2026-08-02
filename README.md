@@ -175,17 +175,126 @@ export WORKER_REASONING_EFFORT="high"
 cycles. A positive value pauses after that many rejected Terra reviews. It does
 not claim that the project is complete.
 
+### Optional first-review verification
+
+The manager remains language-neutral by default:
+
+```bash
+export HARNESS_MANAGER_REVIEW_CHECKLIST="none"
+```
+
+For a C project, enable the comprehensive first-review profile:
+
+```bash
+export HARNESS_MANAGER_REVIEW_CHECKLIST="c-strict"
+```
+
+The `c-strict` profile tells Terra to run and document:
+
+- the canonical clean build, project tests, and public-interface smoke;
+- an optimized C11 build with strict warnings promoted to errors;
+- ASan/UBSan builds and execution when supported;
+- one already-installed independent analyzer, such as `clang --analyze`,
+  `scan-build`, `clang-tidy`, or `cppcheck`, when compatible;
+- applicable lexer edge cases, epsilon/nested/ambiguous grammar behavior,
+  deterministic termination, and full-input consumption; and
+- exit-status and one-line output contracts, including control characters in
+  user-provided values.
+
+The complete checklist is appended only to Terra's first review prompt. Later
+reviews verify the resulting addenda and focused regressions without
+automatically repeating every expensive check. Missing optional analyzer tools
+are recorded as skipped and do not cause rejection; the manager never installs
+packages. The selected profile is stored in `project.conf`, and the assembled
+first-review prompt provides durable evidence of exactly which checklist was
+used.
+
+This feature strengthens the manager's review instructions but does not turn
+the supervisor into a language-specific test runner. Terra executes and judges
+the commands inside its Codex review turn. Projects that require mechanically
+mandatory commands should also place those commands in their specification or
+provide a dedicated external acceptance gate.
+
+### Codex stall diagnostics
+
+Diagnostics are disabled by default. Enable them temporarily on selected
+harnesses while investigating a stuck Codex turn:
+
+```bash
+export HARNESS_CODEX_RUST_LOG="codex_core=debug"
+export HARNESS_CODEX_STRACE="1"
+export HARNESS_CODEX_STRACE_STRING_BYTES="80"
+export HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS="1800"
+```
+
+`HARNESS_CODEX_RUST_LOG` is passed to Codex as `RUST_LOG`; non-interactive
+Codex diagnostics therefore remain in the turn's existing stderr log.
+`HARNESS_CODEX_STRACE=1` starts the complete Node/Codex/code-mode-host process
+tree under `strace -ff`. The persistent trace is deliberately limited to
+network, process, and signal system calls so long turns do not produce an
+unbounded stream of `futex` and `epoll` events. Captured strings are limited by
+`HARNESS_CODEX_STRACE_STRING_BYTES`, which defaults to 80.
+
+When a turn produces neither JSONL nor stderr output for
+`HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS`, the executor writes one evidence
+snapshot for that quiet interval. If output resumes and a later quiet interval
+crosses the threshold, it writes another. Snapshots include:
+
+- the complete descendant process tree and per-thread wait/syscall state;
+- file descriptors plus TCP and Unix-domain sockets owned by the tree;
+- bounded tails of the turn JSONL and stderr files; and
+- when found, a bounded tail of the matching Codex session transcript.
+
+Artifacts are stored beside the turn log in
+`logs/<turn>.diagnostics/`, with mode 600 files under the harness's private
+state directory. They can contain prompts, source fragments, paths, and other
+sensitive debugging context. Review them before sharing. Enabling tracing only
+affects new Codex invocations; restart a currently running harness if that turn
+must start under `strace`.
+
+The stall snapshot threshold does not terminate or restart Codex. Existing
+wall and idle timeout behavior remains controlled separately by
+`HARNESS_CODEX_WALL_TIMEOUT_SECONDS` and
+`HARNESS_CODEX_IDLE_TIMEOUT_SECONDS`. An idle or wall timeout also captures a
+final snapshot before or immediately after termination.
+
+Capture the same snapshot on demand for a currently running turn:
+
+```bash
+bin/harness-diagnose ~/configs/my-project-light.env manual
+```
+
 The environment file is sourced as trusted Bash. It must be owned by the
 current user or root and must not be group/world writable.
 
 ## Run
 
-Validate and initialize once:
+Validate and initialize once. Initialization requires a Git repository with a
+valid `HEAD` and no staged, unstaged, or untracked changes:
 
 ```bash
 bin/harness-check-env ~/configs/my-project-light.env
 bin/harness-init ~/configs/my-project-light.env
 ```
+
+An owner may explicitly accept a dirty starting checkout when necessary:
+
+```bash
+bin/harness-init --force ~/configs/my-project-light.env
+```
+
+The harness records the launch commit in `project.conf`. Each manager and
+worker turn receives the current `HEAD` commit as its canonical diff baseline,
+so later owner-created commits on top of the launch commit become baseline
+content automatically. Historical or inspected commit hashes mentioned in a
+specification are never used to identify worker-authored changes. Codex turns
+may edit and delete tracked files when the specification requires it, but may
+not move `HEAD`. The executor restores the Git index to its pre-turn state, so
+worker edits remain in the working tree without unexpectedly staging them. It
+also snapshots and verifies the configured specification, development policy,
+immutable inputs, prompts, reviews, addenda, and durable control files around
+every turn. If Codex changes protected content, the harness restores it and
+rejects the turn.
 
 Start the background supervisor:
 
@@ -264,7 +373,15 @@ tests/test-light-harness.sh
 The test uses a fake Codex executable. It verifies Terra goal creation, a first
 Luna implementation, Terra rejection with an addendum, resumption of the same
 Luna thread, final Terra acceptance, durable state, and thread-deduplicated
-token accounting.
+token accounting. It also verifies that the strict C checklist is disabled by
+default, rejects unsupported profile names, is attached when selected, and is
+not repeated after the first review. Diagnostics coverage verifies validated
+trace settings, `RUST_LOG` propagation, traced command construction, manual
+capture, and automatic capture during a quiet turn. Repository safety coverage
+rejects dirty initialization without `--force`, records and injects the
+canonical commit baseline despite an older commit named in the specification,
+restores protected content and the Git index after an adversarial turn, and
+rejects Codex-created commits.
 
 ## Benchmarks
 

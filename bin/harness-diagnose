@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Capture a diagnostic snapshot for the currently running Codex turn.
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -ge 1 && $# -le 2 ]] ||
+	die "Usage: ${0##*/} ENV_FILE [REASON]"
+load_harness_env "$1"
+ensure_project
+reason="${2:-manual}"
+[[ "$reason" =~ ^[A-Za-z0-9._-]+$ ]] || die "invalid diagnostic reason: $reason"
+
+executor_pid=""
+declare -a argv=()
+for process_dir in /proc/[1-9]*; do
+	[[ -r "$process_dir/cmdline" ]] || continue
+	mapfile -d '' -t candidate_argv < "$process_dir/cmdline" 2>/dev/null || continue
+	(( ${#candidate_argv[@]} >= 7 )) || continue
+	[[ "${candidate_argv[1]}" == "$HARNESS_BIN/codex-exec-jsonl" ]] || continue
+	[[ "${candidate_argv[2]}" == "$HARNESS_ENV_FILE" ]] || continue
+	executor_pid="${process_dir##*/}"
+	argv=("${candidate_argv[@]}")
+	break
+done
+
+[[ -n "$executor_pid" ]] || die "no active Codex turn found for project: $PROJECT"
+snapshot="$("$HARNESS_BIN/harness-capture-codex-diagnostics" \
+	"$HARNESS_ENV_FILE" "${argv[3]}" "$executor_pid" \
+	"${argv[5]}" "${argv[6]}" "$reason")"
+log_event "CODEX_DIAGNOSTICS_CAPTURED role=${argv[3]} reason=$reason root_pid=$executor_pid path=$snapshot"
+printf 'Captured Codex diagnostics: %s\n' "$snapshot"

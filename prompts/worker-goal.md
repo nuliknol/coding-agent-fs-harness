@@ -27,7 +27,13 @@ infrastructure, generalized frameworks, broad defensive validation, or huge
 test suites.
 
 Do not modify harness state, the immutable specification snapshot, the
-development-policy snapshot, or manager review files.
+configured source specification, the development-policy snapshot, or manager
+review files. Use only the harness-provided canonical repository baseline when
+identifying your changes. Commit hashes mentioned in specification metadata
+are historical provenance, not cleanup targets. Do not delete or revert files
+present in the canonical baseline merely to make a scope diff smaller. Delete
+a tracked file only when an exact specification requirement requires its
+removal.
 
 When you have reached maximum honest completion in this turn, report what
 works, commands run, and any remaining concrete gap. The manager will audit the

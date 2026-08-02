@@ -12,6 +12,10 @@ dir="$(project_dir)"
 printf 'Environment file: %s\n' "$HARNESS_ENV_FILE"
 printf 'Project: %s\n' "$PROJECT"
 printf 'Repository: %s\n' "$REPOSITORY"
+launch_commit="$(project_config_value repository_launch_commit 2>/dev/null || true)"
+current_commit="$(repository_head_commit 2>/dev/null || true)"
+[[ -z "$launch_commit" ]] || printf 'Repository launch commit: %s\n' "$launch_commit"
+[[ -z "$current_commit" ]] || printf 'Canonical repository baseline: %s\n' "$current_commit"
 printf 'Harness mode: persistent Luna worker with sparse Terra reviews\n'
 if supervisor_running; then
 	printf 'Supervisor: running (PID %s)\n' "$(supervisor_pid)"
@@ -23,6 +27,18 @@ printf 'Phase: %s\n' "$(state_value phase)"
 printf 'Worker/review cycle: %s\n' "$(state_value cycle)"
 printf 'Manager: %s (%s)\n' "$MANAGER_MODEL" "$MANAGER_REASONING_EFFORT"
 printf 'Worker: %s (%s)\n' "$WORKER_MODEL" "$WORKER_REASONING_EFFORT"
+printf 'Manager first-review checklist: %s\n' \
+	"$HARNESS_MANAGER_REVIEW_CHECKLIST"
+printf 'Codex Rust diagnostics: %s\n' \
+	"${HARNESS_CODEX_RUST_LOG:-disabled}"
+printf 'Codex strace: %s\n' \
+	"$([[ "$HARNESS_CODEX_STRACE" == 1 ]] && printf enabled || printf disabled)"
+if (( HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS == 0 )); then
+	printf 'Codex stall snapshots: disabled\n'
+else
+	printf 'Codex stall snapshots: after %s seconds without output\n' \
+		"$HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS"
+fi
 if [[ -f "$dir/control/worker.thread" ]]; then
 	printf 'Persistent worker thread: %s\n' "$(awk 'NR == 1 { print; exit }' "$dir/control/worker.thread")"
 else

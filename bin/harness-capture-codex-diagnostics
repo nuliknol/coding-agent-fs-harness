@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+# Capture bounded, read-only evidence for one live or recently exited Codex turn.
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE ROLE ROOT_PID JSONL STDERR REASON\n' \
+		"${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 6 ]] || usage
+env_file="$1"
+role="$2"
+root_pid="$3"
+jsonl="$4"
+stderr_log="$5"
+reason="$6"
+
+load_harness_env "$env_file"
+ensure_project
+[[ "$role" =~ ^(manager_goal|manager_review|worker)$ ]] ||
+	die "invalid role: $role"
+[[ "$root_pid" =~ ^[1-9][0-9]*$ ]] || die "invalid root PID: $root_pid"
+[[ "$reason" =~ ^[A-Za-z0-9._-]+$ ]] || die "invalid diagnostic reason: $reason"
+
+case "$role" in
+	manager_goal|manager_review) codex_home="$MANAGER_CODEX_HOME" ;;
+	worker) codex_home="$WORKER_CODEX_HOME" ;;
+esac
+
+umask 077
+stamp="$(date -u '+%Y%m%dT%H%M%SZ')"
+diagnostic_root="${jsonl%.jsonl}.diagnostics"
+snapshot="$diagnostic_root/snapshot-$stamp-$root_pid-$reason"
+mkdir -p "$snapshot/processes"
+
+declare -a queue=("$root_pid")
+declare -a pids=()
+declare -A seen=()
+while (( ${#queue[@]} > 0 )); do
+	pid="${queue[0]}"
+	queue=("${queue[@]:1}")
+	[[ -z "${seen[$pid]:-}" ]] || continue
+	seen[$pid]=1
+	[[ -d "/proc/$pid" ]] || continue
+	pids+=("$pid")
+	mapfile -t children < <(ps -eo pid=,ppid= |
+		awk -v parent="$pid" '$2 == parent { print $1 }')
+	queue+=("${children[@]}")
+done
+
+{
+	printf 'captured_at=%s\n' "$(timestamp_utc)"
+	printf 'project=%s\n' "$PROJECT"
+	printf 'role=%s\n' "$role"
+	printf 'reason=%s\n' "$reason"
+	printf 'root_pid=%s\n' "$root_pid"
+	printf 'jsonl=%s\n' "$jsonl"
+	printf 'stderr=%s\n' "$stderr_log"
+	printf 'codex_home=%s\n' "$codex_home"
+	printf 'process_count=%s\n' "${#pids[@]}"
+	printf 'kernel=%s\n' "$(uname -srmo)"
+	printf 'uptime=%s\n' "$(uptime 2>/dev/null || true)"
+} > "$snapshot/metadata.env"
+
+if (( ${#pids[@]} > 0 )); then
+	pid_csv=""
+	for pid in "${pids[@]}"; do
+		pid_csv+="${pid},"
+	done
+	ps -o pid=,ppid=,pgid=,sid=,stat=,etime=,time=,%cpu=,%mem=,wchan:24=,comm=,args= \
+		-p "${pid_csv%,}" > "$snapshot/process-tree.txt" 2>&1 || true
+fi
+
+for pid in "${pids[@]}"; do
+	process_dir="$snapshot/processes/$pid"
+	mkdir -p "$process_dir"
+	tr '\0' ' ' < "/proc/$pid/cmdline" > "$process_dir/cmdline.txt" 2>/dev/null || true
+	printf '\n' >> "$process_dir/cmdline.txt"
+	sed -nE '/^(Name|State|Tgid|Pid|PPid|TracerPid|Uid|Gid|FDSize|Groups|NStgid|NSpid|NSpgid|NSsid|Vm[A-Za-z]*|Threads|Sig[A-Za-z]*|Cap[A-Za-z]*|NoNewPrivs|Seccomp|voluntary_ctxt_switches|nonvoluntary_ctxt_switches):/p' \
+		"/proc/$pid/status" > "$process_dir/status.txt" 2>/dev/null || true
+	readlink "/proc/$pid/exe" > "$process_dir/exe.txt" 2>/dev/null || true
+	cat "/proc/$pid/wchan" > "$process_dir/wchan.txt" 2>/dev/null || true
+	cat "/proc/$pid/syscall" > "$process_dir/syscall.txt" 2>/dev/null || true
+	find "/proc/$pid/fd" -maxdepth 1 -type l -printf '%f\t%l\n' \
+		2>/dev/null | sort -n > "$process_dir/fds.tsv" || true
+	{
+		printf 'tid\tcomm\tstate\twchan\tsyscall\n'
+		for task in "/proc/$pid/task"/*; do
+			[[ -d "$task" ]] || continue
+			tid="${task##*/}"
+			comm="$(cat "$task/comm" 2>/dev/null || true)"
+			state="$(awk '/^State:/ { print $2; exit }' "$task/status" 2>/dev/null || true)"
+			wchan="$(cat "$task/wchan" 2>/dev/null || true)"
+			syscall="$(cat "$task/syscall" 2>/dev/null || true)"
+			printf '%s\t%s\t%s\t%s\t%s\n' \
+				"$tid" "$comm" "$state" "$wchan" "$syscall"
+		done
+	} > "$process_dir/threads.tsv"
+done
+
+if command -v ss >/dev/null 2>&1; then
+	{
+		for pid in "${pids[@]}"; do
+			ss -tanp 2>/dev/null | awk -v needle="pid=$pid," \
+				'index($0, needle) { print }'
+		done
+	} | sort -u > "$snapshot/tcp-sockets.txt"
+	{
+		for pid in "${pids[@]}"; do
+			ss -xanp 2>/dev/null | awk -v needle="pid=$pid," \
+				'index($0, needle) { print }'
+		done
+	} | sort -u > "$snapshot/unix-sockets.txt"
+else
+	: > "$snapshot/tcp-sockets.txt"
+	: > "$snapshot/unix-sockets.txt"
+fi
+
+tail -n 200 "$jsonl" > "$snapshot/jsonl-tail.jsonl" 2>/dev/null || true
+tail -n 400 "$stderr_log" > "$snapshot/stderr-tail.log" 2>/dev/null || true
+
+thread_id="$(jq -rs '[.[] | select(.type == "thread.started") | .thread_id][0] // empty' \
+	"$jsonl" 2>/dev/null || true)"
+if [[ "$thread_id" =~ ^[A-Za-z0-9._:-]+$ && -d "$codex_home/sessions" ]]; then
+	printf '%s\n' "$thread_id" > "$snapshot/thread-id.txt"
+	session_file=""
+	while IFS= read -r -d '' candidate; do
+		if grep -aFqm1 -- "$thread_id" "$candidate" 2>/dev/null; then
+			session_file="$candidate"
+			break
+		fi
+	done < <(find "$codex_home/sessions" -type f -mtime -7 -print0 2>/dev/null)
+	if [[ -n "$session_file" ]]; then
+		printf '%s\n' "$session_file" > "$snapshot/session-file.txt"
+		tail -n 200 "$session_file" > "$snapshot/session-tail.jsonl" 2>/dev/null || true
+	fi
+fi
+
+find "$snapshot" -type f -exec chmod 600 {} +
+printf '%s\n' "$snapshot"

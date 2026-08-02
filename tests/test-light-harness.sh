@@ -10,11 +10,23 @@ state_root="$TEST_DIR/state"
 fake_state="$TEST_DIR/fake-state"
 mkdir -p "$repo" "$fake_state" "$TEST_DIR/codex-home"
 
-cat > "$TEST_DIR/specification.md" <<'EOF'
-# Feature
+git -C "$repo" init -q
+git -C "$repo" config user.name 'Harness Test'
+git -C "$repo" config user.email 'harness-test@example.invalid'
+printf 'historical baseline\n' > "$repo/historical.txt"
+git -C "$repo" add historical.txt
+git -C "$repo" commit -q -m 'historical specification inspection baseline'
+historical_commit="$(git -C "$repo" rev-parse HEAD)"
+printf 'pre-existing integrated work\n' > "$repo/pre-existing.txt"
+git -C "$repo" add pre-existing.txt
+git -C "$repo" commit -q -m 'integrated work present at harness launch'
+launch_commit="$(git -C "$repo" rev-parse HEAD)"
 
-Create feature.txt containing exactly `complete`.
-EOF
+{
+	printf '# Feature\n\n'
+	printf 'Create feature.txt containing exactly `complete`.\n\n'
+	printf 'Repository baseline inspected: `%s`.\n' "$historical_commit"
+} > "$TEST_DIR/specification.md"
 
 cat > "$TEST_DIR/development-policy.txt" <<'EOF'
 Development mode: prototype / feature-first.
@@ -105,6 +117,116 @@ jq -cn --argjson input "$input" --argjson cached "$cached" \
 EOF
 chmod +x "$TEST_DIR/fake-codex"
 
+mkdir -p "$TEST_DIR/fake-bin"
+cat > "$TEST_DIR/fake-bin/strace" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+output=""
+while (( $# > 0 )); do
+	case "$1" in
+		-ff|-ttt|-T|-yy)
+			shift
+			;;
+		-s|-e|-o)
+			[[ "$1" != -o ]] || output="$2"
+			shift 2
+			;;
+		*)
+			break
+			;;
+	esac
+done
+printf '%s\n' "$*" >> "$FAKE_CODEX_STATE/strace-invocations.log"
+[[ -z "$output" ]] || printf 'fake trace\n' > "$output.fake"
+exec "$@"
+EOF
+chmod +x "$TEST_DIR/fake-bin/strace"
+
+cat > "$TEST_DIR/slow-codex" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+output=""
+while (( $# > 0 )); do
+	case "$1" in
+		--output-last-message)
+			output="$2"
+			shift 2
+			;;
+		--model|--sandbox|--cd|--add-dir|-c|--config)
+			shift 2
+			;;
+		resume)
+			shift 2
+			;;
+		-)
+			shift
+			break
+			;;
+		*)
+			shift
+			;;
+	esac
+done
+cat >/dev/null
+jq -cn '{type:"thread.started",thread_id:"slow-thread"}'
+sleep 2
+printf 'slow turn completed\n' > "$output"
+jq -cn '{type:"turn.completed",usage:{input_tokens:1,cached_input_tokens:0,cache_write_input_tokens:0,output_tokens:1}}'
+EOF
+chmod +x "$TEST_DIR/slow-codex"
+
+cat > "$TEST_DIR/protected-state-codex" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+output=""
+while (( $# > 0 )); do
+	case "$1" in
+		--output-last-message) output="$2"; shift 2 ;;
+		--model|--sandbox|--cd|--add-dir|-c|--config) shift 2 ;;
+		resume) shift 2 ;;
+		-) shift; break ;;
+		*) shift ;;
+	esac
+done
+cat >/dev/null
+rm -f -- "$PROTECTED_TEST_SOURCE"
+printf 'corrupted immutable input\n' > \
+	"$PROTECTED_TEST_STATE/inputs/specification.txt"
+printf 'corrupted worker goal\n' > \
+	"$PROTECTED_TEST_STATE/control/worker-goal.md"
+printf 'staged worker edit\n' > "$FAKE_REPOSITORY/pre-existing.txt"
+git -C "$FAKE_REPOSITORY" add pre-existing.txt
+printf 'attempted protected mutation\n' > "$output"
+jq -cn '{type:"thread.started",thread_id:"protected-state-thread"}'
+jq -cn '{type:"turn.completed",usage:{input_tokens:1,cached_input_tokens:0,cache_write_input_tokens:0,output_tokens:1}}'
+EOF
+chmod +x "$TEST_DIR/protected-state-codex"
+
+cat > "$TEST_DIR/head-moving-codex" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+output=""
+while (( $# > 0 )); do
+	case "$1" in
+		--output-last-message) output="$2"; shift 2 ;;
+		--model|--sandbox|--cd|--add-dir|-c|--config) shift 2 ;;
+		resume) shift 2 ;;
+		-) shift; break ;;
+		*) shift ;;
+	esac
+done
+cat >/dev/null
+printf 'unauthorized commit\n' > "$FAKE_REPOSITORY/committed-by-agent.txt"
+git -C "$FAKE_REPOSITORY" add committed-by-agent.txt
+git -C "$FAKE_REPOSITORY" commit -q -m 'unauthorized worker commit'
+printf 'attempted HEAD movement\n' > "$output"
+jq -cn '{type:"thread.started",thread_id:"head-moving-thread"}'
+jq -cn '{type:"turn.completed",usage:{input_tokens:1,cached_input_tokens:0,cache_write_input_tokens:0,output_tokens:1}}'
+EOF
+chmod +x "$TEST_DIR/head-moving-codex"
+
 cat > "$TEST_DIR/project.env" <<EOF
 export PROJECT="light-smoke"
 export REPOSITORY="$repo"
@@ -120,6 +242,7 @@ export MANAGER_MODEL="gpt-5.6-terra"
 export MANAGER_REASONING_EFFORT="high"
 export WORKER_MODEL="gpt-5.6-luna"
 export WORKER_REASONING_EFFORT="high"
+export HARNESS_MANAGER_REVIEW_CHECKLIST="c-strict"
 export HARNESS_PROVIDER_RETRY_SECONDS="1"
 export HARNESS_QUOTA_RETRY_SECONDS="1"
 export FAKE_CODEX_STATE="$fake_state"
@@ -127,8 +250,54 @@ export FAKE_REPOSITORY="$repo"
 EOF
 chmod 600 "$TEST_DIR/project.env"
 
+grep -v '^export HARNESS_MANAGER_REVIEW_CHECKLIST=' \
+	"$TEST_DIR/project.env" > "$TEST_DIR/default-project.env"
+chmod 600 "$TEST_DIR/default-project.env"
+default_check="$("$ROOT/bin/harness-check-env" "$TEST_DIR/default-project.env")"
+grep -q 'Manager first-review checklist: none' <<< "$default_check"
+
+sed 's/HARNESS_MANAGER_REVIEW_CHECKLIST="c-strict"/HARNESS_MANAGER_REVIEW_CHECKLIST="unsupported"/' \
+	"$TEST_DIR/project.env" > "$TEST_DIR/invalid-project.env"
+chmod 600 "$TEST_DIR/invalid-project.env"
+if "$ROOT/bin/harness-check-env" "$TEST_DIR/invalid-project.env" \
+	>"$TEST_DIR/invalid-check.out" 2>"$TEST_DIR/invalid-check.err"; then
+	printf 'unsupported manager review checklist was accepted\n' >&2
+	exit 1
+fi
+grep -q 'invalid HARNESS_MANAGER_REVIEW_CHECKLIST: unsupported' \
+	"$TEST_DIR/invalid-check.err"
+
+cp "$TEST_DIR/project.env" "$TEST_DIR/invalid-diagnostics.env"
+printf 'export HARNESS_CODEX_STRACE="2"\n' >> "$TEST_DIR/invalid-diagnostics.env"
+chmod 600 "$TEST_DIR/invalid-diagnostics.env"
+if "$ROOT/bin/harness-check-env" "$TEST_DIR/invalid-diagnostics.env" \
+	>"$TEST_DIR/invalid-diagnostics.out" 2>"$TEST_DIR/invalid-diagnostics.err"; then
+	printf 'invalid Codex strace setting was accepted\n' >&2
+	exit 1
+fi
+grep -q 'HARNESS_CODEX_STRACE must be 0 or 1' \
+	"$TEST_DIR/invalid-diagnostics.err"
+
+sed 's/PROJECT="light-smoke"/PROJECT="dirty-init"/' \
+	"$TEST_DIR/project.env" > "$TEST_DIR/dirty-project.env"
+chmod 600 "$TEST_DIR/dirty-project.env"
+printf 'operator-owned untracked file\n' > "$repo/untracked-at-init.txt"
+if "$ROOT/bin/harness-init" "$TEST_DIR/dirty-project.env" \
+	>"$TEST_DIR/dirty-init.out" 2>"$TEST_DIR/dirty-init.err"; then
+	printf 'dirty repository was initialized without --force\n' >&2
+	exit 1
+fi
+grep -q 'repository has uncommitted or untracked files' \
+	"$TEST_DIR/dirty-init.err"
+"$ROOT/bin/harness-init" --force "$TEST_DIR/dirty-project.env" >/dev/null
+grep -qx "repository_launch_commit=$launch_commit" \
+	"$state_root/projects/dirty-init/project.conf"
+rm -f "$repo/untracked-at-init.txt"
+
 "$ROOT/bin/harness-check-env" "$TEST_DIR/project.env" >/dev/null
 "$ROOT/bin/harness-init" "$TEST_DIR/project.env" >/dev/null
+grep -qx "repository_launch_commit=$launch_commit" \
+	"$state_root/projects/light-smoke/project.conf"
 "$ROOT/bin/harness-start" "$TEST_DIR/project.env" >/dev/null
 
 project="$state_root/projects/light-smoke"
@@ -156,13 +325,132 @@ grep -q '^DECISION: REVISE$' "$project/addenda/addendum-001.md"
 grep -q '^DECISION: ACCEPT$' "$project/control/final-acceptance.md"
 grep -q '^worker fresh$' "$fake_state/invocations.log"
 grep -q '^worker resume worker-thread$' "$fake_state/invocations.log"
+grep -q '^manager_review_checklist=c-strict$' "$project/project.conf"
+grep -q '^# Operator-selected first-review checklist$' \
+	"$project/prompts/manager-review-001.md"
+grep -q '^## Strict C verification profile$' \
+	"$project/prompts/manager-review-001.md"
+if grep -q '^## Strict C verification profile$' \
+	"$project/prompts/manager-review-002.md"; then
+	printf 'strict C checklist repeated after the first review\n' >&2
+	exit 1
+fi
+grep -q 'MANAGER_REVIEW_CHECKLIST_ATTACHED cycle=1 profile=c-strict' \
+	"$project/logs/events.log"
+for prompt in "$project/prompts/manager-goal.md" \
+	"$project/prompts/worker-001.md" \
+	"$project/prompts/manager-review-001.md" \
+	"$project/prompts/worker-002.md"; do
+	grep -Fq "Canonical repository baseline for this turn: \`$launch_commit\`" \
+		"$prompt"
+	grep -Fq 'Commit hashes mentioned inside the specification are historical inspection provenance' \
+		"$prompt"
+done
+test -f "$repo/pre-existing.txt"
 
 status_output="$("$ROOT/bin/harness-status" "$TEST_DIR/project.env")"
+grep -q 'Manager first-review checklist: c-strict' <<< "$status_output"
+grep -q "Repository launch commit: $launch_commit" <<< "$status_output"
+grep -q "Canonical repository baseline: $launch_commit" <<< "$status_output"
 grep -q 'Worker tokens: input=2500 cached=2000 output=250' <<< "$status_output"
 grep -q 'Manager tokens: input=300 cached=240 output=60' <<< "$status_output"
 if find "$project" -iname '*oracle*' -print -quit | grep -q .; then
 	printf 'unexpected Oracle state exists\n' >&2
 	exit 1
 fi
+
+cp "$TEST_DIR/project.env" "$TEST_DIR/trace-project.env"
+{
+	printf 'export PATH="%s:$PATH"\n' "$TEST_DIR/fake-bin"
+	printf 'export HARNESS_CODEX_RUST_LOG="codex_core=debug"\n'
+	printf 'export HARNESS_CODEX_STRACE="1"\n'
+} >> "$TEST_DIR/trace-project.env"
+chmod 600 "$TEST_DIR/trace-project.env"
+"$ROOT/bin/codex-exec-jsonl" "$TEST_DIR/trace-project.env" manager_goal \
+	"$project/prompts/manager-goal.md" \
+	"$project/logs/trace-test.jsonl" \
+	"$project/logs/trace-test.stderr.log" \
+	"$project/outputs/trace-test.md"
+grep -q '^env CODEX_HOME=.* RUST_LOG=codex_core=debug .*fake-codex exec ' \
+	"$fake_state/strace-invocations.log"
+grep -qx 'fake trace' "$project/logs/trace-test.diagnostics/strace.fake"
+grep -q '^strace_prefix=.*/trace-test.diagnostics/strace$' \
+	"$project/logs/trace-test.classification"
+
+cp "$TEST_DIR/project.env" "$TEST_DIR/stall-project.env"
+{
+	printf 'export MANAGER_CODEX_BIN="%s"\n' "$TEST_DIR/slow-codex"
+	printf 'export HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS="1"\n'
+} >> "$TEST_DIR/stall-project.env"
+chmod 600 "$TEST_DIR/stall-project.env"
+"$ROOT/bin/codex-exec-jsonl" "$TEST_DIR/stall-project.env" manager_goal \
+	"$project/prompts/manager-goal.md" \
+	"$project/logs/stall-test.jsonl" \
+	"$project/logs/stall-test.stderr.log" \
+	"$project/outputs/stall-test.md" &
+slow_executor=$!
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+	[[ -s "$project/logs/stall-test.jsonl" ]] && break
+	sleep 0.1
+done
+diagnose_output="$("$ROOT/bin/harness-diagnose" \
+	"$TEST_DIR/stall-project.env" test-manual)"
+wait "$slow_executor"
+grep -q '^Captured Codex diagnostics: ' <<< "$diagnose_output"
+manual_snapshot="$(find "$project/logs/stall-test.diagnostics" \
+	-mindepth 1 -maxdepth 1 -type d -name '*-test-manual' -print -quit)"
+[[ -n "$manual_snapshot" ]]
+grep -qx 'reason=test-manual' "$manual_snapshot/metadata.env"
+snapshot="$(find "$project/logs/stall-test.diagnostics" -mindepth 1 -maxdepth 1 \
+	-type d -name '*-stall' -print -quit)"
+[[ -n "$snapshot" ]]
+grep -qx 'reason=stall' "$snapshot/metadata.env"
+grep -q 'slow-codex' "$snapshot/process-tree.txt"
+grep -q 'CODEX_DIAGNOSTICS_CAPTURED role=manager_goal reason=stall' \
+	"$project/logs/events.log"
+
+cp "$TEST_DIR/project.env" "$TEST_DIR/protected-state-project.env"
+{
+	printf 'export MANAGER_CODEX_BIN="%s"\n' "$TEST_DIR/protected-state-codex"
+	printf 'export PROTECTED_TEST_SOURCE="%s"\n' "$TEST_DIR/specification.md"
+	printf 'export PROTECTED_TEST_STATE="%s"\n' "$project"
+} >> "$TEST_DIR/protected-state-project.env"
+chmod 600 "$TEST_DIR/protected-state-project.env"
+worker_goal_sha="$(sha256sum "$project/control/worker-goal.md" | awk '{print $1}')"
+if "$ROOT/bin/codex-exec-jsonl" "$TEST_DIR/protected-state-project.env" \
+	manager_goal "$project/prompts/manager-goal.md" \
+	"$project/logs/protected-state-test.jsonl" \
+	"$project/logs/protected-state-test.stderr.log" \
+	"$project/outputs/protected-state-test.md"; then
+	printf 'protected content mutation was accepted\n' >&2
+	exit 1
+fi
+grep -qx 'classification=protected_content_modified' \
+	"$project/logs/protected-state-test.classification"
+cmp -s "$TEST_DIR/specification.md" "$project/inputs/specification.txt"
+test "$(sha256sum "$project/control/worker-goal.md" | awk '{print $1}')" = \
+	"$worker_goal_sha"
+git -C "$repo" diff --cached --quiet
+grep -q 'PROTECTED_CONTENT_RESTORED role=manager_goal state=1 source=1' \
+	"$project/logs/events.log"
+grep -q 'GIT_INDEX_RESTORED role=manager_goal' "$project/logs/events.log"
+git -C "$repo" restore --worktree -- pre-existing.txt
+
+cp "$TEST_DIR/project.env" "$TEST_DIR/head-moving-project.env"
+printf 'export MANAGER_CODEX_BIN="%s"\n' "$TEST_DIR/head-moving-codex" >> \
+	"$TEST_DIR/head-moving-project.env"
+chmod 600 "$TEST_DIR/head-moving-project.env"
+head_before="$(git -C "$repo" rev-parse HEAD)"
+if "$ROOT/bin/codex-exec-jsonl" "$TEST_DIR/head-moving-project.env" \
+	manager_goal "$project/prompts/manager-goal.md" \
+	"$project/logs/head-moving-test.jsonl" \
+	"$project/logs/head-moving-test.stderr.log" \
+	"$project/outputs/head-moving-test.md"; then
+	printf 'Codex-created commit was accepted\n' >&2
+	exit 1
+fi
+grep -qx 'classification=repository_head_changed' \
+	"$project/logs/head-moving-test.classification"
+test "$(git -C "$repo" rev-parse HEAD)" != "$head_before"
 
 printf 'PASS light harness persistent-worker smoke\n'

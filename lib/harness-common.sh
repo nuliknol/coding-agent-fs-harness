@@ -67,8 +67,11 @@ load_harness_env()
 	unset WORKER_MODEL WORKER_REASONING_EFFORT WORKER_SANDBOX WORKER_CODEX_BIN WORKER_CODEX_HOME
 	unset MANAGER_CODEX_EXTRA_ARGS WORKER_CODEX_EXTRA_ARGS CODEX_EXTRA_ARGS CODEX_BIN CODEX_HOME
 	unset HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS HARNESS_MAX_MANAGER_REVIEWS
+	unset HARNESS_MANAGER_REVIEW_CHECKLIST
 	unset HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS
 	unset HARNESS_CODEX_KILL_GRACE_SECONDS
+	unset HARNESS_CODEX_RUST_LOG HARNESS_CODEX_STRACE
+	unset HARNESS_CODEX_STRACE_STRING_BYTES HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS
 
 	# The environment file is trusted Bash configuration.
 	# shellcheck disable=SC1090
@@ -120,9 +123,14 @@ load_harness_env()
 	HARNESS_PROVIDER_RETRY_SECONDS="${HARNESS_PROVIDER_RETRY_SECONDS:-60}"
 	HARNESS_QUOTA_RETRY_SECONDS="${HARNESS_QUOTA_RETRY_SECONDS:-300}"
 	HARNESS_MAX_MANAGER_REVIEWS="${HARNESS_MAX_MANAGER_REVIEWS:-0}"
+	HARNESS_MANAGER_REVIEW_CHECKLIST="${HARNESS_MANAGER_REVIEW_CHECKLIST:-none}"
 	HARNESS_CODEX_WALL_TIMEOUT_SECONDS="${HARNESS_CODEX_WALL_TIMEOUT_SECONDS:-0}"
 	HARNESS_CODEX_IDLE_TIMEOUT_SECONDS="${HARNESS_CODEX_IDLE_TIMEOUT_SECONDS:-0}"
 	HARNESS_CODEX_KILL_GRACE_SECONDS="${HARNESS_CODEX_KILL_GRACE_SECONDS:-15}"
+	HARNESS_CODEX_RUST_LOG="${HARNESS_CODEX_RUST_LOG:-}"
+	HARNESS_CODEX_STRACE="${HARNESS_CODEX_STRACE:-0}"
+	HARNESS_CODEX_STRACE_STRING_BYTES="${HARNESS_CODEX_STRACE_STRING_BYTES:-80}"
+	HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS="${HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS:-0}"
 
 	[[ "$MANAGER_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid MANAGER_MODEL: $MANAGER_MODEL"
 	[[ "$WORKER_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid WORKER_MODEL: $WORKER_MODEL"
@@ -134,11 +142,20 @@ load_harness_env()
 		die "invalid MANAGER_SANDBOX: $MANAGER_SANDBOX"
 	[[ "$WORKER_SANDBOX" =~ ^(read-only|workspace-write|danger-full-access)$ ]] ||
 		die "invalid WORKER_SANDBOX: $WORKER_SANDBOX"
+	[[ "$HARNESS_MANAGER_REVIEW_CHECKLIST" =~ ^(none|c-strict)$ ]] ||
+		die "invalid HARNESS_MANAGER_REVIEW_CHECKLIST: $HARNESS_MANAGER_REVIEW_CHECKLIST"
 	for value in HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS \
 		HARNESS_MAX_MANAGER_REVIEWS HARNESS_CODEX_WALL_TIMEOUT_SECONDS \
-		HARNESS_CODEX_IDLE_TIMEOUT_SECONDS; do
+		HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS; do
 		[[ "${!value}" =~ ^[0-9]+$ ]] || die "$value must be a nonnegative integer"
 	done
+	[[ "$HARNESS_CODEX_STRACE" =~ ^(0|1)$ ]] ||
+		die 'HARNESS_CODEX_STRACE must be 0 or 1'
+	[[ "$HARNESS_CODEX_STRACE_STRING_BYTES" =~ ^[1-9][0-9]*$ ]] ||
+		die 'HARNESS_CODEX_STRACE_STRING_BYTES must be a positive integer'
+	[[ "$HARNESS_CODEX_RUST_LOG" != *$'\n'* &&
+		"$HARNESS_CODEX_RUST_LOG" != *$'\r'* ]] ||
+		die 'HARNESS_CODEX_RUST_LOG must be a single line'
 	[[ "$HARNESS_CODEX_KILL_GRACE_SECONDS" =~ ^[1-9][0-9]*$ ]] ||
 		die 'HARNESS_CODEX_KILL_GRACE_SECONDS must be a positive integer'
 	(( HARNESS_PROVIDER_RETRY_SECONDS > 0 )) ||
@@ -167,6 +184,34 @@ state_file()
 events_file()
 {
 	printf '%s/logs/events.log\n' "$(project_dir)"
+}
+
+project_config_value()
+{
+	local key="$1"
+	local file="$(project_dir)/project.conf"
+	[[ -f "$file" ]] || return 1
+	awk -F= -v key="$key" '$1 == key { print substr($0, length(key) + 2); exit }' "$file"
+}
+
+repository_head_commit()
+{
+	git -C "$REPOSITORY" rev-parse --verify 'HEAD^{commit}' 2>/dev/null
+}
+
+require_repository_initialization_state()
+{
+	local allow_dirty="$1"
+	local changes
+	git -C "$REPOSITORY" rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
+		die "repository is not a Git working tree: $REPOSITORY"
+	repository_head_commit >/dev/null ||
+		die "repository does not have a valid HEAD commit: $REPOSITORY"
+	changes="$(git -C "$REPOSITORY" status --porcelain=v1 --untracked-files=all)"
+	if [[ -n "$changes" && "$allow_dirty" != 1 ]]; then
+		printf '%s\n' "$changes" >&2
+		die 'repository has uncommitted or untracked files; commit/clean it or rerun harness-init with --force'
+	fi
 }
 
 state_value()
@@ -212,8 +257,10 @@ ensure_project()
 
 initialize_project()
 {
-	local dir
+	local dir baseline_commit
 	dir="$(project_dir)"
+	baseline_commit="$(repository_head_commit)" ||
+		die "repository does not have a valid HEAD commit: $REPOSITORY"
 	[[ ! -e "$dir" ]] || die "project state already exists: $dir"
 	umask 077
 	mkdir -p "$dir"/{addenda,control,inputs,logs,outputs,prompts,reviews}
@@ -222,6 +269,7 @@ initialize_project()
 	{
 		printf 'project=%s\n' "$PROJECT"
 		printf 'repository=%s\n' "$REPOSITORY"
+		printf 'repository_launch_commit=%s\n' "$baseline_commit"
 		printf 'environment=%s\n' "$HARNESS_ENV_FILE"
 		printf 'source_specification=%s\n' "$SPECIFICATION"
 		printf 'source_development_policy=%s\n' "$DEVELOPMENT_POLICY"
@@ -229,6 +277,11 @@ initialize_project()
 		printf 'development_policy_sha256=%s\n' "$(sha256sum "$DEVELOPMENT_POLICY" | awk '{print $1}')"
 		printf 'manager_model=%s\n' "$MANAGER_MODEL"
 		printf 'worker_model=%s\n' "$WORKER_MODEL"
+		printf 'manager_review_checklist=%s\n' "$HARNESS_MANAGER_REVIEW_CHECKLIST"
+		printf 'codex_rust_log=%s\n' "$HARNESS_CODEX_RUST_LOG"
+		printf 'codex_strace=%s\n' "$HARNESS_CODEX_STRACE"
+		printf 'codex_stall_diagnostic_seconds=%s\n' \
+			"$HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS"
 	} > "$dir/project.conf"
 	chmod 600 "$dir/project.conf"
 	: > "$dir/logs/events.log"
@@ -303,10 +356,14 @@ require_runtime()
 require_dependencies()
 {
 	local command
-	for command in flock jq realpath setsid sha256sum stat timeout; do
+	for command in cmp diff flock jq mktemp realpath setsid sha256sum stat timeout; do
 		command -v "$command" >/dev/null 2>&1 ||
 			die "required command was not found: $command"
 	done
+	if (( HARNESS_CODEX_STRACE )); then
+		command -v strace >/dev/null 2>&1 ||
+			die 'HARNESS_CODEX_STRACE=1 requires strace'
+	fi
 	require_runtime "$MANAGER_CODEX_BIN"
 	require_runtime "$WORKER_CODEX_BIN"
 }

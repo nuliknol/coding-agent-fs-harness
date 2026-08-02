@@ -84,11 +84,31 @@ invoke_with_retry()
 write_context_header()
 {
 	local prompt="$1"
+	local launch_commit current_commit lineage
+	current_commit="$(repository_head_commit)" ||
+		fail_harness "repository does not have a valid HEAD commit: $REPOSITORY"
+	launch_commit="$(project_config_value repository_launch_commit 2>/dev/null || true)"
+	[[ "$launch_commit" =~ ^[0-9a-fA-F]{40}$ ]] || launch_commit="$current_commit"
+	lineage=diverged
+	if git -C "$REPOSITORY" merge-base --is-ancestor \
+		"$launch_commit" "$current_commit" 2>/dev/null; then
+		lineage=launch-ancestor
+	fi
 	{
 		printf '\n# Harness context\n\n'
 		printf 'Project: `%s`\n\n' "$PROJECT"
 		printf 'Repository: `%s`\n\n' "$REPOSITORY"
+		printf 'Repository launch commit: `%s`\n\n' "$launch_commit"
+		printf 'Canonical repository baseline for this turn: `%s`\n\n' \
+			"$current_commit"
+		printf 'Baseline lineage: `%s`\n\n' "$lineage"
+		printf '%s\n\n' \
+			'Scope and ownership audits must compare the working tree and index against the canonical baseline above. Commit hashes mentioned inside the specification are historical inspection provenance, not the worker-change baseline.'
+		printf '%s\n\n' \
+			'Files identical to the canonical baseline are pre-existing repository content. Do not remove or revert them merely because they are outside this task scope. A tracked-file deletion is valid only when an explicit specification requirement requires that deletion.'
 		printf 'Immutable specification: `%s`\n\n' "$dir/inputs/specification.txt"
+		printf 'Protected source specification: `%s`\n\n' "$SPECIFICATION"
+		printf 'Protected harness state: `%s`\n\n' "$dir"
 		printf 'Development policy: `%s`\n\n' "$dir/inputs/development-policy.txt"
 	} >> "$prompt"
 }
@@ -171,9 +191,21 @@ prepare_review_prompt()
 {
 	local cycle="$1"
 	local prompt="$dir/prompts/manager-review-$(printf '%03d' "$cycle").md"
-	local addendum
+	local addendum checklist
 	cp "$HARNESS_HOME/prompts/manager-review.md" "$prompt"
 	write_context_header "$prompt"
+	if (( cycle == 1 )) &&
+		[[ "$HARNESS_MANAGER_REVIEW_CHECKLIST" != none ]]; then
+		checklist="$HARNESS_HOME/prompts/manager-review-checklist-$HARNESS_MANAGER_REVIEW_CHECKLIST.md"
+		[[ -f "$checklist" ]] ||
+			fail_harness "manager review checklist is unavailable: $checklist"
+		{
+			printf '\n# Operator-selected first-review checklist\n\n'
+			cat "$checklist"
+			printf '\n'
+		} >> "$prompt"
+		log_event "MANAGER_REVIEW_CHECKLIST_ATTACHED cycle=$cycle profile=$HARNESS_MANAGER_REVIEW_CHECKLIST"
+	fi
 	{
 		printf 'Manager-authored persistent goal: `%s`\n\n' "$dir/control/worker-goal.md"
 		printf 'Latest worker report: `%s`\n\n' \

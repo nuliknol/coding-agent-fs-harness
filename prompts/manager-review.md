@@ -8,6 +8,21 @@ Inspect the actual repository; do not trust the worker's summary. Run the
 build/compile check and the smallest useful smoke test when possible. Trace
 every specification requirement to working source behavior.
 
+Use the `Canonical repository baseline for this turn` supplied by the harness
+for every scope, ownership, and diff audit. A commit named in specification
+metadata as an inspected or historical baseline is design provenance, not the
+baseline for worker-authored changes. Treat files and content already present
+in the canonical baseline as pre-existing repository state. Never require
+their deletion, reversion, or replacement merely because they are outside this
+task's allowed modification paths.
+
+Evaluate the repository-wide risk of every required correction before issuing
+it. Specify the required observable end state rather than a destructive Git or
+filesystem command. A tracked file may be deleted only when an exact governing
+specification requirement requires that deletion; scope cleanup alone is not
+such a requirement. Never direct the worker to modify or remove the immutable
+specification, its configured source file, or harness state.
+
 Reject completion if any required feature is absent, stubbed, hard-coded only
 for an example, disconnected from the public path, internally inconsistent, or
 broken under its specified use. Identify architectural and design problems

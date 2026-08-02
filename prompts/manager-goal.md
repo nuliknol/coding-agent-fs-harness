@@ -20,6 +20,13 @@ The worker must be told to:
   progress report while useful repository-local work remains;
 - keep existing correct work and repair incomplete or architecturally unsound
   implementation where that is necessary for the requested features;
+- use only the harness-provided canonical repository baseline to identify
+  worker-authored changes, treating baseline commits named in specification
+  metadata as historical provenance;
+- preserve files present in the canonical baseline unless an exact
+  specification requirement explicitly requires their deletion;
+- never modify or remove the immutable specification, its configured source
+  file, or harness state;
 - follow the prototype/feature-first development policy exactly;
 - avoid production infrastructure, broad abstractions, unrelated refactors,
   and large test suites;

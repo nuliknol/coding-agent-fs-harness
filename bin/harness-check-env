@@ -18,6 +18,18 @@ printf 'Manager: %s (%s), sandbox=%s\n' \
 	"$MANAGER_MODEL" "$MANAGER_REASONING_EFFORT" "$MANAGER_SANDBOX"
 printf 'Worker: %s (%s), sandbox=%s\n' \
 	"$WORKER_MODEL" "$WORKER_REASONING_EFFORT" "$WORKER_SANDBOX"
+printf 'Manager first-review checklist: %s\n' \
+	"$HARNESS_MANAGER_REVIEW_CHECKLIST"
+printf 'Codex Rust diagnostics: %s\n' \
+	"${HARNESS_CODEX_RUST_LOG:-disabled}"
+printf 'Codex strace: %s\n' \
+	"$([[ "$HARNESS_CODEX_STRACE" == 1 ]] && printf enabled || printf disabled)"
+if (( HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS == 0 )); then
+	printf 'Codex stall snapshots: disabled\n'
+else
+	printf 'Codex stall snapshots: after %s seconds without output\n' \
+		"$HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS"
+fi
 if (( HARNESS_MAX_MANAGER_REVIEWS == 0 )); then
 	printf 'Manager review limit: unlimited\n'
 else
