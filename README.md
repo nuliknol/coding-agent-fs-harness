@@ -370,6 +370,9 @@ than accidental acceptance. Each ordinary `REVISE` finding must have exactly
 one stable `Finding-Key`. `ACCEPT` records `control/final-acceptance.md`;
 `REVISE` publishes the next addendum and resumes Luna. A convergence audit uses
 `ACCEPT`, `ACTIONABLE`, or `NEEDS_OPERATOR`; only `ACTIONABLE` resumes Luna.
+Common Markdown decoration around finding headings, labels, and key values is
+normalized before validation and repeated-key comparison; the canonical key
+itself must still use only lowercase letters, digits, `.`, `_`, and `-`.
 
 Terra is configured with `workspace-write` by default so it can execute builds
 and smoke tests. Its prompt forbids source edits: implementation belongs to

@@ -35,6 +35,10 @@ defect. Also include `Specification:`, `Evidence:`, `Required correction:`, and
 `Verification:`. Give the concrete end state; never tell the worker to obtain
 authorization.
 
+Prefer an undecorated `ADD-NNN` line and an undecorated
+`Finding-Key: lowercase-key` line. Ordinary Markdown bullets, bold, and
+backticks are tolerated, but decoration is unnecessary.
+
 Use `NEEDS_OPERATOR` only when no repository-local change can progress because
 observable specification requirements are mutually incompatible, or because
 completion strictly requires an unavailable external secret, account

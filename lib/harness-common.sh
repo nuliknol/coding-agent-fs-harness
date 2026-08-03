@@ -326,10 +326,39 @@ provider_retry_delay()
 	esac
 }
 
+manager_finding_ids()
+{
+	local file="$1"
+	awk '
+		{
+			line = $0
+			gsub(/[`*]/, "", line)
+			sub(/^[[:space:]]*/, "", line)
+			sub(/^([0-9]+[.)]|[-+]|#+)[[:space:]]+/, "", line)
+			sub(/^[[:space:]]*/, "", line)
+			if (match(line, /^ADD-[0-9][0-9][0-9]([^0-9]|$)/))
+				print substr(line, 1, 7)
+		}
+	' "$file"
+}
+
 manager_finding_keys()
 {
 	local file="$1"
-	awk -F': ' '$1 == "Finding-Key" { print $2 }' "$file"
+	awk '
+		{
+			line = $0
+			gsub(/[`*]/, "", line)
+			sub(/^[[:space:]]*/, "", line)
+			sub(/^([0-9]+[.)]|[-+]|#+)[[:space:]]+/, "", line)
+			sub(/^[[:space:]]*/, "", line)
+			if (line ~ /^Finding-Key[[:space:]]*:/) {
+				sub(/^Finding-Key[[:space:]]*:[[:space:]]*/, "", line)
+				sub(/[[:space:]]+$/, "", line)
+				print line
+			}
+		}
+	' "$file"
 }
 
 validate_manager_findings()
@@ -340,10 +369,7 @@ validate_manager_findings()
 	local -A seen=()
 	[[ "$decision" == REVISE || "$decision" == ACTIONABLE ]] || return 0
 
-	finding_count="$(awk '
-		/^ADD-[0-9][0-9][0-9]([^0-9]|$)/ { count++ }
-		END { print count + 0 }
-	' "$file")"
+	finding_count="$(manager_finding_ids "$file" | wc -l | tr -d ' ')"
 	(( finding_count > 0 )) || {
 		printf '%s requires at least one ADD-NNN finding\n' "$decision" >&2
 		return 1
@@ -380,9 +406,11 @@ repeated_manager_finding_keys()
 	while IFS= read -r key; do
 		streak=0
 		for ((review = cycle; review > last_audit_cycle; review--)); do
-			grep -Fqx "Finding-Key: $key" \
+			if ! manager_finding_keys \
 				"$review_dir/review-$(printf '%03d' "$review").md" \
-				2>/dev/null || break
+				2>/dev/null | grep -Fqx -- "$key"; then
+				break
+			fi
 			streak=$((streak + 1))
 		done
 		(( streak < threshold )) || printf '%s\n' "$key"

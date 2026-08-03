@@ -83,5 +83,9 @@ The harness detects a key repeated across consecutive reviews and may request
 a separate convergence audit. Do not evade that safeguard by renaming an
 unchanged defect.
 
+For maximum protocol portability, prefer an undecorated `ADD-NNN` line and an
+undecorated `Finding-Key: lowercase-key` line. The harness tolerates ordinary
+Markdown bullets, bold, and backticks, but decoration is unnecessary.
+
 The first line of the response must be exactly one decision line. Do not use any
 other decision value.

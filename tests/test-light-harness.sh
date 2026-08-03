@@ -80,7 +80,7 @@ if [[ "$model" == gpt-5.6-terra ]]; then
 	if [[ "$prompt" == *"fresh Terra convergence auditor"* ]]; then
 		if [[ "${FAKE_CONVERGENCE_ACTIONABLE:-0}" == 1 ]]; then
 			touch "$FAKE_CODEX_STATE/actionable-audit-ran"
-			message=$'DECISION: ACTIONABLE\n\nADD-001\nFinding-Key: direct-repository-correction\nSpecification: feature.txt must contain exactly complete.\nEvidence: repository-local work can satisfy the requirement.\nRequired correction: write the required complete value directly.\nVerification: test the resulting feature content.'
+			message=$'DECISION: ACTIONABLE\n\n1. **ADD-001**\n- **Finding-Key:** **direct-repository-correction**\nSpecification: feature.txt must contain exactly complete.\nEvidence: repository-local work can satisfy the requirement.\nRequired correction: write the required complete value directly.\nVerification: test the resulting feature content.'
 		else
 			message=$'DECISION: NEEDS_OPERATOR\n\nThe repeated requirement depends on an unavailable external operator decision.\nSpecification: the configured external decision is mandatory.\nEvidence: no repository-local change can supply it.\nOperator input: choose the external value.'
 		fi
@@ -89,12 +89,12 @@ if [[ "$model" == gpt-5.6-terra ]]; then
 	elif [[ -f "$FAKE_CODEX_STATE/actionable-audit-ran" ]]; then
 		message=$'DECISION: ACCEPT\nThe actionable convergence correction is complete.'
 	elif [[ "${FAKE_REPEAT_FINDINGS:-0}" == 1 ]]; then
-		message=$'DECISION: REVISE\n\nADD-001\nFinding-Key: external-decision-unavailable\nSpecification: feature.txt must contain exactly complete.\nEvidence: the configured external decision is still unavailable.\nRequired correction: use the external decision to complete the feature.\nVerification: verify the configured external decision.'
+		message=$'DECISION: REVISE\n\n`ADD-001` — external decision remains unavailable.\n- `Finding-Key:` `external-decision-unavailable`\n- `Specification:` feature.txt must contain exactly complete.\n- `Evidence:` the configured external decision is still unavailable.\n- `Required correction:` use the external decision to complete the feature.\n- `Verification:` verify the configured external decision.'
 	elif [[ -f "$FAKE_REPOSITORY/feature.txt" ]] &&
 		[[ "$(cat "$FAKE_REPOSITORY/feature.txt")" == complete ]]; then
 		message=$'DECISION: ACCEPT\nAll specified behavior is implemented.'
 	else
-		message=$'DECISION: REVISE\n\nADD-001\nFinding-Key: feature-content-incomplete\nSpecification: feature.txt must contain exactly complete.\nEvidence: the repository contains only a partial value.\nRequired correction: replace it with the complete value.\nVerification: test \"$(cat feature.txt)\" = complete.'
+		message=$'DECISION: REVISE\n\nADD-001\nFinding-Key: `feature-content-incomplete`\nSpecification: feature.txt must contain exactly complete.\nEvidence: the repository contains only a partial value.\nRequired correction: replace it with the complete value.\nVerification: test \"$(cat feature.txt)\" = complete.'
 	fi
 	input=100
 	cached=80
@@ -336,7 +336,7 @@ test -f "$project/reviews/review-001.md"
 test -f "$project/reviews/review-002.md"
 test -f "$project/control/final-acceptance.md"
 grep -q '^DECISION: REVISE$' "$project/addenda/addendum-001.md"
-grep -q '^Finding-Key: feature-content-incomplete$' \
+grep -q '^Finding-Key: `feature-content-incomplete`$' \
 	"$project/addenda/addendum-001.md"
 grep -q '^DECISION: ACCEPT$' "$project/control/final-acceptance.md"
 grep -q '^worker fresh$' "$fake_state/invocations.log"
