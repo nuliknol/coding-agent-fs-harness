@@ -26,7 +26,7 @@ ensure_project
 [[ -f "$prompt" ]] || die "prompt does not exist: $prompt"
 
 case "$role" in
-	manager_goal|manager_review)
+	manager_goal|manager_review|manager_convergence)
 		codex_bin="$MANAGER_CODEX_BIN"
 		codex_home="$MANAGER_CODEX_HOME"
 		model="$MANAGER_MODEL"
@@ -145,12 +145,19 @@ trap cleanup_integrity_snapshot EXIT
 
 protected_state_root="$(project_dir)"
 mkdir -p "$integrity_snapshot/state" "$integrity_snapshot/control"
+protected_controls=(state.env worker-goal.md worker.thread final-acceptance.md \
+	last-error.txt last-convergence-audit-cycle operator-required.md)
+shopt -s nullglob
+for protected_control_path in \
+	"$protected_state_root/control/"convergence-trigger-*.txt; do
+	protected_controls+=("${protected_control_path##*/}")
+done
+shopt -u nullglob
 for protected_directory in inputs addenda reviews prompts; do
 	cp -a -- "$protected_state_root/$protected_directory" \
 		"$integrity_snapshot/state/$protected_directory"
 done
-for protected_control in state.env worker-goal.md worker.thread \
-	final-acceptance.md last-error.txt; do
+for protected_control in "${protected_controls[@]}"; do
 	if [[ -e "$protected_state_root/control/$protected_control" ]]; then
 		cp -a -- "$protected_state_root/control/$protected_control" \
 			"$integrity_snapshot/control/$protected_control"
@@ -158,6 +165,8 @@ for protected_control in state.env worker-goal.md worker.thread \
 		: > "$integrity_snapshot/control/$protected_control.absent"
 	fi
 done
+cp -p -- "$protected_state_root/project.conf" \
+	"$integrity_snapshot/project.conf"
 cp -p -- "$SPECIFICATION" "$integrity_snapshot/source-specification"
 cp -p -- "$DEVELOPMENT_POLICY" "$integrity_snapshot/source-development-policy"
 
@@ -254,8 +263,7 @@ for protected_directory in inputs addenda reviews prompts; do
 			"$protected_state_root/$protected_directory"
 	fi
 done
-for protected_control in state.env worker-goal.md worker.thread \
-	final-acceptance.md last-error.txt; do
+for protected_control in "${protected_controls[@]}"; do
 	protected_control_path="$protected_state_root/control/$protected_control"
 	if [[ -f "$integrity_snapshot/control/$protected_control.absent" ]]; then
 		if [[ -e "$protected_control_path" ]]; then
@@ -269,6 +277,12 @@ for protected_control in state.env worker-goal.md worker.thread \
 			"$protected_control_path"
 	fi
 done
+if ! cmp -s -- "$integrity_snapshot/project.conf" \
+	"$protected_state_root/project.conf"; then
+	protected_state_changed=1
+	cp -p -- "$integrity_snapshot/project.conf" \
+		"$protected_state_root/project.conf"
+fi
 
 protected_source_changed=0
 if ! cmp -s -- "$integrity_snapshot/source-specification" "$SPECIFICATION"; then

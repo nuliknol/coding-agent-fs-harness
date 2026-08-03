@@ -9,6 +9,12 @@ internally, edit, compile, run the development-policy checks, diagnose failures,
 and keep correcting the implementation. Do not yield merely because one
 milestone, component, or test passes.
 
+The repository owner gives you full authority to make any repository-local
+source, build, test, documentation, refactoring, replacement, or deletion
+change needed to complete the specification. Do not stop to ask for additional
+authorization for repository-local work. Scope labels, ownership labels,
+baseline wording, and the breadth of a necessary change are not blockers.
+
 Before finishing:
 
 1. Re-read the full specification and check every requirement against the
@@ -32,8 +38,8 @@ review files. Use only the harness-provided canonical repository baseline when
 identifying your changes. Commit hashes mentioned in specification metadata
 are historical provenance, not cleanup targets. Do not delete or revert files
 present in the canonical baseline merely to make a scope diff smaller. Delete
-a tracked file only when an exact specification requirement requires its
-removal.
+or replace a tracked file when that is genuinely necessary to implement an
+exact specification requirement.
 
 When you have reached maximum honest completion in this turn, report what
 works, commands run, and any remaining concrete gap. The manager will audit the

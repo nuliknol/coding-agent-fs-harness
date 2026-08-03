@@ -29,6 +29,17 @@ printf 'Manager: %s (%s)\n' "$MANAGER_MODEL" "$MANAGER_REASONING_EFFORT"
 printf 'Worker: %s (%s)\n' "$WORKER_MODEL" "$WORKER_REASONING_EFFORT"
 printf 'Manager first-review checklist: %s\n' \
 	"$HARNESS_MANAGER_REVIEW_CHECKLIST"
+if (( HARNESS_MAX_MANAGER_REVIEWS == 0 )); then
+	printf 'Manager review limit: unlimited\n'
+else
+	printf 'Manager review limit: %s\n' "$HARNESS_MAX_MANAGER_REVIEWS"
+fi
+if (( HARNESS_MAX_REPEATED_FINDING_REVIEWS == 0 )); then
+	printf 'Repeated-finding convergence audit: disabled\n'
+else
+	printf 'Repeated-finding convergence audit: after %s consecutive reviews\n' \
+		"$HARNESS_MAX_REPEATED_FINDING_REVIEWS"
+fi
 printf 'Codex Rust diagnostics: %s\n' \
 	"${HARNESS_CODEX_RUST_LOG:-disabled}"
 printf 'Codex strace: %s\n' \
@@ -60,6 +71,9 @@ printf 'Worker tokens: input=%s cached=%s output=%s\n' \
 
 if [[ -f "$dir/control/last-error.txt" ]]; then
 	printf 'Last error: %s\n' "$(head -n 1 "$dir/control/last-error.txt")"
+fi
+if [[ -f "$dir/control/operator-required.md" ]]; then
+	printf 'Operator report: %s\n' "$dir/control/operator-required.md"
 fi
 printf 'Latest events:\n'
 tail -n 8 "$(events_file)" 2>/dev/null || true

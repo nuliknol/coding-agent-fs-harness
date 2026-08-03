@@ -106,6 +106,8 @@ write_context_header()
 			'Scope and ownership audits must compare the working tree and index against the canonical baseline above. Commit hashes mentioned inside the specification are historical inspection provenance, not the worker-change baseline.'
 		printf '%s\n\n' \
 			'Files identical to the canonical baseline are pre-existing repository content. Do not remove or revert them merely because they are outside this task scope. A tracked-file deletion is valid only when an explicit specification requirement requires that deletion.'
+		printf '%s\n\n' \
+			'The repository owner grants the worker full authority to make any repository-local source, build, test, documentation, refactoring, replacement, or deletion change needed to complete the specification. No additional authorization is required for repository-local implementation work. Only the immutable specification, its configured source file, the development-policy inputs, and harness-owned state are protected.'
 		printf 'Immutable specification: `%s`\n\n' "$dir/inputs/specification.txt"
 		printf 'Protected source specification: `%s`\n\n' "$SPECIFICATION"
 		printf 'Protected harness state: `%s`\n\n' "$dir"
@@ -141,6 +143,8 @@ prepare_worker_prompt()
 		cp "$HARNESS_HOME/prompts/worker-goal.md" "$prompt"
 		write_context_header "$prompt"
 		{
+			printf '\n# Complete immutable specification\n\n'
+			cat "$dir/inputs/specification.txt"
 			printf '\n# Manager-authored goal\n\n'
 			cat "$dir/control/worker-goal.md"
 		} >> "$prompt"
@@ -156,6 +160,100 @@ prepare_worker_prompt()
 		} >> "$prompt"
 	fi
 	printf '%s\n' "$prompt"
+}
+
+last_convergence_audit_cycle()
+{
+	local marker="$dir/control/last-convergence-audit-cycle"
+	local value=0
+	[[ ! -f "$marker" ]] || value="$(awk 'NR == 1 { print; exit }' "$marker")"
+	[[ "$value" =~ ^[0-9]+$ ]] || value=0
+	printf '%s\n' "$value"
+}
+
+prepare_convergence_prompt()
+{
+	local cycle="$1"
+	local trigger="$2"
+	local prompt="$dir/prompts/manager-convergence-$(printf '%03d' "$cycle").md"
+	local addendum audit
+	cp "$HARNESS_HOME/prompts/manager-convergence.md" "$prompt"
+	write_context_header "$prompt"
+	{
+		printf 'Manager-authored persistent goal: `%s`\n\n' "$dir/control/worker-goal.md"
+		printf 'Latest worker report: `%s`\n\n' \
+			"$dir/outputs/worker-$(printf '%03d' "$cycle").md"
+		printf 'Latest regular review: `%s`\n\n' \
+			"$dir/reviews/review-$(printf '%03d' "$cycle").md"
+		printf 'Convergence trigger keys: `%s`\n\n' "$trigger"
+		printf 'This is convergence audit cycle %s.\n\n' "$cycle"
+		printf '# Earlier addenda\n\n'
+	} >> "$prompt"
+	shopt -s nullglob
+	for addendum in "$dir/addenda/"addendum-*.md; do
+		printf -- '- `%s`\n' "$addendum" >> "$prompt"
+	done
+	shopt -u nullglob
+	{
+		printf '\n'
+		printf '# Earlier convergence audits\n\n'
+	} >> "$prompt"
+	shopt -s nullglob
+	for audit in "$dir/reviews/"convergence-audit-*.md; do
+		printf -- '- `%s`\n' "$audit" >> "$prompt"
+	done
+	shopt -u nullglob
+	printf '%s\n' "$prompt"
+}
+
+run_convergence_audit()
+{
+	local cycle="$1"
+	local trigger_file="$dir/control/convergence-trigger-$(printf '%03d' "$cycle").txt"
+	local trigger prompt output stem audit decision addendum
+	[[ -s "$trigger_file" ]] || fail_harness "missing convergence trigger: $trigger_file"
+	trigger="$(paste -sd, "$trigger_file")"
+	prompt="$(prepare_convergence_prompt "$cycle" "$trigger")"
+	stem="manager-convergence-$(printf '%03d' "$cycle")"
+	write_state ACTIVE CONVERGENCE_RUNNING "$cycle"
+	log_event "CONVERGENCE_AUDIT_STARTED cycle=$cycle keys=$trigger model=$MANAGER_MODEL effort=$MANAGER_REASONING_EFFORT"
+	output="$(invoke_with_retry manager_convergence "$prompt" "$stem")" ||
+		fail_harness "Terra convergence audit failed in cycle $cycle"
+	[[ -s "$output" ]] || fail_harness "Terra returned an empty convergence audit in cycle $cycle"
+	decision="$(sed -n '1{s/^DECISION: //;p;q;}' "$output")"
+	[[ "$decision" == ACCEPT || "$decision" == ACTIONABLE || \
+		"$decision" == NEEDS_OPERATOR ]] ||
+		fail_harness "Terra convergence audit cycle $cycle returned invalid decision '$decision'"
+	if [[ "$decision" == ACTIONABLE ]]; then
+		validate_manager_findings "$output" "$decision" ||
+			fail_harness "Terra convergence audit cycle $cycle returned invalid findings"
+	fi
+	audit="$dir/reviews/convergence-audit-$(printf '%03d' "$cycle").md"
+	cp "$output" "$audit"
+	chmod 600 "$audit"
+	printf '%s\n' "$cycle" > "$dir/control/last-convergence-audit-cycle"
+	chmod 600 "$dir/control/last-convergence-audit-cycle"
+	log_event "CONVERGENCE_AUDIT_FINISHED cycle=$cycle decision=$decision audit=$audit"
+	case "$decision" in
+		ACCEPT)
+			cp "$audit" "$dir/control/final-acceptance.md"
+			write_state COMPLETE ACCEPTED "$cycle"
+			log_event "PROJECT_COMPLETED cycle=$cycle acceptance=$dir/control/final-acceptance.md source=convergence-audit"
+			;;
+		ACTIONABLE)
+			addendum="$dir/addenda/addendum-$(printf '%03d' "$cycle").md"
+			cp "$audit" "$addendum"
+			chmod 600 "$addendum"
+			write_state ACTIVE WORKER_REQUIRED "$cycle"
+			log_event "CONVERGENCE_ADDENDUM_PUBLISHED cycle=$cycle addendum=$addendum"
+			;;
+		NEEDS_OPERATOR)
+			cp "$audit" "$dir/control/operator-required.md"
+			chmod 600 "$dir/control/operator-required.md"
+			write_state PAUSED NEEDS_OPERATOR "$cycle"
+			log_event "OPERATOR_REQUIRED cycle=$cycle report=$dir/control/operator-required.md"
+			;;
+	esac
 }
 
 run_worker()
@@ -224,7 +322,7 @@ prepare_review_prompt()
 review_worker()
 {
 	local cycle="$1"
-	local prompt output stem review decision addendum
+	local prompt output stem review decision addendum last_audit repeated trigger_file
 	prompt="$(prepare_review_prompt "$cycle")"
 	stem="manager-review-$(printf '%03d' "$cycle")"
 	write_state ACTIVE REVIEW_RUNNING "$cycle"
@@ -235,6 +333,10 @@ review_worker()
 	decision="$(sed -n '1{s/^DECISION: //;p;q;}' "$output")"
 	[[ "$decision" == ACCEPT || "$decision" == REVISE ]] ||
 		fail_harness "Terra review cycle $cycle returned invalid decision '$decision'"
+	if [[ "$decision" == REVISE ]]; then
+		validate_manager_findings "$output" "$decision" ||
+			fail_harness "Terra review cycle $cycle returned invalid findings"
+	fi
 	review="$dir/reviews/review-$(printf '%03d' "$cycle").md"
 	cp "$output" "$review"
 	chmod 600 "$review"
@@ -254,6 +356,17 @@ review_worker()
 		cycle >= HARNESS_MAX_MANAGER_REVIEWS )); then
 		write_state PAUSED REVIEW_LIMIT_REACHED "$cycle"
 		log_event "REVIEW_LIMIT_REACHED cycle=$cycle max=$HARNESS_MAX_MANAGER_REVIEWS addendum=$addendum"
+		return
+	fi
+	last_audit="$(last_convergence_audit_cycle)"
+	repeated="$(repeated_manager_finding_keys "$dir/reviews" "$cycle" \
+		"$HARNESS_MAX_REPEATED_FINDING_REVIEWS" "$last_audit")"
+	if [[ -n "$repeated" ]]; then
+		trigger_file="$dir/control/convergence-trigger-$(printf '%03d' "$cycle").txt"
+		printf '%s\n' "$repeated" > "$trigger_file"
+		chmod 600 "$trigger_file"
+		write_state ACTIVE CONVERGENCE_REQUIRED "$cycle"
+		log_event "CONVERGENCE_TRIGGERED cycle=$cycle threshold=$HARNESS_MAX_REPEATED_FINDING_REVIEWS keys=$(paste -sd, "$trigger_file")"
 		return
 	fi
 	write_state ACTIVE WORKER_REQUIRED "$cycle"
@@ -282,6 +395,9 @@ case "$phase" in
 	REVIEW_RUNNING)
 		write_state ACTIVE REVIEW_REQUIRED "$cycle"
 		;;
+	CONVERGENCE_RUNNING)
+		write_state ACTIVE CONVERGENCE_REQUIRED "$cycle"
+		;;
 esac
 
 while true; do
@@ -289,7 +405,7 @@ while true; do
 	phase="$(state_value phase)"
 	cycle="$(state_value cycle)"
 	case "$status:$phase" in
-		COMPLETE:ACCEPTED|PAUSED:REVIEW_LIMIT_REACHED)
+		COMPLETE:ACCEPTED|PAUSED:REVIEW_LIMIT_REACHED|PAUSED:NEEDS_OPERATOR)
 			break
 			;;
 		FAILED:*)
@@ -306,6 +422,9 @@ while true; do
 			;;
 		ACTIVE:REVIEW_REQUIRED)
 			review_worker "$cycle"
+			;;
+		ACTIVE:CONVERGENCE_REQUIRED)
+			run_convergence_audit "$cycle"
 			;;
 		*)
 			fail_harness "unsupported state status=$status phase=$phase cycle=$cycle"

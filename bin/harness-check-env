@@ -35,4 +35,10 @@ if (( HARNESS_MAX_MANAGER_REVIEWS == 0 )); then
 else
 	printf 'Manager review limit: %s\n' "$HARNESS_MAX_MANAGER_REVIEWS"
 fi
+if (( HARNESS_MAX_REPEATED_FINDING_REVIEWS == 0 )); then
+	printf 'Repeated-finding convergence audit: disabled\n'
+else
+	printf 'Repeated-finding convergence audit: after %s consecutive reviews\n' \
+		"$HARNESS_MAX_REPEATED_FINDING_REVIEWS"
+fi
 printf 'Configuration is valid.\n'

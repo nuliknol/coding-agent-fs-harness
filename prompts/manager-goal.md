@@ -15,6 +15,10 @@ The worker must be told to:
 - inspect the repository and plan internally, then immediately implement;
 - continue autonomously through coding, integration, build failures, debugging,
   and the allowed smoke tests;
+- exercise the repository owner's full authority to make any repository-local
+  implementation, refactoring, replacement, build, test, documentation, or
+  deletion change needed by the specification, without asking for additional
+  authorization;
 - revisit the complete specification before declaring readiness;
 - never stop after only a plan, analysis, partial scaffold, placeholder, or
   progress report while useful repository-local work remains;
@@ -23,8 +27,8 @@ The worker must be told to:
 - use only the harness-provided canonical repository baseline to identify
   worker-authored changes, treating baseline commits named in specification
   metadata as historical provenance;
-- preserve files present in the canonical baseline unless an exact
-  specification requirement explicitly requires their deletion;
+- preserve files present in the canonical baseline unless completing an exact
+  specification requirement requires their deletion or replacement;
 - never modify or remove the immutable specification, its configured source
   file, or harness state;
 - follow the prototype/feature-first development policy exactly;

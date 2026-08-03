@@ -27,5 +27,10 @@ if [[ "$status" == PAUSED && "$phase" == REVIEW_LIMIT_REACHED ]]; then
 		exit 0
 	fi
 fi
+if [[ "$status" == PAUSED && "$phase" == NEEDS_OPERATOR ]]; then
+	printf 'Project needs operator input; inspect %s\n' \
+		"$(project_dir)/control/operator-required.md"
+	exit 0
+fi
 "$HARNESS_BIN/harness-supervisor-start" "$HARNESS_ENV_FILE"
 printf 'Events: %s\n' "$(events_file)"

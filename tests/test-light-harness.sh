@@ -77,13 +77,24 @@ if [[ "$model" == gpt-5.6-terra ]]; then
 	counter=$((counter + 1))
 	printf '%s\n' "$counter" > "$counter_file"
 	thread="manager-$counter"
-	if [[ "$prompt" == *"Terra goal author"* ]]; then
+	if [[ "$prompt" == *"fresh Terra convergence auditor"* ]]; then
+		if [[ "${FAKE_CONVERGENCE_ACTIONABLE:-0}" == 1 ]]; then
+			touch "$FAKE_CODEX_STATE/actionable-audit-ran"
+			message=$'DECISION: ACTIONABLE\n\nADD-001\nFinding-Key: direct-repository-correction\nSpecification: feature.txt must contain exactly complete.\nEvidence: repository-local work can satisfy the requirement.\nRequired correction: write the required complete value directly.\nVerification: test the resulting feature content.'
+		else
+			message=$'DECISION: NEEDS_OPERATOR\n\nThe repeated requirement depends on an unavailable external operator decision.\nSpecification: the configured external decision is mandatory.\nEvidence: no repository-local change can supply it.\nOperator input: choose the external value.'
+		fi
+	elif [[ "$prompt" == *"Terra goal author"* ]]; then
 		message=$'# Persistent Worker Goal\nImplement the complete immutable specification, verify it, and continue until it works.\nGOAL_READY'
+	elif [[ -f "$FAKE_CODEX_STATE/actionable-audit-ran" ]]; then
+		message=$'DECISION: ACCEPT\nThe actionable convergence correction is complete.'
+	elif [[ "${FAKE_REPEAT_FINDINGS:-0}" == 1 ]]; then
+		message=$'DECISION: REVISE\n\nADD-001\nFinding-Key: external-decision-unavailable\nSpecification: feature.txt must contain exactly complete.\nEvidence: the configured external decision is still unavailable.\nRequired correction: use the external decision to complete the feature.\nVerification: verify the configured external decision.'
 	elif [[ -f "$FAKE_REPOSITORY/feature.txt" ]] &&
 		[[ "$(cat "$FAKE_REPOSITORY/feature.txt")" == complete ]]; then
 		message=$'DECISION: ACCEPT\nAll specified behavior is implemented.'
 	else
-		message=$'DECISION: REVISE\n\nADD-001\nSpecification: feature.txt must contain exactly complete.\nEvidence: the repository contains only a partial value.\nRequired correction: replace it with the complete value.\nVerification: test \"$(cat feature.txt)\" = complete.'
+		message=$'DECISION: REVISE\n\nADD-001\nFinding-Key: feature-content-incomplete\nSpecification: feature.txt must contain exactly complete.\nEvidence: the repository contains only a partial value.\nRequired correction: replace it with the complete value.\nVerification: test \"$(cat feature.txt)\" = complete.'
 	fi
 	input=100
 	cached=80
@@ -255,6 +266,9 @@ grep -v '^export HARNESS_MANAGER_REVIEW_CHECKLIST=' \
 chmod 600 "$TEST_DIR/default-project.env"
 default_check="$("$ROOT/bin/harness-check-env" "$TEST_DIR/default-project.env")"
 grep -q 'Manager first-review checklist: none' <<< "$default_check"
+grep -q 'Manager review limit: 50' <<< "$default_check"
+grep -q 'Repeated-finding convergence audit: after 3 consecutive reviews' \
+	<<< "$default_check"
 
 sed 's/HARNESS_MANAGER_REVIEW_CHECKLIST="c-strict"/HARNESS_MANAGER_REVIEW_CHECKLIST="unsupported"/' \
 	"$TEST_DIR/project.env" > "$TEST_DIR/invalid-project.env"
@@ -322,6 +336,8 @@ test -f "$project/reviews/review-001.md"
 test -f "$project/reviews/review-002.md"
 test -f "$project/control/final-acceptance.md"
 grep -q '^DECISION: REVISE$' "$project/addenda/addendum-001.md"
+grep -q '^Finding-Key: feature-content-incomplete$' \
+	"$project/addenda/addendum-001.md"
 grep -q '^DECISION: ACCEPT$' "$project/control/final-acceptance.md"
 grep -q '^worker fresh$' "$fake_state/invocations.log"
 grep -q '^worker resume worker-thread$' "$fake_state/invocations.log"
@@ -346,6 +362,12 @@ for prompt in "$project/prompts/manager-goal.md" \
 	grep -Fq 'Commit hashes mentioned inside the specification are historical inspection provenance' \
 		"$prompt"
 done
+grep -q '^# Complete immutable specification$' \
+	"$project/prompts/worker-001.md"
+grep -Fq 'Create feature.txt containing exactly \`complete\`.' \
+	"$project/prompts/worker-001.md"
+grep -Fq 'repository owner grants the worker full authority' \
+	"$project/prompts/worker-001.md"
 test -f "$repo/pre-existing.txt"
 
 status_output="$("$ROOT/bin/harness-status" "$TEST_DIR/project.env")"
@@ -358,6 +380,124 @@ if find "$project" -iname '*oracle*' -print -quit | grep -q .; then
 	printf 'unexpected Oracle state exists\n' >&2
 	exit 1
 fi
+
+repeat_repo="$TEST_DIR/repeat-repository"
+repeat_state="$TEST_DIR/repeat-state"
+repeat_fake_state="$TEST_DIR/repeat-fake-state"
+mkdir -p "$repeat_repo" "$repeat_fake_state"
+git -C "$repeat_repo" init -q
+git -C "$repeat_repo" config user.name 'Harness Test'
+git -C "$repeat_repo" config user.email 'harness-test@example.invalid'
+printf 'baseline\n' > "$repeat_repo/baseline.txt"
+git -C "$repeat_repo" add baseline.txt
+git -C "$repeat_repo" commit -q -m baseline
+cat > "$TEST_DIR/repeat-project.env" <<EOF
+export PROJECT="repeat-circuit"
+export REPOSITORY="$repeat_repo"
+export SPECIFICATION="$TEST_DIR/specification.md"
+export DEVELOPMENT_POLICY="$TEST_DIR/development-policy.txt"
+export HARNESS_HOME="$ROOT"
+export HARNESS_ROOT="$repeat_state"
+export MANAGER_CODEX_BIN="$TEST_DIR/fake-codex"
+export WORKER_CODEX_BIN="$TEST_DIR/fake-codex"
+export MANAGER_CODEX_HOME="$TEST_DIR/codex-home"
+export WORKER_CODEX_HOME="$TEST_DIR/codex-home"
+export HARNESS_PROVIDER_RETRY_SECONDS="1"
+export HARNESS_QUOTA_RETRY_SECONDS="1"
+export HARNESS_MAX_MANAGER_REVIEWS="50"
+export HARNESS_MAX_REPEATED_FINDING_REVIEWS="3"
+export FAKE_CODEX_STATE="$repeat_fake_state"
+export FAKE_REPOSITORY="$repeat_repo"
+export FAKE_REPEAT_FINDINGS="1"
+EOF
+chmod 600 "$TEST_DIR/repeat-project.env"
+"$ROOT/bin/harness-init" "$TEST_DIR/repeat-project.env" >/dev/null
+"$ROOT/bin/harness-start" "$TEST_DIR/repeat-project.env" >/dev/null
+repeat_project="$repeat_state/projects/repeat-circuit"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+	grep -qx 'status=PAUSED' "$repeat_project/control/state.env" 2>/dev/null && break
+	sleep 1
+done
+grep -qx 'status=PAUSED' "$repeat_project/control/state.env"
+grep -qx 'phase=NEEDS_OPERATOR' "$repeat_project/control/state.env"
+grep -qx 'cycle=3' "$repeat_project/control/state.env"
+test -f "$repeat_project/reviews/convergence-audit-003.md"
+test -f "$repeat_project/control/operator-required.md"
+grep -qx 'DECISION: NEEDS_OPERATOR' \
+	"$repeat_project/control/operator-required.md"
+grep -q 'CONVERGENCE_TRIGGERED cycle=3 threshold=3 keys=external-decision-unavailable' \
+	"$repeat_project/logs/events.log"
+grep -q 'CONVERGENCE_AUDIT_FINISHED cycle=3 decision=NEEDS_OPERATOR' \
+	"$repeat_project/logs/events.log"
+test ! -f "$repeat_project/outputs/worker-004.md"
+
+action_repo="$TEST_DIR/action-repository"
+action_state="$TEST_DIR/action-state"
+action_fake_state="$TEST_DIR/action-fake-state"
+mkdir -p "$action_repo" "$action_fake_state"
+git -C "$action_repo" init -q
+git -C "$action_repo" config user.name 'Harness Test'
+git -C "$action_repo" config user.email 'harness-test@example.invalid'
+printf 'baseline\n' > "$action_repo/baseline.txt"
+git -C "$action_repo" add baseline.txt
+git -C "$action_repo" commit -q -m baseline
+sed -e 's/PROJECT="repeat-circuit"/PROJECT="actionable-circuit"/' \
+	-e "s|REPOSITORY=\"$repeat_repo\"|REPOSITORY=\"$action_repo\"|" \
+	-e "s|HARNESS_ROOT=\"$repeat_state\"|HARNESS_ROOT=\"$action_state\"|" \
+	-e "s|FAKE_CODEX_STATE=\"$repeat_fake_state\"|FAKE_CODEX_STATE=\"$action_fake_state\"|" \
+	-e "s|FAKE_REPOSITORY=\"$repeat_repo\"|FAKE_REPOSITORY=\"$action_repo\"|" \
+	"$TEST_DIR/repeat-project.env" > "$TEST_DIR/action-project.env"
+printf 'export FAKE_CONVERGENCE_ACTIONABLE="1"\n' >> \
+	"$TEST_DIR/action-project.env"
+chmod 600 "$TEST_DIR/action-project.env"
+"$ROOT/bin/harness-init" "$TEST_DIR/action-project.env" >/dev/null
+"$ROOT/bin/harness-start" "$TEST_DIR/action-project.env" >/dev/null
+action_project="$action_state/projects/actionable-circuit"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+	grep -qx 'status=COMPLETE' "$action_project/control/state.env" 2>/dev/null && break
+	sleep 1
+done
+grep -qx 'status=COMPLETE' "$action_project/control/state.env"
+grep -qx 'phase=ACCEPTED' "$action_project/control/state.env"
+grep -qx 'cycle=4' "$action_project/control/state.env"
+grep -qx 'DECISION: ACTIONABLE' \
+	"$action_project/reviews/convergence-audit-003.md"
+grep -qx 'DECISION: ACTIONABLE' \
+	"$action_project/addenda/addendum-003.md"
+grep -q 'CONVERGENCE_ADDENDUM_PUBLISHED cycle=3' \
+	"$action_project/logs/events.log"
+grep -q '^worker resume worker-thread$' "$action_fake_state/invocations.log"
+
+cap_repo="$TEST_DIR/cap-repository"
+cap_state="$TEST_DIR/cap-state"
+cap_fake_state="$TEST_DIR/cap-fake-state"
+mkdir -p "$cap_repo" "$cap_fake_state"
+git -C "$cap_repo" init -q
+git -C "$cap_repo" config user.name 'Harness Test'
+git -C "$cap_repo" config user.email 'harness-test@example.invalid'
+printf 'baseline\n' > "$cap_repo/baseline.txt"
+git -C "$cap_repo" add baseline.txt
+git -C "$cap_repo" commit -q -m baseline
+sed -e 's/PROJECT="repeat-circuit"/PROJECT="emergency-cap"/' \
+	-e "s|REPOSITORY=\"$repeat_repo\"|REPOSITORY=\"$cap_repo\"|" \
+	-e "s|HARNESS_ROOT=\"$repeat_state\"|HARNESS_ROOT=\"$cap_state\"|" \
+	-e 's/HARNESS_MAX_MANAGER_REVIEWS="50"/HARNESS_MAX_MANAGER_REVIEWS="2"/' \
+	-e 's/HARNESS_MAX_REPEATED_FINDING_REVIEWS="3"/HARNESS_MAX_REPEATED_FINDING_REVIEWS="0"/' \
+	-e "s|FAKE_CODEX_STATE=\"$repeat_fake_state\"|FAKE_CODEX_STATE=\"$cap_fake_state\"|" \
+	-e "s|FAKE_REPOSITORY=\"$repeat_repo\"|FAKE_REPOSITORY=\"$cap_repo\"|" \
+	"$TEST_DIR/repeat-project.env" > "$TEST_DIR/cap-project.env"
+chmod 600 "$TEST_DIR/cap-project.env"
+"$ROOT/bin/harness-init" "$TEST_DIR/cap-project.env" >/dev/null
+"$ROOT/bin/harness-start" "$TEST_DIR/cap-project.env" >/dev/null
+cap_project="$cap_state/projects/emergency-cap"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+	grep -qx 'status=PAUSED' "$cap_project/control/state.env" 2>/dev/null && break
+	sleep 1
+done
+grep -qx 'phase=REVIEW_LIMIT_REACHED' "$cap_project/control/state.env"
+grep -qx 'cycle=2' "$cap_project/control/state.env"
+test ! -f "$cap_project/reviews/convergence-audit-002.md"
+grep -q 'REVIEW_LIMIT_REACHED cycle=2 max=2' "$cap_project/logs/events.log"
 
 cp "$TEST_DIR/project.env" "$TEST_DIR/trace-project.env"
 {

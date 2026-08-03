@@ -67,6 +67,7 @@ load_harness_env()
 	unset WORKER_MODEL WORKER_REASONING_EFFORT WORKER_SANDBOX WORKER_CODEX_BIN WORKER_CODEX_HOME
 	unset MANAGER_CODEX_EXTRA_ARGS WORKER_CODEX_EXTRA_ARGS CODEX_EXTRA_ARGS CODEX_BIN CODEX_HOME
 	unset HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS HARNESS_MAX_MANAGER_REVIEWS
+	unset HARNESS_MAX_REPEATED_FINDING_REVIEWS
 	unset HARNESS_MANAGER_REVIEW_CHECKLIST
 	unset HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS
 	unset HARNESS_CODEX_KILL_GRACE_SECONDS
@@ -121,8 +122,9 @@ load_harness_env()
 	WORKER_CODEX_HOME="$(resolve_from_env_dir "$WORKER_CODEX_HOME")"
 
 	HARNESS_PROVIDER_RETRY_SECONDS="${HARNESS_PROVIDER_RETRY_SECONDS:-60}"
-	HARNESS_QUOTA_RETRY_SECONDS="${HARNESS_QUOTA_RETRY_SECONDS:-300}"
-	HARNESS_MAX_MANAGER_REVIEWS="${HARNESS_MAX_MANAGER_REVIEWS:-0}"
+	HARNESS_QUOTA_RETRY_SECONDS="${HARNESS_QUOTA_RETRY_SECONDS:-600}"
+	HARNESS_MAX_MANAGER_REVIEWS="${HARNESS_MAX_MANAGER_REVIEWS:-50}"
+	HARNESS_MAX_REPEATED_FINDING_REVIEWS="${HARNESS_MAX_REPEATED_FINDING_REVIEWS:-3}"
 	HARNESS_MANAGER_REVIEW_CHECKLIST="${HARNESS_MANAGER_REVIEW_CHECKLIST:-none}"
 	HARNESS_CODEX_WALL_TIMEOUT_SECONDS="${HARNESS_CODEX_WALL_TIMEOUT_SECONDS:-0}"
 	HARNESS_CODEX_IDLE_TIMEOUT_SECONDS="${HARNESS_CODEX_IDLE_TIMEOUT_SECONDS:-0}"
@@ -145,7 +147,8 @@ load_harness_env()
 	[[ "$HARNESS_MANAGER_REVIEW_CHECKLIST" =~ ^(none|c-strict)$ ]] ||
 		die "invalid HARNESS_MANAGER_REVIEW_CHECKLIST: $HARNESS_MANAGER_REVIEW_CHECKLIST"
 	for value in HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS \
-		HARNESS_MAX_MANAGER_REVIEWS HARNESS_CODEX_WALL_TIMEOUT_SECONDS \
+		HARNESS_MAX_MANAGER_REVIEWS HARNESS_MAX_REPEATED_FINDING_REVIEWS \
+		HARNESS_CODEX_WALL_TIMEOUT_SECONDS \
 		HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS; do
 		[[ "${!value}" =~ ^[0-9]+$ ]] || die "$value must be a nonnegative integer"
 	done
@@ -278,6 +281,9 @@ initialize_project()
 		printf 'manager_model=%s\n' "$MANAGER_MODEL"
 		printf 'worker_model=%s\n' "$WORKER_MODEL"
 		printf 'manager_review_checklist=%s\n' "$HARNESS_MANAGER_REVIEW_CHECKLIST"
+		printf 'max_manager_reviews=%s\n' "$HARNESS_MAX_MANAGER_REVIEWS"
+		printf 'max_repeated_finding_reviews=%s\n' \
+			"$HARNESS_MAX_REPEATED_FINDING_REVIEWS"
 		printf 'codex_rust_log=%s\n' "$HARNESS_CODEX_RUST_LOG"
 		printf 'codex_strace=%s\n' "$HARNESS_CODEX_STRACE"
 		printf 'codex_stall_diagnostic_seconds=%s\n' \
@@ -318,6 +324,69 @@ provider_retry_delay()
 		provider_transient_error) printf '%s\n' "$HARNESS_PROVIDER_RETRY_SECONDS" ;;
 		*) return 1 ;;
 	esac
+}
+
+manager_finding_keys()
+{
+	local file="$1"
+	awk -F': ' '$1 == "Finding-Key" { print $2 }' "$file"
+}
+
+validate_manager_findings()
+{
+	local file="$1"
+	local decision="$2"
+	local finding_count key key_count=0
+	local -A seen=()
+	[[ "$decision" == REVISE || "$decision" == ACTIONABLE ]] || return 0
+
+	finding_count="$(awk '
+		/^ADD-[0-9][0-9][0-9]([^0-9]|$)/ { count++ }
+		END { print count + 0 }
+	' "$file")"
+	(( finding_count > 0 )) || {
+		printf '%s requires at least one ADD-NNN finding\n' "$decision" >&2
+		return 1
+	}
+	while IFS= read -r key; do
+		((key_count += 1))
+		[[ "$key" =~ ^[a-z0-9][a-z0-9._-]*$ && ${#key} -le 128 ]] || {
+			printf 'invalid Finding-Key: %s\n' "$key" >&2
+			return 1
+		}
+		[[ -z "${seen[$key]:-}" ]] || {
+			printf 'duplicate Finding-Key: %s\n' "$key" >&2
+			return 1
+		}
+		seen[$key]=1
+	done < <(manager_finding_keys "$file")
+	(( key_count == finding_count )) || {
+		printf '%s has %s ADD-NNN findings but %s Finding-Key lines\n' \
+			"$decision" "$finding_count" "$key_count" >&2
+		return 1
+	}
+}
+
+repeated_manager_finding_keys()
+{
+	local review_dir="$1"
+	local cycle="$2"
+	local threshold="$3"
+	local last_audit_cycle="${4:-0}"
+	local current key review streak
+	(( threshold > 0 && cycle - last_audit_cycle >= threshold )) || return 0
+	current="$review_dir/review-$(printf '%03d' "$cycle").md"
+	[[ -f "$current" ]] || return 0
+	while IFS= read -r key; do
+		streak=0
+		for ((review = cycle; review > last_audit_cycle; review--)); do
+			grep -Fqx "Finding-Key: $key" \
+				"$review_dir/review-$(printf '%03d' "$review").md" \
+				2>/dev/null || break
+			streak=$((streak + 1))
+		done
+		(( streak < threshold )) || printf '%s\n' "$key"
+	done < <(manager_finding_keys "$current")
 }
 
 usage_sum_by_thread()

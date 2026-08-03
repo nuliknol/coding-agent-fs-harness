@@ -8,6 +8,14 @@ Inspect the actual repository; do not trust the worker's summary. Run the
 build/compile check and the smallest useful smoke test when possible. Trace
 every specification requirement to working source behavior.
 
+The repository owner has granted the worker full authority to make any
+repository-local source, build, test, documentation, refactoring, replacement,
+or deletion change needed to complete the specification. Never reject work or
+instruct the worker to obtain authorization for repository-local changes.
+Scope labels, ownership labels, baseline wording, and the breadth of a required
+change are not authorization blockers. The immutable inputs and harness-owned
+state remain protected.
+
 Use the `Canonical repository baseline for this turn` supplied by the harness
 for every scope, ownership, and diff audit. A commit named in specification
 metadata as an inspected or historical baseline is design provenance, not the
@@ -57,6 +65,9 @@ Then write an exhaustive completion addendum. Use stable numbered findings
 `ADD-NNN`. Continue numbering after the highest ID in earlier addenda so an ID
 is never reused for a different defect. Every finding must contain:
 
+- `Finding-Key:` one stable lowercase identifier for the underlying defect,
+  using only letters, digits, `.`, `_`, and `-`; reuse the same key while the
+  same defect remains and never use one key for two findings;
 - `Specification:` the exact requirement or contract that is unmet;
 - `Evidence:` the concrete file, symbol, command result, or behavior proving
   the gap;
@@ -67,6 +78,10 @@ Order architectural blockers first, then functional bugs, missing integration,
 and verification gaps. Include all defects discoverable in this review so the
 worker can perform one substantial remediation run rather than returning after
 each tiny fix. Do not repeat resolved findings from earlier addenda.
+
+The harness detects a key repeated across consecutive reviews and may request
+a separate convergence audit. Do not evade that safeguard by renaming an
+unchanged defect.
 
 The first line of the response must be exactly one decision line. Do not use any
 other decision value.

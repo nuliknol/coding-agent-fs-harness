@@ -7,8 +7,10 @@ One Terra High turn writes a persistent goal for one Luna High coding thread.
 Luna works on the complete specification in a long autonomous `codex exec`
 turn. Terra then audits the complete repository. If anything is missing, Terra
 publishes one exhaustive completion addendum and the harness resumes the same
-Luna thread. The loop ends only when Terra accepts the implementation or an
-optional operator review limit is reached.
+Luna thread. Stable finding keys detect repeated, non-converging reviews and
+trigger one fresh Terra convergence audit. The loop ends when Terra accepts,
+the audit identifies a genuine operator-only blocker, or the emergency review
+cap is reached.
 
 ## Process
 
@@ -128,8 +130,10 @@ One supervisor runs the complete sequential loop. Durable phases are:
 | `GOAL_REQUIRED` | Terra must write the persistent worker goal |
 | `WORKER_REQUIRED` | Luna starts or resumes autonomous implementation |
 | `REVIEW_REQUIRED` | Terra audits the delivered repository |
+| `CONVERGENCE_REQUIRED` | A repeated finding needs one fresh Terra audit |
 | `ACCEPTED` | Terra accepted the complete specification |
 | `REVIEW_LIMIT_REACHED` | Optional operator limit paused the loop |
+| `NEEDS_OPERATOR` | The fresh audit proved an external/specification blocker |
 | `TERMINAL_FAILURE` | A non-provider process or protocol error stopped it |
 
 Provider quota and transient failures retry in place. Supervisor restart
@@ -140,6 +144,7 @@ The original specification is never rewritten. Terra remediation documents are
 append-only files named `addendum-NNN.md`. Each rejected review is copied into
 both `reviews/` and `addenda/` and contains stable `ADD-NNN` findings with:
 
+- one stable `Finding-Key` for the underlying defect;
 - the governing specification requirement;
 - concrete repository evidence;
 - the required correction;
@@ -171,9 +176,16 @@ export WORKER_MODEL="gpt-5.6-luna"
 export WORKER_REASONING_EFFORT="high"
 ```
 
-`HARNESS_MAX_MANAGER_REVIEWS=0` is the default and means unlimited review
-cycles. A positive value pauses after that many rejected Terra reviews. It does
-not claim that the project is complete.
+`HARNESS_MAX_MANAGER_REVIEWS=50` is the default emergency cap. It pauses after
+that many rejected regular Terra reviews without claiming completion. Set it
+to `0` only when you deliberately want an unlimited loop.
+
+`HARNESS_MAX_REPEATED_FINDING_REVIEWS=3` runs a fresh convergence audit when
+the same stable finding key appears in three consecutive regular reviews. Set
+it to `0` to disable detection. The audit may accept, replace the latest
+addendum with an actionable correction, or pause as `NEEDS_OPERATOR`. That last
+decision is restricted to incompatible observable requirements or a truly
+external secret, permission, service, hardware action, or human choice.
 
 ### Optional first-review verification
 
@@ -353,9 +365,11 @@ or:
 DECISION: REVISE
 ```
 
-An invalid decision is a terminal protocol failure rather than accidental
-acceptance. `ACCEPT` records `control/final-acceptance.md`; `REVISE` publishes
-the next addendum and resumes Luna.
+An invalid decision or malformed finding protocol is a terminal failure rather
+than accidental acceptance. Each ordinary `REVISE` finding must have exactly
+one stable `Finding-Key`. `ACCEPT` records `control/final-acceptance.md`;
+`REVISE` publishes the next addendum and resumes Luna. A convergence audit uses
+`ACCEPT`, `ACTIONABLE`, or `NEEDS_OPERATOR`; only `ACTIONABLE` resumes Luna.
 
 Terra is configured with `workspace-write` by default so it can execute builds
 and smoke tests. Its prompt forbids source edits: implementation belongs to
@@ -373,7 +387,8 @@ tests/test-light-harness.sh
 The test uses a fake Codex executable. It verifies Terra goal creation, a first
 Luna implementation, Terra rejection with an addendum, resumption of the same
 Luna thread, final Terra acceptance, durable state, and thread-deduplicated
-token accounting. It also verifies that the strict C checklist is disabled by
+token accounting. It also verifies repeated-finding convergence pausing, the
+emergency review cap, and that the strict C checklist is disabled by
 default, rejects unsupported profile names, is attached when selected, and is
 not repeated after the first review. Diagnostics coverage verifies validated
 trace settings, `RUST_LOG` propagation, traced command construction, manual
@@ -401,7 +416,8 @@ Start with the [benchmark introduction](benchmarks/README.md), then read the
   sandbox for build commands.
 - There is no automatic Git commit, rollback, worktree isolation, or source
   snapshotting.
-- Unlimited review cycles can consume unlimited quota if Terra and Luna do not
-  converge. Set a positive review limit when a cost ceiling matters.
+- Setting the review cap to zero permits unlimited quota consumption if Terra
+  and Luna do not converge. The default cap and repeated-finding audit are
+  safeguards, not proofs that a task will converge.
 - Existing state created by the full harness is not compatible with light
   mode. Use a distinct `HARNESS_ROOT` or `PROJECT`.
