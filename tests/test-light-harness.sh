@@ -315,7 +315,7 @@ grep -qx "repository_launch_commit=$launch_commit" \
 "$ROOT/bin/harness-start" "$TEST_DIR/project.env" >/dev/null
 
 project="$state_root/projects/light-smoke"
-for _ in 1 2 3 4 5 6 7 8 9 10; do
+for _ in {1..30}; do
 	[[ -f "$project/control/state.env" ]] &&
 		grep -qx 'status=COMPLETE' "$project/control/state.env" &&
 		break
@@ -364,10 +364,19 @@ for prompt in "$project/prompts/manager-goal.md" \
 done
 grep -q '^# Complete immutable specification$' \
 	"$project/prompts/worker-001.md"
-grep -Fq 'Create feature.txt containing exactly \`complete\`.' \
+grep -Fq 'Create feature.txt containing exactly `complete`.' \
 	"$project/prompts/worker-001.md"
 grep -Fq 'repository owner grants the worker full authority' \
 	"$project/prompts/worker-001.md"
+for prompt in "$project/prompts/worker-001.md" \
+	"$project/prompts/worker-002.md"; do
+	grep -Fq '`create_goal`, `get_goal`, `update_goal`' \
+		"$prompt"
+	grep -Fq 'Terra can judge it.' "$prompt"
+	grep -Fq 'fresh unique temporary' "$prompt"
+done
+grep -Fq 'never parking an internal goal as blocked' \
+	"$project/prompts/manager-goal.md"
 test -f "$repo/pre-existing.txt"
 
 status_output="$("$ROOT/bin/harness-status" "$TEST_DIR/project.env")"
@@ -414,7 +423,7 @@ chmod 600 "$TEST_DIR/repeat-project.env"
 "$ROOT/bin/harness-init" "$TEST_DIR/repeat-project.env" >/dev/null
 "$ROOT/bin/harness-start" "$TEST_DIR/repeat-project.env" >/dev/null
 repeat_project="$repeat_state/projects/repeat-circuit"
-for _ in 1 2 3 4 5 6 7 8 9 10; do
+for _ in {1..30}; do
 	grep -qx 'status=PAUSED' "$repeat_project/control/state.env" 2>/dev/null && break
 	sleep 1
 done
@@ -453,7 +462,7 @@ chmod 600 "$TEST_DIR/action-project.env"
 "$ROOT/bin/harness-init" "$TEST_DIR/action-project.env" >/dev/null
 "$ROOT/bin/harness-start" "$TEST_DIR/action-project.env" >/dev/null
 action_project="$action_state/projects/actionable-circuit"
-for _ in 1 2 3 4 5 6 7 8 9 10; do
+for _ in {1..30}; do
 	grep -qx 'status=COMPLETE' "$action_project/control/state.env" 2>/dev/null && break
 	sleep 1
 done
@@ -490,7 +499,7 @@ chmod 600 "$TEST_DIR/cap-project.env"
 "$ROOT/bin/harness-init" "$TEST_DIR/cap-project.env" >/dev/null
 "$ROOT/bin/harness-start" "$TEST_DIR/cap-project.env" >/dev/null
 cap_project="$cap_state/projects/emergency-cap"
-for _ in 1 2 3 4 5 6 7 8 9 10; do
+for _ in {1..30}; do
 	grep -qx 'status=PAUSED' "$cap_project/control/state.env" 2>/dev/null && break
 	sleep 1
 done

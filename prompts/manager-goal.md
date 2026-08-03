@@ -12,6 +12,9 @@ required feature and contract.
 The worker must be told to:
 
 - remain responsible for the whole specification, not one subtask;
+- treat persistent `/goal` ownership as plain-language behavior only, never
+  invoking `create_goal`, `get_goal`, `update_goal`, or another goal-management
+  tool and never parking an internal goal as blocked;
 - inspect the repository and plan internally, then immediately implement;
 - continue autonomously through coding, integration, build failures, debugging,
   and the allowed smoke tests;
@@ -35,6 +38,13 @@ The worker must be told to:
 - avoid production infrastructure, broad abstractions, unrelated refactors,
   and large test suites;
 - finish with a concise implementation and verification report.
+
+The worker must end its Codex turn normally after maximum repository-local
+progress, even when a genuine external dependency prevents final verification;
+it must report exact blocker evidence for Terra rather than wait for an
+operator. It must adapt runtime-policy-rejected commands to non-destructive
+equivalents or fresh unique temporary paths instead of repeatedly retrying the
+rejected form.
 
 The goal must describe outcomes and verification, not prescribe a long series
 of manager/worker handoffs. It must give Luna freedom to solve the project in

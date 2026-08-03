@@ -41,6 +41,12 @@ compile, debug, smoke-test, re-read the complete specification, and continue
 until no useful in-scope work remains. Every correction turn uses
 `codex exec resume` with the original Luna thread ID.
 
+“Persistent goal” is deliberately metaphorical. Worker prompts forbid the
+Codex goal-management tools: an internal blocked goal would park `codex exec`
+and prevent Terra from receiving a report. Genuine external blockers are
+reported by ending the worker turn normally so the manager/convergence path
+can judge them.
+
 Terra review turns are fresh and sparse. They do not inherit a growing manager
 conversation. Each review reads the immutable specification, development
 policy, repository, worker report, and prior addenda.

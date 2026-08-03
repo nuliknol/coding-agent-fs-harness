@@ -3,6 +3,15 @@
 Resume the same persistent project goal. The Terra manager rejected completion
 and produced the attached completion addendum.
 
+The persistent goal is a plain-language instruction only. Do not invoke
+`create_goal`, `get_goal`, `update_goal`, or any other goal-management tool.
+Never mark an internal goal blocked or wait in the goal subsystem. If a genuine
+external dependency remains after all useful repository-local corrections are
+complete, preserve fail-closed behavior, report exact evidence, and end the
+turn normally so Terra can judge it. If runtime policy rejects a command,
+adapt it to a non-destructive equivalent or a fresh unique temporary path
+instead of retrying the rejected form or stopping progress.
+
 Treat every `ADD-NNN` finding as required work, but keep the immutable original
 specification authoritative. Inspect the evidence yourself, then implement all
 valid corrections in one coherent pass. Refactor architectural or design
