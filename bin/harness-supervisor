@@ -60,7 +60,7 @@ invoke_with_retry()
 		log_event "TURN_STARTED role=$role stem=$stem attempt=$attempt"
 		set +e
 		"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" "$role" \
-			"$prompt" "$jsonl" "$stderr_log" "$output" "$@"
+			"$prompt" "$jsonl" "$stderr_log" "$output" "$@" 8>&-
 		status=$?
 		set -e
 		classification="$(codex_classification "$jsonl")"

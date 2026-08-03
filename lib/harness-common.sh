@@ -491,6 +491,87 @@ supervisor_pid()
 	awk 'NR == 1 { print; exit }' "$file"
 }
 
+supervisor_unit_name()
+{
+	local digest
+	digest="$(printf '%s' "$(project_dir)" | sha256sum | awk '{ print $1 }')"
+	printf 'coding-harness-light-%s-%s.service\n' "$PROJECT" "${digest:0:16}"
+}
+
+supervisor_unit_file()
+{
+	printf '%s/control/supervisor.unit\n' "$(project_dir)"
+}
+
+process_token_file()
+{
+	printf '%s/control/process-token\n' "$(project_dir)"
+}
+
+harness_process_token()
+{
+	local file token
+	file="$(process_token_file)"
+	[[ -f "$file" ]] || return 1
+	token="$(awk 'NR == 1 { print; exit }' "$file")"
+	[[ "$token" =~ ^[0-9a-f]{64}$ ]] || return 1
+	printf '%s\n' "$token"
+}
+
+systemd_user_available()
+{
+	command -v systemctl >/dev/null 2>&1 &&
+		command -v systemd-run >/dev/null 2>&1 &&
+		systemctl --user show-environment >/dev/null 2>&1
+}
+
+tagged_process_pids()
+{
+	local token="$1"
+	local process_dir pid
+	[[ "$token" =~ ^[0-9a-f]{64}$ ]] || return 1
+	for process_dir in /proc/[1-9]*; do
+		[[ -r "$process_dir/environ" ]] || continue
+		pid="${process_dir##*/}"
+		if grep -zFqx -- "HARNESS_PROCESS_TOKEN=$token" \
+			"$process_dir/environ" 2>/dev/null; then
+			printf '%s\n' "$pid"
+		fi
+	done
+}
+
+project_environment_process_pids()
+{
+	local process_dir pid
+	for process_dir in /proc/[1-9]*; do
+		[[ -r "$process_dir/environ" ]] || continue
+		pid="${process_dir##*/}"
+		[[ "$pid" != "$$" ]] || continue
+		if grep -zFqx -- "PROJECT=$PROJECT" "$process_dir/environ" 2>/dev/null &&
+			grep -zFqx -- "REPOSITORY=$REPOSITORY" "$process_dir/environ" 2>/dev/null; then
+			printf '%s\n' "$pid"
+		fi
+	done
+}
+
+lock_holder_pids()
+{
+	local lock="$1"
+	local process_dir fd target pid
+	for process_dir in /proc/[1-9]*; do
+		[[ -d "$process_dir/fd" ]] || continue
+		pid="${process_dir##*/}"
+		for fd in "$process_dir/fd"/*; do
+			[[ -L "$fd" ]] || continue
+			target="$(readlink "$fd" 2>/dev/null || true)"
+			if [[ "$target" == "$lock" ]]; then
+				printf '%s\n' "$pid"
+				break
+			fi
+		done
+	done
+}
+
 supervisor_running()
 {
 	local pid command_line

@@ -22,6 +22,14 @@ if supervisor_running; then
 else
 	printf 'Supervisor: stopped\n'
 fi
+if [[ -f "$(supervisor_unit_file)" ]]; then
+	printf 'Process containment: systemd user cgroup (%s)\n' \
+		"$(awk 'NR == 1 { print; exit }' "$(supervisor_unit_file)")"
+elif [[ -f "$(process_token_file)" ]]; then
+	printf 'Process containment: tagged process group fallback\n'
+else
+	printf 'Process containment: legacy/unstarted\n'
+fi
 printf 'Status: %s\n' "$(state_value status)"
 printf 'Phase: %s\n' "$(state_value phase)"
 printf 'Worker/review cycle: %s\n' "$(state_value cycle)"

@@ -353,6 +353,29 @@ bin/harness-stop ~/configs/my-project-light.env
 bin/harness-start ~/configs/my-project-light.env
 ```
 
+### Supervisor process containment
+
+When a user systemd manager is available, `harness-start` places each
+supervisor and every process it launches in a dedicated transient service and
+cgroup with `KillMode=control-group`. On systems without a usable user systemd
+manager, the harness falls back to a private per-launch process token plus a
+separate process group. The token is inherited across forks, execs, `strace`,
+and detached build processes, so those processes remain attributable to the
+correct harness even if they reparent themselves.
+
+`harness-stop` does not report success merely because the supervisor PID has
+exited. It stops the cgroup when present, terminates any remaining token-tagged
+or lock-holding processes, verifies that none remain, and verifies that the
+supervisor lock is acquirable. An immediate subsequent `harness-start` is
+therefore a real clean restart. The supervisor also closes its lock descriptor
+before launching Codex, preventing Codex, `strace`, and build descendants from
+keeping the lock alive independently.
+
+Diagnostic snapshots include every process carrying the launch token, not
+only children still connected to the supervisor's current process tree. Stop
+remains an explicit operator action: stall diagnostics never silently restart
+or terminate a turn.
+
 State is stored under:
 
 ```text

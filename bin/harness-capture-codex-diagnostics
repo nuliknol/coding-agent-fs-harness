@@ -41,6 +41,12 @@ mkdir -p "$snapshot/processes"
 declare -a queue=("$root_pid")
 declare -a pids=()
 declare -A seen=()
+process_token="${HARNESS_PROCESS_TOKEN:-}"
+if [[ "$process_token" =~ ^[0-9a-f]{64}$ ]]; then
+	mapfile -t containment_pids < <(tagged_process_pids "$process_token" | sort -nu)
+	queue+=("${containment_pids[@]}")
+	printf '%s\n' "${containment_pids[@]}" > "$snapshot/containment-members.txt"
+fi
 while (( ${#queue[@]} > 0 )); do
 	pid="${queue[0]}"
 	queue=("${queue[@]:1}")
@@ -63,6 +69,10 @@ done
 	printf 'stderr=%s\n' "$stderr_log"
 	printf 'codex_home=%s\n' "$codex_home"
 	printf 'process_count=%s\n' "${#pids[@]}"
+	printf 'containment=%s\n' \
+		"$([[ "$process_token" =~ ^[0-9a-f]{64}$ ]] && printf process-token || printf descendant-tree)"
+	printf 'cgroup=%s\n' \
+		"$(awk -F: '$1 == "0" { print $3; exit }' "/proc/$root_pid/cgroup" 2>/dev/null || true)"
 	printf 'kernel=%s\n' "$(uname -srmo)"
 	printf 'uptime=%s\n' "$(uptime 2>/dev/null || true)"
 } > "$snapshot/metadata.env"
@@ -83,7 +93,8 @@ compiler_process_count=0
 for pid in "${pids[@]}"; do
 	process_dir="$snapshot/processes/$pid"
 	mkdir -p "$process_dir"
-	tr '\0' ' ' < "/proc/$pid/cmdline" > "$process_dir/cmdline.txt" 2>/dev/null || true
+	tr '\0' ' ' 2>/dev/null < "/proc/$pid/cmdline" \
+		> "$process_dir/cmdline.txt" || true
 	printf '\n' >> "$process_dir/cmdline.txt"
 	cp "/proc/$pid/stat" "$process_dir/stat.txt" 2>/dev/null || true
 	cp "/proc/$pid/io" "$process_dir/io.txt" 2>/dev/null || true

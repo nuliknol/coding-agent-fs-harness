@@ -3,7 +3,16 @@ set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEST_DIR="$(mktemp -d)"
-trap 'rm -rf "$TEST_DIR"' EXIT
+CONTAINMENT_ENV_FILE=""
+cleanup_test()
+{
+	if [[ -n "$CONTAINMENT_ENV_FILE" && -f "$CONTAINMENT_ENV_FILE" ]]; then
+		"$ROOT/bin/harness-stop" "$CONTAINMENT_ENV_FILE" \
+			>/dev/null 2>&1 || true
+	fi
+	rm -rf "$TEST_DIR"
+}
+trap cleanup_test EXIT
 
 repo="$TEST_DIR/repository"
 state_root="$TEST_DIR/state"
@@ -188,6 +197,35 @@ printf 'slow turn completed\n' > "$output"
 jq -cn '{type:"turn.completed",usage:{input_tokens:1,cached_input_tokens:0,cache_write_input_tokens:0,output_tokens:1}}'
 EOF
 chmod +x "$TEST_DIR/slow-codex"
+
+cat > "$TEST_DIR/detached-codex" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+while (( $# > 0 )); do
+	case "$1" in
+		--output-last-message|--model|--sandbox|--cd|--add-dir|-c|--config)
+			shift 2
+			;;
+		resume)
+			shift 2
+			;;
+		-)
+			shift
+			break
+			;;
+		*)
+			shift
+			;;
+	esac
+done
+cat >/dev/null
+setsid sleep 300 >/dev/null 2>&1 &
+printf '%s\n' "$!" > "$DETACHED_PID_FILE"
+jq -cn '{type:"thread.started",thread_id:"detached-thread"}'
+sleep 300
+EOF
+chmod +x "$TEST_DIR/detached-codex"
 
 cat > "$TEST_DIR/protected-state-codex" <<'EOF'
 #!/usr/bin/env bash
@@ -618,6 +656,83 @@ grep -q 'PROTECTED_CONTENT_RESTORED role=manager_goal state=1 source=1' \
 	"$project/logs/events.log"
 grep -q 'GIT_INDEX_RESTORED role=manager_goal' "$project/logs/events.log"
 git -C "$repo" restore --worktree -- pre-existing.txt
+
+containment_repo="$TEST_DIR/containment-repository"
+containment_state="$TEST_DIR/containment-state"
+containment_pid_file="$TEST_DIR/detached.pid"
+mkdir -p "$containment_repo"
+git -C "$containment_repo" init -q
+git -C "$containment_repo" config user.name 'Harness Test'
+git -C "$containment_repo" config user.email 'harness-test@example.invalid'
+printf 'baseline\n' > "$containment_repo/baseline.txt"
+git -C "$containment_repo" add baseline.txt
+git -C "$containment_repo" commit -q -m baseline
+CONTAINMENT_ENV_FILE="$TEST_DIR/containment-project.env"
+cat > "$CONTAINMENT_ENV_FILE" <<EOF
+export PROJECT="containment-test"
+export REPOSITORY="$containment_repo"
+export SPECIFICATION="$TEST_DIR/specification.md"
+export DEVELOPMENT_POLICY="$TEST_DIR/development-policy.txt"
+export HARNESS_HOME="$ROOT"
+export HARNESS_ROOT="$containment_state"
+export MANAGER_CODEX_BIN="$TEST_DIR/detached-codex"
+export WORKER_CODEX_BIN="$TEST_DIR/detached-codex"
+export MANAGER_CODEX_HOME="$TEST_DIR/codex-home"
+export WORKER_CODEX_HOME="$TEST_DIR/codex-home"
+export HARNESS_CODEX_KILL_GRACE_SECONDS="2"
+export HARNESS_PROVIDER_RETRY_SECONDS="1"
+export HARNESS_QUOTA_RETRY_SECONDS="1"
+export DETACHED_PID_FILE="$containment_pid_file"
+EOF
+chmod 600 "$CONTAINMENT_ENV_FILE"
+"$ROOT/bin/harness-init" "$CONTAINMENT_ENV_FILE" >/dev/null
+"$ROOT/bin/harness-start" "$CONTAINMENT_ENV_FILE" >/dev/null
+containment_project="$containment_state/projects/containment-test"
+for _ in {1..50}; do
+	[[ -s "$containment_pid_file" ]] && break
+	sleep 0.1
+done
+test -s "$containment_pid_file"
+detached_pid="$(cat "$containment_pid_file")"
+kill -0 "$detached_pid"
+test -s "$containment_project/control/process-token"
+if command -v systemctl >/dev/null 2>&1 &&
+	command -v systemd-run >/dev/null 2>&1 &&
+	systemctl --user show-environment >/dev/null 2>&1; then
+	test -s "$containment_project/control/supervisor.unit"
+fi
+containment_status="$("$ROOT/bin/harness-status" "$CONTAINMENT_ENV_FILE")"
+grep -q '^Process containment: ' <<< "$containment_status"
+if flock -n "$containment_project/control/supervisor.lock" true; then
+	printf 'active supervisor lock was unexpectedly acquirable\n' >&2
+	exit 1
+fi
+"$ROOT/bin/harness-stop" "$CONTAINMENT_ENV_FILE" >/dev/null
+if kill -0 "$detached_pid" 2>/dev/null; then
+	printf 'detached Codex child survived harness-stop\n' >&2
+	exit 1
+fi
+test ! -e "$containment_project/control/supervisor.pid"
+test ! -e "$containment_project/control/process-token"
+test ! -e "$containment_project/control/supervisor.unit"
+flock -n "$containment_project/control/supervisor.lock" true
+
+rm -f "$containment_pid_file"
+"$ROOT/bin/harness-start" "$CONTAINMENT_ENV_FILE" >/dev/null
+for _ in {1..50}; do
+	[[ -s "$containment_pid_file" ]] && break
+	sleep 0.1
+done
+test -s "$containment_pid_file"
+restarted_detached_pid="$(cat "$containment_pid_file")"
+kill -0 "$restarted_detached_pid"
+test "$restarted_detached_pid" != "$detached_pid"
+"$ROOT/bin/harness-stop" "$CONTAINMENT_ENV_FILE" >/dev/null
+if kill -0 "$restarted_detached_pid" 2>/dev/null; then
+	printf 'restarted detached child survived harness-stop\n' >&2
+	exit 1
+fi
+CONTAINMENT_ENV_FILE=""
 
 cp "$TEST_DIR/project.env" "$TEST_DIR/head-moving-project.env"
 printf 'export MANAGER_CODEX_BIN="%s"\n' "$TEST_DIR/head-moving-codex" >> \

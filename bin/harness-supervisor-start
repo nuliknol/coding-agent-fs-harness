@@ -12,10 +12,45 @@ if supervisor_running; then
 	exit 0
 fi
 
+umask 077
+dir="$(project_dir)"
+lock="$dir/control/supervisor.lock"
+unit="$(supervisor_unit_name)"
+if ! flock -n "$lock" true; then
+	die "supervisor lock is retained by a residual process; run harness-stop first: $lock"
+fi
+if systemd_user_available && systemctl --user is-active --quiet "$unit"; then
+	die "supervisor containment unit is still active; run harness-stop first: $unit"
+fi
+
+token="$(printf '%s\n%s\n%s\n%s\n' "$PROJECT" "$dir" \
+	"$(timestamp_utc)" "$$" | sha256sum | awk '{ print $1 }')"
+printf '%s\n' "$token" > "$(process_token_file)"
+chmod 600 "$(process_token_file)"
+
 log="$(project_dir)/logs/supervisor.log"
-nohup setsid "$HARNESS_BIN/harness-supervisor" "$HARNESS_ENV_FILE" \
-	</dev/null >> "$log" 2>&1 &
-launcher_pid=$!
+if systemd_user_available; then
+	printf '%s\n' "$unit" > "$(supervisor_unit_file)"
+	chmod 600 "$(supervisor_unit_file)"
+	systemctl --user reset-failed "$unit" >/dev/null 2>&1 || true
+	if ! systemd-run --user --quiet --collect --unit="$unit" \
+		--service-type=exec \
+		--property=KillMode=control-group \
+		--property="TimeoutStopSec=${HARNESS_CODEX_KILL_GRACE_SECONDS}s" \
+		--property=SendSIGKILL=yes \
+		--property=StandardInput=null \
+		--property="StandardOutput=append:$log" \
+		--property="StandardError=append:$log" \
+		--setenv="HARNESS_PROCESS_TOKEN=$token" \
+		"$HARNESS_BIN/harness-supervisor" "$HARNESS_ENV_FILE"; then
+		rm -f "$(process_token_file)" "$(supervisor_unit_file)"
+		die "failed to create supervisor containment unit: $unit"
+	fi
+else
+	nohup env "HARNESS_PROCESS_TOKEN=$token" setsid \
+		"$HARNESS_BIN/harness-supervisor" "$HARNESS_ENV_FILE" \
+		</dev/null >> "$log" 2>&1 &
+fi
 for _ in 1 2 3 4 5; do
 	sleep 1
 	if supervisor_running; then
@@ -28,7 +63,6 @@ for _ in 1 2 3 4 5; do
 		printf 'Supervisor log: %s\n' "$log"
 		exit 0
 	fi
-	kill -0 "$launcher_pid" 2>/dev/null || break
 done
 printf 'Supervisor did not remain running; inspect %s\n' "$log" >&2
 exit 1
