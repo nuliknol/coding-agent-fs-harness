@@ -66,6 +66,9 @@ cmd+=(
 	--cd "$REPOSITORY"
 	--add-dir "$(project_dir)"
 	"${extra_args[@]}"
+	# This harness uses a plain-language persistent goal.  The real Codex goal
+	# subsystem can park a non-interactive exec turn and is never required here.
+	--disable goals
 	-c 'approval_policy="never"'
 	-c "model_reasoning_effort=\"$effort\""
 	--output-last-message "$last_message"
@@ -80,6 +83,7 @@ fi
 cmd+=(-)
 
 diagnostic_root="${jsonl%.jsonl}.diagnostics"
+warning_file="${jsonl%.jsonl}.warning.env"
 trace_prefix=""
 if (( HARNESS_CODEX_STRACE )); then
 	require_runtime strace
@@ -103,6 +107,11 @@ capture_diagnostics()
 		"$HARNESS_ENV_FILE" "$role" "$child_pid" "$jsonl" \
 		"$stderr_log" "$reason" 2>> "$capture_errors")"; then
 		log_event "CODEX_DIAGNOSTICS_CAPTURED role=$role reason=$reason root_pid=$child_pid path=$snapshot"
+		if [[ -f "$warning_file" ]]; then
+			warning_classification="$(awk -F= '$1 == "classification" { print substr($0, length($1) + 2); exit }' "$warning_file")"
+			warning_severity="$(awk -F= '$1 == "severity" { print substr($0, length($1) + 2); exit }' "$warning_file")"
+			log_event "CODEX_WARNING role=$role classification=$warning_classification severity=$warning_severity snapshot=$snapshot"
+		fi
 	else
 		log_event "CODEX_DIAGNOSTICS_FAILED role=$role reason=$reason root_pid=$child_pid errors=$capture_errors"
 	fi
@@ -201,6 +210,7 @@ fi
 child_pid=$!
 idle_timeout=0
 stall_diagnostic_captured=0
+last_stall_diagnostic_at=0
 last_activity="$(date '+%s')"
 while kill -0 "$child_pid" 2>/dev/null; do
 	sleep 1
@@ -214,13 +224,18 @@ while kill -0 "$child_pid" 2>/dev/null; do
 		if (( mtime > last_activity )); then
 			last_activity="$mtime"
 			stall_diagnostic_captured=0
+			last_stall_diagnostic_at=0
+			rm -f -- "$warning_file"
 		fi
 	done
 	if (( HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS > 0 &&
 		now - last_activity >= HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS &&
-		! stall_diagnostic_captured )); then
+		( ! stall_diagnostic_captured ||
+		  ( HARNESS_CODEX_STALL_DIAGNOSTIC_REPEAT_SECONDS > 0 &&
+		    now - last_stall_diagnostic_at >= HARNESS_CODEX_STALL_DIAGNOSTIC_REPEAT_SECONDS ) ) )); then
 		capture_diagnostics stall
 		stall_diagnostic_captured=1
+		last_stall_diagnostic_at="$now"
 	fi
 	if (( HARNESS_CODEX_IDLE_TIMEOUT_SECONDS > 0 &&
 		now - last_activity >= HARNESS_CODEX_IDLE_TIMEOUT_SECONDS )); then
@@ -369,5 +384,9 @@ classification_file="${jsonl%.jsonl}.classification"
 	printf 'strace_prefix=%s\n' "$trace_prefix"
 } > "$classification_file"
 chmod 600 "$classification_file"
+
+if [[ "$classification" == success ]]; then
+	rm -f -- "$warning_file"
+fi
 
 [[ "$classification" == success ]] || exit 1

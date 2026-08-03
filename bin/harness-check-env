@@ -20,6 +20,9 @@ printf 'Worker: %s (%s), sandbox=%s\n' \
 	"$WORKER_MODEL" "$WORKER_REASONING_EFFORT" "$WORKER_SANDBOX"
 printf 'Manager first-review checklist: %s\n' \
 	"$HARNESS_MANAGER_REVIEW_CHECKLIST"
+printf 'Codex goal tools: disabled by harness\n'
+printf 'Codex diagnostic profile: %s\n' \
+	"$([[ "$HARNESS_CODEX_DIAGNOSTIC_PROFILE" == 1 ]] && printf enabled || printf disabled)"
 printf 'Codex Rust diagnostics: %s\n' \
 	"${HARNESS_CODEX_RUST_LOG:-disabled}"
 printf 'Codex strace: %s\n' \
@@ -27,8 +30,14 @@ printf 'Codex strace: %s\n' \
 if (( HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS == 0 )); then
 	printf 'Codex stall snapshots: disabled\n'
 else
-	printf 'Codex stall snapshots: after %s seconds without output\n' \
+	printf 'Codex stall snapshots: after %s seconds without output' \
 		"$HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS"
+	if (( HARNESS_CODEX_STALL_DIAGNOSTIC_REPEAT_SECONDS > 0 )); then
+		printf ', repeated every %s seconds\n' \
+			"$HARNESS_CODEX_STALL_DIAGNOSTIC_REPEAT_SECONDS"
+	else
+		printf ', one snapshot per quiet interval\n'
+	fi
 fi
 if (( HARNESS_MAX_MANAGER_REVIEWS == 0 )); then
 	printf 'Manager review limit: unlimited\n'

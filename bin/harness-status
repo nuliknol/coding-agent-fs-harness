@@ -29,6 +29,7 @@ printf 'Manager: %s (%s)\n' "$MANAGER_MODEL" "$MANAGER_REASONING_EFFORT"
 printf 'Worker: %s (%s)\n' "$WORKER_MODEL" "$WORKER_REASONING_EFFORT"
 printf 'Manager first-review checklist: %s\n' \
 	"$HARNESS_MANAGER_REVIEW_CHECKLIST"
+printf 'Codex goal tools: disabled by harness\n'
 if (( HARNESS_MAX_MANAGER_REVIEWS == 0 )); then
 	printf 'Manager review limit: unlimited\n'
 else
@@ -40,6 +41,8 @@ else
 	printf 'Repeated-finding convergence audit: after %s consecutive reviews\n' \
 		"$HARNESS_MAX_REPEATED_FINDING_REVIEWS"
 fi
+printf 'Codex diagnostic profile: %s\n' \
+	"$([[ "$HARNESS_CODEX_DIAGNOSTIC_PROFILE" == 1 ]] && printf enabled || printf disabled)"
 printf 'Codex Rust diagnostics: %s\n' \
 	"${HARNESS_CODEX_RUST_LOG:-disabled}"
 printf 'Codex strace: %s\n' \
@@ -47,8 +50,26 @@ printf 'Codex strace: %s\n' \
 if (( HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS == 0 )); then
 	printf 'Codex stall snapshots: disabled\n'
 else
-	printf 'Codex stall snapshots: after %s seconds without output\n' \
+	printf 'Codex stall snapshots: after %s seconds without output' \
 		"$HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS"
+	if (( HARNESS_CODEX_STALL_DIAGNOSTIC_REPEAT_SECONDS > 0 )); then
+		printf ', repeated every %s seconds\n' \
+			"$HARNESS_CODEX_STALL_DIAGNOSTIC_REPEAT_SECONDS"
+	else
+		printf ', one snapshot per quiet interval\n'
+	fi
+fi
+latest_warning="$(find "$dir/logs" -maxdepth 1 -type f -name '*.warning.env' \
+	-printf '%T@\t%p\n' 2>/dev/null | sort -nr | \
+	awk -F '\t' 'NR == 1 { print substr($0, index($0, $2)); exit }')"
+if [[ -n "$latest_warning" ]]; then
+	warning_classification="$(awk -F= '$1 == "classification" { print substr($0, length($1) + 2); exit }' "$latest_warning")"
+	warning_severity="$(awk -F= '$1 == "severity" { print substr($0, length($1) + 2); exit }' "$latest_warning")"
+	warning_detail="$(awk -F= '$1 == "detail" { print substr($0, length($1) + 2); exit }' "$latest_warning")"
+	warning_snapshot="$(awk -F= '$1 == "snapshot" { print substr($0, length($1) + 2); exit }' "$latest_warning")"
+	printf 'Codex warning: %s (%s)\n' "$warning_classification" "$warning_severity"
+	printf 'Warning detail: %s\n' "$warning_detail"
+	printf 'Warning evidence: %s\n' "$warning_snapshot"
 fi
 if [[ -f "$dir/control/worker.thread" ]]; then
 	printf 'Persistent worker thread: %s\n' "$(awk 'NR == 1 { print; exit }' "$dir/control/worker.thread")"

@@ -45,7 +45,8 @@ until no useful in-scope work remains. Every correction turn uses
 Codex goal-management tools: an internal blocked goal would park `codex exec`
 and prevent Terra from receiving a report. Genuine external blockers are
 reported by ending the worker turn normally so the manager/convergence path
-can judge them.
+can judge them. Every Codex invocation also uses `--disable goals`, so the
+model-facing goal tools are absent even if a model disregards the prompt.
 
 Terra review turns are fresh and sparse. They do not inherit a growing manager
 conversation. Each review reads the immutable specification, development
@@ -235,15 +236,21 @@ provide a dedicated external acceptance gate.
 
 ### Codex stall diagnostics
 
-Diagnostics are disabled by default. Enable them temporarily on selected
-harnesses while investigating a stuck Codex turn:
+Enable the non-interrupting diagnostic profile for harnesses whose long turns
+must remain inspectable:
 
 ```bash
+export HARNESS_CODEX_DIAGNOSTIC_PROFILE="1"
 export HARNESS_CODEX_RUST_LOG="codex_core=debug"
 export HARNESS_CODEX_STRACE="1"
 export HARNESS_CODEX_STRACE_STRING_BYTES="80"
 export HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS="1800"
+export HARNESS_CODEX_STALL_DIAGNOSTIC_REPEAT_SECONDS="900"
 ```
+
+With only `HARNESS_CODEX_DIAGNOSTIC_PROFILE=1`, the remaining values above are
+the defaults. Explicit values may override them. The profile remains opt-in so
+other installations do not acquire tracing overhead unexpectedly.
 
 `HARNESS_CODEX_RUST_LOG` is passed to Codex as `RUST_LOG`; non-interactive
 Codex diagnostics therefore remain in the turn's existing stderr log.
@@ -254,14 +261,25 @@ unbounded stream of `futex` and `epoll` events. Captured strings are limited by
 `HARNESS_CODEX_STRACE_STRING_BYTES`, which defaults to 80.
 
 When a turn produces neither JSONL nor stderr output for
-`HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS`, the executor writes one evidence
-snapshot for that quiet interval. If output resumes and a later quiet interval
-crosses the threshold, it writes another. Snapshots include:
+`HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS`, the executor writes an evidence
+snapshot. While silence persists, it writes another every
+`HARNESS_CODEX_STALL_DIAGNOSTIC_REPEAT_SECONDS`; zero retains the former
+one-snapshot-per-quiet-interval behavior. Snapshots include:
 
 - the complete descendant process tree and per-thread wait/syscall state;
 - file descriptors plus TCP and Unix-domain sockets owned by the tree;
+- cumulative process CPU and I/O counters for comparison with earlier
+  snapshots;
 - bounded tails of the turn JSONL and stderr files; and
-- when found, a bounded tail of the matching Codex session transcript.
+- when found, a bounded tail plus size and modification time of the matching
+  Codex session transcript.
+
+Each snapshot receives a warning classification such as
+`goal_marked_blocked`, `repeated_runtime_policy_rejection`,
+`active_build_or_compile`, `codex_transcript_progress_observed`,
+`waiting_with_established_network`, or `no_observable_progress`.
+`harness-status` reports the latest warning for a currently quiet turn, and
+`harness-watch-agents` receives the corresponding `CODEX_WARNING` event.
 
 Artifacts are stored beside the turn log in
 `logs/<turn>.diagnostics/`, with mode 600 files under the harness's private
@@ -270,7 +288,8 @@ sensitive debugging context. Review them before sharing. Enabling tracing only
 affects new Codex invocations; restart a currently running harness if that turn
 must start under `strace`.
 
-The stall snapshot threshold does not terminate or restart Codex. Existing
+The stall snapshot threshold and repeat interval do not terminate or restart
+Codex. Existing
 wall and idle timeout behavior remains controlled separately by
 `HARNESS_CODEX_WALL_TIMEOUT_SECONDS` and
 `HARNESS_CODEX_IDLE_TIMEOUT_SECONDS`. An idle or wall timeout also captures a

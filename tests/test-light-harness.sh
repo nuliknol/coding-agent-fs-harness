@@ -38,6 +38,7 @@ cat > "$TEST_DIR/fake-codex" <<'EOF'
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+printf '%s\n' "$*" >> "$FAKE_CODEX_STATE/codex-argv.log"
 output=""
 model=""
 resume_thread=""
@@ -182,7 +183,7 @@ while (( $# > 0 )); do
 done
 cat >/dev/null
 jq -cn '{type:"thread.started",thread_id:"slow-thread"}'
-sleep 2
+sleep 4
 printf 'slow turn completed\n' > "$output"
 jq -cn '{type:"turn.completed",usage:{input_tokens:1,cached_input_tokens:0,cache_write_input_tokens:0,output_tokens:1}}'
 EOF
@@ -269,6 +270,20 @@ grep -q 'Manager first-review checklist: none' <<< "$default_check"
 grep -q 'Manager review limit: 50' <<< "$default_check"
 grep -q 'Repeated-finding convergence audit: after 3 consecutive reviews' \
 	<<< "$default_check"
+grep -q 'Codex diagnostic profile: disabled' <<< "$default_check"
+grep -q 'Codex goal tools: disabled by harness' <<< "$default_check"
+
+cp "$TEST_DIR/project.env" "$TEST_DIR/diagnostic-profile.env"
+printf 'export HARNESS_CODEX_DIAGNOSTIC_PROFILE="1"\n' >> \
+	"$TEST_DIR/diagnostic-profile.env"
+chmod 600 "$TEST_DIR/diagnostic-profile.env"
+diagnostic_check="$("$ROOT/bin/harness-check-env" \
+	"$TEST_DIR/diagnostic-profile.env")"
+grep -q 'Codex diagnostic profile: enabled' <<< "$diagnostic_check"
+grep -q 'Codex Rust diagnostics: codex_core=debug' <<< "$diagnostic_check"
+grep -q 'Codex strace: enabled' <<< "$diagnostic_check"
+grep -q 'Codex stall snapshots: after 1800 seconds without output, repeated every 900 seconds' \
+	<<< "$diagnostic_check"
 
 sed 's/HARNESS_MANAGER_REVIEW_CHECKLIST="c-strict"/HARNESS_MANAGER_REVIEW_CHECKLIST="unsupported"/' \
 	"$TEST_DIR/project.env" > "$TEST_DIR/invalid-project.env"
@@ -341,6 +356,7 @@ grep -q '^Finding-Key: `feature-content-incomplete`$' \
 grep -q '^DECISION: ACCEPT$' "$project/control/final-acceptance.md"
 grep -q '^worker fresh$' "$fake_state/invocations.log"
 grep -q '^worker resume worker-thread$' "$fake_state/invocations.log"
+grep -Fq -- '--disable goals' "$fake_state/codex-argv.log"
 grep -q '^manager_review_checklist=c-strict$' "$project/project.conf"
 grep -q '^# Operator-selected first-review checklist$' \
 	"$project/prompts/manager-review-001.md"
@@ -381,6 +397,7 @@ test -f "$repo/pre-existing.txt"
 
 status_output="$("$ROOT/bin/harness-status" "$TEST_DIR/project.env")"
 grep -q 'Manager first-review checklist: c-strict' <<< "$status_output"
+grep -q 'Codex goal tools: disabled by harness' <<< "$status_output"
 grep -q "Repository launch commit: $launch_commit" <<< "$status_output"
 grep -q "Canonical repository baseline: $launch_commit" <<< "$status_output"
 grep -q 'Worker tokens: input=2500 cached=2000 output=250' <<< "$status_output"
@@ -530,6 +547,7 @@ cp "$TEST_DIR/project.env" "$TEST_DIR/stall-project.env"
 {
 	printf 'export MANAGER_CODEX_BIN="%s"\n' "$TEST_DIR/slow-codex"
 	printf 'export HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS="1"\n'
+	printf 'export HARNESS_CODEX_STALL_DIAGNOSTIC_REPEAT_SECONDS="1"\n'
 } >> "$TEST_DIR/stall-project.env"
 chmod 600 "$TEST_DIR/stall-project.env"
 "$ROOT/bin/codex-exec-jsonl" "$TEST_DIR/stall-project.env" manager_goal \
@@ -544,18 +562,34 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
 done
 diagnose_output="$("$ROOT/bin/harness-diagnose" \
 	"$TEST_DIR/stall-project.env" test-manual)"
+stall_status="$("$ROOT/bin/harness-status" "$TEST_DIR/stall-project.env")"
+grep -q '^Codex warning: ' <<< "$stall_status"
+grep -q '^Warning evidence: ' <<< "$stall_status"
 wait "$slow_executor"
 grep -q '^Captured Codex diagnostics: ' <<< "$diagnose_output"
 manual_snapshot="$(find "$project/logs/stall-test.diagnostics" \
 	-mindepth 1 -maxdepth 1 -type d -name '*-test-manual' -print -quit)"
 [[ -n "$manual_snapshot" ]]
 grep -qx 'reason=test-manual' "$manual_snapshot/metadata.env"
-snapshot="$(find "$project/logs/stall-test.diagnostics" -mindepth 1 -maxdepth 1 \
-	-type d -name '*-stall' -print -quit)"
+mapfile -t stall_snapshots < <(find "$project/logs/stall-test.diagnostics" \
+	-mindepth 1 -maxdepth 1 -type d -name '*-stall' -print | sort)
+(( ${#stall_snapshots[@]} >= 2 ))
+snapshot="${stall_snapshots[0]}"
 [[ -n "$snapshot" ]]
 grep -qx 'reason=stall' "$snapshot/metadata.env"
 grep -q 'slow-codex' "$snapshot/process-tree.txt"
+grep -q '^classification=' "$snapshot/warning.env"
+no_progress_warning=0
+for snapshot_candidate in "${stall_snapshots[@]}"; do
+	if grep -qx 'classification=no_observable_progress' \
+		"$snapshot_candidate/warning.env"; then
+		no_progress_warning=1
+	fi
+done
+(( no_progress_warning == 1 ))
 grep -q 'CODEX_DIAGNOSTICS_CAPTURED role=manager_goal reason=stall' \
+	"$project/logs/events.log"
+grep -q 'CODEX_WARNING role=manager_goal classification=' \
 	"$project/logs/events.log"
 
 cp "$TEST_DIR/project.env" "$TEST_DIR/protected-state-project.env"
