@@ -20,6 +20,7 @@ printf 'Worker: %s (%s), sandbox=%s\n' \
 	"$WORKER_MODEL" "$WORKER_REASONING_EFFORT" "$WORKER_SANDBOX"
 printf 'Process containment: %s\n' \
 	"$(systemd_user_available && printf 'systemd user cgroup' || printf 'tagged process group fallback')"
+printf 'Environment reload: before every manager review (soft parameters only)\n'
 printf 'Manager first-review checklist: %s\n' \
 	"$HARNESS_MANAGER_REVIEW_CHECKLIST"
 printf 'Codex goal tools: disabled by harness\n'

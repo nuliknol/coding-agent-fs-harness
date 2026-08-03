@@ -30,6 +30,7 @@ elif [[ -f "$(process_token_file)" ]]; then
 else
 	printf 'Process containment: legacy/unstarted\n'
 fi
+printf 'Environment reload: before every manager review (soft parameters only)\n'
 printf 'Status: %s\n' "$(state_value status)"
 printf 'Phase: %s\n' "$(state_value phase)"
 printf 'Worker/review cycle: %s\n' "$(state_value cycle)"

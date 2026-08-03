@@ -346,6 +346,19 @@ bin/harness-status ~/configs/my-project-light.env
 bin/harness-watch-agents ~/configs/my-project-light.env
 ```
 
+The supervisor reloads the environment file immediately before every regular
+manager review and convergence audit. Changes to soft runtime controls—such as
+manager or worker model and reasoning effort, Codex executable/home/extra
+arguments, retry timing, review and convergence limits, sandbox settings,
+timeouts, and diagnostics—therefore apply without restarting the supervisor.
+The next worker turn also receives any reloaded worker settings.
+
+Project identity and ownership are hard parameters for a running supervisor:
+`PROJECT`, `REPOSITORY`, `SPECIFICATION`, `DEVELOPMENT_POLICY`, `HARNESS_HOME`,
+`HARNESS_BIN`, and `HARNESS_ROOT` must remain unchanged. A reload attempting to
+change one of them is rejected and recorded as a harness failure rather than
+redirecting the active process to different state.
+
 Stop and later restart without discarding state:
 
 ```bash

@@ -17,6 +17,15 @@ require_dependencies
 ensure_project
 
 dir="$(project_dir)"
+supervisor_env_file="$HARNESS_ENV_FILE"
+supervisor_env_dir="$HARNESS_ENV_DIR"
+supervisor_project="$PROJECT"
+supervisor_repository="$REPOSITORY"
+supervisor_specification="$SPECIFICATION"
+supervisor_development_policy="$DEVELOPMENT_POLICY"
+supervisor_harness_home="$HARNESS_HOME"
+supervisor_harness_bin="$HARNESS_BIN"
+supervisor_harness_root="$HARNESS_ROOT"
 exec 8>"$dir/control/supervisor.lock"
 flock -n 8 || die "a supervisor is already running for project: $PROJECT"
 printf '%s\n' "$$" > "$dir/control/supervisor.pid"
@@ -42,6 +51,54 @@ fail_harness()
 	log_event "HARNESS_FAILED reason=$(printf '%q' "$reason")"
 	printf 'Harness failed: %s\n' "$reason" >&2
 	exit 1
+}
+
+restore_supervisor_hard_configuration()
+{
+	export HARNESS_ENV_FILE="$supervisor_env_file"
+	export HARNESS_ENV_DIR="$supervisor_env_dir"
+	export PROJECT="$supervisor_project"
+	export REPOSITORY="$supervisor_repository"
+	export SPECIFICATION="$supervisor_specification"
+	export DEVELOPMENT_POLICY="$supervisor_development_policy"
+	export HARNESS_HOME="$supervisor_harness_home"
+	export HARNESS_BIN="$supervisor_harness_bin"
+	export HARNESS_ROOT="$supervisor_harness_root"
+}
+
+reload_review_environment()
+{
+	local role="$1"
+	local cycle="$2"
+	local validation error_line digest
+	local -a changed=()
+
+	# Validate in a separate process first. A malformed edit must not partially
+	# replace the active supervisor's settings before it is reported.
+	if ! validation="$("$supervisor_harness_bin/harness-check-env" \
+		"$supervisor_env_file" 2>&1)"; then
+		error_line="$(tail -n 1 <<< "$validation")"
+		log_event "ENV_RELOAD_REJECTED role=$role cycle=$cycle reason=validation"
+		fail_harness "environment reload failed before $role cycle $cycle: $error_line"
+	fi
+
+	load_harness_env "$supervisor_env_file"
+	[[ "$PROJECT" == "$supervisor_project" ]] || changed+=(PROJECT)
+	[[ "$REPOSITORY" == "$supervisor_repository" ]] || changed+=(REPOSITORY)
+	[[ "$SPECIFICATION" == "$supervisor_specification" ]] || changed+=(SPECIFICATION)
+	[[ "$DEVELOPMENT_POLICY" == "$supervisor_development_policy" ]] ||
+		changed+=(DEVELOPMENT_POLICY)
+	[[ "$HARNESS_HOME" == "$supervisor_harness_home" ]] || changed+=(HARNESS_HOME)
+	[[ "$HARNESS_BIN" == "$supervisor_harness_bin" ]] || changed+=(HARNESS_BIN)
+	[[ "$HARNESS_ROOT" == "$supervisor_harness_root" ]] || changed+=(HARNESS_ROOT)
+	if (( ${#changed[@]} > 0 )); then
+		restore_supervisor_hard_configuration
+		log_event "ENV_RELOAD_REJECTED role=$role cycle=$cycle reason=hard_parameters fields=$(IFS=,; printf '%s' "${changed[*]}")"
+		fail_harness "environment reload attempted to change hard parameters before $role cycle $cycle: $(IFS=,; printf '%s' "${changed[*]}")"
+	fi
+
+	digest="$(sha256sum "$supervisor_env_file" | awk '{ print $1 }')"
+	log_event "ENV_RELOADED role=$role cycle=$cycle sha256=$digest manager_model=$MANAGER_MODEL manager_effort=$MANAGER_REASONING_EFFORT worker_model=$WORKER_MODEL worker_effort=$WORKER_REASONING_EFFORT review_limit=$HARNESS_MAX_MANAGER_REVIEWS repeated_finding_reviews=$HARNESS_MAX_REPEATED_FINDING_REVIEWS"
 }
 
 invoke_with_retry()
@@ -212,6 +269,7 @@ run_convergence_audit()
 	local trigger_file="$dir/control/convergence-trigger-$(printf '%03d' "$cycle").txt"
 	local trigger prompt output stem audit decision addendum
 	[[ -s "$trigger_file" ]] || fail_harness "missing convergence trigger: $trigger_file"
+	reload_review_environment manager_convergence "$cycle"
 	trigger="$(paste -sd, "$trigger_file")"
 	prompt="$(prepare_convergence_prompt "$cycle" "$trigger")"
 	stem="manager-convergence-$(printf '%03d' "$cycle")"
@@ -323,6 +381,7 @@ review_worker()
 {
 	local cycle="$1"
 	local prompt output stem review decision addendum last_audit repeated trigger_file
+	reload_review_environment manager_review "$cycle"
 	prompt="$(prepare_review_prompt "$cycle")"
 	stem="manager-review-$(printf '%03d' "$cycle")"
 	write_state ACTIVE REVIEW_RUNNING "$cycle"

@@ -121,6 +121,17 @@ else
 	else
 		printf 'partial\n' > "$FAKE_REPOSITORY/feature.txt"
 		printf 'worker fresh\n' >> "$FAKE_CODEX_STATE/invocations.log"
+		if [[ -n "${FAKE_RELOAD_ENV_FILE:-}" &&
+			! -f "$FAKE_CODEX_STATE/environment-reload-applied" ]]; then
+			if [[ -n "${FAKE_RELOAD_HARD_PROJECT:-}" ]]; then
+				printf 'export PROJECT="%s"\n' \
+					"$FAKE_RELOAD_HARD_PROJECT" >> "$FAKE_RELOAD_ENV_FILE"
+			else
+				printf 'export MANAGER_REASONING_EFFORT="xhigh"\n' >> \
+					"$FAKE_RELOAD_ENV_FILE"
+			fi
+			touch "$FAKE_CODEX_STATE/environment-reload-applied"
+		fi
 		message='Implemented the first complete pass and reached review readiness.'
 		input=1000
 		cached=800
@@ -297,6 +308,7 @@ export HARNESS_PROVIDER_RETRY_SECONDS="1"
 export HARNESS_QUOTA_RETRY_SECONDS="1"
 export FAKE_CODEX_STATE="$fake_state"
 export FAKE_REPOSITORY="$repo"
+export FAKE_RELOAD_ENV_FILE="$TEST_DIR/project.env"
 EOF
 chmod 600 "$TEST_DIR/project.env"
 
@@ -436,14 +448,66 @@ test -f "$repo/pre-existing.txt"
 status_output="$("$ROOT/bin/harness-status" "$TEST_DIR/project.env")"
 grep -q 'Manager first-review checklist: c-strict' <<< "$status_output"
 grep -q 'Codex goal tools: disabled by harness' <<< "$status_output"
+grep -q 'Environment reload: before every manager review (soft parameters only)' \
+	<<< "$status_output"
 grep -q "Repository launch commit: $launch_commit" <<< "$status_output"
 grep -q "Canonical repository baseline: $launch_commit" <<< "$status_output"
 grep -q 'Worker tokens: input=2500 cached=2000 output=250' <<< "$status_output"
 grep -q 'Manager tokens: input=300 cached=240 output=60' <<< "$status_output"
+grep -q 'ENV_RELOADED role=manager_review cycle=1 .*manager_effort=xhigh' \
+	"$project/logs/events.log"
+grep -q 'ENV_RELOADED role=manager_review cycle=2 .*manager_effort=xhigh' \
+	"$project/logs/events.log"
 if find "$project" -iname '*oracle*' -print -quit | grep -q .; then
 	printf 'unexpected Oracle state exists\n' >&2
 	exit 1
 fi
+
+hard_reload_repo="$TEST_DIR/hard-reload-repository"
+hard_reload_state="$TEST_DIR/hard-reload-state"
+hard_reload_fake_state="$TEST_DIR/hard-reload-fake-state"
+hard_reload_env="$TEST_DIR/hard-reload-project.env"
+mkdir -p "$hard_reload_repo" "$hard_reload_fake_state"
+git -C "$hard_reload_repo" init -q
+git -C "$hard_reload_repo" config user.name 'Harness Test'
+git -C "$hard_reload_repo" config user.email 'harness-test@example.invalid'
+printf 'baseline\n' > "$hard_reload_repo/baseline.txt"
+git -C "$hard_reload_repo" add baseline.txt
+git -C "$hard_reload_repo" commit -q -m baseline
+cat > "$hard_reload_env" <<EOF
+export PROJECT="hard-reload-test"
+export REPOSITORY="$hard_reload_repo"
+export SPECIFICATION="$TEST_DIR/specification.md"
+export DEVELOPMENT_POLICY="$TEST_DIR/development-policy.txt"
+export HARNESS_HOME="$ROOT"
+export HARNESS_ROOT="$hard_reload_state"
+export MANAGER_CODEX_BIN="$TEST_DIR/fake-codex"
+export WORKER_CODEX_BIN="$TEST_DIR/fake-codex"
+export MANAGER_CODEX_HOME="$TEST_DIR/codex-home"
+export WORKER_CODEX_HOME="$TEST_DIR/codex-home"
+export HARNESS_PROVIDER_RETRY_SECONDS="1"
+export HARNESS_QUOTA_RETRY_SECONDS="1"
+export FAKE_CODEX_STATE="$hard_reload_fake_state"
+export FAKE_REPOSITORY="$hard_reload_repo"
+export FAKE_RELOAD_ENV_FILE="$hard_reload_env"
+export FAKE_RELOAD_HARD_PROJECT="redirected-project"
+EOF
+chmod 600 "$hard_reload_env"
+"$ROOT/bin/harness-init" "$hard_reload_env" >/dev/null
+"$ROOT/bin/harness-start" "$hard_reload_env" >/dev/null
+hard_reload_project="$hard_reload_state/projects/hard-reload-test"
+for _ in {1..30}; do
+	grep -qx 'status=FAILED' \
+		"$hard_reload_project/control/state.env" 2>/dev/null && break
+	sleep 1
+done
+grep -qx 'status=FAILED' "$hard_reload_project/control/state.env"
+grep -qx 'phase=TERMINAL_FAILURE' "$hard_reload_project/control/state.env"
+grep -q 'attempted to change hard parameters.*PROJECT' \
+	"$hard_reload_project/control/last-error.txt"
+grep -q 'ENV_RELOAD_REJECTED role=manager_review cycle=1 reason=hard_parameters fields=PROJECT' \
+	"$hard_reload_project/logs/events.log"
+test ! -e "$hard_reload_state/projects/redirected-project/control/state.env"
 
 repeat_repo="$TEST_DIR/repeat-repository"
 repeat_state="$TEST_DIR/repeat-state"
