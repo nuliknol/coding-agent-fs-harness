@@ -18,9 +18,16 @@ printf 'Manager: %s (%s), sandbox=%s\n' \
 	"$MANAGER_MODEL" "$MANAGER_REASONING_EFFORT" "$MANAGER_SANDBOX"
 printf 'Worker: %s (%s), sandbox=%s\n' \
 	"$WORKER_MODEL" "$WORKER_REASONING_EFFORT" "$WORKER_SANDBOX"
+if oracle_enabled; then
+	printf 'Oracle: %s (%s), sandbox=%s, maximum runs=%s\n' \
+		"$ORACLE_MODEL" "$ORACLE_REASONING_EFFORT" "$ORACLE_SANDBOX" \
+		"$MAX_ORACLE_RUNS"
+else
+	printf 'Oracle: disabled (MAX_ORACLE_RUNS=0)\n'
+fi
 printf 'Process containment: %s\n' \
 	"$(systemd_user_available && printf 'systemd user cgroup' || printf 'tagged process group fallback')"
-printf 'Environment reload: before every manager review (soft parameters only)\n'
+printf 'Environment reload: before every manager review and Oracle audit (soft parameters only)\n'
 printf 'Manager first-review checklist: %s\n' \
 	"$HARNESS_MANAGER_REVIEW_CHECKLIST"
 printf 'Codex goal tools: disabled by harness\n'

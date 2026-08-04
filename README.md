@@ -8,9 +8,11 @@ Luna works on the complete specification in a long autonomous `codex exec`
 turn. Terra then audits the complete repository. If anything is missing, Terra
 publishes one exhaustive completion addendum and the harness resumes the same
 Luna thread. Stable finding keys detect repeated, non-converging reviews and
-trigger one fresh Terra convergence audit. The loop ends when Terra accepts,
-the audit identifies a genuine operator-only blocker, or the emergency review
-cap is reached.
+trigger one fresh Terra convergence audit. Terra acceptance is provisional: a
+fresh Sol High Oracle then independently checks the complete specification,
+repository, and executable behavior. Oracle gaps return one exhaustive
+addendum to the same Luna/Terra loop. The harness completes only on Oracle
+`PASS` (unless the Oracle gate is explicitly disabled).
 
 ## Process
 
@@ -29,10 +31,12 @@ immutable specification + prototype development policy
                ACCEPT             REVISE
                   |                  |
                   v                  v
-              complete      exhaustive addendum
-                                      |
-                                      v
-                         resume the same Luna thread
+       fresh Sol High Oracle  exhaustive addendum
+             /        \               |
+          PASS       REVISE            |
+            |           |              |
+            v           +--------------+
+         complete             resume the same Luna thread
 ```
 
 The interactive `/goal` command is not used. Terra writes a plain-language goal
@@ -52,6 +56,12 @@ Terra review turns are fresh and sparse. They do not inherit a growing manager
 conversation. Each review reads the immutable specification, development
 policy, repository, worker report, and prior addenda.
 
+The Oracle runs only at the end of a provisionally accepted Luna/Terra loop.
+It is a fresh thread, does not audit manager/worker conversation as governing
+evidence, independently traces every requirement to repository evidence, and
+runs the focused build, smoke, integration, and mandatory runtime checks needed
+to prove completion.
+
 ## Why use it?
 
 Long autonomous coding runs are efficient, but a model's completion claim is
@@ -65,13 +75,16 @@ The light harness automates that acceptance loop:
 
 - **Luna owns implementation.** A lower-cost model keeps one persistent thread
   for the complete specification, preserving design context across corrections.
-- **Terra owns acceptance.** A stronger model performs sparse, fresh
-  full-repository reviews and converts concrete gaps into exhaustive addenda.
+- **Terra owns provisional acceptance.** A stronger model performs sparse,
+  fresh full-repository reviews and converts concrete gaps into exhaustive
+  addenda.
+- **Sol owns final acceptance.** A fresh, strict Oracle audit prevents a
+  provisionally accepted but incomplete implementation from being delivered.
 - **The supervisor owns coordination.** It records every goal, review,
   correction, model trace, and token total, then resumes the worker without
   requiring manual copy-and-paste handoffs.
-- **The specification remains authoritative.** The loop ends only when Terra
-  accepts the repository or an explicit operator limit pauses it.
+- **The specification remains authoritative.** The loop ends only when the
+  Oracle passes the repository or an explicit operator limit pauses it.
 
 This design concentrates the more expensive model on high-leverage review work
 while assigning most implementation work to the less expensive model. Reusing
@@ -138,8 +151,10 @@ One supervisor runs the complete sequential loop. Durable phases are:
 | `WORKER_REQUIRED` | Luna starts or resumes autonomous implementation |
 | `REVIEW_REQUIRED` | Terra audits the delivered repository |
 | `CONVERGENCE_REQUIRED` | A repeated finding needs one fresh Terra audit |
-| `ACCEPTED` | Terra accepted the complete specification |
+| `ORACLE_REQUIRED` | Terra accepted provisionally; Sol must perform the final independent audit |
+| `ORACLE_ACCEPTED` | Sol proved the complete specification |
 | `REVIEW_LIMIT_REACHED` | Optional operator limit paused the loop |
+| `ORACLE_LIMIT_REACHED` | All configured Oracle runs were used; raise the limit to continue auditing |
 | `NEEDS_OPERATOR` | The fresh audit proved an external/specification blocker |
 | `TERMINAL_FAILURE` | A non-provider process or protocol error stopped it |
 
@@ -147,9 +162,10 @@ Provider quota and transient failures retry in place. Supervisor restart
 preserves the manager goal, Luna thread ID, addenda, review history, token logs,
 and repository changes.
 
-The original specification is never rewritten. Terra remediation documents are
-append-only files named `addendum-NNN.md`. Each rejected review is copied into
-both `reviews/` and `addenda/` and contains stable `ADD-NNN` findings with:
+The original specification is never rewritten. Terra and Oracle remediation
+documents are append-only files named `addendum-NNN.md` by manager cycle. Each
+rejected review or Oracle audit is retained under `reviews/`; its remediation
+copy contains stable `ADD-NNN` findings with:
 
 - one stable `Finding-Key` for the underlying defect;
 - the governing specification requirement;
@@ -181,7 +197,19 @@ export MANAGER_MODEL="gpt-5.6-terra"
 export MANAGER_REASONING_EFFORT="high"
 export WORKER_MODEL="gpt-5.6-luna"
 export WORKER_REASONING_EFFORT="high"
+export ORACLE_MODEL="gpt-5.6-sol"
+export ORACLE_REASONING_EFFORT="high"
+export MAX_ORACLE_RUNS="3"
 ```
+
+`MAX_ORACLE_RUNS=3` is the default final-audit budget. Oracle runs only after
+Terra accepts. `PASS` completes the harness; `REVISE` publishes one exhaustive
+Oracle-sourced implementation-gaps addendum and returns to Luna, after which
+Terra reviews normally. The last permitted Oracle rejection is still delivered
+and implemented. If Terra accepts again after the budget is exhausted, the
+harness pauses at `ORACLE_LIMIT_REACHED` without claiming completion. Increase
+the value and run `harness-start` to resume directly at the Oracle gate. Set it
+to `0` before acceptance only when deliberately disabling the Oracle gate.
 
 `HARNESS_MAX_MANAGER_REVIEWS=50` is the default emergency cap. It pauses after
 that many rejected regular Terra reviews without claiming completion. Set it
@@ -347,10 +375,10 @@ bin/harness-watch-agents ~/configs/my-project-light.env
 ```
 
 The supervisor reloads the environment file immediately before every regular
-manager review and convergence audit. Changes to soft runtime controls—such as
+manager review, convergence audit, and Oracle audit. Changes to soft runtime controls—such as
 manager or worker model and reasoning effort, Codex executable/home/extra
-arguments, retry timing, review and convergence limits, sandbox settings,
-timeouts, and diagnostics—therefore apply without restarting the supervisor.
+arguments, retry timing, review, convergence, and Oracle limits, sandbox
+settings, timeouts, and diagnostics—therefore apply without restarting the supervisor.
 The next worker turn also receives any reloaded worker settings.
 
 Project identity and ownership are hard parameters for a running supervisor:
@@ -400,6 +428,7 @@ $HARNESS_ROOT/projects/$PROJECT/
 │   ├── state.env
 │   ├── worker-goal.md
 │   ├── worker.thread
+│   ├── provisional-acceptance.md
 │   └── final-acceptance.md
 ├── addenda/
 ├── reviews/
@@ -428,8 +457,8 @@ DECISION: REVISE
 
 An invalid decision or malformed finding protocol is a terminal failure rather
 than accidental acceptance. Each ordinary `REVISE` finding must have exactly
-one stable `Finding-Key`. `ACCEPT` records `control/final-acceptance.md`;
-`REVISE` publishes the next addendum and resumes Luna. A convergence audit uses
+one stable `Finding-Key`. `ACCEPT` records a provisional acceptance and queues
+the Sol Oracle; `REVISE` publishes the next addendum and resumes Luna. A convergence audit uses
 `ACCEPT`, `ACTIONABLE`, or `NEEDS_OPERATOR`; only `ACTIONABLE` resumes Luna.
 Common Markdown decoration around finding headings, labels, and key values is
 normalized before validation and repeated-key comparison; the canonical key
@@ -439,6 +468,15 @@ Terra is configured with `workspace-write` by default so it can execute builds
 and smoke tests. Its prompt forbids source edits: implementation belongs to
 Luna. Use `MANAGER_SANDBOX=read-only` only when the project's verification
 commands do not need to create build artifacts.
+
+Oracle output uses `PASS`, `REVISE`, or `NEEDS_OPERATOR`. `PASS` alone records
+the final acceptance. `REVISE` must be an exhaustive, schema-valid addendum
+tagged with its Oracle run and manager cycle. `NEEDS_OPERATOR` is restricted to
+a genuine external dependency, unavailable mandatory environment,
+contradictory specification, or decision that repository-local implementation
+cannot resolve. The Oracle is writable only so it can run realistic builds and
+tests; its prompt forbids implementation changes and the executor protects all
+harness-owned state.
 
 ## Testing the harness
 

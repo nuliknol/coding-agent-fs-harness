@@ -9,9 +9,20 @@ status="$(state_value status)"
 phase="$(state_value phase)"
 cycle="$(state_value cycle)"
 if [[ "$status" == COMPLETE ]]; then
-	printf 'Project is already complete; Terra acceptance: %s\n' \
+	printf 'Project is already complete; final acceptance: %s\n' \
 		"$(project_dir)/control/final-acceptance.md"
 	exit 0
+fi
+if [[ "$status" == PAUSED && "$phase" == ORACLE_LIMIT_REACHED ]]; then
+	completed_oracle_runs="$(oracle_audit_run_count)"
+	if (( MAX_ORACLE_RUNS > completed_oracle_runs )); then
+		write_state ACTIVE ORACLE_REQUIRED "$cycle"
+		log_event "ORACLE_LIMIT_RESUMED cycle=$cycle completed_runs=$completed_oracle_runs new_limit=$MAX_ORACLE_RUNS"
+	else
+		printf 'Project remains paused after %s Oracle runs. Increase MAX_ORACLE_RUNS above %s.\n' \
+			"$completed_oracle_runs" "$completed_oracle_runs"
+		exit 0
+	fi
 fi
 if [[ "$status" == FAILED ]]; then
 	die "project is in TERMINAL_FAILURE; inspect $(project_dir)/control/last-error.txt"

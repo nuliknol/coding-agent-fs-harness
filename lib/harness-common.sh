@@ -65,7 +65,9 @@ load_harness_env()
 	unset PROJECT REPOSITORY SPECIFICATION DEVELOPMENT_POLICY HARNESS_HOME HARNESS_ROOT HARNESS_BIN
 	unset MANAGER_MODEL MANAGER_REASONING_EFFORT MANAGER_SANDBOX MANAGER_CODEX_BIN MANAGER_CODEX_HOME
 	unset WORKER_MODEL WORKER_REASONING_EFFORT WORKER_SANDBOX WORKER_CODEX_BIN WORKER_CODEX_HOME
-	unset MANAGER_CODEX_EXTRA_ARGS WORKER_CODEX_EXTRA_ARGS CODEX_EXTRA_ARGS CODEX_BIN CODEX_HOME
+	unset ORACLE_MODEL ORACLE_REASONING_EFFORT ORACLE_SANDBOX ORACLE_CODEX_BIN ORACLE_CODEX_HOME
+	unset MANAGER_CODEX_EXTRA_ARGS WORKER_CODEX_EXTRA_ARGS ORACLE_CODEX_EXTRA_ARGS
+	unset CODEX_EXTRA_ARGS CODEX_BIN CODEX_HOME MAX_ORACLE_RUNS
 	unset HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS HARNESS_MAX_MANAGER_REVIEWS
 	unset HARNESS_MAX_REPEATED_FINDING_REVIEWS
 	unset HARNESS_MANAGER_REVIEW_CHECKLIST
@@ -113,15 +115,23 @@ load_harness_env()
 	WORKER_MODEL="${WORKER_MODEL:-gpt-5.6-luna}"
 	WORKER_REASONING_EFFORT="${WORKER_REASONING_EFFORT:-high}"
 	WORKER_SANDBOX="${WORKER_SANDBOX:-workspace-write}"
+	ORACLE_MODEL="${ORACLE_MODEL:-gpt-5.6-sol}"
+	ORACLE_REASONING_EFFORT="${ORACLE_REASONING_EFFORT:-high}"
+	ORACLE_SANDBOX="${ORACLE_SANDBOX:-$MANAGER_SANDBOX}"
+	MAX_ORACLE_RUNS="${MAX_ORACLE_RUNS:-3}"
 
 	MANAGER_CODEX_BIN="${MANAGER_CODEX_BIN:-${CODEX_BIN:-codex}}"
 	WORKER_CODEX_BIN="${WORKER_CODEX_BIN:-${CODEX_BIN:-codex}}"
+	ORACLE_CODEX_BIN="${ORACLE_CODEX_BIN:-$MANAGER_CODEX_BIN}"
 	MANAGER_CODEX_HOME="${MANAGER_CODEX_HOME:-${CODEX_HOME:-${HOME}/.codex}}"
 	WORKER_CODEX_HOME="${WORKER_CODEX_HOME:-${CODEX_HOME:-${HOME}/.codex}}"
+	ORACLE_CODEX_HOME="${ORACLE_CODEX_HOME:-$MANAGER_CODEX_HOME}"
 	MANAGER_CODEX_BIN="$(resolve_command_path "$MANAGER_CODEX_BIN")"
 	WORKER_CODEX_BIN="$(resolve_command_path "$WORKER_CODEX_BIN")"
+	ORACLE_CODEX_BIN="$(resolve_command_path "$ORACLE_CODEX_BIN")"
 	MANAGER_CODEX_HOME="$(resolve_from_env_dir "$MANAGER_CODEX_HOME")"
 	WORKER_CODEX_HOME="$(resolve_from_env_dir "$WORKER_CODEX_HOME")"
+	ORACLE_CODEX_HOME="$(resolve_from_env_dir "$ORACLE_CODEX_HOME")"
 
 	HARNESS_PROVIDER_RETRY_SECONDS="${HARNESS_PROVIDER_RETRY_SECONDS:-60}"
 	HARNESS_QUOTA_RETRY_SECONDS="${HARNESS_QUOTA_RETRY_SECONDS:-600}"
@@ -149,18 +159,23 @@ load_harness_env()
 
 	[[ "$MANAGER_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid MANAGER_MODEL: $MANAGER_MODEL"
 	[[ "$WORKER_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid WORKER_MODEL: $WORKER_MODEL"
+	[[ "$ORACLE_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid ORACLE_MODEL: $ORACLE_MODEL"
 	[[ "$MANAGER_REASONING_EFFORT" =~ ^(low|medium|high|xhigh|max|ultra)$ ]] ||
 		die "invalid MANAGER_REASONING_EFFORT: $MANAGER_REASONING_EFFORT"
 	[[ "$WORKER_REASONING_EFFORT" =~ ^(low|medium|high|xhigh|max|ultra)$ ]] ||
 		die "invalid WORKER_REASONING_EFFORT: $WORKER_REASONING_EFFORT"
+	[[ "$ORACLE_REASONING_EFFORT" =~ ^(low|medium|high|xhigh|max|ultra)$ ]] ||
+		die "invalid ORACLE_REASONING_EFFORT: $ORACLE_REASONING_EFFORT"
 	[[ "$MANAGER_SANDBOX" =~ ^(read-only|workspace-write|danger-full-access)$ ]] ||
 		die "invalid MANAGER_SANDBOX: $MANAGER_SANDBOX"
 	[[ "$WORKER_SANDBOX" =~ ^(read-only|workspace-write|danger-full-access)$ ]] ||
 		die "invalid WORKER_SANDBOX: $WORKER_SANDBOX"
+	[[ "$ORACLE_SANDBOX" =~ ^(read-only|workspace-write|danger-full-access)$ ]] ||
+		die "invalid ORACLE_SANDBOX: $ORACLE_SANDBOX"
 	[[ "$HARNESS_MANAGER_REVIEW_CHECKLIST" =~ ^(none|c-strict)$ ]] ||
 		die "invalid HARNESS_MANAGER_REVIEW_CHECKLIST: $HARNESS_MANAGER_REVIEW_CHECKLIST"
 	for value in HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS \
-		HARNESS_MAX_MANAGER_REVIEWS HARNESS_MAX_REPEATED_FINDING_REVIEWS \
+		HARNESS_MAX_MANAGER_REVIEWS HARNESS_MAX_REPEATED_FINDING_REVIEWS MAX_ORACLE_RUNS \
 		HARNESS_CODEX_WALL_TIMEOUT_SECONDS \
 		HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS \
 		HARNESS_CODEX_STALL_DIAGNOSTIC_REPEAT_SECONDS; do
@@ -180,12 +195,14 @@ load_harness_env()
 	(( HARNESS_QUOTA_RETRY_SECONDS > 0 )) ||
 		die 'HARNESS_QUOTA_RETRY_SECONDS must be positive'
 
-	local -a shared_args manager_args worker_args
+	local -a shared_args manager_args worker_args oracle_args
 	load_array_setting shared_args CODEX_EXTRA_ARGS
 	load_array_setting manager_args MANAGER_CODEX_EXTRA_ARGS
 	load_array_setting worker_args WORKER_CODEX_EXTRA_ARGS
+	load_array_setting oracle_args ORACLE_CODEX_EXTRA_ARGS
 	MANAGER_CODEX_EXTRA_ARGS=("${shared_args[@]}" "${manager_args[@]}")
 	WORKER_CODEX_EXTRA_ARGS=("${shared_args[@]}" "${worker_args[@]}")
+	ORACLE_CODEX_EXTRA_ARGS=("${shared_args[@]}" "${oracle_args[@]}")
 }
 
 project_dir()
@@ -294,6 +311,9 @@ initialize_project()
 		printf 'development_policy_sha256=%s\n' "$(sha256sum "$DEVELOPMENT_POLICY" | awk '{print $1}')"
 		printf 'manager_model=%s\n' "$MANAGER_MODEL"
 		printf 'worker_model=%s\n' "$WORKER_MODEL"
+		printf 'oracle_model=%s\n' "$ORACLE_MODEL"
+		printf 'oracle_reasoning_effort=%s\n' "$ORACLE_REASONING_EFFORT"
+		printf 'max_oracle_runs=%s\n' "$MAX_ORACLE_RUNS"
 		printf 'manager_review_checklist=%s\n' "$HARNESS_MANAGER_REVIEW_CHECKLIST"
 		printf 'max_manager_reviews=%s\n' "$HARNESS_MAX_MANAGER_REVIEWS"
 		printf 'max_repeated_finding_reviews=%s\n' \
@@ -457,6 +477,18 @@ usage_sum_by_thread()
 			}'
 }
 
+oracle_audit_run_count()
+{
+	find "$(project_dir)/reviews" -maxdepth 1 \
+		-name 'oracle-audit-[0-9][0-9][0-9].md' -type f 2>/dev/null |
+		wc -l | tr -d ' '
+}
+
+oracle_enabled()
+{
+	(( MAX_ORACLE_RUNS > 0 ))
+}
+
 require_runtime()
 {
 	local value="$1"
@@ -481,6 +513,9 @@ require_dependencies()
 	fi
 	require_runtime "$MANAGER_CODEX_BIN"
 	require_runtime "$WORKER_CODEX_BIN"
+	if oracle_enabled; then
+		require_runtime "$ORACLE_CODEX_BIN"
+	fi
 }
 
 supervisor_pid()

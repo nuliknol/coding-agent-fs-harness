@@ -42,6 +42,14 @@ case "$role" in
 		sandbox="$WORKER_SANDBOX"
 		extra_args=("${WORKER_CODEX_EXTRA_ARGS[@]}")
 		;;
+	oracle_audit)
+		codex_bin="$ORACLE_CODEX_BIN"
+		codex_home="$ORACLE_CODEX_HOME"
+		model="$ORACLE_MODEL"
+		effort="$ORACLE_REASONING_EFFORT"
+		sandbox="$ORACLE_SANDBOX"
+		extra_args=("${ORACLE_CODEX_EXTRA_ARGS[@]}")
+		;;
 	*)
 		die "invalid role: $role"
 		;;
@@ -155,6 +163,7 @@ trap cleanup_integrity_snapshot EXIT
 protected_state_root="$(project_dir)"
 mkdir -p "$integrity_snapshot/state" "$integrity_snapshot/control"
 protected_controls=(state.env worker-goal.md worker.thread final-acceptance.md \
+	provisional-acceptance.md \
 	last-error.txt last-convergence-audit-cycle operator-required.md \
 	supervisor.unit process-token)
 shopt -s nullglob

@@ -16,7 +16,7 @@ launch_commit="$(project_config_value repository_launch_commit 2>/dev/null || tr
 current_commit="$(repository_head_commit 2>/dev/null || true)"
 [[ -z "$launch_commit" ]] || printf 'Repository launch commit: %s\n' "$launch_commit"
 [[ -z "$current_commit" ]] || printf 'Canonical repository baseline: %s\n' "$current_commit"
-printf 'Harness mode: persistent Luna worker with sparse Terra reviews\n'
+printf 'Harness mode: persistent Luna worker, sparse Terra reviews, final Sol Oracle\n'
 if supervisor_running; then
 	printf 'Supervisor: running (PID %s)\n' "$(supervisor_pid)"
 else
@@ -30,12 +30,18 @@ elif [[ -f "$(process_token_file)" ]]; then
 else
 	printf 'Process containment: legacy/unstarted\n'
 fi
-printf 'Environment reload: before every manager review (soft parameters only)\n'
+printf 'Environment reload: before every manager review and Oracle audit (soft parameters only)\n'
 printf 'Status: %s\n' "$(state_value status)"
 printf 'Phase: %s\n' "$(state_value phase)"
 printf 'Worker/review cycle: %s\n' "$(state_value cycle)"
 printf 'Manager: %s (%s)\n' "$MANAGER_MODEL" "$MANAGER_REASONING_EFFORT"
 printf 'Worker: %s (%s)\n' "$WORKER_MODEL" "$WORKER_REASONING_EFFORT"
+if oracle_enabled; then
+	printf 'Oracle: %s (%s)\n' "$ORACLE_MODEL" "$ORACLE_REASONING_EFFORT"
+	printf 'Oracle audits: %s of %s\n' "$(oracle_audit_run_count)" "$MAX_ORACLE_RUNS"
+else
+	printf 'Oracle: disabled (MAX_ORACLE_RUNS=0)\n'
+fi
 printf 'Manager first-review checklist: %s\n' \
 	"$HARNESS_MANAGER_REVIEW_CHECKLIST"
 printf 'Codex goal tools: disabled by harness\n'
@@ -94,10 +100,15 @@ manager_output="$(usage_sum_by_thread "$dir/logs" 'manager-*.jsonl' output_token
 worker_input="$(usage_sum_by_thread "$dir/logs" 'worker-*.jsonl' input_tokens)"
 worker_cached="$(usage_sum_by_thread "$dir/logs" 'worker-*.jsonl' cached_input_tokens)"
 worker_output="$(usage_sum_by_thread "$dir/logs" 'worker-*.jsonl' output_tokens)"
+oracle_input="$(usage_sum_by_thread "$dir/logs" 'oracle-*.jsonl' input_tokens)"
+oracle_cached="$(usage_sum_by_thread "$dir/logs" 'oracle-*.jsonl' cached_input_tokens)"
+oracle_output="$(usage_sum_by_thread "$dir/logs" 'oracle-*.jsonl' output_tokens)"
 printf 'Manager tokens: input=%s cached=%s output=%s\n' \
 	"$manager_input" "$manager_cached" "$manager_output"
 printf 'Worker tokens: input=%s cached=%s output=%s\n' \
 	"$worker_input" "$worker_cached" "$worker_output"
+printf 'Oracle tokens: input=%s cached=%s output=%s\n' \
+	"$oracle_input" "$oracle_cached" "$oracle_output"
 
 if [[ -f "$dir/control/last-error.txt" ]]; then
 	printf 'Last error: %s\n' "$(head -n 1 "$dir/control/last-error.txt")"

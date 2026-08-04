@@ -98,7 +98,7 @@ reload_review_environment()
 	fi
 
 	digest="$(sha256sum "$supervisor_env_file" | awk '{ print $1 }')"
-	log_event "ENV_RELOADED role=$role cycle=$cycle sha256=$digest manager_model=$MANAGER_MODEL manager_effort=$MANAGER_REASONING_EFFORT worker_model=$WORKER_MODEL worker_effort=$WORKER_REASONING_EFFORT review_limit=$HARNESS_MAX_MANAGER_REVIEWS repeated_finding_reviews=$HARNESS_MAX_REPEATED_FINDING_REVIEWS"
+	log_event "ENV_RELOADED role=$role cycle=$cycle sha256=$digest manager_model=$MANAGER_MODEL manager_effort=$MANAGER_REASONING_EFFORT worker_model=$WORKER_MODEL worker_effort=$WORKER_REASONING_EFFORT oracle_model=$ORACLE_MODEL oracle_effort=$ORACLE_REASONING_EFFORT review_limit=$HARNESS_MAX_MANAGER_REVIEWS oracle_limit=$MAX_ORACLE_RUNS repeated_finding_reviews=$HARNESS_MAX_REPEATED_FINDING_REVIEWS"
 }
 
 invoke_with_retry()
@@ -263,6 +263,114 @@ prepare_convergence_prompt()
 	printf '%s\n' "$prompt"
 }
 
+complete_or_queue_oracle()
+{
+	local acceptance="$1"
+	local cycle="$2"
+	local source="$3"
+	if ! oracle_enabled; then
+		cp "$acceptance" "$dir/control/final-acceptance.md"
+		chmod 600 "$dir/control/final-acceptance.md"
+		write_state COMPLETE ACCEPTED "$cycle"
+		log_event "PROJECT_COMPLETED cycle=$cycle acceptance=$dir/control/final-acceptance.md source=$source oracle=disabled"
+		return
+	fi
+	cp "$acceptance" "$dir/control/provisional-acceptance.md"
+	chmod 600 "$dir/control/provisional-acceptance.md"
+	write_state ACTIVE ORACLE_REQUIRED "$cycle"
+	log_event "ORACLE_REQUIRED cycle=$cycle provisional=$dir/control/provisional-acceptance.md source=$source completed_runs=$(oracle_audit_run_count) max_runs=$MAX_ORACLE_RUNS"
+}
+
+prepare_oracle_prompt()
+{
+	local cycle="$1"
+	local run="$2"
+	local prompt="$dir/prompts/oracle-audit-$(printf '%03d' "$run").md"
+	cp "$HARNESS_HOME/prompts/oracle-audit.md" "$prompt"
+	write_context_header "$prompt"
+	{
+		printf 'Manager cycle: `%s`\n\n' "$cycle"
+		printf 'Oracle run: `%s` of at most `%s`\n\n' "$run" "$MAX_ORACLE_RUNS"
+		printf '%s\n\n' \
+			'Terra acceptance is only the trigger for this audit. Manager/worker traffic is not governing evidence and need not be reviewed.'
+		printf '# Complete immutable specification\n\n'
+		cat "$dir/inputs/specification.txt"
+		printf '\n'
+	} >> "$prompt"
+	printf '%s\n' "$prompt"
+}
+
+run_oracle_audit()
+{
+	local cycle="$1"
+	local completed run prompt stem output decision audit addendum
+	reload_review_environment oracle_audit "$cycle"
+	if ! oracle_enabled; then
+		[[ -s "$dir/control/provisional-acceptance.md" ]] ||
+			fail_harness 'missing provisional acceptance while bypassing a disabled Oracle'
+		complete_or_queue_oracle "$dir/control/provisional-acceptance.md" "$cycle" oracle-disabled-after-reload
+		rm -f "$dir/control/provisional-acceptance.md"
+		return
+	fi
+	completed="$(oracle_audit_run_count)"
+	if (( completed >= MAX_ORACLE_RUNS )); then
+		write_state PAUSED ORACLE_LIMIT_REACHED "$cycle"
+		log_event "ORACLE_LIMIT_REACHED cycle=$cycle completed_runs=$completed max_runs=$MAX_ORACLE_RUNS"
+		return
+	fi
+	run=$((completed + 1))
+	prompt="$(prepare_oracle_prompt "$cycle" "$run")"
+	stem="oracle-audit-$(printf '%03d' "$run")"
+	write_state ACTIVE ORACLE_RUNNING "$cycle"
+	log_event "ORACLE_AUDIT_STARTED cycle=$cycle run=$run model=$ORACLE_MODEL effort=$ORACLE_REASONING_EFFORT"
+	output="$(invoke_with_retry oracle_audit "$prompt" "$stem")" ||
+		fail_harness "Sol Oracle audit failed in run $run"
+	[[ -s "$output" ]] || fail_harness "Sol returned an empty Oracle audit in run $run"
+	decision="$(sed -n '1{s/^DECISION: //;p;q;}' "$output")"
+	[[ "$decision" == PASS || "$decision" == REVISE || \
+		"$decision" == NEEDS_OPERATOR ]] ||
+		fail_harness "Sol Oracle run $run returned invalid decision '$decision'"
+	[[ "$(tail -n 1 "$output")" == ORACLE_AUDIT_COMPLETE ]] ||
+		fail_harness "Sol Oracle run $run did not end with ORACLE_AUDIT_COMPLETE"
+	if [[ "$decision" == REVISE ]]; then
+		validate_manager_findings "$output" "$decision" ||
+			fail_harness "Sol Oracle run $run returned invalid findings"
+		grep -Fqx 'Addendum-Source: ORACLE' "$output" &&
+			grep -Fqx "Oracle-Run: $run" "$output" &&
+			grep -Fqx "Manager-Cycle: $cycle" "$output" ||
+			fail_harness "Sol Oracle run $run returned invalid addendum metadata"
+	fi
+	audit="$dir/reviews/oracle-audit-$(printf '%03d' "$run").md"
+	cp "$output" "$audit"
+	chmod 600 "$audit"
+	log_event "ORACLE_AUDIT_FINISHED cycle=$cycle run=$run decision=$decision audit=$audit"
+	case "$decision" in
+		PASS)
+			cp "$audit" "$dir/control/final-acceptance.md"
+			chmod 600 "$dir/control/final-acceptance.md"
+			rm -f "$dir/control/provisional-acceptance.md"
+			write_state COMPLETE ORACLE_ACCEPTED "$cycle"
+			log_event "PROJECT_COMPLETED cycle=$cycle oracle_run=$run acceptance=$dir/control/final-acceptance.md source=oracle"
+			;;
+		REVISE)
+			addendum="$dir/addenda/addendum-$(printf '%03d' "$cycle").md"
+			[[ ! -e "$addendum" ]] ||
+				fail_harness "refusing to replace existing remediation addendum: $addendum"
+			cp "$audit" "$addendum"
+			chmod 600 "$addendum"
+			rm -f "$dir/control/provisional-acceptance.md"
+			write_state ACTIVE WORKER_REQUIRED "$cycle"
+			log_event "ORACLE_ADDENDUM_PUBLISHED cycle=$cycle run=$run addendum=$addendum"
+			;;
+		NEEDS_OPERATOR)
+			cp "$audit" "$dir/control/operator-required.md"
+			chmod 600 "$dir/control/operator-required.md"
+			write_state PAUSED NEEDS_OPERATOR "$cycle"
+			log_event "OPERATOR_REQUIRED cycle=$cycle source=oracle run=$run report=$dir/control/operator-required.md"
+			;;
+	esac
+}
+
 run_convergence_audit()
 {
 	local cycle="$1"
@@ -294,9 +402,7 @@ run_convergence_audit()
 	log_event "CONVERGENCE_AUDIT_FINISHED cycle=$cycle decision=$decision audit=$audit"
 	case "$decision" in
 		ACCEPT)
-			cp "$audit" "$dir/control/final-acceptance.md"
-			write_state COMPLETE ACCEPTED "$cycle"
-			log_event "PROJECT_COMPLETED cycle=$cycle acceptance=$dir/control/final-acceptance.md source=convergence-audit"
+			complete_or_queue_oracle "$audit" "$cycle" convergence-audit
 			;;
 		ACTIONABLE)
 			addendum="$dir/addenda/addendum-$(printf '%03d' "$cycle").md"
@@ -402,9 +508,7 @@ review_worker()
 	log_event "MANAGER_REVIEW_FINISHED cycle=$cycle decision=$decision review=$review"
 
 	if [[ "$decision" == ACCEPT ]]; then
-		cp "$review" "$dir/control/final-acceptance.md"
-		write_state COMPLETE ACCEPTED "$cycle"
-		log_event "PROJECT_COMPLETED cycle=$cycle acceptance=$dir/control/final-acceptance.md"
+		complete_or_queue_oracle "$review" "$cycle" manager-review
 		return
 	fi
 
@@ -457,6 +561,9 @@ case "$phase" in
 	CONVERGENCE_RUNNING)
 		write_state ACTIVE CONVERGENCE_REQUIRED "$cycle"
 		;;
+	ORACLE_RUNNING)
+		write_state ACTIVE ORACLE_REQUIRED "$cycle"
+		;;
 esac
 
 while true; do
@@ -464,7 +571,7 @@ while true; do
 	phase="$(state_value phase)"
 	cycle="$(state_value cycle)"
 	case "$status:$phase" in
-		COMPLETE:ACCEPTED|PAUSED:REVIEW_LIMIT_REACHED|PAUSED:NEEDS_OPERATOR)
+		COMPLETE:ACCEPTED|COMPLETE:ORACLE_ACCEPTED|PAUSED:REVIEW_LIMIT_REACHED|PAUSED:ORACLE_LIMIT_REACHED|PAUSED:NEEDS_OPERATOR)
 			break
 			;;
 		FAILED:*)
@@ -484,6 +591,9 @@ while true; do
 			;;
 		ACTIVE:CONVERGENCE_REQUIRED)
 			run_convergence_audit "$cycle"
+			;;
+		ACTIVE:ORACLE_REQUIRED)
+			run_oracle_audit "$cycle"
 			;;
 		*)
 			fail_harness "unsupported state status=$status phase=$phase cycle=$cycle"

@@ -109,6 +109,22 @@ if [[ "$model" == gpt-5.6-terra ]]; then
 	input=100
 	cached=80
 	output_tokens=20
+elif [[ "$model" == gpt-5.6-sol ]]; then
+	oracle_counter_file="$FAKE_CODEX_STATE/oracle-counter"
+	oracle_counter=0
+	[[ ! -f "$oracle_counter_file" ]] ||
+		oracle_counter="$(cat "$oracle_counter_file")"
+	oracle_counter=$((oracle_counter + 1))
+	printf '%s\n' "$oracle_counter" > "$oracle_counter_file"
+	thread="oracle-$oracle_counter"
+	if (( oracle_counter <= ${FAKE_ORACLE_REVISIONS:-0} )); then
+		message=$'DECISION: REVISE\nAddendum-Source: ORACLE\nOracle-Run: 1\nManager-Cycle: 2\n\nADD-001: independent final gap\nFinding-Key: oracle-independent-gap\nSpecification: feature.txt must satisfy the complete immutable specification.\nEvidence: the independent audit found a repository-local completion gap.\nRequired correction: close the complete gap and rerun verification.\nVerification: run the focused feature smoke test.\nORACLE_AUDIT_COMPLETE'
+	else
+		message=$'DECISION: PASS\nEvery immutable requirement is connected and the focused build, smoke, and integration checks passed.\nORACLE_AUDIT_COMPLETE'
+	fi
+	input=500
+	cached=300
+	output_tokens=50
 else
 	thread="${resume_thread:-worker-thread}"
 	if [[ -n "$resume_thread" ]]; then
@@ -303,6 +319,7 @@ export MANAGER_MODEL="gpt-5.6-terra"
 export MANAGER_REASONING_EFFORT="high"
 export WORKER_MODEL="gpt-5.6-luna"
 export WORKER_REASONING_EFFORT="high"
+export MAX_ORACLE_RUNS="0"
 export HARNESS_MANAGER_REVIEW_CHECKLIST="c-strict"
 export HARNESS_PROVIDER_RETRY_SECONDS="1"
 export HARNESS_QUOTA_RETRY_SECONDS="1"
@@ -312,13 +329,16 @@ export FAKE_RELOAD_ENV_FILE="$TEST_DIR/project.env"
 EOF
 chmod 600 "$TEST_DIR/project.env"
 
-grep -v '^export HARNESS_MANAGER_REVIEW_CHECKLIST=' \
+grep -v -e '^export HARNESS_MANAGER_REVIEW_CHECKLIST=' \
+	-e '^export MAX_ORACLE_RUNS=' \
 	"$TEST_DIR/project.env" > "$TEST_DIR/default-project.env"
 chmod 600 "$TEST_DIR/default-project.env"
 default_check="$("$ROOT/bin/harness-check-env" "$TEST_DIR/default-project.env")"
 grep -q 'Manager first-review checklist: none' <<< "$default_check"
 grep -q 'Manager review limit: 50' <<< "$default_check"
 grep -q 'Repeated-finding convergence audit: after 3 consecutive reviews' \
+	<<< "$default_check"
+grep -q 'Oracle: gpt-5.6-sol (high), sandbox=workspace-write, maximum runs=3' \
 	<<< "$default_check"
 grep -q 'Codex diagnostic profile: disabled' <<< "$default_check"
 grep -q 'Codex goal tools: disabled by harness' <<< "$default_check"
@@ -448,7 +468,7 @@ test -f "$repo/pre-existing.txt"
 status_output="$("$ROOT/bin/harness-status" "$TEST_DIR/project.env")"
 grep -q 'Manager first-review checklist: c-strict' <<< "$status_output"
 grep -q 'Codex goal tools: disabled by harness' <<< "$status_output"
-grep -q 'Environment reload: before every manager review (soft parameters only)' \
+grep -q 'Environment reload: before every manager review and Oracle audit (soft parameters only)' \
 	<<< "$status_output"
 grep -q "Repository launch commit: $launch_commit" <<< "$status_output"
 grep -q "Canonical repository baseline: $launch_commit" <<< "$status_output"
@@ -485,6 +505,7 @@ export MANAGER_CODEX_BIN="$TEST_DIR/fake-codex"
 export WORKER_CODEX_BIN="$TEST_DIR/fake-codex"
 export MANAGER_CODEX_HOME="$TEST_DIR/codex-home"
 export WORKER_CODEX_HOME="$TEST_DIR/codex-home"
+export MAX_ORACLE_RUNS="0"
 export HARNESS_PROVIDER_RETRY_SECONDS="1"
 export HARNESS_QUOTA_RETRY_SECONDS="1"
 export FAKE_CODEX_STATE="$hard_reload_fake_state"
@@ -530,6 +551,7 @@ export MANAGER_CODEX_BIN="$TEST_DIR/fake-codex"
 export WORKER_CODEX_BIN="$TEST_DIR/fake-codex"
 export MANAGER_CODEX_HOME="$TEST_DIR/codex-home"
 export WORKER_CODEX_HOME="$TEST_DIR/codex-home"
+export MAX_ORACLE_RUNS="0"
 export HARNESS_PROVIDER_RETRY_SECONDS="1"
 export HARNESS_QUOTA_RETRY_SECONDS="1"
 export HARNESS_MAX_MANAGER_REVIEWS="50"
@@ -626,6 +648,92 @@ grep -qx 'phase=REVIEW_LIMIT_REACHED' "$cap_project/control/state.env"
 grep -qx 'cycle=2' "$cap_project/control/state.env"
 test ! -f "$cap_project/reviews/convergence-audit-002.md"
 grep -q 'REVIEW_LIMIT_REACHED cycle=2 max=2' "$cap_project/logs/events.log"
+
+oracle_repo="$TEST_DIR/oracle-repository"
+oracle_state="$TEST_DIR/oracle-state"
+oracle_fake_state="$TEST_DIR/oracle-fake-state"
+oracle_env="$TEST_DIR/oracle-project.env"
+mkdir -p "$oracle_repo" "$oracle_fake_state"
+git -C "$oracle_repo" init -q
+git -C "$oracle_repo" config user.name 'Harness Test'
+git -C "$oracle_repo" config user.email 'harness-test@example.invalid'
+printf 'baseline\n' > "$oracle_repo/baseline.txt"
+git -C "$oracle_repo" add baseline.txt
+git -C "$oracle_repo" commit -q -m baseline
+cat > "$oracle_env" <<EOF
+export PROJECT="oracle-gate"
+export REPOSITORY="$oracle_repo"
+export SPECIFICATION="$TEST_DIR/specification.md"
+export DEVELOPMENT_POLICY="$TEST_DIR/development-policy.txt"
+export HARNESS_HOME="$ROOT"
+export HARNESS_ROOT="$oracle_state"
+export MANAGER_CODEX_BIN="$TEST_DIR/fake-codex"
+export WORKER_CODEX_BIN="$TEST_DIR/fake-codex"
+export ORACLE_CODEX_BIN="$TEST_DIR/fake-codex"
+export MANAGER_CODEX_HOME="$TEST_DIR/codex-home"
+export WORKER_CODEX_HOME="$TEST_DIR/codex-home"
+export ORACLE_CODEX_HOME="$TEST_DIR/codex-home"
+export HARNESS_PROVIDER_RETRY_SECONDS="1"
+export HARNESS_QUOTA_RETRY_SECONDS="1"
+export HARNESS_MAX_REPEATED_FINDING_REVIEWS="0"
+export MAX_ORACLE_RUNS="1"
+export FAKE_CODEX_STATE="$oracle_fake_state"
+export FAKE_REPOSITORY="$oracle_repo"
+export FAKE_ORACLE_REVISIONS="1"
+EOF
+chmod 600 "$oracle_env"
+"$ROOT/bin/harness-init" "$oracle_env" >/dev/null
+"$ROOT/bin/harness-start" "$oracle_env" >/dev/null
+oracle_project="$oracle_state/projects/oracle-gate"
+for _ in {1..30}; do
+	grep -qx 'phase=ORACLE_LIMIT_REACHED' \
+		"$oracle_project/control/state.env" 2>/dev/null && break
+	sleep 1
+done
+grep -qx 'status=PAUSED' "$oracle_project/control/state.env"
+grep -qx 'phase=ORACLE_LIMIT_REACHED' "$oracle_project/control/state.env"
+grep -qx 'cycle=3' "$oracle_project/control/state.env"
+test ! -e "$oracle_project/control/final-acceptance.md"
+test -f "$oracle_project/control/provisional-acceptance.md"
+test -f "$oracle_project/reviews/oracle-audit-001.md"
+grep -qx 'Addendum-Source: ORACLE' \
+	"$oracle_project/addenda/addendum-002.md"
+grep -qx 'Oracle-Run: 1' "$oracle_project/addenda/addendum-002.md"
+grep -qx 'Manager-Cycle: 2' "$oracle_project/addenda/addendum-002.md"
+grep -q '^# Complete immutable specification$' \
+	"$oracle_project/prompts/oracle-audit-001.md"
+grep -Fq 'Create feature.txt containing exactly `complete`.' \
+	"$oracle_project/prompts/oracle-audit-001.md"
+grep -Fq 'Run the focused builds, smoke tests, integration tests' \
+	"$oracle_project/prompts/oracle-audit-001.md"
+grep -Fq -- '--model gpt-5.6-sol' "$oracle_fake_state/codex-argv.log"
+grep -Fq -- 'model_reasoning_effort="high"' \
+	"$oracle_fake_state/codex-argv.log"
+grep -q 'ORACLE_ADDENDUM_PUBLISHED cycle=2 run=1' \
+	"$oracle_project/logs/events.log"
+grep -q 'ORACLE_LIMIT_REACHED cycle=3 completed_runs=1 max_runs=1' \
+	"$oracle_project/logs/events.log"
+
+sed -i 's/MAX_ORACLE_RUNS="1"/MAX_ORACLE_RUNS="2"/' "$oracle_env"
+"$ROOT/bin/harness-start" "$oracle_env" >/dev/null
+for _ in {1..30}; do
+	grep -qx 'status=COMPLETE' "$oracle_project/control/state.env" 2>/dev/null && break
+	sleep 1
+done
+grep -qx 'status=COMPLETE' "$oracle_project/control/state.env"
+grep -qx 'phase=ORACLE_ACCEPTED' "$oracle_project/control/state.env"
+grep -qx 'cycle=3' "$oracle_project/control/state.env"
+test -f "$oracle_project/reviews/oracle-audit-002.md"
+grep -qx 'DECISION: PASS' "$oracle_project/control/final-acceptance.md"
+test ! -e "$oracle_project/control/provisional-acceptance.md"
+grep -q 'ORACLE_LIMIT_RESUMED cycle=3 completed_runs=1 new_limit=2' \
+	"$oracle_project/logs/events.log"
+grep -q 'PROJECT_COMPLETED cycle=3 oracle_run=2 .*source=oracle' \
+	"$oracle_project/logs/events.log"
+oracle_status="$({ "$ROOT/bin/harness-status" "$oracle_env"; })"
+grep -q 'Oracle: gpt-5.6-sol (high)' <<< "$oracle_status"
+grep -q 'Oracle audits: 2 of 2' <<< "$oracle_status"
+grep -q 'Oracle tokens: input=1000 cached=600 output=100' <<< "$oracle_status"
 
 cp "$TEST_DIR/project.env" "$TEST_DIR/trace-project.env"
 {
@@ -743,6 +851,7 @@ export MANAGER_CODEX_BIN="$TEST_DIR/detached-codex"
 export WORKER_CODEX_BIN="$TEST_DIR/detached-codex"
 export MANAGER_CODEX_HOME="$TEST_DIR/codex-home"
 export WORKER_CODEX_HOME="$TEST_DIR/codex-home"
+export MAX_ORACLE_RUNS="0"
 export HARNESS_CODEX_KILL_GRACE_SECONDS="2"
 export HARNESS_PROVIDER_RETRY_SECONDS="1"
 export HARNESS_QUOTA_RETRY_SECONDS="1"
