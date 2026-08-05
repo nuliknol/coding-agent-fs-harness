@@ -58,6 +58,18 @@ else
 	printf 'Repeated-finding convergence audit: after %s consecutive reviews\n' \
 		"$HARNESS_MAX_REPEATED_FINDING_REVIEWS"
 fi
+if (( HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS == 0 )); then
+	printf 'No-source-progress pause: disabled\n'
+else
+	printf 'No-source-progress pause: after %s unchanged worker deliveries (current %s)\n' \
+		"$HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS" "$(no_source_progress_count)"
+fi
+if (( HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS == 0 )); then
+	printf 'Repeated-convergence pause: disabled\n'
+else
+	printf 'Repeated-convergence pause: after %s audits retain a finding\n' \
+		"$HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS"
+fi
 printf 'Codex diagnostic profile: %s\n' \
 	"$([[ "$HARNESS_CODEX_DIAGNOSTIC_PROFILE" == 1 ]] && printf enabled || printf disabled)"
 printf 'Codex Rust diagnostics: %s\n' \

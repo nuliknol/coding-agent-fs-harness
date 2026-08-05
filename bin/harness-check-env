@@ -62,4 +62,16 @@ else
 	printf 'Repeated-finding convergence audit: after %s consecutive reviews\n' \
 		"$HARNESS_MAX_REPEATED_FINDING_REVIEWS"
 fi
+if (( HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS == 0 )); then
+	printf 'No-source-progress pause: disabled\n'
+else
+	printf 'No-source-progress pause: after %s unchanged worker deliveries\n' \
+		"$HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS"
+fi
+if (( HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS == 0 )); then
+	printf 'Repeated-convergence pause: disabled\n'
+else
+	printf 'Repeated-convergence pause: after %s audits retain a finding\n' \
+		"$HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS"
+fi
 printf 'Configuration is valid.\n'

@@ -98,7 +98,7 @@ reload_review_environment()
 	fi
 
 	digest="$(sha256sum "$supervisor_env_file" | awk '{ print $1 }')"
-	log_event "ENV_RELOADED role=$role cycle=$cycle sha256=$digest manager_model=$MANAGER_MODEL manager_effort=$MANAGER_REASONING_EFFORT worker_model=$WORKER_MODEL worker_effort=$WORKER_REASONING_EFFORT oracle_model=$ORACLE_MODEL oracle_effort=$ORACLE_REASONING_EFFORT review_limit=$HARNESS_MAX_MANAGER_REVIEWS oracle_limit=$MAX_ORACLE_RUNS protocol_repair_attempts=$HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS repeated_finding_reviews=$HARNESS_MAX_REPEATED_FINDING_REVIEWS"
+	log_event "ENV_RELOADED role=$role cycle=$cycle sha256=$digest manager_model=$MANAGER_MODEL manager_effort=$MANAGER_REASONING_EFFORT worker_model=$WORKER_MODEL worker_effort=$WORKER_REASONING_EFFORT oracle_model=$ORACLE_MODEL oracle_effort=$ORACLE_REASONING_EFFORT review_limit=$HARNESS_MAX_MANAGER_REVIEWS oracle_limit=$MAX_ORACLE_RUNS protocol_repair_attempts=$HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS repeated_finding_reviews=$HARNESS_MAX_REPEATED_FINDING_REVIEWS no_source_progress_reviews=$HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS repeated_convergence_audits=$HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS"
 }
 
 invoke_with_retry()
@@ -164,7 +164,7 @@ write_context_header()
 		printf '%s\n\n' \
 			'Files identical to the canonical baseline are pre-existing repository content. Do not remove or revert them merely because they are outside this task scope. A tracked-file deletion is valid only when an explicit specification requirement requires that deletion.'
 		printf '%s\n\n' \
-			'The repository owner grants the worker full authority to make any repository-local source, build, test, documentation, refactoring, replacement, or deletion change needed to complete the specification. No additional authorization is required for repository-local implementation work. Only the immutable specification, its configured source file, the development-policy inputs, and harness-owned state are protected.'
+			'The repository owner grants the worker full authority to make repository-local source, build, test, documentation, refactoring, replacement, or deletion changes needed to complete the goal. Ownership, scope, read-only, and do-not-edit clauses describe the normal direction of work, but exceptions apply: they do not prohibit the smallest coherent cross-boundary integration or repair needed for goal completion. Examples include compatible types or fields, public adapters, serializers, registrations, build linkage, focused tests, and repairs to regressions caused by the task. Broader cross-boundary work is also permitted when it is genuinely necessary for the requested behavior, but unrelated refactoring is not. Only the immutable specification, its configured source file, the development-policy inputs, harness-owned state, and contracts explicitly declared immutable are absolute write prohibitions.'
 		printf 'Immutable specification: `%s`\n\n' "$dir/inputs/specification.txt"
 		printf 'Protected source specification: `%s`\n\n' "$SPECIFICATION"
 		printf 'Protected harness state: `%s`\n\n' "$dir"
@@ -573,7 +573,8 @@ run_convergence_audit()
 {
 	local cycle="$1"
 	local trigger_file="$dir/control/convergence-trigger-$(printf '%03d' "$cycle").txt"
-	local trigger prompt output stem audit decision addendum
+	local trigger prompt output stem audit decision addendum repeated reset_cycle
+	local fingerprint report
 	[[ -s "$trigger_file" ]] || fail_harness "missing convergence trigger: $trigger_file"
 	reload_review_environment manager_convergence "$cycle"
 	trigger="$(paste -sd, "$trigger_file")"
@@ -598,6 +599,46 @@ run_convergence_audit()
 			complete_or_queue_oracle "$audit" "$cycle" convergence-audit
 			;;
 		ACTIONABLE)
+			reset_cycle=0
+			if [[ -f "$dir/control/convergence-circuit-reset-cycle" ]]; then
+				reset_cycle="$(awk 'NR == 1 { print; exit }' \
+					"$dir/control/convergence-circuit-reset-cycle")"
+				[[ "$reset_cycle" =~ ^[0-9]+$ ]] || reset_cycle=0
+			fi
+			repeated="$(repeated_convergence_finding_keys "$dir/reviews" \
+				"$HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS" "$reset_cycle")"
+			if [[ -n "$repeated" ]]; then
+				fingerprint="$(repository_worktree_fingerprint)"
+				report="$dir/control/operator-required.md"
+				addendum="$dir/addenda/addendum-$(printf '%03d' "$cycle").md"
+				cp "$audit" "$addendum"
+				chmod 600 "$addendum"
+				{
+					printf '# Repeated convergence audit limit reached\n\n'
+					printf 'The harness paused after %s consecutive convergence audits retained the same findings.\n\n' \
+						"$HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS"
+					printf 'Cycle: `%s`\n\n' "$cycle"
+					printf 'Repository fingerprint: `%s`\n\n' "$fingerprint"
+					printf 'Repeated finding keys:\n\n'
+					while IFS= read -r key; do
+						printf -- '- `%s`\n' "$key"
+					done <<< "$repeated"
+					printf '\nLatest convergence audit: `%s`\n' "$audit"
+				} > "$report"
+				chmod 600 "$report"
+				printf '%s\n' repeated-convergence > \
+					"$dir/control/operator-pause-kind"
+				printf '%s\n' "$fingerprint" > \
+					"$dir/control/operator-pause-fingerprint"
+				printf '%s\n' "$HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS" > \
+					"$dir/control/operator-pause-count"
+				chmod 600 "$dir/control/operator-pause-kind" \
+					"$dir/control/operator-pause-fingerprint" \
+					"$dir/control/operator-pause-count"
+				write_state PAUSED CONVERGENCE_LIMIT_REACHED "$cycle"
+				log_event "CONVERGENCE_LIMIT_REACHED cycle=$cycle max=$HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS keys=$(paste -sd, <<< "$repeated") report=$report"
+				return
+			fi
 			addendum="$dir/addenda/addendum-$(printf '%03d' "$cycle").md"
 			cp "$audit" "$addendum"
 			chmod 600 "$addendum"
@@ -617,9 +658,25 @@ run_worker()
 {
 	local cycle="$1"
 	local retry_same_cycle="$2"
-	local prompt output stem thread
+	local prompt output stem thread before_fingerprint after_fingerprint
+	local progress_file no_progress report changed
 	prompt="$(prepare_worker_prompt "$cycle")"
 	stem="worker-$(printf '%03d' "$cycle")"
+	progress_file="$dir/control/worker-progress-$(printf '%03d' "$cycle").env"
+	if [[ -f "$progress_file" ]] &&
+		before_fingerprint="$(awk -F= '$1 == "before" { print $2; exit }' \
+			"$progress_file")" &&
+		[[ "$before_fingerprint" =~ ^[0-9a-f]{64}$ ]]; then
+		:
+	else
+		before_fingerprint="$(repository_worktree_fingerprint)"
+		{
+			printf 'before=%s\n' "$before_fingerprint"
+			printf 'after=\n'
+			printf 'changed=pending\n'
+		} > "$progress_file"
+		chmod 600 "$progress_file"
+	fi
 	thread=""
 	[[ ! -f "$dir/control/worker.thread" ]] ||
 		thread="$(awk 'NR == 1 { print; exit }' "$dir/control/worker.thread")"
@@ -638,8 +695,52 @@ run_worker()
 		chmod 600 "$dir/control/worker.thread"
 	fi
 	[[ -s "$output" ]] || fail_harness "Luna worker returned an empty report in cycle $cycle"
-	write_state ACTIVE REVIEW_REQUIRED "$cycle"
+	after_fingerprint="$(repository_worktree_fingerprint)"
+	no_progress="$(no_source_progress_count)"
+	if [[ "$before_fingerprint" == "$after_fingerprint" ]]; then
+		no_progress=$((no_progress + 1))
+		changed=0
+	else
+		no_progress=0
+		changed=1
+	fi
+	{
+		printf 'before=%s\n' "$before_fingerprint"
+		printf 'after=%s\n' "$after_fingerprint"
+		printf 'changed=%s\n' "$changed"
+	} > "$progress_file"
+	printf '%s\n' "$no_progress" > "$dir/control/no-source-progress-count"
+	chmod 600 "$progress_file" "$dir/control/no-source-progress-count"
+	log_event "WORKTREE_PROGRESS cycle=$cycle changed=$changed no_source_progress_reviews=$no_progress before=$before_fingerprint after=$after_fingerprint"
 	log_event "WORKER_DELIVERED cycle=$cycle thread=$thread report=$output"
+	if (( HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS > 0 &&
+		no_progress >= HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS )); then
+		report="$dir/control/operator-required.md"
+		{
+			printf '# No source progress limit reached\n\n'
+			printf 'The harness paused because %s consecutive Luna deliveries left the Git-visible implementation tree unchanged.\n\n' \
+				"$no_progress"
+			printf 'Cycle: `%s`\n\n' "$cycle"
+			printf 'Repository fingerprint: `%s`\n\n' "$after_fingerprint"
+			printf 'Latest worker report: `%s`\n\n' "$output"
+			if [[ -f "$dir/reviews/review-$(printf '%03d' "$((cycle - 1))").md" ]]; then
+				printf 'Latest completed manager review: `%s`\n' \
+					"$dir/reviews/review-$(printf '%03d' "$((cycle - 1))").md"
+			fi
+		} > "$report"
+		chmod 600 "$report"
+		printf '%s\n' no-source-progress > "$dir/control/operator-pause-kind"
+		printf '%s\n' "$after_fingerprint" > \
+			"$dir/control/operator-pause-fingerprint"
+		printf '%s\n' "$no_progress" > "$dir/control/operator-pause-count"
+		chmod 600 "$dir/control/operator-pause-kind" \
+			"$dir/control/operator-pause-fingerprint" \
+			"$dir/control/operator-pause-count"
+		write_state PAUSED NO_SOURCE_PROGRESS "$cycle"
+		log_event "NO_SOURCE_PROGRESS_LIMIT_REACHED cycle=$cycle count=$no_progress max=$HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS fingerprint=$after_fingerprint report=$report"
+		return
+	fi
+	write_state ACTIVE REVIEW_REQUIRED "$cycle"
 }
 
 prepare_review_prompt()
@@ -760,7 +861,7 @@ while true; do
 	phase="$(state_value phase)"
 	cycle="$(state_value cycle)"
 	case "$status:$phase" in
-		COMPLETE:ACCEPTED|COMPLETE:ORACLE_ACCEPTED|PAUSED:REVIEW_LIMIT_REACHED|PAUSED:ORACLE_LIMIT_REACHED|PAUSED:NEEDS_OPERATOR)
+		COMPLETE:ACCEPTED|COMPLETE:ORACLE_ACCEPTED|PAUSED:REVIEW_LIMIT_REACHED|PAUSED:ORACLE_LIMIT_REACHED|PAUSED:NEEDS_OPERATOR|PAUSED:NO_SOURCE_PROGRESS|PAUSED:CONVERGENCE_LIMIT_REACHED)
 			break
 			;;
 		FAILED:*)

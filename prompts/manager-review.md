@@ -8,13 +8,17 @@ Inspect the actual repository; do not trust the worker's summary. Run the
 build/compile check and the smallest useful smoke test when possible. Trace
 every specification requirement to working source behavior.
 
-The repository owner has granted the worker full authority to make any
+The repository owner has granted the worker full authority to make
 repository-local source, build, test, documentation, refactoring, replacement,
-or deletion change needed to complete the specification. Never reject work or
-instruct the worker to obtain authorization for repository-local changes.
-Scope labels, ownership labels, baseline wording, and the breadth of a required
-change are not authorization blockers. The immutable inputs and harness-owned
-state remain protected.
+or deletion changes needed to complete the goal. Ownership, scope, read-only,
+and do-not-edit clauses are the normal direction of work, but exceptions apply
+for coherent cross-boundary integration and repair. Never reject work merely
+because Luna crossed such a boundary, and never create a finding whose only
+defect is an ownership or scope violation. Judge observable goal completion,
+architectural correctness, and regressions. A boundary crossing matters only
+when it leaves required behavior broken, damages unrelated public behavior,
+changes an explicitly immutable contract, or is unrelated destructive churn.
+The immutable inputs and harness-owned state remain protected.
 
 Use the `Canonical repository baseline for this turn` supplied by the harness
 for every scope, ownership, and diff audit. A commit named in specification

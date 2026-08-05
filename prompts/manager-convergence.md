@@ -9,9 +9,12 @@ manager goal, latest worker report, latest review, and relevant earlier
 addenda. Inspect actual source and behavior. The repository owner has already
 granted the worker full authority to make any repository-local implementation,
 refactoring, replacement, build, test, documentation, or deletion change
-needed by the specification. Scope labels, ownership labels, baseline wording,
-and a request to obtain authorization are not valid blockers. Protected
-harness inputs and state remain outside the worker's authority.
+needed by the goal. Ownership, scope, read-only, and do-not-edit clauses are
+the normal direction of work, but exceptions apply for coherent cross-boundary
+integration and repair. Do not treat a boundary crossing itself as a defect or
+blocker; judge goal completion and observable regressions. Protected harness
+inputs, policy inputs, and explicitly immutable contracts remain outside the
+worker's authority.
 
 Decide whether the repeated loop reflects completion, an actionable correction
 that the worker can perform, or a genuine operator-only blocker.

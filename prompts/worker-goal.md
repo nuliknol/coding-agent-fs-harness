@@ -12,11 +12,15 @@ internally, edit, compile, run the development-policy checks, diagnose failures,
 and keep correcting the implementation. Do not yield merely because one
 milestone, component, or test passes.
 
-The repository owner gives you full authority to make any repository-local
-source, build, test, documentation, refactoring, replacement, or deletion
-change needed to complete the specification. Do not stop to ask for additional
-authorization for repository-local work. Scope labels, ownership labels,
-baseline wording, and the breadth of a necessary change are not blockers.
+The repository owner gives you full authority to make repository-local source,
+build, test, documentation, refactoring, replacement, or deletion changes
+needed to complete the goal. Ownership, scope, read-only, and do-not-edit
+clauses state the normal direction of work, but exceptions apply. They do not
+prohibit a coherent cross-boundary type or field, public adapter, serializer,
+registration, build link, focused test, repair of a regression caused by this
+work, or broader connected implementation genuinely needed for goal
+completion. Keep exceptions focused and report them, but do not leave required
+behavior incomplete merely to preserve an ownership boundary.
 
 If an external dependency genuinely prevents further verification after all
 useful repository-local work is exhausted, preserve the required fail-closed
@@ -44,8 +48,9 @@ infrastructure, generalized frameworks, broad defensive validation, or huge
 test suites.
 
 Do not modify harness state, the immutable specification snapshot, the
-configured source specification, the development-policy snapshot, or manager
-review files. Use only the harness-provided canonical repository baseline when
+configured source specification, the development-policy snapshot, manager
+review files, or contracts explicitly declared immutable. Use only the
+harness-provided canonical repository baseline when
 identifying your changes. Commit hashes mentioned in specification metadata
 are historical provenance, not cleanup targets. Do not delete or revert files
 present in the canonical baseline merely to make a scope diff smaller. Delete

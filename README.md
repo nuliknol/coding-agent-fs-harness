@@ -155,6 +155,8 @@ One supervisor runs the complete sequential loop. Durable phases are:
 | `ORACLE_ACCEPTED` | Sol proved the complete specification |
 | `REVIEW_LIMIT_REACHED` | Optional operator limit paused the loop |
 | `ORACLE_LIMIT_REACHED` | All configured Oracle runs were used; raise the limit to continue auditing |
+| `NO_SOURCE_PROGRESS` | Consecutive Luna deliveries left the implementation tree unchanged |
+| `CONVERGENCE_LIMIT_REACHED` | Stable findings survived the configured number of fresh convergence audits |
 | `NEEDS_OPERATOR` | The fresh audit proved an external/specification blocker |
 | `TERMINAL_FAILURE` | A non-provider process or protocol error stopped it |
 
@@ -200,6 +202,8 @@ export WORKER_REASONING_EFFORT="high"
 export ORACLE_MODEL="gpt-5.6-sol"
 export ORACLE_REASONING_EFFORT="high"
 export MAX_ORACLE_RUNS="3"
+export HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS="5"
+export HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS="3"
 ```
 
 `MAX_ORACLE_RUNS=3` is the default final-audit budget. Oracle runs only after
@@ -229,6 +233,20 @@ it to `0` to disable detection. The audit may accept, replace the latest
 addendum with an actionable correction, or pause as `NEEDS_OPERATOR`. That last
 decision is restricted to incompatible observable requirements or a truly
 external secret, permission, service, hardware action, or human choice.
+
+`HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS=5` pauses when five consecutive Luna
+deliveries produce the same Git-visible implementation-tree content. The
+fingerprint includes tracked/index changes and non-ignored untracked files and
+uses content rather than timestamps. Test reruns and repeated reports therefore
+do not keep an implementation loop alive. Change the repository or raise the
+limit, then run `harness-start` to resume. Set it to `0` to disable this guard.
+
+`HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS=3` pauses when any stable finding key
+survives three consecutive fresh convergence audits. This catches a loop that
+continues after ordinary repeated-finding audits have already prescribed the
+same repository-local correction. Change the repository or raise the limit,
+then run `harness-start` to begin a new convergence window. Set it to `0` to
+disable the guard.
 
 ### Optional first-review verification
 

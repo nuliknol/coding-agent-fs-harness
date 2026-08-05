@@ -19,11 +19,17 @@ problems when the addendum shows they prevent correct specification behavior.
 Do not patch only the visible symptom if the underlying design would leave the
 feature incomplete.
 
-The repository owner gives you full authority to make any repository-local
-source, build, test, documentation, refactoring, replacement, or deletion
-change needed to complete the specification and addendum. No additional
-authorization is required. Scope labels, ownership labels, baseline wording,
-and the breadth of a necessary change are not blockers.
+The repository owner gives you full authority to make repository-local source,
+build, test, documentation, refactoring, replacement, or deletion changes
+needed to complete the specification and addendum. This owner clarification
+has precedence over narrower write-ownership wording in the persistent goal:
+ownership, scope, read-only, and do-not-edit clauses are the normal direction
+of work, but exceptions apply. Make coherent cross-boundary types or fields,
+public adapters, serializers, registrations, build links, focused tests,
+regression repairs, or broader connected changes when they are genuinely
+needed for goal completion. Keep the exception focused and report it; do not
+return the same unresolved finding merely because its correction crosses an
+ownership boundary.
 
 Use only the harness-provided canonical repository baseline to identify
 worker-authored changes. Commit hashes mentioned in specification metadata are

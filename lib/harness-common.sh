@@ -71,6 +71,8 @@ load_harness_env()
 	unset HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS HARNESS_MAX_MANAGER_REVIEWS
 	unset HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS
 	unset HARNESS_MAX_REPEATED_FINDING_REVIEWS
+	unset HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS
+	unset HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS
 	unset HARNESS_MANAGER_REVIEW_CHECKLIST
 	unset HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS
 	unset HARNESS_CODEX_KILL_GRACE_SECONDS
@@ -139,6 +141,8 @@ load_harness_env()
 	HARNESS_MAX_MANAGER_REVIEWS="${HARNESS_MAX_MANAGER_REVIEWS:-50}"
 	HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS="${HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS:-2}"
 	HARNESS_MAX_REPEATED_FINDING_REVIEWS="${HARNESS_MAX_REPEATED_FINDING_REVIEWS:-3}"
+	HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS="${HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS:-5}"
+	HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS="${HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS:-3}"
 	HARNESS_MANAGER_REVIEW_CHECKLIST="${HARNESS_MANAGER_REVIEW_CHECKLIST:-none}"
 	HARNESS_CODEX_WALL_TIMEOUT_SECONDS="${HARNESS_CODEX_WALL_TIMEOUT_SECONDS:-0}"
 	HARNESS_CODEX_IDLE_TIMEOUT_SECONDS="${HARNESS_CODEX_IDLE_TIMEOUT_SECONDS:-0}"
@@ -178,7 +182,9 @@ load_harness_env()
 		die "invalid HARNESS_MANAGER_REVIEW_CHECKLIST: $HARNESS_MANAGER_REVIEW_CHECKLIST"
 	for value in HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS \
 		HARNESS_MAX_MANAGER_REVIEWS HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS \
-		HARNESS_MAX_REPEATED_FINDING_REVIEWS MAX_ORACLE_RUNS \
+		HARNESS_MAX_REPEATED_FINDING_REVIEWS \
+		HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS \
+		HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS MAX_ORACLE_RUNS \
 		HARNESS_CODEX_WALL_TIMEOUT_SECONDS \
 		HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS \
 		HARNESS_CODEX_STALL_DIAGNOSTIC_REPEAT_SECONDS; do
@@ -234,6 +240,37 @@ project_config_value()
 repository_head_commit()
 {
 	git -C "$REPOSITORY" rev-parse --verify 'HEAD^{commit}' 2>/dev/null
+}
+
+repository_worktree_fingerprint()
+{
+	(
+		cd "$REPOSITORY"
+		{
+			printf 'tracked-and-index\0'
+			git diff --binary --no-ext-diff HEAD --
+			printf '\0untracked\0'
+			while IFS= read -r -d '' path; do
+				printf '%s\0' "$path"
+				if [[ -L "$path" ]]; then
+					printf 'symlink\0%s\0' "$(readlink "$path")"
+				elif [[ -f "$path" ]]; then
+					git hash-object --no-filters -- "$path"
+				else
+					printf 'special\0'
+				fi
+			done < <(git ls-files --others --exclude-standard -z | sort -z)
+		} | sha256sum | awk '{ print $1 }'
+	)
+}
+
+no_source_progress_count()
+{
+	local file="$(project_dir)/control/no-source-progress-count"
+	local value=0
+	[[ ! -f "$file" ]] || value="$(awk 'NR == 1 { print; exit }' "$file")"
+	[[ "$value" =~ ^[0-9]+$ ]] || value=0
+	printf '%s\n' "$value"
 }
 
 require_repository_initialization_state()
@@ -323,6 +360,10 @@ initialize_project()
 			"$HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS"
 		printf 'max_repeated_finding_reviews=%s\n' \
 			"$HARNESS_MAX_REPEATED_FINDING_REVIEWS"
+		printf 'max_no_source_progress_reviews=%s\n' \
+			"$HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS"
+		printf 'max_repeated_convergence_audits=%s\n' \
+			"$HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS"
 		printf 'codex_rust_log=%s\n' "$HARNESS_CODEX_RUST_LOG"
 		printf 'codex_diagnostic_profile=%s\n' \
 			"$HARNESS_CODEX_DIAGNOSTIC_PROFILE"
@@ -579,6 +620,33 @@ repeated_manager_finding_keys()
 		done
 		(( streak < threshold )) || printf '%s\n' "$key"
 	done < <(manager_finding_keys "$current")
+}
+
+repeated_convergence_finding_keys()
+{
+	local review_dir="$1"
+	local threshold="$2"
+	local reset_cycle="${3:-0}"
+	local audit cycle key candidate
+	local -a audits=() recent=()
+	(( threshold > 0 )) || return 0
+	while IFS= read -r audit; do
+		cycle="${audit##*/convergence-audit-}"
+		cycle="${cycle%.md}"
+		[[ "$cycle" =~ ^[0-9]+$ ]] || continue
+		(( 10#$cycle > reset_cycle )) || continue
+		audits+=("$audit")
+	done < <(find "$review_dir" -maxdepth 1 \
+		-name 'convergence-audit-[0-9][0-9][0-9]*.md' -type f | sort)
+	(( ${#audits[@]} >= threshold )) || return 0
+	recent=("${audits[@]: -threshold}")
+	candidate="${recent[${#recent[@]} - 1]}"
+	while IFS= read -r key; do
+		for audit in "${recent[@]}"; do
+			manager_finding_keys "$audit" | grep -Fqx -- "$key" || continue 2
+		done
+		printf '%s\n' "$key"
+	done < <(manager_finding_keys "$candidate")
 }
 
 usage_sum_by_thread()

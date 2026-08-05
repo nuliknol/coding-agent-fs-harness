@@ -22,6 +22,12 @@ The worker must be told to:
   implementation, refactoring, replacement, build, test, documentation, or
   deletion change needed by the specification, without asking for additional
   authorization;
+- treat ownership, scope, read-only, and do-not-edit clauses as the normal
+  direction of work rather than absolute prohibitions. Exceptions apply when
+  goal completion needs a coherent cross-boundary type, field, public adapter,
+  serializer, registration, build link, focused test, regression repair, or
+  broader connected implementation. The goal must not harden such clauses into
+  an immutable boundary;
 - revisit the complete specification before declaring readiness;
 - never stop after only a plan, analysis, partial scaffold, placeholder, or
   progress report while useful repository-local work remains;
@@ -33,7 +39,8 @@ The worker must be told to:
 - preserve files present in the canonical baseline unless completing an exact
   specification requirement requires their deletion or replacement;
 - never modify or remove the immutable specification, its configured source
-  file, or harness state;
+  file, development-policy inputs, harness state, or a contract explicitly
+  declared immutable;
 - follow the prototype/feature-first development policy exactly;
 - avoid production infrastructure, broad abstractions, unrelated refactors,
   and large test suites;

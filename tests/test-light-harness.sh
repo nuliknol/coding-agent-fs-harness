@@ -115,7 +115,8 @@ if [[ "$model" == gpt-5.6-terra ]]; then
 		! -f "$FAKE_CODEX_STATE/invalid-manager-review-emitted" ]]; then
 		touch "$FAKE_CODEX_STATE/invalid-manager-review-emitted"
 		message=$'DECISION: REVISE\n\nADD-001\nFinding-Key: duplicate-key\nSpecification: first requirement.\nEvidence: first evidence.\nRequired correction: first correction.\nVerification: first verification.\n\nADD-002\nFinding-Key: duplicate-key\nSpecification: second requirement.\nEvidence: second evidence.\nRequired correction: second correction.\nVerification: second verification.'
-	elif [[ -f "$FAKE_CODEX_STATE/actionable-audit-ran" ]]; then
+	elif [[ -f "$FAKE_CODEX_STATE/actionable-audit-ran" &&
+		"${FAKE_CONVERGENCE_STAYS_ACTIONABLE:-0}" != 1 ]]; then
 		message=$'DECISION: ACCEPT\nThe actionable convergence correction is complete.'
 	elif [[ "${FAKE_REPEAT_FINDINGS:-0}" == 1 ]]; then
 		message=$'DECISION: REVISE\n\n`ADD-001` — external decision remains unavailable.\n- `Finding-Key:` `external-decision-unavailable`\n- `Specification:` feature.txt must contain exactly complete.\n- `Evidence:` the configured external decision is still unavailable.\n- `Required correction:` use the external decision to complete the feature.\n- `Verification:` verify the configured external decision.'
@@ -155,7 +156,14 @@ elif [[ "$model" == gpt-5.6-sol ]]; then
 	output_tokens=50
 else
 	thread="${resume_thread:-worker-thread}"
-	if [[ -n "$resume_thread" ]]; then
+	if [[ "${FAKE_WORKER_NO_CHANGES:-0}" == 1 ]]; then
+		printf 'worker unchanged %s\n' "${resume_thread:-fresh}" >> \
+			"$FAKE_CODEX_STATE/invocations.log"
+		message='No repository change was made in this worker turn.'
+		input=500
+		cached=400
+		output_tokens=50
+	elif [[ -n "$resume_thread" ]]; then
 		printf 'complete\n' > "$FAKE_REPOSITORY/feature.txt"
 		printf 'worker resume %s\n' "$resume_thread" >> "$FAKE_CODEX_STATE/invocations.log"
 		message='Resolved the complete addendum and verified the specification.'
@@ -367,6 +375,10 @@ grep -q 'Manager review limit: 50' <<< "$default_check"
 grep -q 'Protocol repair attempts: 2' <<< "$default_check"
 grep -q 'Repeated-finding convergence audit: after 3 consecutive reviews' \
 	<<< "$default_check"
+grep -q 'No-source-progress pause: after 5 unchanged worker deliveries' \
+	<<< "$default_check"
+grep -q 'Repeated-convergence pause: after 3 audits retain a finding' \
+	<<< "$default_check"
 grep -q 'Oracle: gpt-5.6-sol (high), sandbox=workspace-write, maximum runs=3' \
 	<<< "$default_check"
 grep -q 'Codex diagnostic profile: disabled' <<< "$default_check"
@@ -512,6 +524,8 @@ grep -q '^worker fresh$' "$fake_state/invocations.log"
 grep -q '^worker resume worker-thread$' "$fake_state/invocations.log"
 grep -Fq -- '--disable goals' "$fake_state/codex-argv.log"
 grep -q '^manager_review_checklist=c-strict$' "$project/project.conf"
+grep -q '^max_no_source_progress_reviews=5$' "$project/project.conf"
+grep -q '^max_repeated_convergence_audits=3$' "$project/project.conf"
 grep -q '^# Operator-selected first-review checklist$' \
 	"$project/prompts/manager-review-001.md"
 grep -q '^## Strict C verification profile$' \
@@ -544,7 +558,10 @@ for prompt in "$project/prompts/worker-001.md" \
 		"$prompt"
 	grep -Fq 'Terra can judge it.' "$prompt"
 	grep -Fq 'fresh unique temporary' "$prompt"
+	grep -Fq 'exceptions apply' "$prompt"
 done
+grep -Fq 'never create a finding whose only' \
+	"$project/prompts/manager-review-001.md"
 grep -Fq 'never parking an internal goal as blocked' \
 	"$project/prompts/manager-goal.md"
 test -f "$repo/pre-existing.txt"
@@ -808,6 +825,153 @@ grep -q 'CONVERGENCE_ADDENDUM_PUBLISHED cycle=3' \
 grep -q 'PROTOCOL_REPAIR_COMPLETED role=manager_convergence cycle=3 .*attempts=1' \
 	"$action_project/logs/events.log"
 grep -q '^worker resume worker-thread$' "$action_fake_state/invocations.log"
+
+no_progress_repo="$TEST_DIR/no-progress-repository"
+no_progress_state="$TEST_DIR/no-progress-state"
+no_progress_fake_state="$TEST_DIR/no-progress-fake-state"
+mkdir -p "$no_progress_repo" "$no_progress_fake_state"
+git -C "$no_progress_repo" init -q
+git -C "$no_progress_repo" config user.name 'Harness Test'
+git -C "$no_progress_repo" config user.email 'harness-test@example.invalid'
+printf 'baseline\n' > "$no_progress_repo/baseline.txt"
+git -C "$no_progress_repo" add baseline.txt
+git -C "$no_progress_repo" commit -q -m baseline
+cat > "$TEST_DIR/no-progress-project.env" <<EOF
+export PROJECT="no-progress-circuit"
+export REPOSITORY="$no_progress_repo"
+export SPECIFICATION="$TEST_DIR/specification.md"
+export DEVELOPMENT_POLICY="$TEST_DIR/development-policy.txt"
+export HARNESS_HOME="$ROOT"
+export HARNESS_ROOT="$no_progress_state"
+export MANAGER_CODEX_BIN="$TEST_DIR/fake-codex"
+export WORKER_CODEX_BIN="$TEST_DIR/fake-codex"
+export MANAGER_CODEX_HOME="$TEST_DIR/codex-home"
+export WORKER_CODEX_HOME="$TEST_DIR/codex-home"
+export MAX_ORACLE_RUNS="0"
+export HARNESS_PROVIDER_RETRY_SECONDS="1"
+export HARNESS_QUOTA_RETRY_SECONDS="1"
+export HARNESS_MAX_REPEATED_FINDING_REVIEWS="0"
+export HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS="2"
+export HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS="3"
+export FAKE_CODEX_STATE="$no_progress_fake_state"
+export FAKE_REPOSITORY="$no_progress_repo"
+export FAKE_REPEAT_FINDINGS="1"
+export FAKE_WORKER_NO_CHANGES="1"
+EOF
+chmod 600 "$TEST_DIR/no-progress-project.env"
+"$ROOT/bin/harness-init" "$TEST_DIR/no-progress-project.env" >/dev/null
+"$ROOT/bin/harness-start" "$TEST_DIR/no-progress-project.env" >/dev/null
+no_progress_project="$no_progress_state/projects/no-progress-circuit"
+for _ in {1..30}; do
+	grep -qx 'phase=NO_SOURCE_PROGRESS' \
+		"$no_progress_project/control/state.env" 2>/dev/null && break
+	sleep 1
+done
+grep -qx 'status=PAUSED' "$no_progress_project/control/state.env"
+grep -qx 'phase=NO_SOURCE_PROGRESS' "$no_progress_project/control/state.env"
+grep -qx 'cycle=2' "$no_progress_project/control/state.env"
+grep -qx '2' "$no_progress_project/control/no-source-progress-count"
+grep -q '^changed=0$' "$no_progress_project/control/worker-progress-002.env"
+grep -q '^# No source progress limit reached$' \
+	"$no_progress_project/control/operator-required.md"
+grep -q 'NO_SOURCE_PROGRESS_LIMIT_REACHED cycle=2 count=2 max=2' \
+	"$no_progress_project/logs/events.log"
+test ! -f "$no_progress_project/reviews/review-002.md"
+paused_start_output="$("$ROOT/bin/harness-start" \
+	"$TEST_DIR/no-progress-project.env")"
+grep -q 'Project remains paused after 2 unchanged worker deliveries' \
+	<<< "$paused_start_output"
+printf 'operator integration\n' > "$no_progress_repo/operator-integration.txt"
+printf 'export FAKE_WORKER_NO_CHANGES="0"\n' >> \
+	"$TEST_DIR/no-progress-project.env"
+printf 'export FAKE_REPEAT_FINDINGS="0"\n' >> \
+	"$TEST_DIR/no-progress-project.env"
+"$ROOT/bin/harness-start" "$TEST_DIR/no-progress-project.env" >/dev/null
+for _ in {1..30}; do
+	grep -qx 'status=COMPLETE' \
+		"$no_progress_project/control/state.env" 2>/dev/null && break
+	sleep 1
+done
+grep -qx 'status=COMPLETE' "$no_progress_project/control/state.env"
+test -f "$no_progress_project/reviews/operator-pause-no-source-progress-2-2.md"
+test ! -f "$no_progress_project/control/operator-required.md"
+grep -q 'NO_SOURCE_PROGRESS_RESUMED cycle=2 .*repository_changed=1' \
+	"$no_progress_project/logs/events.log"
+
+convergence_cap_repo="$TEST_DIR/convergence-cap-repository"
+convergence_cap_state="$TEST_DIR/convergence-cap-state"
+convergence_cap_fake_state="$TEST_DIR/convergence-cap-fake-state"
+mkdir -p "$convergence_cap_repo" "$convergence_cap_fake_state"
+git -C "$convergence_cap_repo" init -q
+git -C "$convergence_cap_repo" config user.name 'Harness Test'
+git -C "$convergence_cap_repo" config user.email 'harness-test@example.invalid'
+printf 'baseline\n' > "$convergence_cap_repo/baseline.txt"
+git -C "$convergence_cap_repo" add baseline.txt
+git -C "$convergence_cap_repo" commit -q -m baseline
+cat > "$TEST_DIR/convergence-cap-project.env" <<EOF
+export PROJECT="convergence-cap-circuit"
+export REPOSITORY="$convergence_cap_repo"
+export SPECIFICATION="$TEST_DIR/specification.md"
+export DEVELOPMENT_POLICY="$TEST_DIR/development-policy.txt"
+export HARNESS_HOME="$ROOT"
+export HARNESS_ROOT="$convergence_cap_state"
+export MANAGER_CODEX_BIN="$TEST_DIR/fake-codex"
+export WORKER_CODEX_BIN="$TEST_DIR/fake-codex"
+export MANAGER_CODEX_HOME="$TEST_DIR/codex-home"
+export WORKER_CODEX_HOME="$TEST_DIR/codex-home"
+export MAX_ORACLE_RUNS="0"
+export HARNESS_PROVIDER_RETRY_SECONDS="1"
+export HARNESS_QUOTA_RETRY_SECONDS="1"
+export HARNESS_MAX_MANAGER_REVIEWS="50"
+export HARNESS_MAX_REPEATED_FINDING_REVIEWS="2"
+export HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS="0"
+export HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS="3"
+export FAKE_CODEX_STATE="$convergence_cap_fake_state"
+export FAKE_REPOSITORY="$convergence_cap_repo"
+export FAKE_REPEAT_FINDINGS="1"
+export FAKE_CONVERGENCE_ACTIONABLE="1"
+export FAKE_CONVERGENCE_STAYS_ACTIONABLE="1"
+EOF
+chmod 600 "$TEST_DIR/convergence-cap-project.env"
+"$ROOT/bin/harness-init" "$TEST_DIR/convergence-cap-project.env" >/dev/null
+"$ROOT/bin/harness-start" "$TEST_DIR/convergence-cap-project.env" >/dev/null
+convergence_cap_project="$convergence_cap_state/projects/convergence-cap-circuit"
+for _ in {1..45}; do
+	grep -qx 'phase=CONVERGENCE_LIMIT_REACHED' \
+		"$convergence_cap_project/control/state.env" 2>/dev/null && break
+	sleep 1
+done
+grep -qx 'status=PAUSED' "$convergence_cap_project/control/state.env"
+grep -qx 'phase=CONVERGENCE_LIMIT_REACHED' \
+	"$convergence_cap_project/control/state.env"
+grep -qx 'cycle=6' "$convergence_cap_project/control/state.env"
+test -f "$convergence_cap_project/reviews/convergence-audit-002.md"
+test -f "$convergence_cap_project/reviews/convergence-audit-004.md"
+test -f "$convergence_cap_project/reviews/convergence-audit-006.md"
+grep -q 'direct-repository-correction' \
+	"$convergence_cap_project/control/operator-required.md"
+grep -q 'CONVERGENCE_LIMIT_REACHED cycle=6 max=3' \
+	"$convergence_cap_project/logs/events.log"
+if grep -q 'CONVERGENCE_ADDENDUM_PUBLISHED cycle=6' \
+	"$convergence_cap_project/logs/events.log"; then
+	printf 'third repeated convergence audit incorrectly resumed Luna\n' >&2
+	exit 1
+fi
+printf 'export HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS="4"\n' >> \
+	"$TEST_DIR/convergence-cap-project.env"
+printf 'export FAKE_CONVERGENCE_STAYS_ACTIONABLE="0"\n' >> \
+	"$TEST_DIR/convergence-cap-project.env"
+"$ROOT/bin/harness-start" "$TEST_DIR/convergence-cap-project.env" >/dev/null
+for _ in {1..30}; do
+	grep -qx 'status=COMPLETE' \
+		"$convergence_cap_project/control/state.env" 2>/dev/null && break
+	sleep 1
+done
+grep -qx 'status=COMPLETE' "$convergence_cap_project/control/state.env"
+test -f "$convergence_cap_project/reviews/operator-pause-convergence-6-3.md"
+test ! -f "$convergence_cap_project/control/operator-required.md"
+grep -q 'CONVERGENCE_LIMIT_RESUMED cycle=6 previous_count=3 new_limit=4' \
+	"$convergence_cap_project/logs/events.log"
 
 cap_repo="$TEST_DIR/cap-repository"
 cap_state="$TEST_DIR/cap-state"
