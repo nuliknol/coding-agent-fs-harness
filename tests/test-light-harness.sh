@@ -912,15 +912,28 @@ grep -q '^# No source progress limit reached$' \
 grep -q 'NO_SOURCE_PROGRESS_LIMIT_REACHED cycle=2 count=2 max=2' \
 	"$no_progress_project/logs/events.log"
 test ! -f "$no_progress_project/reviews/review-002.md"
-paused_start_output="$("$ROOT/bin/harness-start" \
-	"$TEST_DIR/no-progress-project.env")"
-grep -q 'Project remains paused after 2 unchanged worker deliveries' \
+if paused_start_output="$("$ROOT/bin/harness-start" \
+	"$TEST_DIR/no-progress-project.env" 2>&1)"; then
+	printf 'harness-start incorrectly resumed a paused no-progress project\n' >&2
+	exit 1
+fi
+grep -q 'project is paused in NO_SOURCE_PROGRESS at cycle 2' \
 	<<< "$paused_start_output"
+grep -q 'run harness-resume before harness-start' <<< "$paused_start_output"
 printf 'operator integration\n' > "$no_progress_repo/operator-integration.txt"
 printf 'export FAKE_WORKER_NO_CHANGES="0"\n' >> \
 	"$TEST_DIR/no-progress-project.env"
 printf 'export FAKE_REPEAT_FINDINGS="0"\n' >> \
 	"$TEST_DIR/no-progress-project.env"
+if "$ROOT/bin/harness-start" "$TEST_DIR/no-progress-project.env" \
+	>/dev/null 2>&1; then
+	printf 'environment/repository changes silently bypassed a durable pause\n' >&2
+	exit 1
+fi
+grep -qx 'status=PAUSED' "$no_progress_project/control/state.env"
+"$ROOT/bin/harness-resume" "$TEST_DIR/no-progress-project.env" >/dev/null
+grep -qx 'status=ACTIVE' "$no_progress_project/control/state.env"
+grep -qx 'phase=REVIEW_REQUIRED' "$no_progress_project/control/state.env"
 "$ROOT/bin/harness-start" "$TEST_DIR/no-progress-project.env" >/dev/null
 for _ in {1..30}; do
 	grep -qx 'status=COMPLETE' \
@@ -1083,6 +1096,29 @@ grep -qx 'phase=REVIEW_LIMIT_REACHED' "$cap_project/control/state.env"
 grep -qx 'cycle=2' "$cap_project/control/state.env"
 test ! -f "$cap_project/reviews/convergence-audit-002.md"
 grep -q 'REVIEW_LIMIT_REACHED cycle=2 max=2' "$cap_project/logs/events.log"
+if cap_resume_output="$("$ROOT/bin/harness-resume" \
+	"$TEST_DIR/cap-project.env" 2>&1)"; then
+	printf 'harness-resume incorrectly crossed an unchanged manager-review cap\n' >&2
+	exit 1
+fi
+grep -q 'manager-review limit remains 2 at cycle 2' \
+	<<< "$cap_resume_output"
+grep -qx 'status=PAUSED' "$cap_project/control/state.env"
+printf 'export HARNESS_MAX_MANAGER_REVIEWS="3"\n' >> \
+	"$TEST_DIR/cap-project.env"
+if cap_start_output="$("$ROOT/bin/harness-start" \
+	"$TEST_DIR/cap-project.env" 2>&1)"; then
+	printf 'harness-start incorrectly bypassed the manager-review cap\n' >&2
+	exit 1
+fi
+grep -q 'project is paused in REVIEW_LIMIT_REACHED at cycle 2' \
+	<<< "$cap_start_output"
+grep -qx 'status=PAUSED' "$cap_project/control/state.env"
+"$ROOT/bin/harness-resume" "$TEST_DIR/cap-project.env" >/dev/null
+grep -qx 'status=ACTIVE' "$cap_project/control/state.env"
+grep -qx 'phase=WORKER_REQUIRED' "$cap_project/control/state.env"
+grep -q 'REVIEW_LIMIT_RESUMED cycle=2 new_limit=3' \
+	"$cap_project/logs/events.log"
 
 oracle_repo="$TEST_DIR/oracle-repository"
 oracle_state="$TEST_DIR/oracle-state"
@@ -1154,6 +1190,16 @@ grep -q 'ORACLE_LIMIT_REACHED cycle=3 completed_runs=1 max_runs=1' \
 	"$oracle_project/logs/events.log"
 
 sed -i 's/MAX_ORACLE_RUNS="1"/MAX_ORACLE_RUNS="2"/' "$oracle_env"
+if oracle_start_output="$("$ROOT/bin/harness-start" "$oracle_env" 2>&1)"; then
+	printf 'harness-start incorrectly bypassed the Oracle audit cap\n' >&2
+	exit 1
+fi
+grep -q 'project is paused in ORACLE_LIMIT_REACHED at cycle 3' \
+	<<< "$oracle_start_output"
+grep -qx 'status=PAUSED' "$oracle_project/control/state.env"
+"$ROOT/bin/harness-resume" "$oracle_env" >/dev/null
+grep -qx 'status=ACTIVE' "$oracle_project/control/state.env"
+grep -qx 'phase=ORACLE_REQUIRED' "$oracle_project/control/state.env"
 "$ROOT/bin/harness-start" "$oracle_env" >/dev/null
 for _ in {1..30}; do
 	grep -qx 'status=COMPLETE' "$oracle_project/control/state.env" 2>/dev/null && break
@@ -1366,6 +1412,16 @@ done
 test -s "$containment_pid_file"
 detached_pid="$(cat "$containment_pid_file")"
 kill -0 "$detached_pid"
+if duplicate_start_output="$("$ROOT/bin/harness-start" \
+	"$CONTAINMENT_ENV_FILE" 2>&1)"; then
+	printf 'duplicate harness-start was incorrectly accepted\n' >&2
+	exit 1
+fi
+grep -q 'supervisor is already running with PID' \
+	<<< "$duplicate_start_output"
+grep -q 'harness-start requires a stopped supervisor' \
+	<<< "$duplicate_start_output"
+test "$(cat "$containment_pid_file")" = "$detached_pid"
 test -s "$containment_project/control/process-token"
 if command -v systemctl >/dev/null 2>&1 &&
 	command -v systemd-run >/dev/null 2>&1 &&

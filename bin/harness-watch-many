@@ -293,19 +293,19 @@ describe_harness()
 				printf 'CIRCUIT BREAKER: %s' \
 					"${summary:-the same actionable findings survived the convergence-audit limit.}"
 				[[ -z "$keys" ]] || printf '\nRepeated findings: %s' "$keys"
-				printf '\nAction: inspect the report; correct the repository or use harness-reset-worker-context when stale worker policy caused the loop.'
+				printf '\nAction: inspect the report; correct the repository and run harness-resume followed by harness-start, or use harness-reset-worker-context when stale worker policy caused the loop.'
 				;;
 			NO_SOURCE_PROGRESS)
-				printf 'NO SOURCE PROGRESS: %s\nAction: inspect the latest worker report and repository fingerprint, then correct the blocker or reset stale worker context.' \
+				printf 'NO SOURCE PROGRESS: %s\nAction: inspect the latest worker report and repository fingerprint; correct the blocker and run harness-resume followed by harness-start, or reset stale worker context.' \
 					"${summary:-consecutive worker deliveries left the Git-visible tree unchanged.}"
 				;;
 			REVIEW_LIMIT_REACHED)
 				if [[ "$max_manager_reviews" =~ ^[0-9]+$ ]] &&
 					(( max_manager_reviews == 0 || max_manager_reviews > cycle )); then
-					printf 'REVIEW LIMIT: cycle %s reached the old manager-review cap. Configuration now permits continuation through cycle %s. Run harness-start to resume the pending addendum.' \
+					printf 'REVIEW LIMIT: cycle %s reached the old manager-review cap. Configuration now permits continuation through cycle %s. Run harness-resume to acknowledge the new limit, then harness-start.' \
 						"$cycle" "$([[ "$max_manager_reviews" == 0 ]] && printf unlimited || printf '%s' "$max_manager_reviews")"
 				else
-					printf 'REVIEW LIMIT: cycle %s reached the configured manager-review cap. Increase HARNESS_MAX_MANAGER_REVIEWS if the remaining addendum is valid, then run harness-start.' \
+					printf 'REVIEW LIMIT: cycle %s reached the configured manager-review cap. Increase HARNESS_MAX_MANAGER_REVIEWS if the remaining addendum is valid, run harness-resume, then harness-start.' \
 						"$cycle"
 				fi
 				;;
@@ -314,10 +314,10 @@ describe_harness()
 					-type f -name 'oracle-audit-*.md' | wc -l | tr -d ' ')"
 				if [[ "$max_oracle_runs" =~ ^[0-9]+$ ]] &&
 					(( max_oracle_runs > completed_oracle_runs )); then
-					printf 'ORACLE LIMIT: %s final audits were consumed without PASS. Configuration now permits %s; run harness-start to resume directly at the Oracle gate.' \
+					printf 'ORACLE LIMIT: %s final audits were consumed without PASS. Configuration now permits %s; run harness-resume to acknowledge the new limit, then harness-start.' \
 						"$completed_oracle_runs" "$max_oracle_runs"
 				else
-					printf 'ORACLE LIMIT: all configured final audits were consumed without PASS. Inspect the latest Oracle addendum, raise MAX_ORACLE_RUNS only if another independent audit is justified, then run harness-start.'
+					printf 'ORACLE LIMIT: all configured final audits were consumed without PASS. Inspect the latest Oracle addendum, raise MAX_ORACLE_RUNS only if another independent audit is justified, run harness-resume, then harness-start.'
 				fi
 				;;
 			NEEDS_OPERATOR)
@@ -347,12 +347,12 @@ describe_harness()
 			printf 'WARNING: the %s turn has produced no JSONL activity for %s, exceeding the %s diagnostic threshold.' \
 				"$role" "$(human_duration "$age")" "$(human_duration "$stall_seconds")"
 		else
-			printf 'No blocker detected. %s is active; its trace was updated %s ago.' \
+			printf 'No blocker detected. %s is active; its activity was updated %s ago.' \
 				"${role^}" "$(human_duration "$age")"
 		fi
 		[[ -z "$action" ]] || printf '\n%s' "$action"
 	else
-		printf 'No blocker detected. %s is active in %s; no role trace has been created yet.' \
+		printf 'No blocker detected. %s is active in %s; no role activity has been recorded yet.' \
 			"${role^}" "$phase"
 	fi
 

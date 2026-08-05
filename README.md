@@ -213,12 +213,15 @@ Oracle-sourced implementation-gaps addendum and returns to Luna, after which
 Terra reviews normally. The last permitted Oracle rejection is still delivered
 and implemented. If Terra accepts again after the budget is exhausted, the
 harness pauses at `ORACLE_LIMIT_REACHED` without claiming completion. Increase
-the value and run `harness-start` to resume directly at the Oracle gate. Set it
-to `0` before acceptance only when deliberately disabling the Oracle gate.
+the value, run `harness-resume` to acknowledge the new audit budget, and then
+run `harness-start`. Set it to `0` before acceptance only when deliberately
+disabling the Oracle gate.
 
 `HARNESS_MAX_MANAGER_REVIEWS=50` is the default emergency cap. It pauses after
-that many rejected regular Terra reviews without claiming completion. Set it
-to `0` only when you deliberately want an unlimited loop.
+that many rejected regular Terra reviews without claiming completion. To
+continue, raise the value, run `harness-resume` to acknowledge crossing the
+recorded boundary, and then run `harness-start`. Set it to `0` only when you
+deliberately want an unlimited loop.
 
 `HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS=2` is the bounded response-repair budget.
 When a Terra or Sol report violates its output contract, the harness archives
@@ -240,14 +243,15 @@ deliveries produce the same Git-visible implementation-tree content. The
 fingerprint includes tracked/index changes and non-ignored untracked files and
 uses content rather than timestamps. Test reruns and repeated reports therefore
 do not keep an implementation loop alive. Change the repository or raise the
-limit, then run `harness-start` to resume. Set it to `0` to disable this guard.
+limit, run `harness-resume`, and then run `harness-start`. Set it to `0` to
+disable this guard.
 
 `HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS=3` pauses when any stable finding key
 survives three consecutive fresh convergence audits. This catches a loop that
 continues after ordinary repeated-finding audits have already prescribed the
 same repository-local correction. Change the repository or raise the limit,
-then run `harness-start` to begin a new convergence window. Set it to `0` to
-disable the guard.
+run `harness-resume`, and then run `harness-start` to begin a new convergence
+window. Set it to `0` to disable the guard.
 
 ### Optional first-review verification
 
@@ -396,6 +400,27 @@ Start the background supervisor:
 ```bash
 bin/harness-start ~/configs/my-project-light.env
 ```
+
+`harness-start` is only a process-launch operation. It requires an `ACTIVE`
+durable workflow state and a stopped supervisor. A duplicate start is rejected.
+The command never changes a `PAUSED` state, even when a newly edited environment
+file raises the limit that caused the pause. This prevents an accidental start
+from bypassing a review, convergence, no-progress, or Oracle boundary.
+
+After resolving a paused condition, acknowledge the state transition
+explicitly and then launch the supervisor:
+
+```bash
+bin/harness-resume ~/configs/my-project-light.env
+bin/harness-start ~/configs/my-project-light.env
+```
+
+`harness-resume` refuses to operate while a supervisor or residual lock holder
+is active. It validates the phase-specific condition, records the transition
+event, changes only the durable state, and does not launch a process. A review
+or Oracle limit must actually be raised first; changing the environment alone
+does not cross the recorded limit. `NEEDS_OPERATOR` requires its specific
+repair action and cannot be cleared by this generic command.
 
 Inspect status or follow agent messages:
 
