@@ -98,7 +98,7 @@ reload_review_environment()
 	fi
 
 	digest="$(sha256sum "$supervisor_env_file" | awk '{ print $1 }')"
-	log_event "ENV_RELOADED role=$role cycle=$cycle sha256=$digest manager_model=$MANAGER_MODEL manager_effort=$MANAGER_REASONING_EFFORT worker_model=$WORKER_MODEL worker_effort=$WORKER_REASONING_EFFORT oracle_model=$ORACLE_MODEL oracle_effort=$ORACLE_REASONING_EFFORT review_limit=$HARNESS_MAX_MANAGER_REVIEWS oracle_limit=$MAX_ORACLE_RUNS repeated_finding_reviews=$HARNESS_MAX_REPEATED_FINDING_REVIEWS"
+	log_event "ENV_RELOADED role=$role cycle=$cycle sha256=$digest manager_model=$MANAGER_MODEL manager_effort=$MANAGER_REASONING_EFFORT worker_model=$WORKER_MODEL worker_effort=$WORKER_REASONING_EFFORT oracle_model=$ORACLE_MODEL oracle_effort=$ORACLE_REASONING_EFFORT review_limit=$HARNESS_MAX_MANAGER_REVIEWS oracle_limit=$MAX_ORACLE_RUNS protocol_repair_attempts=$HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS repeated_finding_reviews=$HARNESS_MAX_REPEATED_FINDING_REVIEWS"
 }
 
 invoke_with_retry()
@@ -170,6 +170,209 @@ write_context_header()
 		printf 'Protected harness state: `%s`\n\n' "$dir"
 		printf 'Development policy: `%s`\n\n' "$dir/inputs/development-policy.txt"
 	} >> "$prompt"
+}
+
+validate_protocol_report()
+{
+	local role="$1"
+	local report="$2"
+	local cycle="$3"
+	local oracle_run="$4"
+	local decision
+	[[ -s "$report" ]] || {
+		printf 'report is empty\n' >&2
+		return 1
+	}
+	decision="$(sed -n '1{s/^DECISION: //;p;q;}' "$report")"
+	case "$role" in
+		manager_review)
+			[[ "$decision" == ACCEPT || "$decision" == REVISE ]] || {
+				printf 'invalid manager-review decision: %s\n' "$decision" >&2
+				return 1
+			}
+			if [[ "$decision" == REVISE ]]; then
+				validate_manager_findings "$report" "$decision" || return 1
+			fi
+			;;
+		manager_convergence)
+			[[ "$decision" == ACCEPT || "$decision" == ACTIONABLE || \
+				"$decision" == NEEDS_OPERATOR ]] || {
+				printf 'invalid convergence-audit decision: %s\n' "$decision" >&2
+				return 1
+			}
+			if [[ "$decision" == ACTIONABLE ]]; then
+				validate_manager_findings "$report" "$decision" || return 1
+			fi
+			;;
+		oracle_audit)
+			[[ "$decision" == PASS || "$decision" == REVISE || \
+				"$decision" == NEEDS_OPERATOR ]] || {
+				printf 'invalid Oracle decision: %s\n' "$decision" >&2
+				return 1
+			}
+			[[ "$(tail -n 1 "$report")" == ORACLE_AUDIT_COMPLETE ]] || {
+				printf 'Oracle report does not end with ORACLE_AUDIT_COMPLETE\n' >&2
+				return 1
+			}
+			if [[ "$decision" == PASS ]]; then
+				grep -Fqx "Oracle-Run: $oracle_run" "$report" &&
+					grep -Fqx "Manager-Cycle: $cycle" "$report" || {
+						printf 'Oracle PASS metadata does not match run %s and cycle %s\n' \
+							"$oracle_run" "$cycle" >&2
+						return 1
+					}
+				validate_oracle_pass "$dir/inputs/specification.txt" "$report" ||
+					return 1
+			elif [[ "$decision" == REVISE ]]; then
+				validate_manager_findings "$report" "$decision" || return 1
+				grep -Fqx 'Addendum-Source: ORACLE' "$report" &&
+					grep -Fqx "Oracle-Run: $oracle_run" "$report" &&
+					grep -Fqx "Manager-Cycle: $cycle" "$report" || {
+						printf 'Oracle REVISE metadata does not match run %s and cycle %s\n' \
+							"$oracle_run" "$cycle" >&2
+						return 1
+					}
+			fi
+			;;
+		*)
+			printf 'unsupported protocol-validation role: %s\n' "$role" >&2
+			return 1
+			;;
+	esac
+}
+
+prepare_protocol_repair_prompt()
+{
+	local role="$1"
+	local cycle="$2"
+	local oracle_run="$3"
+	local stem="$4"
+	local attempt="$5"
+	local validation_error="$6"
+	local rejected="$7"
+	local requirement_id
+	local prompt="$dir/prompts/$stem-protocol-repair-$(printf '%03d' "$attempt").md"
+	cp "$HARNESS_HOME/prompts/protocol-repair.md" "$prompt"
+	{
+		printf '# Repair context\n\n'
+		printf 'Role: `%s`\n\n' "$role"
+		printf 'Manager cycle: `%s`\n\n' "$cycle"
+		[[ "$role" != oracle_audit ]] ||
+			printf 'Oracle run: `%s`\n\n' "$oracle_run"
+		printf 'Validator error:\n\n%s\n\n' "$validation_error"
+		printf '# Required response contract\n\n'
+		case "$role" in
+			manager_review)
+				printf '%s\n' \
+					'The first line must be exactly `DECISION: ACCEPT` or `DECISION: REVISE`.' \
+					'For REVISE, retain every substantive finding as an `ADD-NNN` record with exactly one unique `Finding-Key:`, plus non-empty `Specification:`, `Evidence:`, `Required correction:`, and `Verification:` fields.'
+				;;
+			manager_convergence)
+				printf '%s\n' \
+					'The first line must be exactly `DECISION: ACCEPT`, `DECISION: ACTIONABLE`, or `DECISION: NEEDS_OPERATOR`.' \
+					'For ACTIONABLE, retain every substantive finding as an `ADD-NNN` record with exactly one unique `Finding-Key:`, plus non-empty `Specification:`, `Evidence:`, `Required correction:`, and `Verification:` fields.'
+				;;
+			oracle_audit)
+				printf '%s\n' \
+					'The first line must be exactly `DECISION: PASS`, `DECISION: REVISE`, or `DECISION: NEEDS_OPERATOR`.' \
+					'The last line must be exactly `ORACLE_AUDIT_COMPLETE`.' \
+					"For PASS, include exact lines \`Oracle-Run: $oracle_run\` and \`Manager-Cycle: $cycle\`, followed by one non-empty Evidence/Verification record for each expected requirement ID listed below." \
+					"For REVISE, include exact lines \`Addendum-Source: ORACLE\`, \`Oracle-Run: $oracle_run\`, and \`Manager-Cycle: $cycle\`, followed by valid ADD-NNN findings."
+				printf '\nExpected PASS requirement IDs:\n\n'
+				while IFS= read -r requirement_id; do
+					printf -- '- `%s`\n' "$requirement_id"
+				done < <(oracle_expected_requirement_ids \
+					"$dir/inputs/specification.txt")
+				;;
+		esac
+		printf '\n# Rejected report — reproduce in corrected form\n\n'
+		printf '%s\n' '<BEGIN_REJECTED_REPORT>'
+		cat "$rejected"
+		printf '%s\n' '<END_REJECTED_REPORT>'
+	} >> "$prompt"
+	chmod 600 "$prompt"
+	printf '%s\n' "$prompt"
+}
+
+pause_for_protocol_repair()
+{
+	local role="$1"
+	local cycle="$2"
+	local stem="$3"
+	local validation_error="$4"
+	local report="$dir/control/operator-required.md"
+	{
+		printf '# Operator required: reviewer protocol repair exhausted\n\n'
+		printf 'The harness preserved repository work but could not obtain a valid `%s` report after %s repair attempts.\n\n' \
+			"$role" "$HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS"
+		printf 'Cycle: `%s`\n\n' "$cycle"
+		printf 'Last validator error:\n\n```text\n%s\n```\n\n' \
+			"$validation_error"
+		printf 'Rejected reports: `%s/reviews/rejected/%s-invalid-*.md`\n' \
+			"$dir" "$stem"
+	} > "$report"
+	chmod 600 "$report"
+	write_state PAUSED NEEDS_OPERATOR "$cycle"
+	log_event "PROTOCOL_REPAIR_EXHAUSTED role=$role cycle=$cycle stem=$stem attempts=$HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS report=$report"
+	log_event "OPERATOR_REQUIRED cycle=$cycle source=protocol-repair role=$role report=$report"
+}
+
+repair_protocol_report()
+{
+	local role="$1"
+	local cycle="$2"
+	local oracle_run="$3"
+	local stem="$4"
+	local result_name="$5"
+	local -n result_ref="$result_name"
+	local validation_error rejected prompt repair_stem repaired repair_role
+	local expected_decision repaired_decision
+	local attempt=0
+	expected_decision="$(sed -n '1{s/^DECISION: //;p;q;}' "$result_ref")"
+	case "$role:$expected_decision" in
+		manager_review:ACCEPT|manager_review:REVISE|\
+		manager_convergence:ACCEPT|manager_convergence:ACTIONABLE|\
+		manager_convergence:NEEDS_OPERATOR|oracle_audit:PASS|\
+		oracle_audit:REVISE|oracle_audit:NEEDS_OPERATOR)
+			;;
+		*) expected_decision="" ;;
+	esac
+	mkdir -p "$dir/reviews/rejected"
+	while true; do
+		if validation_error="$(validate_protocol_report "$role" \
+			"$result_ref" "$cycle" "$oracle_run" 2>&1)"; then
+			repaired_decision="$(sed -n '1{s/^DECISION: //;p;q;}' "$result_ref")"
+			if [[ -z "$expected_decision" ||
+				"$repaired_decision" == "$expected_decision" ]]; then
+				break
+			fi
+			validation_error="protocol repair changed decision from $expected_decision to $repaired_decision"
+		fi
+		rejected="$dir/reviews/rejected/$stem-invalid-$(printf '%03d' "$attempt").md"
+		cp "$result_ref" "$rejected"
+		chmod 600 "$rejected"
+		log_event "PROTOCOL_VALIDATION_FAILED role=$role cycle=$cycle stem=$stem attempt=$attempt reason=$(printf '%q' "$validation_error") rejected=$rejected"
+		if (( attempt >= HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS )); then
+			pause_for_protocol_repair "$role" "$cycle" "$stem" \
+				"$validation_error"
+			return 1
+		fi
+		attempt=$((attempt + 1))
+		prompt="$(prepare_protocol_repair_prompt "$role" "$cycle" \
+			"$oracle_run" "$stem" "$attempt" "$validation_error" "$rejected")"
+		repair_stem="$stem-protocol-repair-$(printf '%03d' "$attempt")"
+		case "$role" in
+			oracle_audit) repair_role=oracle_protocol_repair ;;
+			*) repair_role=manager_protocol_repair ;;
+		esac
+		log_event "PROTOCOL_REPAIR_STARTED role=$role cycle=$cycle stem=$stem attempt=$attempt model=$([[ "$role" == oracle_audit ]] && printf '%s' "$ORACLE_MODEL" || printf '%s' "$MANAGER_MODEL")"
+		repaired="$(invoke_with_retry "$repair_role" "$prompt" "$repair_stem")" ||
+			fail_harness "protocol repair turn failed for $role cycle $cycle attempt $attempt"
+		result_ref="$repaired"
+	done
+	if (( attempt > 0 )); then
+		log_event "PROTOCOL_REPAIR_COMPLETED role=$role cycle=$cycle stem=$stem attempts=$attempt output=$result_ref"
+	fi
 }
 
 generate_goal()
@@ -331,27 +534,10 @@ run_oracle_audit()
 	log_event "ORACLE_AUDIT_STARTED cycle=$cycle run=$run model=$ORACLE_MODEL effort=$ORACLE_REASONING_EFFORT"
 	output="$(invoke_with_retry oracle_audit "$prompt" "$stem")" ||
 		fail_harness "Sol Oracle audit failed in run $run"
-	[[ -s "$output" ]] || fail_harness "Sol returned an empty Oracle audit in run $run"
-	decision="$(sed -n '1{s/^DECISION: //;p;q;}' "$output")"
-	[[ "$decision" == PASS || "$decision" == REVISE || \
-		"$decision" == NEEDS_OPERATOR ]] ||
-		fail_harness "Sol Oracle run $run returned invalid decision '$decision'"
-	[[ "$(tail -n 1 "$output")" == ORACLE_AUDIT_COMPLETE ]] ||
-		fail_harness "Sol Oracle run $run did not end with ORACLE_AUDIT_COMPLETE"
-	if [[ "$decision" == PASS ]]; then
-		grep -Fqx "Oracle-Run: $run" "$output" &&
-			grep -Fqx "Manager-Cycle: $cycle" "$output" ||
-			fail_harness "Sol Oracle run $run returned invalid PASS metadata"
-		validate_oracle_pass "$dir/inputs/specification.txt" "$output" ||
-			fail_harness "Sol Oracle run $run returned incomplete PASS evidence"
-	elif [[ "$decision" == REVISE ]]; then
-		validate_manager_findings "$output" "$decision" ||
-			fail_harness "Sol Oracle run $run returned invalid findings"
-		grep -Fqx 'Addendum-Source: ORACLE' "$output" &&
-			grep -Fqx "Oracle-Run: $run" "$output" &&
-			grep -Fqx "Manager-Cycle: $cycle" "$output" ||
-			fail_harness "Sol Oracle run $run returned invalid addendum metadata"
+	if ! repair_protocol_report oracle_audit "$cycle" "$run" "$stem" output; then
+		return
 	fi
+	decision="$(sed -n '1{s/^DECISION: //;p;q;}' "$output")"
 	audit="$dir/reviews/oracle-audit-$(printf '%03d' "$run").md"
 	cp "$output" "$audit"
 	chmod 600 "$audit"
@@ -397,15 +583,10 @@ run_convergence_audit()
 	log_event "CONVERGENCE_AUDIT_STARTED cycle=$cycle keys=$trigger model=$MANAGER_MODEL effort=$MANAGER_REASONING_EFFORT"
 	output="$(invoke_with_retry manager_convergence "$prompt" "$stem")" ||
 		fail_harness "Terra convergence audit failed in cycle $cycle"
-	[[ -s "$output" ]] || fail_harness "Terra returned an empty convergence audit in cycle $cycle"
-	decision="$(sed -n '1{s/^DECISION: //;p;q;}' "$output")"
-	[[ "$decision" == ACCEPT || "$decision" == ACTIONABLE || \
-		"$decision" == NEEDS_OPERATOR ]] ||
-		fail_harness "Terra convergence audit cycle $cycle returned invalid decision '$decision'"
-	if [[ "$decision" == ACTIONABLE ]]; then
-		validate_manager_findings "$output" "$decision" ||
-			fail_harness "Terra convergence audit cycle $cycle returned invalid findings"
+	if ! repair_protocol_report manager_convergence "$cycle" 0 "$stem" output; then
+		return
 	fi
+	decision="$(sed -n '1{s/^DECISION: //;p;q;}' "$output")"
 	audit="$dir/reviews/convergence-audit-$(printf '%03d' "$cycle").md"
 	cp "$output" "$audit"
 	chmod 600 "$audit"
@@ -506,14 +687,10 @@ review_worker()
 	log_event "MANAGER_REVIEW_STARTED cycle=$cycle model=$MANAGER_MODEL effort=$MANAGER_REASONING_EFFORT"
 	output="$(invoke_with_retry manager_review "$prompt" "$stem")" ||
 		fail_harness "Terra manager review failed in cycle $cycle"
-	[[ -s "$output" ]] || fail_harness "Terra returned an empty review in cycle $cycle"
-	decision="$(sed -n '1{s/^DECISION: //;p;q;}' "$output")"
-	[[ "$decision" == ACCEPT || "$decision" == REVISE ]] ||
-		fail_harness "Terra review cycle $cycle returned invalid decision '$decision'"
-	if [[ "$decision" == REVISE ]]; then
-		validate_manager_findings "$output" "$decision" ||
-			fail_harness "Terra review cycle $cycle returned invalid findings"
+	if ! repair_protocol_report manager_review "$cycle" 0 "$stem" output; then
+		return
 	fi
+	decision="$(sed -n '1{s/^DECISION: //;p;q;}' "$output")"
 	review="$dir/reviews/review-$(printf '%03d' "$cycle").md"
 	cp "$output" "$review"
 	chmod 600 "$review"

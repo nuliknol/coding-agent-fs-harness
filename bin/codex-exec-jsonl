@@ -34,6 +34,14 @@ case "$role" in
 		sandbox="$MANAGER_SANDBOX"
 		extra_args=("${MANAGER_CODEX_EXTRA_ARGS[@]}")
 		;;
+	manager_protocol_repair)
+		codex_bin="$MANAGER_CODEX_BIN"
+		codex_home="$MANAGER_CODEX_HOME"
+		model="$MANAGER_MODEL"
+		effort="$MANAGER_REASONING_EFFORT"
+		sandbox=read-only
+		extra_args=("${MANAGER_CODEX_EXTRA_ARGS[@]}")
+		;;
 	worker)
 		codex_bin="$WORKER_CODEX_BIN"
 		codex_home="$WORKER_CODEX_HOME"
@@ -48,6 +56,14 @@ case "$role" in
 		model="$ORACLE_MODEL"
 		effort="$ORACLE_REASONING_EFFORT"
 		sandbox="$ORACLE_SANDBOX"
+		extra_args=("${ORACLE_CODEX_EXTRA_ARGS[@]}")
+		;;
+	oracle_protocol_repair)
+		codex_bin="$ORACLE_CODEX_BIN"
+		codex_home="$ORACLE_CODEX_HOME"
+		model="$ORACLE_MODEL"
+		effort="$ORACLE_REASONING_EFFORT"
+		sandbox=read-only
 		extra_args=("${ORACLE_CODEX_EXTRA_ARGS[@]}")
 		;;
 	*)

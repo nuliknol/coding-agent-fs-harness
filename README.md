@@ -215,6 +215,14 @@ to `0` before acceptance only when deliberately disabling the Oracle gate.
 that many rejected regular Terra reviews without claiming completion. Set it
 to `0` only when you deliberately want an unlimited loop.
 
+`HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS=2` is the bounded response-repair budget.
+When a Terra or Sol report violates its output contract, the harness archives
+the rejected report and asks the same reviewing model to repair only its
+protocol formatting. A corrected report must pass the normal strict validator.
+If the budget is exhausted, the harness pauses at `NEEDS_OPERATOR` and retains
+all rejected reports rather than declaring repository development failed. Set
+the value to `0` to pause immediately on malformed reviewer output.
+
 `HARNESS_MAX_REPEATED_FINDING_REVIEWS=3` runs a fresh convergence audit when
 the same stable finding key appears in three consecutive regular reviews. Set
 it to `0` to disable detection. The audit may accept, replace the latest

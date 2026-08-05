@@ -87,8 +87,23 @@ if [[ "$model" == gpt-5.6-terra ]]; then
 	counter=$((counter + 1))
 	printf '%s\n' "$counter" > "$counter_file"
 	thread="manager-$counter"
-	if [[ "$prompt" == *"fresh Terra convergence auditor"* ]]; then
-		if [[ "${FAKE_CONVERGENCE_ACTIONABLE:-0}" == 1 ]]; then
+	if [[ "$prompt" == *"# Reviewer protocol repair"* ]]; then
+		touch "$FAKE_CODEX_STATE/protocol-repair-ran"
+		if [[ "$prompt" == *'Role: `manager_convergence`'* ]]; then
+			touch "$FAKE_CODEX_STATE/actionable-audit-ran"
+			message=$'DECISION: ACTIONABLE\n\nADD-001\nFinding-Key: convergence-first-gap\nSpecification: first convergence requirement.\nEvidence: first convergence evidence.\nRequired correction: first convergence correction.\nVerification: first convergence verification.\n\nADD-002\nFinding-Key: convergence-second-gap\nSpecification: second convergence requirement.\nEvidence: second convergence evidence.\nRequired correction: second convergence correction.\nVerification: second convergence verification.'
+		elif [[ "${FAKE_PROTOCOL_REPAIR_STAYS_INVALID:-0}" == 1 ]]; then
+			message=$'DECISION: ACCEPT\nThe formatting repair improperly changed the substantive decision.'
+		else
+			message=$'DECISION: REVISE\n\nADD-001\nFinding-Key: first-distinct-gap\nSpecification: first requirement.\nEvidence: first evidence.\nRequired correction: first correction.\nVerification: first verification.\n\nADD-002\nFinding-Key: second-distinct-gap\nSpecification: second requirement.\nEvidence: second evidence.\nRequired correction: second correction.\nVerification: second verification.'
+		fi
+	elif [[ "$prompt" == *"fresh Terra convergence auditor"* ]]; then
+		if [[ "${FAKE_INVALID_CONVERGENCE:-0}" == 1 &&
+			! -f "$FAKE_CODEX_STATE/invalid-convergence-emitted" ]]; then
+			touch "$FAKE_CODEX_STATE/invalid-convergence-emitted"
+			touch "$FAKE_CODEX_STATE/actionable-audit-ran"
+			message=$'DECISION: ACTIONABLE\n\nADD-001\nFinding-Key: duplicate-convergence-key\nSpecification: first convergence requirement.\nEvidence: first convergence evidence.\nRequired correction: first convergence correction.\nVerification: first convergence verification.\n\nADD-002\nFinding-Key: duplicate-convergence-key\nSpecification: second convergence requirement.\nEvidence: second convergence evidence.\nRequired correction: second convergence correction.\nVerification: second convergence verification.'
+		elif [[ "${FAKE_CONVERGENCE_ACTIONABLE:-0}" == 1 ]]; then
 			touch "$FAKE_CODEX_STATE/actionable-audit-ran"
 			message=$'DECISION: ACTIONABLE\n\n1. **ADD-001**\n- **Finding-Key:** **direct-repository-correction**\nSpecification: feature.txt must contain exactly complete.\nEvidence: repository-local work can satisfy the requirement.\nRequired correction: write the required complete value directly.\nVerification: test the resulting feature content.'
 		else
@@ -96,6 +111,10 @@ if [[ "$model" == gpt-5.6-terra ]]; then
 		fi
 	elif [[ "$prompt" == *"Terra goal author"* ]]; then
 		message=$'# Persistent Worker Goal\nImplement the complete immutable specification, verify it, and continue until it works.\nGOAL_READY'
+	elif [[ "${FAKE_INVALID_MANAGER_REVIEW:-0}" == 1 &&
+		! -f "$FAKE_CODEX_STATE/invalid-manager-review-emitted" ]]; then
+		touch "$FAKE_CODEX_STATE/invalid-manager-review-emitted"
+		message=$'DECISION: REVISE\n\nADD-001\nFinding-Key: duplicate-key\nSpecification: first requirement.\nEvidence: first evidence.\nRequired correction: first correction.\nVerification: first verification.\n\nADD-002\nFinding-Key: duplicate-key\nSpecification: second requirement.\nEvidence: second evidence.\nRequired correction: second correction.\nVerification: second verification.'
 	elif [[ -f "$FAKE_CODEX_STATE/actionable-audit-ran" ]]; then
 		message=$'DECISION: ACCEPT\nThe actionable convergence correction is complete.'
 	elif [[ "${FAKE_REPEAT_FINDINGS:-0}" == 1 ]]; then
@@ -119,7 +138,14 @@ elif [[ "$model" == gpt-5.6-sol ]]; then
 	thread="oracle-$oracle_counter"
 	oracle_run="$(sed -n 's/^Oracle run: `\([0-9][0-9]*\)`.*/\1/p' <<< "$prompt" | tail -n 1)"
 	manager_cycle="$(sed -n 's/^Manager cycle: `\([0-9][0-9]*\)`.*/\1/p' <<< "$prompt" | tail -n 1)"
-	if (( oracle_counter <= ${FAKE_ORACLE_REVISIONS:-0} )); then
+	if [[ "$prompt" == *"# Reviewer protocol repair"* ]]; then
+		touch "$FAKE_CODEX_STATE/oracle-protocol-repair-ran"
+		printf -v message 'DECISION: PASS\nOracle-Run: %s\nManager-Cycle: %s\n\nREQUIREMENT: SPECIFICATION-WHOLE\nEvidence: feature.txt contains exactly complete and the repository matches the immutable specification.\nVerification: test "$(cat feature.txt)" = complete passed.\nORACLE_AUDIT_COMPLETE' "$oracle_run" "$manager_cycle"
+	elif [[ "${FAKE_INVALID_ORACLE_PASS:-0}" == 1 &&
+		! -f "$FAKE_CODEX_STATE/invalid-oracle-pass-emitted" ]]; then
+		touch "$FAKE_CODEX_STATE/invalid-oracle-pass-emitted"
+		printf -v message 'DECISION: PASS\nOracle-Run: %s\nManager-Cycle: %s\n\nREQUIREMENT: SPECIFICATION-WHOLE\nEvidence: feature.txt appears complete.\nORACLE_AUDIT_COMPLETE' "$oracle_run" "$manager_cycle"
+	elif (( oracle_counter <= ${FAKE_ORACLE_REVISIONS:-0} )); then
 		printf -v message 'DECISION: REVISE\nAddendum-Source: ORACLE\nOracle-Run: %s\nManager-Cycle: %s\n\nADD-001: independent final gap\nFinding-Key: oracle-independent-gap\nSpecification: feature.txt must satisfy the complete immutable specification.\nEvidence: the independent audit found a repository-local completion gap.\nRequired correction: close the complete gap and rerun verification.\nVerification: run the focused feature smoke test.\nORACLE_AUDIT_COMPLETE' "$oracle_run" "$manager_cycle"
 	else
 		printf -v message 'DECISION: PASS\nOracle-Run: %s\nManager-Cycle: %s\n\nREQUIREMENT: SPECIFICATION-WHOLE\nEvidence: feature.txt contains exactly complete and the repository matches the immutable specification.\nVerification: test "$(cat feature.txt)" = complete passed.\nORACLE_AUDIT_COMPLETE' "$oracle_run" "$manager_cycle"
@@ -338,6 +364,7 @@ chmod 600 "$TEST_DIR/default-project.env"
 default_check="$("$ROOT/bin/harness-check-env" "$TEST_DIR/default-project.env")"
 grep -q 'Manager first-review checklist: none' <<< "$default_check"
 grep -q 'Manager review limit: 50' <<< "$default_check"
+grep -q 'Protocol repair attempts: 2' <<< "$default_check"
 grep -q 'Repeated-finding convergence audit: after 3 consecutive reviews' \
 	<<< "$default_check"
 grep -q 'Oracle: gpt-5.6-sol (high), sandbox=workspace-write, maximum runs=3' \
@@ -540,6 +567,105 @@ if find "$project" -iname '*oracle*' -print -quit | grep -q .; then
 	exit 1
 fi
 
+repair_repo="$TEST_DIR/protocol-repair-repository"
+repair_state="$TEST_DIR/protocol-repair-state"
+repair_fake_state="$TEST_DIR/protocol-repair-fake-state"
+repair_env="$TEST_DIR/protocol-repair-project.env"
+mkdir -p "$repair_repo" "$repair_fake_state"
+git -C "$repair_repo" init -q
+git -C "$repair_repo" config user.name 'Harness Test'
+git -C "$repair_repo" config user.email 'harness-test@example.invalid'
+printf 'baseline\n' > "$repair_repo/baseline.txt"
+git -C "$repair_repo" add baseline.txt
+git -C "$repair_repo" commit -q -m baseline
+cat > "$repair_env" <<EOF
+export PROJECT="protocol-repair"
+export REPOSITORY="$repair_repo"
+export SPECIFICATION="$TEST_DIR/specification.md"
+export DEVELOPMENT_POLICY="$TEST_DIR/development-policy.txt"
+export HARNESS_HOME="$ROOT"
+export HARNESS_ROOT="$repair_state"
+export MANAGER_CODEX_BIN="$TEST_DIR/fake-codex"
+export WORKER_CODEX_BIN="$TEST_DIR/fake-codex"
+export MANAGER_CODEX_HOME="$TEST_DIR/codex-home"
+export WORKER_CODEX_HOME="$TEST_DIR/codex-home"
+export MAX_ORACLE_RUNS="0"
+export HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS="2"
+export HARNESS_PROVIDER_RETRY_SECONDS="1"
+export HARNESS_QUOTA_RETRY_SECONDS="1"
+export FAKE_CODEX_STATE="$repair_fake_state"
+export FAKE_REPOSITORY="$repair_repo"
+export FAKE_INVALID_MANAGER_REVIEW="1"
+EOF
+chmod 600 "$repair_env"
+"$ROOT/bin/harness-init" "$repair_env" >/dev/null
+"$ROOT/bin/harness-start" "$repair_env" >/dev/null
+repair_project="$repair_state/projects/protocol-repair"
+for _ in {1..30}; do
+	grep -qx 'status=COMPLETE' "$repair_project/control/state.env" 2>/dev/null &&
+		break
+	sleep 1
+done
+grep -qx 'status=COMPLETE' "$repair_project/control/state.env"
+grep -qx 'phase=ACCEPTED' "$repair_project/control/state.env"
+test -f "$repair_project/reviews/rejected/manager-review-001-invalid-000.md"
+grep -q 'duplicate Finding-Key' \
+	"$repair_project/prompts/manager-review-001-protocol-repair-001.md"
+grep -qx 'Finding-Key: first-distinct-gap' \
+	"$repair_project/reviews/review-001.md"
+grep -qx 'Finding-Key: second-distinct-gap' \
+	"$repair_project/reviews/review-001.md"
+grep -q 'PROTOCOL_VALIDATION_FAILED role=manager_review cycle=1 .*attempt=0' \
+	"$repair_project/logs/events.log"
+grep -q 'PROTOCOL_REPAIR_COMPLETED role=manager_review cycle=1 .*attempts=1' \
+	"$repair_project/logs/events.log"
+grep -F -- '--model gpt-5.6-terra --sandbox read-only' \
+	"$repair_fake_state/codex-argv.log" >/dev/null
+test ! -e "$repair_project/control/operator-required.md"
+
+repair_fail_repo="$TEST_DIR/protocol-repair-fail-repository"
+repair_fail_state="$TEST_DIR/protocol-repair-fail-state"
+repair_fail_fake_state="$TEST_DIR/protocol-repair-fail-fake-state"
+repair_fail_env="$TEST_DIR/protocol-repair-fail-project.env"
+mkdir -p "$repair_fail_repo" "$repair_fail_fake_state"
+git -C "$repair_fail_repo" init -q
+git -C "$repair_fail_repo" config user.name 'Harness Test'
+git -C "$repair_fail_repo" config user.email 'harness-test@example.invalid'
+printf 'baseline\n' > "$repair_fail_repo/baseline.txt"
+git -C "$repair_fail_repo" add baseline.txt
+git -C "$repair_fail_repo" commit -q -m baseline
+sed -e 's/PROJECT="protocol-repair"/PROJECT="protocol-repair-fail"/' \
+	-e "s|REPOSITORY=\"$repair_repo\"|REPOSITORY=\"$repair_fail_repo\"|" \
+	-e "s|HARNESS_ROOT=\"$repair_state\"|HARNESS_ROOT=\"$repair_fail_state\"|" \
+	-e "s|FAKE_CODEX_STATE=\"$repair_fake_state\"|FAKE_CODEX_STATE=\"$repair_fail_fake_state\"|" \
+	-e "s|FAKE_REPOSITORY=\"$repair_repo\"|FAKE_REPOSITORY=\"$repair_fail_repo\"|" \
+	"$repair_env" > "$repair_fail_env"
+printf 'export FAKE_PROTOCOL_REPAIR_STAYS_INVALID="1"\n' >> "$repair_fail_env"
+chmod 600 "$repair_fail_env"
+"$ROOT/bin/harness-init" "$repair_fail_env" >/dev/null
+"$ROOT/bin/harness-start" "$repair_fail_env" >/dev/null
+repair_fail_project="$repair_fail_state/projects/protocol-repair-fail"
+for _ in {1..30}; do
+	grep -qx 'status=PAUSED' "$repair_fail_project/control/state.env" 2>/dev/null &&
+		break
+	sleep 1
+done
+grep -qx 'status=PAUSED' "$repair_fail_project/control/state.env"
+grep -qx 'phase=NEEDS_OPERATOR' "$repair_fail_project/control/state.env"
+grep -qx 'cycle=1' "$repair_fail_project/control/state.env"
+test ! -e "$repair_fail_project/control/last-error.txt"
+test ! -e "$repair_fail_project/reviews/review-001.md"
+test ! -e "$repair_fail_project/addenda/addendum-001.md"
+for attempt in 000 001 002; do
+	test -f "$repair_fail_project/reviews/rejected/manager-review-001-invalid-$attempt.md"
+done
+grep -q 'after 2 repair attempts' \
+	"$repair_fail_project/control/operator-required.md"
+grep -q 'changed decision from REVISE to ACCEPT' \
+	"$repair_fail_project/control/operator-required.md"
+grep -q 'PROTOCOL_REPAIR_EXHAUSTED role=manager_review cycle=1 .*attempts=2' \
+	"$repair_fail_project/logs/events.log"
+
 hard_reload_repo="$TEST_DIR/hard-reload-repository"
 hard_reload_state="$TEST_DIR/hard-reload-state"
 hard_reload_fake_state="$TEST_DIR/hard-reload-fake-state"
@@ -656,6 +782,8 @@ sed -e 's/PROJECT="repeat-circuit"/PROJECT="actionable-circuit"/' \
 	"$TEST_DIR/repeat-project.env" > "$TEST_DIR/action-project.env"
 printf 'export FAKE_CONVERGENCE_ACTIONABLE="1"\n' >> \
 	"$TEST_DIR/action-project.env"
+printf 'export FAKE_INVALID_CONVERGENCE="1"\n' >> \
+	"$TEST_DIR/action-project.env"
 chmod 600 "$TEST_DIR/action-project.env"
 "$ROOT/bin/harness-init" "$TEST_DIR/action-project.env" >/dev/null
 "$ROOT/bin/harness-start" "$TEST_DIR/action-project.env" >/dev/null
@@ -669,9 +797,15 @@ grep -qx 'phase=ACCEPTED' "$action_project/control/state.env"
 grep -qx 'cycle=4' "$action_project/control/state.env"
 grep -qx 'DECISION: ACTIONABLE' \
 	"$action_project/reviews/convergence-audit-003.md"
+grep -qx 'Finding-Key: convergence-first-gap' \
+	"$action_project/reviews/convergence-audit-003.md"
+test -f \
+	"$action_project/reviews/rejected/manager-convergence-003-invalid-000.md"
 grep -qx 'DECISION: ACTIONABLE' \
 	"$action_project/addenda/addendum-003.md"
 grep -q 'CONVERGENCE_ADDENDUM_PUBLISHED cycle=3' \
+	"$action_project/logs/events.log"
+grep -q 'PROTOCOL_REPAIR_COMPLETED role=manager_convergence cycle=3 .*attempts=1' \
 	"$action_project/logs/events.log"
 grep -q '^worker resume worker-thread$' "$action_fake_state/invocations.log"
 
@@ -799,6 +933,61 @@ oracle_status="$({ "$ROOT/bin/harness-status" "$oracle_env"; })"
 grep -q 'Oracle: gpt-5.6-sol (high)' <<< "$oracle_status"
 grep -q 'Oracle audits: 2 of 2' <<< "$oracle_status"
 grep -q 'Oracle tokens: input=1000 cached=600 output=100' <<< "$oracle_status"
+
+oracle_repair_repo="$TEST_DIR/oracle-repair-repository"
+oracle_repair_state="$TEST_DIR/oracle-repair-state"
+oracle_repair_fake_state="$TEST_DIR/oracle-repair-fake-state"
+oracle_repair_env="$TEST_DIR/oracle-repair-project.env"
+mkdir -p "$oracle_repair_repo" "$oracle_repair_fake_state"
+git -C "$oracle_repair_repo" init -q
+git -C "$oracle_repair_repo" config user.name 'Harness Test'
+git -C "$oracle_repair_repo" config user.email 'harness-test@example.invalid'
+printf 'baseline\n' > "$oracle_repair_repo/baseline.txt"
+git -C "$oracle_repair_repo" add baseline.txt
+git -C "$oracle_repair_repo" commit -q -m baseline
+cat > "$oracle_repair_env" <<EOF
+export PROJECT="oracle-protocol-repair"
+export REPOSITORY="$oracle_repair_repo"
+export SPECIFICATION="$TEST_DIR/specification.md"
+export DEVELOPMENT_POLICY="$TEST_DIR/development-policy.txt"
+export HARNESS_HOME="$ROOT"
+export HARNESS_ROOT="$oracle_repair_state"
+export MANAGER_CODEX_BIN="$TEST_DIR/fake-codex"
+export WORKER_CODEX_BIN="$TEST_DIR/fake-codex"
+export ORACLE_CODEX_BIN="$TEST_DIR/fake-codex"
+export MANAGER_CODEX_HOME="$TEST_DIR/codex-home"
+export WORKER_CODEX_HOME="$TEST_DIR/codex-home"
+export ORACLE_CODEX_HOME="$TEST_DIR/codex-home"
+export MAX_ORACLE_RUNS="3"
+export HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS="2"
+export HARNESS_PROVIDER_RETRY_SECONDS="1"
+export HARNESS_QUOTA_RETRY_SECONDS="1"
+export FAKE_CODEX_STATE="$oracle_repair_fake_state"
+export FAKE_REPOSITORY="$oracle_repair_repo"
+export FAKE_INVALID_ORACLE_PASS="1"
+EOF
+chmod 600 "$oracle_repair_env"
+"$ROOT/bin/harness-init" "$oracle_repair_env" >/dev/null
+"$ROOT/bin/harness-start" "$oracle_repair_env" >/dev/null
+oracle_repair_project="$oracle_repair_state/projects/oracle-protocol-repair"
+for _ in {1..30}; do
+	grep -qx 'status=COMPLETE' \
+		"$oracle_repair_project/control/state.env" 2>/dev/null && break
+	sleep 1
+done
+grep -qx 'status=COMPLETE' "$oracle_repair_project/control/state.env"
+grep -qx 'phase=ORACLE_ACCEPTED' "$oracle_repair_project/control/state.env"
+test -f "$oracle_repair_project/reviews/rejected/oracle-audit-001-invalid-000.md"
+grep -q 'SPECIFICATION-WHOLE has empty Verification' \
+	"$oracle_repair_project/prompts/oracle-audit-001-protocol-repair-001.md"
+grep -qx 'REQUIREMENT: SPECIFICATION-WHOLE' \
+	"$oracle_repair_project/control/final-acceptance.md"
+grep -qx 'Verification: test "$(cat feature.txt)" = complete passed.' \
+	"$oracle_repair_project/control/final-acceptance.md"
+grep -q 'PROTOCOL_REPAIR_COMPLETED role=oracle_audit .*attempts=1' \
+	"$oracle_repair_project/logs/events.log"
+grep -F -- '--model gpt-5.6-sol --sandbox read-only' \
+	"$oracle_repair_fake_state/codex-argv.log" >/dev/null
 
 cp "$TEST_DIR/project.env" "$TEST_DIR/trace-project.env"
 {
