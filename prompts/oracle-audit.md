@@ -14,7 +14,21 @@ Your first line must be exactly one of:
 
 `DECISION: NEEDS_OPERATOR`
 
-Use `PASS` only when every requirement is implemented and the required verification succeeds. Then provide a concise requirement-to-evidence and test summary.
+Use `PASS` only when every requirement is implemented and the required verification succeeds. The harness context provides the exact expected PASS requirement IDs. Immediately after the decision, emit these metadata lines:
+
+`Oracle-Run: <run number from the harness context>`
+
+`Manager-Cycle: <cycle number from the harness context>`
+
+Then emit exactly one record for every expected requirement ID, in the listed order, using this schema:
+
+`REQUIREMENT: <exact expected ID>`
+
+`Evidence: <concrete repository paths, symbols, and/or observed runtime evidence>`
+
+`Verification: <commands or inspections performed and their observed result>`
+
+Each `Evidence` and `Verification` value must be non-empty and remain on its field line. Do not combine or omit requirement records even when one command verifies several requirements. When the context lists `SPECIFICATION-WHOLE`, the specification has no explicit requirement IDs; emit that single whole-specification record.
 
 Use `REVISE` when repository-local implementation work can close any gap. Produce one exhaustive implementation-gaps specification for Luna. It must include these metadata lines immediately after the decision:
 

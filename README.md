@@ -270,23 +270,26 @@ must remain inspectable:
 ```bash
 export HARNESS_CODEX_DIAGNOSTIC_PROFILE="1"
 export HARNESS_CODEX_RUST_LOG="codex_core=debug"
-export HARNESS_CODEX_STRACE="1"
+export HARNESS_CODEX_STRACE="0"
 export HARNESS_CODEX_STRACE_STRING_BYTES="80"
 export HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS="1800"
 export HARNESS_CODEX_STALL_DIAGNOSTIC_REPEAT_SECONDS="900"
 ```
 
-With only `HARNESS_CODEX_DIAGNOSTIC_PROFILE=1`, the remaining values above are
-the defaults. Explicit values may override them. The profile remains opt-in so
-other installations do not acquire tracing overhead unexpectedly.
+With only `HARNESS_CODEX_DIAGNOSTIC_PROFILE=1`, Rust diagnostics and stall
+snapshots use the values above, while syscall tracing remains disabled.
+Explicit values may override them. The profile remains opt-in so other
+installations do not acquire diagnostic overhead unexpectedly.
 
 `HARNESS_CODEX_RUST_LOG` is passed to Codex as `RUST_LOG`; non-interactive
 Codex diagnostics therefore remain in the turn's existing stderr log.
-`HARNESS_CODEX_STRACE=1` starts the complete Node/Codex/code-mode-host process
-tree under `strace -ff`. The persistent trace is deliberately limited to
-network, process, and signal system calls so long turns do not produce an
-unbounded stream of `futex` and `epoll` events. Captured strings are limited by
-`HARNESS_CODEX_STRACE_STRING_BYTES`, which defaults to 80.
+`HARNESS_CODEX_STRACE=1` is a targeted, explicit troubleshooting override that
+starts the complete Node/Codex/code-mode-host process tree under `strace -ff`.
+Do not enable it for routine harness execution. The persistent trace is
+deliberately limited to network, process, and signal system calls so long turns
+do not produce an unbounded stream of `futex` and `epoll` events. Captured
+strings are limited by `HARNESS_CODEX_STRACE_STRING_BYTES`, which defaults to
+80.
 
 When a turn produces neither JSONL nor stderr output for
 `HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS`, the executor writes an evidence
@@ -469,14 +472,18 @@ and smoke tests. Its prompt forbids source edits: implementation belongs to
 Luna. Use `MANAGER_SANDBOX=read-only` only when the project's verification
 commands do not need to create build artifacts.
 
-Oracle output uses `PASS`, `REVISE`, or `NEEDS_OPERATOR`. `PASS` alone records
-the final acceptance. `REVISE` must be an exhaustive, schema-valid addendum
-tagged with its Oracle run and manager cycle. `NEEDS_OPERATOR` is restricted to
-a genuine external dependency, unavailable mandatory environment,
-contradictory specification, or decision that repository-local implementation
-cannot resolve. The Oracle is writable only so it can run realistic builds and
-tests; its prompt forbids implementation changes and the executor protects all
-harness-owned state.
+Oracle output uses `PASS`, `REVISE`, or `NEEDS_OPERATOR`. A `PASS` must be
+tagged with its Oracle run and manager cycle and contain exactly one structured
+`REQUIREMENT`, `Evidence`, and `Verification` record for every explicit
+`Requirement ID` in the immutable specification. The supervisor rejects
+unknown, duplicate, missing, or empty records. A prose specification without
+explicit IDs requires one `SPECIFICATION-WHOLE` record. `REVISE` must be an
+exhaustive, schema-valid addendum tagged with its Oracle run and manager cycle.
+`NEEDS_OPERATOR` is restricted to a genuine external dependency, unavailable
+mandatory environment, contradictory specification, or decision that
+repository-local implementation cannot resolve. The Oracle is writable only
+so it can run realistic builds and tests; its prompt forbids implementation
+changes and the executor protects all harness-owned state.
 
 ## Testing the harness
 

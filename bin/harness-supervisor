@@ -285,6 +285,7 @@ prepare_oracle_prompt()
 {
 	local cycle="$1"
 	local run="$2"
+	local requirement_id
 	local prompt="$dir/prompts/oracle-audit-$(printf '%03d' "$run").md"
 	cp "$HARNESS_HOME/prompts/oracle-audit.md" "$prompt"
 	write_context_header "$prompt"
@@ -293,6 +294,11 @@ prepare_oracle_prompt()
 		printf 'Oracle run: `%s` of at most `%s`\n\n' "$run" "$MAX_ORACLE_RUNS"
 		printf '%s\n\n' \
 			'Terra acceptance is only the trigger for this audit. Manager/worker traffic is not governing evidence and need not be reviewed.'
+		printf '# Expected Oracle PASS requirement IDs\n\n'
+		while IFS= read -r requirement_id; do
+			printf -- '- `%s`\n' "$requirement_id"
+		done < <(oracle_expected_requirement_ids "$dir/inputs/specification.txt")
+		printf '\n'
 		printf '# Complete immutable specification\n\n'
 		cat "$dir/inputs/specification.txt"
 		printf '\n'
@@ -332,7 +338,13 @@ run_oracle_audit()
 		fail_harness "Sol Oracle run $run returned invalid decision '$decision'"
 	[[ "$(tail -n 1 "$output")" == ORACLE_AUDIT_COMPLETE ]] ||
 		fail_harness "Sol Oracle run $run did not end with ORACLE_AUDIT_COMPLETE"
-	if [[ "$decision" == REVISE ]]; then
+	if [[ "$decision" == PASS ]]; then
+		grep -Fqx "Oracle-Run: $run" "$output" &&
+			grep -Fqx "Manager-Cycle: $cycle" "$output" ||
+			fail_harness "Sol Oracle run $run returned invalid PASS metadata"
+		validate_oracle_pass "$dir/inputs/specification.txt" "$output" ||
+			fail_harness "Sol Oracle run $run returned incomplete PASS evidence"
+	elif [[ "$decision" == REVISE ]]; then
 		validate_manager_findings "$output" "$decision" ||
 			fail_harness "Sol Oracle run $run returned invalid findings"
 		grep -Fqx 'Addendum-Source: ORACLE' "$output" &&

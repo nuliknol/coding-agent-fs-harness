@@ -146,7 +146,7 @@ load_harness_env()
 		die 'HARNESS_CODEX_DIAGNOSTIC_PROFILE must be 0 or 1'
 	if (( HARNESS_CODEX_DIAGNOSTIC_PROFILE )); then
 		HARNESS_CODEX_RUST_LOG="${HARNESS_CODEX_RUST_LOG-codex_core=debug}"
-		HARNESS_CODEX_STRACE="${HARNESS_CODEX_STRACE:-1}"
+		HARNESS_CODEX_STRACE="${HARNESS_CODEX_STRACE:-0}"
 		HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS="${HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS:-1800}"
 		HARNESS_CODEX_STALL_DIAGNOSTIC_REPEAT_SECONDS="${HARNESS_CODEX_STALL_DIAGNOSTIC_REPEAT_SECONDS:-900}"
 	else
@@ -429,6 +429,127 @@ validate_manager_findings()
 			"$decision" "$finding_count" "$key_count" >&2
 		return 1
 	}
+}
+
+specification_requirement_ids()
+{
+	local file="$1"
+	awk '
+		{
+			line = $0
+			gsub(/[`*]/, "", line)
+			sub(/^[[:space:]]*/, "", line)
+			sub(/^([0-9]+[.)]|[-+]|#+)[[:space:]]+/, "", line)
+			sub(/^[[:space:]]*/, "", line)
+			if (line ~ /^Requirement([ -])ID[[:space:]]*:/) {
+				sub(/^Requirement([ -])ID[[:space:]]*:[[:space:]]*/, "", line)
+				sub(/[[:space:]]+$/, "", line)
+				if (line != "" && !seen[line]++) print line
+			}
+		}
+	' "$file"
+}
+
+oracle_expected_requirement_ids()
+{
+	local file="$1"
+	local ids
+	ids="$(specification_requirement_ids "$file")"
+	if [[ -n "$ids" ]]; then
+		printf '%s\n' "$ids"
+	else
+		printf '%s\n' SPECIFICATION-WHOLE
+	fi
+}
+
+oracle_pass_records()
+{
+	local file="$1"
+	awk '
+		function emit_record() {
+			if (have_record) printf "%s\t%s\t%s\n", id, evidence, verification
+		}
+		{
+			line = $0
+			if (line ~ /^REQUIREMENT:[[:space:]]*/) {
+				emit_record()
+				id = line
+				sub(/^REQUIREMENT:[[:space:]]*/, "", id)
+				gsub(/`/, "", id)
+				sub(/[[:space:]]+$/, "", id)
+				evidence = ""
+				verification = ""
+				have_record = 1
+				next
+			}
+			if (have_record && line ~ /^Evidence:[[:space:]]*/) {
+				evidence = line
+				sub(/^Evidence:[[:space:]]*/, "", evidence)
+				next
+			}
+			if (have_record && line ~ /^Verification:[[:space:]]*/) {
+				verification = line
+				sub(/^Verification:[[:space:]]*/, "", verification)
+				next
+			}
+		}
+		END { emit_record() }
+	' "$file"
+}
+
+validate_oracle_pass()
+{
+	local specification="$1"
+	local report="$2"
+	local id evidence verification record_count=0
+	local -a expected_ids=()
+	local -A expected=() seen=()
+
+	mapfile -t expected_ids < <(oracle_expected_requirement_ids "$specification")
+	for id in "${expected_ids[@]}"; do
+		[[ "$id" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ && ${#id} -le 128 ]] || {
+			printf 'invalid specification Requirement ID: %s\n' "$id" >&2
+			return 1
+		}
+		expected[$id]=1
+	done
+
+	while IFS=$'\t' read -r id evidence verification; do
+		[[ -n "$id" ]] || continue
+		((record_count += 1))
+		[[ "$id" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ && ${#id} -le 128 ]] || {
+			printf 'invalid Oracle PASS requirement ID: %s\n' "$id" >&2
+			return 1
+		}
+		[[ -n "${expected[$id]:-}" ]] || {
+			printf 'unknown Oracle PASS requirement ID: %s\n' "$id" >&2
+			return 1
+		}
+		[[ -z "${seen[$id]:-}" ]] || {
+			printf 'duplicate Oracle PASS requirement ID: %s\n' "$id" >&2
+			return 1
+		}
+		[[ -n "$evidence" ]] || {
+			printf 'Oracle PASS requirement %s has empty Evidence\n' "$id" >&2
+			return 1
+		}
+		[[ -n "$verification" ]] || {
+			printf 'Oracle PASS requirement %s has empty Verification\n' "$id" >&2
+			return 1
+		}
+		seen[$id]=1
+	done < <(oracle_pass_records "$report")
+
+	(( record_count > 0 )) || {
+		printf 'Oracle PASS requires structured requirement evidence\n' >&2
+		return 1
+	}
+	for id in "${expected_ids[@]}"; do
+		[[ -n "${seen[$id]:-}" ]] || {
+			printf 'Oracle PASS is missing requirement evidence for %s\n' "$id" >&2
+			return 1
+		}
+	done
 }
 
 repeated_manager_finding_keys()

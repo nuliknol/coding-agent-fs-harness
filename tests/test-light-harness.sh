@@ -117,10 +117,12 @@ elif [[ "$model" == gpt-5.6-sol ]]; then
 	oracle_counter=$((oracle_counter + 1))
 	printf '%s\n' "$oracle_counter" > "$oracle_counter_file"
 	thread="oracle-$oracle_counter"
+	oracle_run="$(sed -n 's/^Oracle run: `\([0-9][0-9]*\)`.*/\1/p' <<< "$prompt" | tail -n 1)"
+	manager_cycle="$(sed -n 's/^Manager cycle: `\([0-9][0-9]*\)`.*/\1/p' <<< "$prompt" | tail -n 1)"
 	if (( oracle_counter <= ${FAKE_ORACLE_REVISIONS:-0} )); then
-		message=$'DECISION: REVISE\nAddendum-Source: ORACLE\nOracle-Run: 1\nManager-Cycle: 2\n\nADD-001: independent final gap\nFinding-Key: oracle-independent-gap\nSpecification: feature.txt must satisfy the complete immutable specification.\nEvidence: the independent audit found a repository-local completion gap.\nRequired correction: close the complete gap and rerun verification.\nVerification: run the focused feature smoke test.\nORACLE_AUDIT_COMPLETE'
+		printf -v message 'DECISION: REVISE\nAddendum-Source: ORACLE\nOracle-Run: %s\nManager-Cycle: %s\n\nADD-001: independent final gap\nFinding-Key: oracle-independent-gap\nSpecification: feature.txt must satisfy the complete immutable specification.\nEvidence: the independent audit found a repository-local completion gap.\nRequired correction: close the complete gap and rerun verification.\nVerification: run the focused feature smoke test.\nORACLE_AUDIT_COMPLETE' "$oracle_run" "$manager_cycle"
 	else
-		message=$'DECISION: PASS\nEvery immutable requirement is connected and the focused build, smoke, and integration checks passed.\nORACLE_AUDIT_COMPLETE'
+		printf -v message 'DECISION: PASS\nOracle-Run: %s\nManager-Cycle: %s\n\nREQUIREMENT: SPECIFICATION-WHOLE\nEvidence: feature.txt contains exactly complete and the repository matches the immutable specification.\nVerification: test "$(cat feature.txt)" = complete passed.\nORACLE_AUDIT_COMPLETE' "$oracle_run" "$manager_cycle"
 	fi
 	input=500
 	cached=300
@@ -351,7 +353,7 @@ diagnostic_check="$("$ROOT/bin/harness-check-env" \
 	"$TEST_DIR/diagnostic-profile.env")"
 grep -q 'Codex diagnostic profile: enabled' <<< "$diagnostic_check"
 grep -q 'Codex Rust diagnostics: codex_core=debug' <<< "$diagnostic_check"
-grep -q 'Codex strace: enabled' <<< "$diagnostic_check"
+grep -q 'Codex strace: disabled' <<< "$diagnostic_check"
 grep -q 'Codex stall snapshots: after 1800 seconds without output, repeated every 900 seconds' \
 	<<< "$diagnostic_check"
 
@@ -376,6 +378,61 @@ if "$ROOT/bin/harness-check-env" "$TEST_DIR/invalid-diagnostics.env" \
 fi
 grep -q 'HARNESS_CODEX_STRACE must be 0 or 1' \
 	"$TEST_DIR/invalid-diagnostics.err"
+
+cat > "$TEST_DIR/oracle-pass-specification.md" <<'EOF'
+# Structured Oracle PASS fixture
+
+- Requirement ID: `REQ-ONE`
+- Requirement ID: `REQ-TWO`
+EOF
+cat > "$TEST_DIR/oracle-pass-valid.md" <<'EOF'
+DECISION: PASS
+Oracle-Run: 1
+Manager-Cycle: 2
+
+REQUIREMENT: REQ-ONE
+Evidence: src/one.c implements the first requirement.
+Verification: the focused first-requirement check passed.
+
+REQUIREMENT: REQ-TWO
+Evidence: src/two.c implements the second requirement.
+Verification: the focused second-requirement check passed.
+ORACLE_AUDIT_COMPLETE
+EOF
+bash -c 'source "$1"; validate_oracle_pass "$2" "$3"' _ \
+	"$ROOT/lib/harness-common.sh" \
+	"$TEST_DIR/oracle-pass-specification.md" \
+	"$TEST_DIR/oracle-pass-valid.md"
+
+sed '/^Verification: the focused second-requirement check passed\.$/d' \
+	"$TEST_DIR/oracle-pass-valid.md" > \
+	"$TEST_DIR/oracle-pass-missing-verification.md"
+if bash -c 'source "$1"; validate_oracle_pass "$2" "$3"' _ \
+	"$ROOT/lib/harness-common.sh" \
+	"$TEST_DIR/oracle-pass-specification.md" \
+	"$TEST_DIR/oracle-pass-missing-verification.md" \
+	>"$TEST_DIR/oracle-pass-invalid.out" \
+	2>"$TEST_DIR/oracle-pass-invalid.err"; then
+	printf 'Oracle PASS without per-requirement verification was accepted\n' >&2
+	exit 1
+fi
+grep -q 'REQ-TWO has empty Verification' \
+	"$TEST_DIR/oracle-pass-invalid.err"
+
+sed '/^REQUIREMENT: REQ-TWO$/,/^Verification: the focused second-requirement check passed\.$/d' \
+	"$TEST_DIR/oracle-pass-valid.md" > \
+	"$TEST_DIR/oracle-pass-missing-requirement.md"
+if bash -c 'source "$1"; validate_oracle_pass "$2" "$3"' _ \
+	"$ROOT/lib/harness-common.sh" \
+	"$TEST_DIR/oracle-pass-specification.md" \
+	"$TEST_DIR/oracle-pass-missing-requirement.md" \
+	>"$TEST_DIR/oracle-pass-invalid.out" \
+	2>"$TEST_DIR/oracle-pass-invalid.err"; then
+	printf 'Oracle PASS with missing requirement coverage was accepted\n' >&2
+	exit 1
+fi
+grep -q 'missing requirement evidence for REQ-TWO' \
+	"$TEST_DIR/oracle-pass-invalid.err"
 
 sed 's/PROJECT="light-smoke"/PROJECT="dirty-init"/' \
 	"$TEST_DIR/project.env" > "$TEST_DIR/dirty-project.env"
@@ -706,6 +763,10 @@ grep -Fq 'Create feature.txt containing exactly `complete`.' \
 	"$oracle_project/prompts/oracle-audit-001.md"
 grep -Fq 'Run the focused builds, smoke tests, integration tests' \
 	"$oracle_project/prompts/oracle-audit-001.md"
+grep -Fq '# Expected Oracle PASS requirement IDs' \
+	"$oracle_project/prompts/oracle-audit-001.md"
+grep -Fq -- '- `SPECIFICATION-WHOLE`' \
+	"$oracle_project/prompts/oracle-audit-001.md"
 grep -Fq -- '--model gpt-5.6-sol' "$oracle_fake_state/codex-argv.log"
 grep -Fq -- 'model_reasoning_effort="high"' \
 	"$oracle_fake_state/codex-argv.log"
@@ -725,6 +786,10 @@ grep -qx 'phase=ORACLE_ACCEPTED' "$oracle_project/control/state.env"
 grep -qx 'cycle=3' "$oracle_project/control/state.env"
 test -f "$oracle_project/reviews/oracle-audit-002.md"
 grep -qx 'DECISION: PASS' "$oracle_project/control/final-acceptance.md"
+grep -qx 'Oracle-Run: 2' "$oracle_project/control/final-acceptance.md"
+grep -qx 'Manager-Cycle: 3' "$oracle_project/control/final-acceptance.md"
+grep -qx 'REQUIREMENT: SPECIFICATION-WHOLE' \
+	"$oracle_project/control/final-acceptance.md"
 test ! -e "$oracle_project/control/provisional-acceptance.md"
 grep -q 'ORACLE_LIMIT_RESUMED cycle=3 completed_runs=1 new_limit=2' \
 	"$oracle_project/logs/events.log"
