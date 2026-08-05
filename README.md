@@ -404,6 +404,23 @@ bin/harness-status ~/configs/my-project-light.env
 bin/harness-watch-agents ~/configs/my-project-light.env
 ```
 
+Watch every initialized harness described by `*.env` files in one directory:
+
+```bash
+bin/harness-watch-many ~/configs
+```
+
+Only environment files with a non-empty `SPECIFICATION` are included. The
+dashboard shows project, current cycle, active role/process state, and an
+adaptive multiline progress or blocker explanation. It refreshes every five
+minutes by default and redraws when the terminal is resized. Use `-n` to select
+a different interval, or `--once` for scripts and snapshots:
+
+```bash
+bin/harness-watch-many -n 30 ~/configs
+COLUMNS=120 LINES=40 bin/harness-watch-many --once ~/configs
+```
+
 The supervisor reloads the environment file immediately before every regular
 manager review, convergence audit, and Oracle audit. Changes to soft runtime controls—such as
 manager or worker model and reasoning effort, Codex executable/home/extra

@@ -584,6 +584,41 @@ if find "$project" -iname '*oracle*' -print -quit | grep -q .; then
 	exit 1
 fi
 
+watch_many_dir="$TEST_DIR/watch-many-configs"
+mkdir -p "$watch_many_dir"
+cp "$TEST_DIR/project.env" "$watch_many_dir/valid.env"
+cat > "$watch_many_dir/empty-specification.env" <<EOF
+export PROJECT="excluded-template"
+export SPECIFICATION=""
+EOF
+cat > "$watch_many_dir/broken.env" <<EOF
+export PROJECT="broken-watch-project"
+export REPOSITORY="$TEST_DIR/missing-repository"
+export SPECIFICATION="$TEST_DIR/missing-specification.md"
+export DEVELOPMENT_POLICY="$TEST_DIR/development-policy.txt"
+export HARNESS_HOME="$ROOT"
+EOF
+chmod 600 "$watch_many_dir/"*.env
+watch_many_output="$(COLUMNS=80 LINES=24 \
+	"$ROOT/bin/harness-watch-many" --once "$watch_many_dir")"
+grep -q '^PROJECT .*| CYCLE | STATUS .*| PROGRESS / BLOCKER$' \
+	<<< "$watch_many_output"
+grep -q '^light-smoke .*| *2 | complete/stopped' <<< "$watch_many_output"
+grep -q 'Completed normally without an' <<< "$watch_many_output"
+grep -q 'enabled Oracle gate; no blocker' <<< "$watch_many_output"
+grep -q '^broken-watch-p.*| *- | config error' <<< "$watch_many_output"
+grep -q 'CONFIGURATION ERROR:' <<< "$watch_many_output"
+if grep -q 'excluded-template' <<< "$watch_many_output"; then
+	printf 'watch-many included an environment with an empty specification\n' >&2
+	exit 1
+fi
+if awk 'length($0) > 80 { found = 1 } END { exit !found }' \
+	<<< "$watch_many_output"; then
+	printf 'watch-many exceeded the requested terminal width\n' >&2
+	exit 1
+fi
+grep -Eq '^ +\| +\| +\|' <<< "$watch_many_output"
+
 repair_repo="$TEST_DIR/protocol-repair-repository"
 repair_state="$TEST_DIR/protocol-repair-state"
 repair_fake_state="$TEST_DIR/protocol-repair-fake-state"
