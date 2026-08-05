@@ -375,23 +375,99 @@ repair_protocol_report()
 	fi
 }
 
+worker_context_reset_value()
+{
+	local key="$1"
+	local marker="$dir/control/worker-context-reset.env"
+	[[ -f "$marker" ]] || return 1
+	awk -F= -v key="$key" '$1 == key { print substr($0, length($1) + 2); exit }' \
+		"$marker"
+}
+
+complete_goal_refresh()
+{
+	local reset_id resume_phase reset_cycle archive completed_at
+	reset_id="$(worker_context_reset_value reset_id)"
+	resume_phase="$(worker_context_reset_value resume_phase)"
+	reset_cycle="$(worker_context_reset_value source_cycle)"
+	archive="$(worker_context_reset_value archive)"
+	[[ "$reset_id" =~ ^[0-9][0-9][0-9]+$ ]] ||
+		fail_harness 'worker-context reset has an invalid reset ID'
+	[[ "$reset_cycle" =~ ^[0-9]+$ ]] ||
+		fail_harness 'worker-context reset has an invalid cycle'
+	case "$resume_phase" in
+		WORKER_REQUIRED|WORKER_RETRY|REVIEW_REQUIRED|CONVERGENCE_REQUIRED) ;;
+		*) fail_harness "worker-context reset has an invalid resume phase: $resume_phase" ;;
+	esac
+	case "$archive" in
+		"$dir/reviews/worker-context-reset-"*) ;;
+		*) fail_harness 'worker-context reset has an invalid archive path' ;;
+	esac
+	[[ -d "$archive" ]] ||
+		fail_harness "worker-context reset archive is missing: $archive"
+	[[ -s "$dir/control/worker-goal.md" ]] ||
+		fail_harness 'refreshed persistent worker goal is missing or empty'
+	if [[ ! -f "$archive/worker-goal-after.md" ]]; then
+		cp -p "$dir/control/worker-goal.md" "$archive/worker-goal-after.md"
+	fi
+	completed_at="$(timestamp_utc)"
+	if ! grep -q '^completed_at=' "$archive/reset.env"; then
+		{
+			printf 'completed_at=%s\n' "$completed_at"
+			printf 'new_goal_sha256=%s\n' \
+				"$(sha256sum "$dir/control/worker-goal.md" | awk '{ print $1 }')"
+		} >> "$archive/reset.env"
+	fi
+	write_state ACTIVE "$resume_phase" "$reset_cycle"
+	log_event "WORKER_CONTEXT_RESET_COMPLETED reset=$reset_id cycle=$reset_cycle resume_phase=$resume_phase archive=$archive"
+	rm -f "$dir/control/worker-context-reset.env"
+}
+
 generate_goal()
 {
-	local prompt="$dir/prompts/manager-goal.md"
-	local output
+	local mode="${1:-initial}"
+	local prompt stem output cycle reset_id archive
+	cycle="$(state_value cycle)"
+	if [[ "$mode" == refresh ]]; then
+		reset_id="$(worker_context_reset_value reset_id)"
+		archive="$(worker_context_reset_value archive)"
+		[[ "$reset_id" =~ ^[0-9][0-9][0-9]+$ ]] ||
+			fail_harness 'worker-context reset marker is invalid'
+		prompt="$dir/prompts/manager-goal-reset-$reset_id.md"
+		stem="manager-goal-reset-$reset_id"
+	else
+		prompt="$dir/prompts/manager-goal.md"
+		stem=manager-goal
+	fi
 	cp "$HARNESS_HOME/prompts/manager-goal.md" "$prompt"
 	write_context_header "$prompt"
-	write_state ACTIVE GOAL_RUNNING 0
-	log_event "GOAL_AUTHORING_STARTED model=$MANAGER_MODEL effort=$MANAGER_REASONING_EFFORT"
-	output="$(invoke_with_retry manager_goal "$prompt" manager-goal)" ||
+	if [[ "$mode" == refresh ]]; then
+		{
+			printf '# Worker-context refresh\n\n'
+			printf 'This is operator-requested worker-context reset `%s` at cycle `%s`.\n\n' \
+				"$reset_id" "$cycle"
+			printf 'The previous goal is archived at `%s/worker-goal.md` for audit only. Do not inherit its narrower ownership prohibitions. Author a complete replacement under the current owner-authority and exceptions policy above.\n\n' \
+				"$archive"
+		} >> "$prompt"
+		write_state ACTIVE GOAL_REFRESH_RUNNING "$cycle"
+		log_event "GOAL_REFRESH_STARTED reset=$reset_id cycle=$cycle model=$MANAGER_MODEL effort=$MANAGER_REASONING_EFFORT"
+	else
+		write_state ACTIVE GOAL_RUNNING 0
+		log_event "GOAL_AUTHORING_STARTED model=$MANAGER_MODEL effort=$MANAGER_REASONING_EFFORT"
+	fi
+	output="$(invoke_with_retry manager_goal "$prompt" "$stem")" ||
 		fail_harness 'Terra goal-authoring turn failed'
 	[[ -s "$output" ]] || fail_harness 'Terra returned an empty worker goal'
 	[[ "$(tail -n 1 "$output")" == GOAL_READY ]] ||
 		fail_harness 'Terra worker goal did not end with GOAL_READY'
 	cp "$output" "$dir/control/worker-goal.md"
 	chmod 600 "$dir/control/worker-goal.md"
-	write_state ACTIVE WORKER_REQUIRED 0
-	log_event "GOAL_READY file=$dir/control/worker-goal.md"
+	if [[ "$mode" == refresh ]]; then
+		complete_goal_refresh
+	else
+		write_state ACTIVE WORKER_REQUIRED 0
+		log_event "GOAL_READY file=$dir/control/worker-goal.md"
+	fi
 }
 
 prepare_worker_prompt()
@@ -836,6 +912,14 @@ case "$phase" in
 			write_state ACTIVE WORKER_REQUIRED 0 ||
 			write_state ACTIVE GOAL_REQUIRED 0
 		;;
+	GOAL_REFRESH_RUNNING)
+		if [[ -s "$dir/control/worker-goal.md" &&
+			-f "$dir/control/worker-context-reset.env" ]]; then
+			complete_goal_refresh
+		else
+			write_state ACTIVE GOAL_REFRESH_REQUIRED "$cycle"
+		fi
+		;;
 	WORKER_RUNNING)
 		if [[ ! -f "$dir/control/worker.thread" ]]; then
 			thread="$(codex_thread_id_from_jsonl "$dir/logs/worker-$(printf '%03d' "$cycle").jsonl" 2>/dev/null || true)"
@@ -869,6 +953,9 @@ while true; do
 			;;
 		ACTIVE:GOAL_REQUIRED)
 			generate_goal
+			;;
+		ACTIVE:GOAL_REFRESH_REQUIRED)
+			generate_goal refresh
 			;;
 		ACTIVE:WORKER_REQUIRED)
 			run_worker "$((cycle + 1))" 0

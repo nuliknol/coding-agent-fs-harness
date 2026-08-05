@@ -957,8 +957,41 @@ if grep -q 'CONVERGENCE_ADDENDUM_PUBLISHED cycle=6' \
 	printf 'third repeated convergence audit incorrectly resumed Luna\n' >&2
 	exit 1
 fi
-printf 'export HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS="4"\n' >> \
-	"$TEST_DIR/convergence-cap-project.env"
+old_worker_goal_sha="$(sha256sum \
+	"$convergence_cap_project/control/worker-goal.md" | awk '{ print $1 }')"
+old_worker_thread="$(awk 'NR == 1 { print; exit }' \
+	"$convergence_cap_project/control/worker.thread")"
+"$ROOT/bin/harness-reset-worker-context" \
+	"$TEST_DIR/convergence-cap-project.env" >/dev/null
+grep -qx 'status=ACTIVE' "$convergence_cap_project/control/state.env"
+grep -qx 'phase=GOAL_REFRESH_REQUIRED' \
+	"$convergence_cap_project/control/state.env"
+grep -qx 'cycle=6' "$convergence_cap_project/control/state.env"
+test ! -e "$convergence_cap_project/control/worker-goal.md"
+test ! -e "$convergence_cap_project/control/worker.thread"
+test ! -e "$convergence_cap_project/control/operator-required.md"
+grep -qx 'reset_id=001' \
+	"$convergence_cap_project/control/worker-context-reset.env"
+grep -qx 'resume_phase=WORKER_REQUIRED' \
+	"$convergence_cap_project/control/worker-context-reset.env"
+grep -qx '6' \
+	"$convergence_cap_project/control/convergence-circuit-reset-cycle"
+reset_archive="$convergence_cap_project/reviews/worker-context-reset-001"
+test -d "$reset_archive"
+test "$(sha256sum "$reset_archive/worker-goal.md" | awk '{ print $1 }')" = \
+	"$old_worker_goal_sha"
+grep -qx "$old_worker_thread" "$reset_archive/worker.thread"
+test -f "$reset_archive/state-before.env"
+test -f "$reset_archive/operator-required.md"
+grep -qx 'source_phase=CONVERGENCE_LIMIT_REACHED' \
+	"$reset_archive/reset.env"
+grep -q 'WORKER_CONTEXT_RESET_REQUESTED reset=001 .*cycle=6' \
+	"$convergence_cap_project/logs/events.log"
+reset_status_output="$("$ROOT/bin/harness-status" \
+	"$TEST_DIR/convergence-cap-project.env")"
+grep -q 'Worker context resets: 1' <<< "$reset_status_output"
+grep -q 'Worker context reset pending: 001 (resume at WORKER_REQUIRED)' \
+	<<< "$reset_status_output"
 printf 'export FAKE_CONVERGENCE_STAYS_ACTIONABLE="0"\n' >> \
 	"$TEST_DIR/convergence-cap-project.env"
 "$ROOT/bin/harness-start" "$TEST_DIR/convergence-cap-project.env" >/dev/null
@@ -968,10 +1001,22 @@ for _ in {1..30}; do
 	sleep 1
 done
 grep -qx 'status=COMPLETE' "$convergence_cap_project/control/state.env"
-test -f "$convergence_cap_project/reviews/operator-pause-convergence-6-3.md"
+grep -qx 'cycle=7' "$convergence_cap_project/control/state.env"
+test -f "$reset_archive/worker-goal-after.md"
+grep -q '^completed_at=' "$reset_archive/reset.env"
+grep -q '^new_goal_sha256=' "$reset_archive/reset.env"
 test ! -f "$convergence_cap_project/control/operator-required.md"
-grep -q 'CONVERGENCE_LIMIT_RESUMED cycle=6 previous_count=3 new_limit=4' \
+test ! -f "$convergence_cap_project/control/worker-context-reset.env"
+test -f "$convergence_cap_project/prompts/manager-goal-reset-001.md"
+test -f "$convergence_cap_project/outputs/manager-goal-reset-001.md"
+grep -q 'Do not inherit its narrower ownership prohibitions' \
+	"$convergence_cap_project/prompts/manager-goal-reset-001.md"
+grep -q 'GOAL_REFRESH_STARTED reset=001 cycle=6' \
 	"$convergence_cap_project/logs/events.log"
+grep -q 'WORKER_CONTEXT_RESET_COMPLETED reset=001 cycle=6 resume_phase=WORKER_REQUIRED' \
+	"$convergence_cap_project/logs/events.log"
+test "$(grep -c '^worker fresh$' \
+	"$convergence_cap_fake_state/invocations.log")" -eq 2
 
 cap_repo="$TEST_DIR/cap-repository"
 cap_state="$TEST_DIR/cap-state"

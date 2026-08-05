@@ -148,6 +148,7 @@ One supervisor runs the complete sequential loop. Durable phases are:
 | Phase | Meaning |
 |---|---|
 | `GOAL_REQUIRED` | Terra must write the persistent worker goal |
+| `GOAL_REFRESH_REQUIRED` | Terra must replace an operator-reset stale worker goal before development resumes |
 | `WORKER_REQUIRED` | Luna starts or resumes autonomous implementation |
 | `REVIEW_REQUIRED` | Terra audits the delivered repository |
 | `CONVERGENCE_REQUIRED` | A repeated finding needs one fresh Terra audit |
@@ -422,6 +423,26 @@ Stop and later restart without discarding state:
 bin/harness-stop ~/configs/my-project-light.env
 bin/harness-start ~/configs/my-project-light.env
 ```
+
+If an older persistent Luna thread and manager-authored goal retain a policy
+that the current harness has corrected, stop the harness and reset only that
+worker context:
+
+```bash
+bin/harness-stop ~/configs/my-project-light.env
+bin/harness-reset-worker-context ~/configs/my-project-light.env
+bin/harness-start ~/configs/my-project-light.env
+```
+
+The reset command refuses to run while a supervisor or lock holder is active.
+It preserves the repository, canonical baseline, current cycle, addenda,
+reviews, Oracle history, and token logs. It archives the previous goal, thread
+ID, state, and operator report under `reviews/worker-context-reset-NNN/`, clears
+only the persistent Luna identity, and records an auditable reset event. On the
+next start, a fresh Terra turn writes a replacement goal under the current
+owner-authority policy, then the harness resumes the interrupted phase with a
+fresh Luna thread. A convergence-limit reset begins a new convergence window;
+the command does not silently start or stop a supervisor.
 
 ### Supervisor process containment
 

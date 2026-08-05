@@ -105,6 +105,17 @@ if [[ -f "$dir/control/worker.thread" ]]; then
 else
 	printf 'Persistent worker thread: not started\n'
 fi
+worker_context_reset_count="$(find "$dir/reviews" -maxdepth 1 -type d \
+	-name 'worker-context-reset-[0-9][0-9][0-9]*' | wc -l | tr -d ' ')"
+printf 'Worker context resets: %s\n' "$worker_context_reset_count"
+if [[ -f "$dir/control/worker-context-reset.env" ]]; then
+	reset_id="$(awk -F= '$1 == "reset_id" { print $2; exit }' \
+		"$dir/control/worker-context-reset.env")"
+	reset_resume="$(awk -F= '$1 == "resume_phase" { print $2; exit }' \
+		"$dir/control/worker-context-reset.env")"
+	printf 'Worker context reset pending: %s (resume at %s)\n' \
+		"$reset_id" "$reset_resume"
+fi
 printf 'Completion addenda: %s\n' \
 	"$(find "$dir/addenda" -maxdepth 1 -name 'addendum-*.md' -type f | wc -l | tr -d ' ')"
 

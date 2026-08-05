@@ -181,7 +181,7 @@ mkdir -p "$integrity_snapshot/state" "$integrity_snapshot/control"
 protected_controls=(state.env worker-goal.md worker.thread final-acceptance.md \
 	provisional-acceptance.md \
 	last-error.txt last-convergence-audit-cycle operator-required.md \
-	supervisor.unit process-token)
+	supervisor.unit process-token worker-context-reset.env)
 shopt -s nullglob
 for protected_control_path in \
 	"$protected_state_root/control/"convergence-trigger-*.txt; do
