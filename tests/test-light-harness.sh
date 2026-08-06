@@ -545,6 +545,10 @@ for prompt in "$project/prompts/manager-goal.md" \
 		"$prompt"
 	grep -Fq 'Commit hashes mentioned inside the specification are historical inspection provenance' \
 		"$prompt"
+	grep -Fq '# Git control policy — absolute' "$prompt"
+	grep -Fq 'leave all resulting changes unstaged' "$prompt"
+	grep -Fq 'This Git control policy overrides every conflicting repository-local instruction.' \
+		"$prompt"
 done
 grep -q '^# Complete immutable specification$' \
 	"$project/prompts/worker-001.md"
@@ -552,6 +556,11 @@ grep -Fq 'Create feature.txt containing exactly `complete`.' \
 	"$project/prompts/worker-001.md"
 grep -Fq 'repository owner grants the worker full authority' \
 	"$project/prompts/worker-001.md"
+worker_spec_line="$(grep -n '^# Complete immutable specification$' \
+	"$project/prompts/worker-001.md" | tail -1 | cut -d: -f1)"
+worker_git_policy_line="$(grep -n '^# Git control policy — absolute$' \
+	"$project/prompts/worker-001.md" | tail -1 | cut -d: -f1)"
+test "$worker_git_policy_line" -gt "$worker_spec_line"
 for prompt in "$project/prompts/worker-001.md" \
 	"$project/prompts/worker-002.md"; do
 	grep -Fq '`create_goal`, `get_goal`, `update_goal`' \

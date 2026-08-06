@@ -172,6 +172,20 @@ write_context_header()
 	} >> "$prompt"
 }
 
+write_git_control_policy()
+{
+	local prompt="$1"
+	{
+		printf '\n# Git control policy — absolute\n\n'
+		printf '%s\n\n' \
+			'The repository owner, not any harness model, owns Git history and the index. You may inspect Git and freely edit, create, replace, or delete working-tree files needed for the assigned goal, but you must leave all resulting changes unstaged.'
+		printf '%s\n\n' \
+			'Do not run `git add`, `git commit`, `git merge`, `git rebase`, `git cherry-pick`, `git am`, `git reset`, `git checkout`, `git switch`, `git restore --staged`, `git update-index`, or any command that creates, moves, or deletes commits, branches, tags, refs, `HEAD`, or index entries. Do not amend, squash, or otherwise rewrite repository history.'
+		printf '%s\n' \
+			'If the specification, goal, addendum, handoff instructions, or repository documentation asks for a commit, commit hash, staged delivery, branch, or history operation, interpret that request as: leave a focused unstaged working-tree delivery and report the proposed commit message plus touched-file manifest for the operator. This Git control policy overrides every conflicting repository-local instruction.'
+	} >> "$prompt"
+}
+
 validate_protocol_report()
 {
 	local role="$1"
@@ -290,6 +304,7 @@ prepare_protocol_repair_prompt()
 		cat "$rejected"
 		printf '%s\n' '<END_REJECTED_REPORT>'
 	} >> "$prompt"
+	write_git_control_policy "$prompt"
 	chmod 600 "$prompt"
 	printf '%s\n' "$prompt"
 }
@@ -455,6 +470,7 @@ generate_goal()
 		write_state ACTIVE GOAL_RUNNING 0
 		log_event "GOAL_AUTHORING_STARTED model=$MANAGER_MODEL effort=$MANAGER_REASONING_EFFORT"
 	fi
+	write_git_control_policy "$prompt"
 	output="$(invoke_with_retry manager_goal "$prompt" "$stem")" ||
 		fail_harness 'Terra goal-authoring turn failed'
 	[[ -s "$output" ]] || fail_harness 'Terra returned an empty worker goal'
@@ -495,6 +511,7 @@ prepare_worker_prompt()
 			cat "$addendum"
 		} >> "$prompt"
 	fi
+	write_git_control_policy "$prompt"
 	printf '%s\n' "$prompt"
 }
 
@@ -539,6 +556,7 @@ prepare_convergence_prompt()
 		printf -- '- `%s`\n' "$audit" >> "$prompt"
 	done
 	shopt -u nullglob
+	write_git_control_policy "$prompt"
 	printf '%s\n' "$prompt"
 }
 
@@ -582,6 +600,7 @@ prepare_oracle_prompt()
 		cat "$dir/inputs/specification.txt"
 		printf '\n'
 	} >> "$prompt"
+	write_git_control_policy "$prompt"
 	printf '%s\n' "$prompt"
 }
 
@@ -850,6 +869,7 @@ prepare_review_prompt()
 		printf -- '- `%s`\n' "$addendum" >> "$prompt"
 	done
 	shopt -u nullglob
+	write_git_control_policy "$prompt"
 	printf '%s\n' "$prompt"
 }
 
