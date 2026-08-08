@@ -98,7 +98,7 @@ reload_review_environment()
 	fi
 
 	digest="$(sha256sum "$supervisor_env_file" | awk '{ print $1 }')"
-	log_event "ENV_RELOADED role=$role cycle=$cycle sha256=$digest manager_model=$MANAGER_MODEL manager_effort=$MANAGER_REASONING_EFFORT worker_model=$WORKER_MODEL worker_effort=$WORKER_REASONING_EFFORT oracle_model=$ORACLE_MODEL oracle_effort=$ORACLE_REASONING_EFFORT review_limit=$HARNESS_MAX_MANAGER_REVIEWS oracle_limit=$MAX_ORACLE_RUNS protocol_repair_attempts=$HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS repeated_finding_reviews=$HARNESS_MAX_REPEATED_FINDING_REVIEWS no_source_progress_reviews=$HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS repeated_convergence_audits=$HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS"
+	log_event "ENV_RELOADED role=$role cycle=$cycle sha256=$digest manager_model=$MANAGER_MODEL manager_effort=$MANAGER_REASONING_EFFORT worker_model=$WORKER_MODEL worker_effort=$WORKER_REASONING_EFFORT oracle_model=$ORACLE_MODEL oracle_effort=$ORACLE_REASONING_EFFORT review_limit=$HARNESS_MAX_MANAGER_REVIEWS oracle_limit=$MAX_ORACLE_RUNS protocol_repair_attempts=$HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS repeated_finding_reviews=$HARNESS_MAX_REPEATED_FINDING_REVIEWS no_source_progress_reviews=$HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS repeated_convergence_audits=$HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS progress_audit_every_reviews=$HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS"
 }
 
 invoke_with_retry()
@@ -186,6 +186,48 @@ write_git_control_policy()
 	} >> "$prompt"
 }
 
+append_completion_progress_audit_prompt()
+{
+	local prompt="$1"
+	local cycle="$2"
+	local requirement_id
+	local policy="$HARNESS_HOME/prompts/manager-progress-audit.md"
+	[[ -f "$policy" ]] ||
+		fail_harness "completion-progress audit policy is unavailable: $policy"
+	{
+		printf '\n'
+		cat "$policy"
+		printf '\n# Scheduled audit context\n\n'
+		printf 'Audit cycle: `%s`\n\n' "$cycle"
+		printf '# Expected completion-audit requirement IDs\n\n'
+		while IFS= read -r requirement_id; do
+			printf -- '- `%s`\n' "$requirement_id"
+		done < <(oracle_expected_requirement_ids "$dir/inputs/specification.txt")
+		printf '\n'
+	} >> "$prompt"
+}
+
+record_completion_progress_audit()
+{
+	local cycle="$1"
+	local report="$2"
+	local audit total verified implemented gap blocked
+	printf -v audit '%s/reviews/completion-progress-%03d.md' "$dir" "$cycle"
+	[[ ! -e "$audit" ]] ||
+		fail_harness "refusing to replace existing completion-progress audit: $audit"
+	completion_progress_audit_extract "$report" > "$audit"
+	[[ -s "$audit" ]] ||
+		fail_harness "completion-progress audit extraction was empty in cycle $cycle"
+	chmod 600 "$audit"
+	write_completion_progress_state "$report" "$audit"
+	total="$(completion_progress_audit_value "$report" Requirements-Total)"
+	verified="$(completion_progress_audit_value "$report" Verified-Complete)"
+	implemented="$(completion_progress_audit_value "$report" Implemented-Unverified)"
+	gap="$(completion_progress_audit_value "$report" Remaining-Gap)"
+	blocked="$(completion_progress_audit_value "$report" Blocked)"
+	log_event "COMPLETION_PROGRESS_RECORDED cycle=$cycle total=$total verified=$verified implemented=$implemented gap=$gap blocked=$blocked audit=$audit"
+}
+
 validate_protocol_report()
 {
 	local role="$1"
@@ -206,6 +248,11 @@ validate_protocol_report()
 			}
 			if [[ "$decision" == REVISE ]]; then
 				validate_manager_findings "$report" "$decision" || return 1
+			fi
+			if completion_progress_audit_due "$cycle"; then
+				validate_completion_progress_audit \
+					"$dir/inputs/specification.txt" "$report" "$cycle" \
+					"$decision" || return 1
 			fi
 			;;
 		manager_convergence)
@@ -304,6 +351,9 @@ prepare_protocol_repair_prompt()
 		cat "$rejected"
 		printf '%s\n' '<END_REJECTED_REPORT>'
 	} >> "$prompt"
+	if [[ "$role" == manager_review ]] && completion_progress_audit_due "$cycle"; then
+		append_completion_progress_audit_prompt "$prompt" "$cycle"
+	fi
 	write_git_control_policy "$prompt"
 	chmod 600 "$prompt"
 	printf '%s\n' "$prompt"
@@ -401,7 +451,8 @@ worker_context_reset_value()
 
 complete_goal_refresh()
 {
-	local reset_id recovery_kind resume_phase reset_cycle archive resolution completed_at event_prefix
+	local reset_id recovery_kind resume_phase reset_cycle archive resolution completed_at
+	local event_prefix metadata_file
 	reset_id="$(worker_context_reset_value reset_id)"
 	recovery_kind="$(worker_context_reset_value recovery_kind || true)"
 	[[ -n "$recovery_kind" ]] || recovery_kind=worker_context_reset
@@ -421,6 +472,7 @@ complete_goal_refresh()
 			[[ "$archive" == "$dir/reviews/worker-context-reset-"* ]] ||
 				fail_harness 'worker-context reset has an invalid archive path'
 			event_prefix=WORKER_CONTEXT_RESET
+			metadata_file="$archive/reset.env"
 			;;
 		operator_resolution)
 			resolution="$(worker_context_reset_value resolution)"
@@ -429,6 +481,7 @@ complete_goal_refresh()
 			[[ "$resolution" == "$dir/inputs/operator-resolution.md" && -s "$resolution" ]] ||
 				fail_harness 'operator resolution snapshot is missing or invalid'
 			event_prefix=OPERATOR_RESOLUTION
+			metadata_file="$archive/resolution.env"
 			;;
 		*) fail_harness "worker-context recovery has an invalid kind: $recovery_kind" ;;
 	esac
@@ -440,12 +493,12 @@ complete_goal_refresh()
 		cp -p "$dir/control/worker-goal.md" "$archive/worker-goal-after.md"
 	fi
 	completed_at="$(timestamp_utc)"
-	if ! grep -q '^completed_at=' "$archive/reset.env"; then
+	if ! grep -q '^completed_at=' "$metadata_file"; then
 		{
 			printf 'completed_at=%s\n' "$completed_at"
 			printf 'new_goal_sha256=%s\n' \
 				"$(sha256sum "$dir/control/worker-goal.md" | awk '{ print $1 }')"
-		} >> "$archive/reset.env"
+		} >> "$metadata_file"
 	fi
 	write_state ACTIVE "$resume_phase" "$reset_cycle"
 	log_event "${event_prefix}_COMPLETED reset=$reset_id cycle=$reset_cycle resume_phase=$resume_phase archive=$archive"
@@ -914,6 +967,10 @@ prepare_review_prompt()
 		printf -- '- `%s`\n' "$addendum" >> "$prompt"
 	done
 	shopt -u nullglob
+	if completion_progress_audit_due "$cycle"; then
+		append_completion_progress_audit_prompt "$prompt" "$cycle"
+		log_event "COMPLETION_PROGRESS_AUDIT_SCHEDULED cycle=$cycle every=$HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS"
+	fi
 	write_git_control_policy "$prompt"
 	printf '%s\n' "$prompt"
 }
@@ -937,6 +994,9 @@ review_worker()
 	cp "$output" "$review"
 	chmod 600 "$review"
 	log_event "MANAGER_REVIEW_FINISHED cycle=$cycle decision=$decision review=$review"
+	if completion_progress_audit_due "$cycle"; then
+		record_completion_progress_audit "$cycle" "$review"
+	fi
 
 	if [[ "$decision" == ACCEPT ]]; then
 		complete_or_queue_oracle "$review" "$cycle" manager-review

@@ -74,4 +74,10 @@ else
 	printf 'Repeated-convergence pause: after %s audits retain a finding\n' \
 		"$HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS"
 fi
+if (( HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS == 0 )); then
+	printf 'Completion-progress audit: disabled\n'
+else
+	printf 'Completion-progress audit: every %s completed manager reviews\n' \
+		"$HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS"
+fi
 printf 'Configuration is valid.\n'

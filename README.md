@@ -456,10 +456,13 @@ bin/harness-watch-many ~/configs
 ```
 
 Only environment files with a non-empty `SPECIFICATION` are included. The
-dashboard shows project, current cycle, active role/process state, and an
-adaptive multiline progress or blocker explanation. It refreshes every five
-minutes by default and redraws when the terminal is resized. Use `-n` to select
-a different interval, or `--once` for scripts and snapshots:
+dashboard shows project, current cycle, active role/process state, the latest
+Terra completion audit, and an adaptive multiline progress or blocker
+explanation. Completion uses `V` for independently verified requirements and
+`C` for verified plus implemented-but-unverified requirements; its `@cycle`
+suffix identifies how old the audit is. It refreshes every five minutes by
+default and redraws when the terminal is resized. Use `-n` to select a
+different interval, or `--once` for scripts and snapshots:
 
 ```bash
 bin/harness-watch-many -n 30 ~/configs
@@ -469,7 +472,7 @@ COLUMNS=120 LINES=40 bin/harness-watch-many --once ~/configs
 The supervisor reloads the environment file immediately before every regular
 manager review, convergence audit, and Oracle audit. Changes to soft runtime controls—such as
 manager or worker model and reasoning effort, Codex executable/home/extra
-arguments, retry timing, review, convergence, and Oracle limits, sandbox
+arguments, retry timing, review, completion-audit, convergence, and Oracle limits, sandbox
 settings, timeouts, and diagnostics—therefore apply without restarting the supervisor.
 The next worker turn also receives any reloaded worker settings.
 
@@ -478,6 +481,24 @@ Project identity and ownership are hard parameters for a running supervisor:
 `HARNESS_BIN`, and `HARNESS_ROOT` must remain unchanged. A reload attempting to
 change one of them is rejected and recorded as a harness failure rather than
 redirecting the active process to different state.
+
+### Completion-progress audits
+
+Every tenth regular Terra review, by default, also performs a structured,
+requirement-by-requirement completion audit. This is folded into the normal
+review turn—there is no extra manager invocation. The detailed audit is saved
+as `reviews/completion-progress-NNN.md`; its machine-readable summary is
+atomically written to `control/completion-progress.env`.
+
+```bash
+export HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS="10"
+```
+
+Set the value to `0` to disable it. The audit distinguishes `VERIFIED`,
+`IMPLEMENTED`, `GAP`, and `BLOCKED`; status and the dashboard report verified
+and claimed percentages only when the specification has explicit Requirement
+IDs. A specification without IDs is audited as one `SPECIFICATION-WHOLE`
+record and correctly displays `N/A` rather than a misleading partial percent.
 
 Stop and later restart without discarding state:
 

@@ -73,6 +73,7 @@ load_harness_env()
 	unset HARNESS_MAX_REPEATED_FINDING_REVIEWS
 	unset HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS
 	unset HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS
+	unset HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS
 	unset HARNESS_MANAGER_REVIEW_CHECKLIST
 	unset HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS
 	unset HARNESS_CODEX_KILL_GRACE_SECONDS
@@ -143,6 +144,7 @@ load_harness_env()
 	HARNESS_MAX_REPEATED_FINDING_REVIEWS="${HARNESS_MAX_REPEATED_FINDING_REVIEWS:-3}"
 	HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS="${HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS:-5}"
 	HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS="${HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS:-3}"
+	HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS="${HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS:-10}"
 	HARNESS_MANAGER_REVIEW_CHECKLIST="${HARNESS_MANAGER_REVIEW_CHECKLIST:-none}"
 	HARNESS_CODEX_WALL_TIMEOUT_SECONDS="${HARNESS_CODEX_WALL_TIMEOUT_SECONDS:-0}"
 	HARNESS_CODEX_IDLE_TIMEOUT_SECONDS="${HARNESS_CODEX_IDLE_TIMEOUT_SECONDS:-0}"
@@ -184,11 +186,12 @@ load_harness_env()
 		HARNESS_MAX_MANAGER_REVIEWS HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS \
 		HARNESS_MAX_REPEATED_FINDING_REVIEWS \
 		HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS \
-		HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS MAX_ORACLE_RUNS \
+		HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS \
+		HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS MAX_ORACLE_RUNS \
 		HARNESS_CODEX_WALL_TIMEOUT_SECONDS \
 		HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS \
 		HARNESS_CODEX_STALL_DIAGNOSTIC_REPEAT_SECONDS; do
-		[[ "${!value}" =~ ^[0-9]+$ ]] || die "$value must be a nonnegative integer"
+		[[ "${!value}" =~ ^[0-9]+$ ]] || die "$value must be a non-negative integer"
 	done
 	[[ "$HARNESS_CODEX_STRACE" =~ ^(0|1)$ ]] ||
 		die 'HARNESS_CODEX_STRACE must be 0 or 1'
@@ -364,6 +367,8 @@ initialize_project()
 			"$HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS"
 		printf 'max_repeated_convergence_audits=%s\n' \
 			"$HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS"
+		printf 'progress_audit_every_reviews=%s\n' \
+			"$HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS"
 		printf 'codex_rust_log=%s\n' "$HARNESS_CODEX_RUST_LOG"
 		printf 'codex_diagnostic_profile=%s\n' \
 			"$HARNESS_CODEX_DIAGNOSTIC_PROFILE"
@@ -596,6 +601,286 @@ validate_oracle_pass()
 			return 1
 		}
 	done
+}
+
+completion_progress_audit_due()
+{
+	local cycle="$1"
+	[[ "$cycle" =~ ^[1-9][0-9]*$ ]] || return 1
+	(( HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS > 0 &&
+		cycle % HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS == 0 ))
+}
+
+completion_progress_audit_value()
+{
+	local report="$1"
+	local key="$2"
+	awk -v key="$key" '
+		$0 == "COMPLETION-AUDIT: BEGIN" { active = 1; next }
+		$0 == "COMPLETION-AUDIT-COMPLETE" { exit }
+		active && index($0, key ":") == 1 {
+			value = substr($0, length(key) + 2)
+			sub(/^[[:space:]]+/, "", value)
+			sub(/[[:space:]]+$/, "", value)
+			if (!seen++) print value
+		}
+	' "$report"
+}
+
+completion_progress_audit_value_count()
+{
+	local report="$1"
+	local key="$2"
+	awk -v key="$key" '
+		$0 == "COMPLETION-AUDIT: BEGIN" { active = 1; next }
+		$0 == "COMPLETION-AUDIT-COMPLETE" { exit }
+		active && index($0, key ":") == 1 { count += 1 }
+		END { print count + 0 }
+	' "$report"
+}
+
+completion_progress_audit_records()
+{
+	local report="$1"
+	awk '
+		function emit_record() {
+			if (have_record)
+				printf "%s\t%s\t%s\t%s\n", id, status, evidence, verification
+		}
+		$0 == "COMPLETION-AUDIT: BEGIN" { active = 1; next }
+		$0 == "COMPLETION-AUDIT-COMPLETE" {
+			if (active) emit_record()
+			exit
+		}
+		!active { next }
+		/^REQUIREMENT:[[:space:]]*/ {
+			emit_record()
+			id = $0
+			sub(/^REQUIREMENT:[[:space:]]*/, "", id)
+			gsub(/`/, "", id)
+			sub(/[[:space:]]+$/, "", id)
+			status = ""
+			evidence = ""
+			verification = ""
+			have_record = 1
+			next
+		}
+		have_record && /^Status:[[:space:]]*/ {
+			status = $0
+			sub(/^Status:[[:space:]]*/, "", status)
+			sub(/[[:space:]]+$/, "", status)
+			next
+		}
+		have_record && /^Evidence:[[:space:]]*/ {
+			evidence = $0
+			sub(/^Evidence:[[:space:]]*/, "", evidence)
+			next
+		}
+		have_record && /^Verification:[[:space:]]*/ {
+			verification = $0
+			sub(/^Verification:[[:space:]]*/, "", verification)
+			next
+		}
+	' "$report"
+}
+
+completion_progress_audit_extract()
+{
+	local report="$1"
+	awk '
+		$0 == "COMPLETION-AUDIT: BEGIN" { active = 1 }
+		active { print }
+		active && $0 == "COMPLETION-AUDIT-COMPLETE" { exit }
+	' "$report"
+}
+
+validate_completion_progress_audit()
+{
+	local specification="$1"
+	local report="$2"
+	local cycle="$3"
+	local decision="$4"
+	local begin_count end_count audit_cycle coverage_basis requirements_total
+	local verified_complete implemented_unverified remaining_gap blocked
+	local verified_percent claimed_percent id status evidence verification expected_id
+	local record_count=0 expected_total calculated_verified calculated_claimed
+	local verified_count=0 implemented_count=0 gap_count=0 blocked_count=0
+	local -a expected_ids=()
+	local -A expected=() seen=()
+
+	begin_count="$(grep -Fxc 'COMPLETION-AUDIT: BEGIN' "$report" || true)"
+	end_count="$(grep -Fxc 'COMPLETION-AUDIT-COMPLETE' "$report" || true)"
+	[[ "$begin_count" == 1 && "$end_count" == 1 ]] || {
+		printf 'completion-progress audit requires exactly one BEGIN and COMPLETE marker\n' >&2
+		return 1
+	}
+	for value in Audit-Cycle Coverage-Basis Requirements-Total Verified-Complete \
+		Implemented-Unverified Remaining-Gap Blocked Verified-Percent Claimed-Percent; do
+		[[ "$(completion_progress_audit_value_count "$report" "$value")" == 1 ]] || {
+			printf 'completion-progress audit requires exactly one %s field\n' "$value" >&2
+			return 1
+		}
+	done
+	audit_cycle="$(completion_progress_audit_value "$report" Audit-Cycle)"
+	coverage_basis="$(completion_progress_audit_value "$report" Coverage-Basis)"
+	requirements_total="$(completion_progress_audit_value "$report" Requirements-Total)"
+	verified_complete="$(completion_progress_audit_value "$report" Verified-Complete)"
+	implemented_unverified="$(completion_progress_audit_value "$report" Implemented-Unverified)"
+	remaining_gap="$(completion_progress_audit_value "$report" Remaining-Gap)"
+	blocked="$(completion_progress_audit_value "$report" Blocked)"
+	verified_percent="$(completion_progress_audit_value "$report" Verified-Percent)"
+	claimed_percent="$(completion_progress_audit_value "$report" Claimed-Percent)"
+	[[ "$audit_cycle" == "$cycle" ]] || {
+		printf 'completion-progress audit cycle %s does not match manager cycle %s\n' \
+			"${audit_cycle:-missing}" "$cycle" >&2
+		return 1
+	}
+	for value in requirements_total verified_complete implemented_unverified \
+		remaining_gap blocked verified_percent claimed_percent; do
+		[[ "${!value}" =~ ^[0-9]+$ ]] || {
+			printf 'completion-progress audit has invalid %s: %s\n' \
+			"$value" "${!value:-missing}" >&2
+			return 1
+		}
+	done
+
+	mapfile -t expected_ids < <(oracle_expected_requirement_ids "$specification")
+	expected_total="${#expected_ids[@]}"
+	if [[ "${expected_ids[0]:-}" == SPECIFICATION-WHOLE ]]; then
+		[[ "$coverage_basis" == SPECIFICATION-WHOLE ]] || {
+			printf 'completion-progress audit must use SPECIFICATION-WHOLE coverage\n' >&2
+			return 1
+		}
+	else
+		[[ "$coverage_basis" == REQUIREMENT-IDS ]] || {
+			printf 'completion-progress audit must use REQUIREMENT-IDS coverage\n' >&2
+			return 1
+		}
+	fi
+	[[ "$requirements_total" == "$expected_total" ]] || {
+		printf 'completion-progress audit total %s does not match expected requirement count %s\n' \
+			"$requirements_total" "$expected_total" >&2
+		return 1
+	}
+	for id in "${expected_ids[@]}"; do
+		[[ "$id" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ && ${#id} -le 128 ]] || {
+			printf 'invalid specification Requirement ID: %s\n' "$id" >&2
+			return 1
+		}
+		expected[$id]=1
+	done
+
+	while IFS=$'\t' read -r id status evidence verification; do
+		[[ -n "$id" ]] || continue
+		expected_id="${expected_ids[$record_count]:-}"
+		[[ "$id" == "$expected_id" ]] || {
+			printf 'completion-progress audit expected requirement %s but received %s\n' \
+				"${expected_id:-missing}" "$id" >&2
+			return 1
+		}
+		record_count=$((record_count + 1))
+		[[ -n "${expected[$id]:-}" ]] || {
+			printf 'unknown completion-progress requirement ID: %s\n' "$id" >&2
+			return 1
+		}
+		[[ -z "${seen[$id]:-}" ]] || {
+			printf 'duplicate completion-progress requirement ID: %s\n' "$id" >&2
+			return 1
+		}
+		[[ -n "$evidence" && -n "$verification" ]] || {
+			printf 'completion-progress requirement %s requires Evidence and Verification\n' \
+				"$id" >&2
+			return 1
+		}
+		case "$status" in
+			VERIFIED) verified_count=$((verified_count + 1)) ;;
+			IMPLEMENTED) implemented_count=$((implemented_count + 1)) ;;
+			GAP) gap_count=$((gap_count + 1)) ;;
+			BLOCKED) blocked_count=$((blocked_count + 1)) ;;
+			*)
+				printf 'invalid completion-progress status for %s: %s\n' "$id" \
+					"${status:-missing}" >&2
+				return 1
+				;;
+		esac
+		seen[$id]=1
+	done < <(completion_progress_audit_records "$report")
+	[[ "$record_count" == "$expected_total" ]] || {
+		printf 'completion-progress audit has %s records but requires %s\n' \
+			"$record_count" "$expected_total" >&2
+		return 1
+	}
+	for id in "${expected_ids[@]}"; do
+		[[ -n "${seen[$id]:-}" ]] || {
+			printf 'completion-progress audit is missing %s\n' "$id" >&2
+			return 1
+		}
+	done
+	[[ "$verified_complete" == "$verified_count" &&
+		"$implemented_unverified" == "$implemented_count" &&
+		"$remaining_gap" == "$gap_count" && "$blocked" == "$blocked_count" ]] || {
+		printf 'completion-progress summary counts do not match requirement records\n' >&2
+		return 1
+	}
+	calculated_verified=$((verified_count * 100 / expected_total))
+	calculated_claimed=$(((verified_count + implemented_count) * 100 / expected_total))
+	[[ "$verified_percent" == "$calculated_verified" &&
+		"$claimed_percent" == "$calculated_claimed" ]] || {
+		printf 'completion-progress percentages do not match requirement records\n' >&2
+		return 1
+	}
+	case "$decision" in
+		ACCEPT)
+			(( verified_count == expected_total )) || {
+				printf 'manager ACCEPT conflicts with incomplete completion-progress audit\n' >&2
+				return 1
+				}
+			;;
+		REVISE)
+			(( verified_count < expected_total )) || {
+				printf 'manager REVISE conflicts with fully verified completion-progress audit\n' >&2
+				return 1
+				}
+			;;
+	esac
+}
+
+write_completion_progress_state()
+{
+	local report="$1"
+	local audit_report="$2"
+	local file tmp audit_cycle coverage_basis requirements_total
+	local verified_complete implemented_unverified remaining_gap blocked
+	local verified_percent claimed_percent percentage_available
+	file="$(project_dir)/control/completion-progress.env"
+	tmp="$file.tmp.$$"
+	audit_cycle="$(completion_progress_audit_value "$report" Audit-Cycle)"
+	coverage_basis="$(completion_progress_audit_value "$report" Coverage-Basis)"
+	requirements_total="$(completion_progress_audit_value "$report" Requirements-Total)"
+	verified_complete="$(completion_progress_audit_value "$report" Verified-Complete)"
+	implemented_unverified="$(completion_progress_audit_value "$report" Implemented-Unverified)"
+	remaining_gap="$(completion_progress_audit_value "$report" Remaining-Gap)"
+	blocked="$(completion_progress_audit_value "$report" Blocked)"
+	verified_percent="$(completion_progress_audit_value "$report" Verified-Percent)"
+	claimed_percent="$(completion_progress_audit_value "$report" Claimed-Percent)"
+	percentage_available=1
+	[[ "$coverage_basis" != SPECIFICATION-WHOLE ]] || percentage_available=0
+	{
+		printf 'audit_cycle=%s\n' "$audit_cycle"
+		printf 'updated_at=%s\n' "$(timestamp_utc)"
+		printf 'coverage_basis=%s\n' "$coverage_basis"
+		printf 'requirements_total=%s\n' "$requirements_total"
+		printf 'verified_complete=%s\n' "$verified_complete"
+		printf 'implemented_unverified=%s\n' "$implemented_unverified"
+		printf 'remaining_gap=%s\n' "$remaining_gap"
+		printf 'blocked=%s\n' "$blocked"
+		printf 'verified_percent=%s\n' "$verified_percent"
+		printf 'claimed_percent=%s\n' "$claimed_percent"
+		printf 'percentage_available=%s\n' "$percentage_available"
+		printf 'audit_report=%s\n' "$audit_report"
+	} > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$file"
 }
 
 repeated_manager_finding_keys()

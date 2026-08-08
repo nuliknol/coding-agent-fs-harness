@@ -70,6 +70,33 @@ else
 	printf 'Repeated-convergence pause: after %s audits retain a finding\n' \
 		"$HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS"
 fi
+if (( HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS == 0 )); then
+	printf 'Completion-progress audit: disabled\n'
+else
+	printf 'Completion-progress audit: every %s completed manager reviews\n' \
+		"$HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS"
+	progress_state="$dir/control/completion-progress.env"
+	if [[ -f "$progress_state" ]]; then
+		progress_cycle="$(awk -F= '$1 == "audit_cycle" { print $2; exit }' "$progress_state")"
+		progress_basis="$(awk -F= '$1 == "coverage_basis" { print $2; exit }' "$progress_state")"
+		progress_total="$(awk -F= '$1 == "requirements_total" { print $2; exit }' "$progress_state")"
+		progress_verified="$(awk -F= '$1 == "verified_complete" { print $2; exit }' "$progress_state")"
+		progress_implemented="$(awk -F= '$1 == "implemented_unverified" { print $2; exit }' "$progress_state")"
+		progress_verified_percent="$(awk -F= '$1 == "verified_percent" { print $2; exit }' "$progress_state")"
+		progress_claimed_percent="$(awk -F= '$1 == "claimed_percent" { print $2; exit }' "$progress_state")"
+		progress_report="$(awk -F= '$1 == "audit_report" { print $2; exit }' "$progress_state")"
+		if [[ "$progress_basis" == SPECIFICATION-WHOLE ]]; then
+			printf 'Last completion audit: whole-specification assessment at cycle %s (percentage N/A)\n' \
+			"$progress_cycle"
+		else
+			printf 'Last completion audit: verified=%s%% (%s/%s), claimed=%s%% (%s verified + %s implemented), cycle=%s\n' \
+			"$progress_verified_percent" "$progress_verified" "$progress_total" \
+			"$progress_claimed_percent" "$progress_verified" "$progress_implemented" \
+			"$progress_cycle"
+		fi
+		printf 'Completion audit report: %s\n' "$progress_report"
+	fi
+fi
 printf 'Codex diagnostic profile: %s\n' \
 	"$([[ "$HARNESS_CODEX_DIAGNOSTIC_PROFILE" == 1 ]] && printf enabled || printf disabled)"
 printf 'Codex Rust diagnostics: %s\n' \

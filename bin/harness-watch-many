@@ -251,6 +251,44 @@ phase_role()
 	esac
 }
 
+completion_summary()
+{
+	local project_dir="$1"
+	local every_reviews="$2"
+	local state audit_cycle basis total verified implemented
+	local verified_percent claimed_percent percentage_available
+	[[ "$every_reviews" =~ ^[0-9]+$ ]] || every_reviews=0
+	if (( every_reviews == 0 )); then
+		printf 'disabled\n'
+		return
+	fi
+	state="$project_dir/control/completion-progress.env"
+	if [[ ! -f "$state" ]]; then
+		printf 'pending @%s\n' "$every_reviews"
+		return
+	fi
+	audit_cycle="$(state_value_from "$state" audit_cycle)"
+	basis="$(state_value_from "$state" coverage_basis)"
+	total="$(state_value_from "$state" requirements_total)"
+	verified="$(state_value_from "$state" verified_complete)"
+	implemented="$(state_value_from "$state" implemented_unverified)"
+	verified_percent="$(state_value_from "$state" verified_percent)"
+	claimed_percent="$(state_value_from "$state" claimed_percent)"
+	percentage_available="$(state_value_from "$state" percentage_available)"
+	if [[ "$basis" == SPECIFICATION-WHOLE || "$percentage_available" == 0 ]]; then
+		printf 'whole-spec N/A @%s\n' "${audit_cycle:-?}"
+		return
+	fi
+	if [[ "$audit_cycle" =~ ^[0-9]+$ && "$total" =~ ^[1-9][0-9]*$ &&
+		"$verified" =~ ^[0-9]+$ && "$implemented" =~ ^[0-9]+$ &&
+		"$verified_percent" =~ ^[0-9]+$ && "$claimed_percent" =~ ^[0-9]+$ ]]; then
+		printf 'V%s%% %s/%s; C%s%% @%s\n' \
+			"$verified_percent" "$verified" "$total" "$claimed_percent" "$audit_cycle"
+	else
+		printf 'invalid audit state\n'
+	fi
+}
+
 describe_harness()
 {
 	local project_dir="$1"
@@ -389,7 +427,8 @@ print_row()
 	local project="$1"
 	local cycle="$2"
 	local display_status="$3"
-	local description="$4"
+	local completion="$4"
+	local description="$5"
 	local first=1 line last_index
 	local -a lines=()
 	mapfile -t lines < <(wrap_description "$description" "$description_width")
@@ -405,36 +444,46 @@ print_row()
 	fi
 	for line in "${lines[@]}"; do
 		if (( first )); then
-			printf '%-*.*s | %*.*s | %-*.*s | %s\n' \
+			printf '%-*.*s | %*.*s | %-*.*s | %-*.*s | %s\n' \
 				"$project_width" "$project_width" "$project" \
 				"$cycle_width" "$cycle_width" "$cycle" \
-				"$status_width" "$status_width" "$display_status" "$line"
+				"$status_width" "$status_width" "$display_status" \
+				"$completion_width" "$completion_width" "$completion" "$line"
 			first=0
 		else
-			printf '%*s | %*s | %*s | %s\n' \
-				"$project_width" '' "$cycle_width" '' "$status_width" '' "$line"
+			printf '%*s | %*s | %*s | %*s | %s\n' \
+				"$project_width" '' "$cycle_width" '' "$status_width" '' \
+				"$completion_width" '' "$line"
 		fi
 	done
 }
 
 columns="$(terminal_columns)"
 screen_lines="$(terminal_lines)"
-(( columns >= 56 )) || columns=56
-if (( columns >= 150 )); then
+(( columns >= 72 )) || columns=72
+if (( columns >= 170 )); then
 	project_width=24
 	status_width=22
-elif (( columns >= 110 )); then
-	project_width=20
-	status_width=20
+	completion_width=26
+elif (( columns >= 130 )); then
+	project_width=18
+	status_width=19
+	completion_width=23
+elif (( columns >= 96 )); then
+	project_width=13
+	status_width=16
+	completion_width=21
 elif (( columns >= 80 )); then
-	project_width=14
-	status_width=17
+	project_width=11
+	status_width=16
+	completion_width=14
 else
 	project_width=10
 	status_width=14
+	completion_width=12
 fi
 cycle_width=5
-description_width=$((columns - project_width - cycle_width - status_width - 9))
+description_width=$((columns - project_width - cycle_width - status_width - completion_width - 12))
 (( description_width >= 18 )) || description_width=18
 environment_file_count="$(find "$config_dir" -maxdepth 1 -type f \
 	-name '*.env' | wc -l | tr -d ' ')"
@@ -443,9 +492,9 @@ row_line_limit=$(((screen_lines - 4) / environment_file_count))
 (( row_line_limit >= 2 )) || row_line_limit=2
 (( row_line_limit <= 8 )) || row_line_limit=8
 
-printf '%-*s | %*s | %-*s | %s\n' \
+printf '%-*s | %*s | %-*s | %-*s | %s\n' \
 	"$project_width" PROJECT "$cycle_width" CYCLE \
-	"$status_width" STATUS 'PROGRESS / BLOCKER'
+	"$status_width" STATUS "$completion_width" COMPLETION 'PROGRESS / BLOCKER'
 printf '%*s\n' "$columns" '' | tr ' ' '-'
 
 found=0
@@ -472,23 +521,24 @@ while IFS= read -r -d '' env_file; do
 		set -Eeuo pipefail
 		source "$1"
 		load_harness_env "$2"
-		printf "HARNESS_WATCH_DATA\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n" \
+		printf "HARNESS_WATCH_DATA\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n" \
 			"$PROJECT" "$HARNESS_ROOT" "$HARNESS_ENV_FILE" \
 			"$HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS" \
-			"$HARNESS_MAX_MANAGER_REVIEWS" "$MAX_ORACLE_RUNS"
+			"$HARNESS_MAX_MANAGER_REVIEWS" "$MAX_ORACLE_RUNS" \
+			"$HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS"
 	' _ "$COMMON" "$env_file" 2>&1)" || {
 		error="$(tail -n 2 <<< "$loaded" | tr '\n' ' ')"
 		print_row "${probe_project:-${env_file##*/}}" '-' \
-			'config error' "CONFIGURATION ERROR: ${error:-unable to load environment file}."
+			'config error' '-' "CONFIGURATION ERROR: ${error:-unable to load environment file}."
 		continue
 	}
 	data="$(awk -F '\t' '$1 == "HARNESS_WATCH_DATA" { print; exit }' <<< "$loaded")"
 	IFS=$'\t' read -r _ project harness_root canonical_env stall_seconds \
-		max_manager_reviews max_oracle_runs <<< "$data"
+		max_manager_reviews max_oracle_runs progress_audit_every_reviews <<< "$data"
 	project_dir="$harness_root/projects/$project"
 	state_file="$project_dir/control/state.env"
 	if [[ ! -f "$state_file" ]]; then
-		print_row "$project" '-' 'not initialized' \
+		print_row "$project" '-' 'not initialized' '-' \
 			"No harness state exists at $project_dir. Run harness-init before starting it."
 		continue
 	fi
@@ -515,7 +565,8 @@ while IFS= read -r -d '' env_file; do
 	description="$(describe_harness "$project_dir" "$status" "$phase" \
 		"$cycle" "$running" "${stall_seconds:-0}" \
 		"${max_manager_reviews:-0}" "${max_oracle_runs:-0}")"
-	print_row "$project" "$cycle" "$display_status" "$description"
+	completion="$(completion_summary "$project_dir" "${progress_audit_every_reviews:-0}")"
+	print_row "$project" "$cycle" "$display_status" "$completion" "$description"
 done < <(find "$config_dir" -maxdepth 1 -type f -name '*.env' -print0 | sort -z)
 
 if (( ! found )); then

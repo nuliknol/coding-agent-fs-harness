@@ -126,6 +126,31 @@ if [[ "$model" == gpt-5.6-terra ]]; then
 	else
 		message=$'DECISION: REVISE\n\nADD-001\nFinding-Key: `feature-content-incomplete`\nSpecification: feature.txt must contain exactly complete.\nEvidence: the repository contains only a partial value.\nRequired correction: replace it with the complete value.\nVerification: test \"$(cat feature.txt)\" = complete.'
 	fi
+	if [[ "$prompt" == *'# Mandatory completion-progress audit'* ]]; then
+		audit_cycle="$(sed -n 's/^Audit cycle: `\([0-9][0-9]*\)`.*/\1/p' <<< "$prompt" | tail -n 1)"
+		if [[ "$message" == 'DECISION: ACCEPT'* ]]; then
+			audit_status='VERIFIED'
+			verified_complete=1
+			implemented_unverified=0
+			remaining_gap=0
+			blocked=0
+			verified_percent=100
+			claimed_percent=100
+		else
+			audit_status='GAP'
+			verified_complete=0
+			implemented_unverified=0
+			remaining_gap=1
+			blocked=0
+			verified_percent=0
+			claimed_percent=0
+		fi
+		printf -v completion_audit '\n\nCOMPLETION-AUDIT: BEGIN\nAudit-Cycle: %s\nCoverage-Basis: SPECIFICATION-WHOLE\nRequirements-Total: 1\nVerified-Complete: %s\nImplemented-Unverified: %s\nRemaining-Gap: %s\nBlocked: %s\nVerified-Percent: %s\nClaimed-Percent: %s\n\nREQUIREMENT: SPECIFICATION-WHOLE\nStatus: %s\nEvidence: fake manager inspected the current repository state.\nVerification: fake focused verification was recorded.\nCOMPLETION-AUDIT-COMPLETE' \
+			"$audit_cycle" "$verified_complete" "$implemented_unverified" \
+			"$remaining_gap" "$blocked" "$verified_percent" "$claimed_percent" \
+			"$audit_status"
+		message+="$completion_audit"
+	fi
 	input=100
 	cached=80
 	output_tokens=20
@@ -379,6 +404,8 @@ grep -q 'No-source-progress pause: after 5 unchanged worker deliveries' \
 	<<< "$default_check"
 grep -q 'Repeated-convergence pause: after 3 audits retain a finding' \
 	<<< "$default_check"
+grep -q 'Completion-progress audit: every 10 completed manager reviews' \
+	<<< "$default_check"
 grep -q 'Oracle: gpt-5.6-sol (high), sandbox=workspace-write, maximum runs=3' \
 	<<< "$default_check"
 grep -q 'Codex diagnostic profile: disabled' <<< "$default_check"
@@ -417,6 +444,19 @@ if "$ROOT/bin/harness-check-env" "$TEST_DIR/invalid-diagnostics.env" \
 fi
 grep -q 'HARNESS_CODEX_STRACE must be 0 or 1' \
 	"$TEST_DIR/invalid-diagnostics.err"
+
+cp "$TEST_DIR/project.env" "$TEST_DIR/invalid-progress-audit.env"
+printf 'export HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS="-1"\n' >> \
+	"$TEST_DIR/invalid-progress-audit.env"
+chmod 600 "$TEST_DIR/invalid-progress-audit.env"
+if "$ROOT/bin/harness-check-env" "$TEST_DIR/invalid-progress-audit.env" \
+	>"$TEST_DIR/invalid-progress-audit.out" \
+	2>"$TEST_DIR/invalid-progress-audit.err"; then
+	printf 'invalid completion-progress audit interval was accepted\n' >&2
+	exit 1
+fi
+grep -q 'HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS must be a non-negative integer' \
+	"$TEST_DIR/invalid-progress-audit.err"
 
 cat > "$TEST_DIR/oracle-pass-specification.md" <<'EOF'
 # Structured Oracle PASS fixture
@@ -473,6 +513,51 @@ fi
 grep -q 'missing requirement evidence for REQ-TWO' \
 	"$TEST_DIR/oracle-pass-invalid.err"
 
+cat > "$TEST_DIR/completion-progress-valid.md" <<'EOF'
+DECISION: REVISE
+
+COMPLETION-AUDIT: BEGIN
+Audit-Cycle: 10
+Coverage-Basis: REQUIREMENT-IDS
+Requirements-Total: 2
+Verified-Complete: 1
+Implemented-Unverified: 1
+Remaining-Gap: 0
+Blocked: 0
+Verified-Percent: 50
+Claimed-Percent: 100
+
+REQUIREMENT: REQ-ONE
+Status: VERIFIED
+Evidence: src/one.c is implemented and the focused check passed.
+Verification: run-first-requirement passed.
+
+REQUIREMENT: REQ-TWO
+Status: IMPLEMENTED
+Evidence: src/two.c is implemented but broader integration remains unverified.
+Verification: focused source inspection confirmed the implementation path.
+COMPLETION-AUDIT-COMPLETE
+EOF
+bash -c 'source "$1"; validate_completion_progress_audit "$2" "$3" 10 REVISE' _ \
+	"$ROOT/lib/harness-common.sh" \
+	"$TEST_DIR/oracle-pass-specification.md" \
+	"$TEST_DIR/completion-progress-valid.md"
+
+sed 's/^Claimed-Percent: 100$/Claimed-Percent: 50/' \
+	"$TEST_DIR/completion-progress-valid.md" > \
+	"$TEST_DIR/completion-progress-invalid.md"
+if bash -c 'source "$1"; validate_completion_progress_audit "$2" "$3" 10 REVISE' _ \
+	"$ROOT/lib/harness-common.sh" \
+	"$TEST_DIR/oracle-pass-specification.md" \
+	"$TEST_DIR/completion-progress-invalid.md" \
+	>"$TEST_DIR/completion-progress-invalid.out" \
+	2>"$TEST_DIR/completion-progress-invalid.err"; then
+	printf 'completion-progress audit with incorrect percentage was accepted\n' >&2
+	exit 1
+fi
+grep -q 'percentages do not match requirement records' \
+	"$TEST_DIR/completion-progress-invalid.err"
+
 sed 's/PROJECT="light-smoke"/PROJECT="dirty-init"/' \
 	"$TEST_DIR/project.env" > "$TEST_DIR/dirty-project.env"
 chmod 600 "$TEST_DIR/dirty-project.env"
@@ -526,6 +611,7 @@ grep -Fq -- '--disable goals' "$fake_state/codex-argv.log"
 grep -q '^manager_review_checklist=c-strict$' "$project/project.conf"
 grep -q '^max_no_source_progress_reviews=5$' "$project/project.conf"
 grep -q '^max_repeated_convergence_audits=3$' "$project/project.conf"
+grep -q '^progress_audit_every_reviews=10$' "$project/project.conf"
 grep -q '^# Operator-selected first-review checklist$' \
 	"$project/prompts/manager-review-001.md"
 grep -q '^## Strict C verification profile$' \
@@ -577,6 +663,8 @@ test -f "$repo/pre-existing.txt"
 
 status_output="$("$ROOT/bin/harness-status" "$TEST_DIR/project.env")"
 grep -q 'Manager first-review checklist: c-strict' <<< "$status_output"
+grep -q 'Completion-progress audit: every 10 completed manager reviews' \
+	<<< "$status_output"
 grep -q 'Codex goal tools: disabled by harness' <<< "$status_output"
 grep -q 'Environment reload: before every manager review and Oracle audit (soft parameters only)' \
 	<<< "$status_output"
@@ -610,12 +698,14 @@ EOF
 chmod 600 "$watch_many_dir/"*.env
 watch_many_output="$(COLUMNS=80 LINES=24 \
 	"$ROOT/bin/harness-watch-many" --once "$watch_many_dir")"
-grep -q '^PROJECT .*| CYCLE | STATUS .*| PROGRESS / BLOCKER$' \
+grep -q '^PROJECT .*| CYCLE | STATUS .*| COMPLETION .*| PROGRESS / BLOCKER$' \
 	<<< "$watch_many_output"
 grep -q '^light-smoke .*| *2 | complete/stopped' <<< "$watch_many_output"
-grep -q 'Completed normally without an' <<< "$watch_many_output"
-grep -q 'enabled Oracle gate; no blocker' <<< "$watch_many_output"
-grep -q '^broken-watch-p.*| *- | config error' <<< "$watch_many_output"
+grep -q 'pending @10' <<< "$watch_many_output"
+grep -q 'Completed normally' <<< "$watch_many_output"
+grep -q 'without an enabled' <<< "$watch_many_output"
+grep -q 'Oracle gate; no' <<< "$watch_many_output"
+grep -q '^broken-watc.*| *- | config error' <<< "$watch_many_output"
 grep -q 'CONFIGURATION ERROR:' <<< "$watch_many_output"
 if grep -q 'excluded-template' <<< "$watch_many_output"; then
 	printf 'watch-many included an environment with an empty specification\n' >&2
@@ -626,7 +716,7 @@ if awk 'length($0) > 80 { found = 1 } END { exit !found }' \
 	printf 'watch-many exceeded the requested terminal width\n' >&2
 	exit 1
 fi
-grep -Eq '^ +\| +\| +\|' <<< "$watch_many_output"
+grep -Eq '^ +\| +\| +\| +\|' <<< "$watch_many_output"
 
 repair_repo="$TEST_DIR/protocol-repair-repository"
 repair_state="$TEST_DIR/protocol-repair-state"
@@ -800,6 +890,7 @@ export HARNESS_PROVIDER_RETRY_SECONDS="1"
 export HARNESS_QUOTA_RETRY_SECONDS="1"
 export HARNESS_MAX_MANAGER_REVIEWS="50"
 export HARNESS_MAX_REPEATED_FINDING_REVIEWS="3"
+export HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS="1"
 export FAKE_CODEX_STATE="$repeat_fake_state"
 export FAKE_REPOSITORY="$repeat_repo"
 export FAKE_REPEAT_FINDINGS="1"
@@ -816,6 +907,23 @@ grep -qx 'status=PAUSED' "$repeat_project/control/state.env"
 grep -qx 'phase=NEEDS_OPERATOR' "$repeat_project/control/state.env"
 grep -qx 'cycle=3' "$repeat_project/control/state.env"
 test -f "$repeat_project/reviews/convergence-audit-003.md"
+for cycle in 001 002 003; do
+	test -f "$repeat_project/reviews/completion-progress-$cycle.md"
+done
+grep -qx 'audit_cycle=3' "$repeat_project/control/completion-progress.env"
+grep -qx 'coverage_basis=SPECIFICATION-WHOLE' \
+	"$repeat_project/control/completion-progress.env"
+grep -qx 'requirements_total=1' "$repeat_project/control/completion-progress.env"
+grep -qx 'verified_complete=0' "$repeat_project/control/completion-progress.env"
+grep -qx 'remaining_gap=1' "$repeat_project/control/completion-progress.env"
+grep -q 'COMPLETION_PROGRESS_RECORDED cycle=3 total=1 verified=0 implemented=0 gap=1 blocked=0' \
+	"$repeat_project/logs/events.log"
+repeat_watch_dir="$TEST_DIR/repeat-watch-configs"
+mkdir -p "$repeat_watch_dir"
+cp "$TEST_DIR/repeat-project.env" "$repeat_watch_dir/repeat.env"
+repeat_watch_output="$(COLUMNS=130 LINES=24 \
+	"$ROOT/bin/harness-watch-many" --once "$repeat_watch_dir")"
+grep -q 'whole-spec N/A @3' <<< "$repeat_watch_output"
 test -f "$repeat_project/control/operator-required.md"
 grep -qx 'DECISION: NEEDS_OPERATOR' \
 	"$repeat_project/control/operator-required.md"
@@ -893,6 +1001,8 @@ sed -e 's/PROJECT="repeat-circuit"/PROJECT="actionable-circuit"/' \
 printf 'export FAKE_CONVERGENCE_ACTIONABLE="1"\n' >> \
 	"$TEST_DIR/action-project.env"
 printf 'export FAKE_INVALID_CONVERGENCE="1"\n' >> \
+	"$TEST_DIR/action-project.env"
+printf 'export FAKE_REPEAT_FINDINGS="1"\n' >> \
 	"$TEST_DIR/action-project.env"
 chmod 600 "$TEST_DIR/action-project.env"
 "$ROOT/bin/harness-init" "$TEST_DIR/action-project.env" >/dev/null
@@ -1142,6 +1252,7 @@ sed -e 's/PROJECT="repeat-circuit"/PROJECT="emergency-cap"/' \
 	-e "s|FAKE_CODEX_STATE=\"$repeat_fake_state\"|FAKE_CODEX_STATE=\"$cap_fake_state\"|" \
 	-e "s|FAKE_REPOSITORY=\"$repeat_repo\"|FAKE_REPOSITORY=\"$cap_repo\"|" \
 	"$TEST_DIR/repeat-project.env" > "$TEST_DIR/cap-project.env"
+printf 'export FAKE_REPEAT_FINDINGS="1"\n' >> "$TEST_DIR/cap-project.env"
 chmod 600 "$TEST_DIR/cap-project.env"
 "$ROOT/bin/harness-init" "$TEST_DIR/cap-project.env" >/dev/null
 "$ROOT/bin/harness-start" "$TEST_DIR/cap-project.env" >/dev/null
