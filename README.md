@@ -427,6 +427,21 @@ or Oracle limit must actually be raised first; changing the environment alone
 does not cross the recorded limit. `NEEDS_OPERATOR` requires its specific
 repair action and cannot be cleared by this generic command.
 
+When an external condition has been resolved, record the resolution and replace
+the stale Luna context explicitly:
+
+```bash
+bin/harness-resolve-operator ~/configs/my-project-light.env resolution.md
+bin/harness-start ~/configs/my-project-light.env
+```
+
+`resolution.md` is a nonempty operator-authored file. The command accepts only
+a stopped `PAUSED/NEEDS_OPERATOR` harness, archives the prior report, goal, and
+thread under `reviews/operator-resolution-NNN/`, snapshots the resolution as a
+protected input, and clears only the old Luna context. The next start asks
+Terra for a fresh goal containing that resolution, then resumes the interrupted
+work with a fresh Luna thread. It never starts a supervisor itself.
+
 Inspect status or follow agent messages:
 
 ```bash
@@ -490,6 +505,10 @@ next start, a fresh Terra turn writes a replacement goal under the current
 owner-authority policy, then the harness resumes the interrupted phase with a
 fresh Luna thread. A convergence-limit reset begins a new convergence window;
 the command does not silently start or stop a supervisor.
+
+For a genuine external blocker that has since been resolved, use
+`harness-resolve-operator` instead of `harness-reset-worker-context`; it also
+captures the operator's resolution as immutable context for Terra and Luna.
 
 ### Supervisor process containment
 

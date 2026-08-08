@@ -401,8 +401,10 @@ worker_context_reset_value()
 
 complete_goal_refresh()
 {
-	local reset_id resume_phase reset_cycle archive completed_at
+	local reset_id recovery_kind resume_phase reset_cycle archive resolution completed_at event_prefix
 	reset_id="$(worker_context_reset_value reset_id)"
+	recovery_kind="$(worker_context_reset_value recovery_kind || true)"
+	[[ -n "$recovery_kind" ]] || recovery_kind=worker_context_reset
 	resume_phase="$(worker_context_reset_value resume_phase)"
 	reset_cycle="$(worker_context_reset_value source_cycle)"
 	archive="$(worker_context_reset_value archive)"
@@ -414,9 +416,21 @@ complete_goal_refresh()
 		WORKER_REQUIRED|WORKER_RETRY|REVIEW_REQUIRED|CONVERGENCE_REQUIRED) ;;
 		*) fail_harness "worker-context reset has an invalid resume phase: $resume_phase" ;;
 	esac
-	case "$archive" in
-		"$dir/reviews/worker-context-reset-"*) ;;
-		*) fail_harness 'worker-context reset has an invalid archive path' ;;
+	case "$recovery_kind" in
+		worker_context_reset)
+			[[ "$archive" == "$dir/reviews/worker-context-reset-"* ]] ||
+				fail_harness 'worker-context reset has an invalid archive path'
+			event_prefix=WORKER_CONTEXT_RESET
+			;;
+		operator_resolution)
+			resolution="$(worker_context_reset_value resolution)"
+			[[ "$archive" == "$dir/reviews/operator-resolution-"* ]] ||
+				fail_harness 'operator resolution has an invalid archive path'
+			[[ "$resolution" == "$dir/inputs/operator-resolution.md" && -s "$resolution" ]] ||
+				fail_harness 'operator resolution snapshot is missing or invalid'
+			event_prefix=OPERATOR_RESOLUTION
+			;;
+		*) fail_harness "worker-context recovery has an invalid kind: $recovery_kind" ;;
 	esac
 	[[ -d "$archive" ]] ||
 		fail_harness "worker-context reset archive is missing: $archive"
@@ -434,22 +448,38 @@ complete_goal_refresh()
 		} >> "$archive/reset.env"
 	fi
 	write_state ACTIVE "$resume_phase" "$reset_cycle"
-	log_event "WORKER_CONTEXT_RESET_COMPLETED reset=$reset_id cycle=$reset_cycle resume_phase=$resume_phase archive=$archive"
+	log_event "${event_prefix}_COMPLETED reset=$reset_id cycle=$reset_cycle resume_phase=$resume_phase archive=$archive"
 	rm -f "$dir/control/worker-context-reset.env"
 }
 
 generate_goal()
 {
 	local mode="${1:-initial}"
-	local prompt stem output cycle reset_id archive
+	local prompt stem output cycle reset_id recovery_kind archive resolution event_prefix
 	cycle="$(state_value cycle)"
 	if [[ "$mode" == refresh ]]; then
 		reset_id="$(worker_context_reset_value reset_id)"
+		recovery_kind="$(worker_context_reset_value recovery_kind || true)"
+		[[ -n "$recovery_kind" ]] || recovery_kind=worker_context_reset
 		archive="$(worker_context_reset_value archive)"
 		[[ "$reset_id" =~ ^[0-9][0-9][0-9]+$ ]] ||
 			fail_harness 'worker-context reset marker is invalid'
-		prompt="$dir/prompts/manager-goal-reset-$reset_id.md"
-		stem="manager-goal-reset-$reset_id"
+		case "$recovery_kind" in
+			worker_context_reset)
+				prompt="$dir/prompts/manager-goal-reset-$reset_id.md"
+				stem="manager-goal-reset-$reset_id"
+				event_prefix=GOAL_REFRESH
+				;;
+			operator_resolution)
+				resolution="$(worker_context_reset_value resolution)"
+				[[ "$resolution" == "$dir/inputs/operator-resolution.md" && -s "$resolution" ]] ||
+					fail_harness 'operator resolution snapshot is missing or invalid'
+				prompt="$dir/prompts/manager-goal-operator-resolution-$reset_id.md"
+				stem="manager-goal-operator-resolution-$reset_id"
+				event_prefix=OPERATOR_RESOLUTION_GOAL_REFRESH
+				;;
+			*) fail_harness "worker-context recovery has an invalid kind: $recovery_kind" ;;
+		esac
 	else
 		prompt="$dir/prompts/manager-goal.md"
 		stem=manager-goal
@@ -458,14 +488,22 @@ generate_goal()
 	write_context_header "$prompt"
 	if [[ "$mode" == refresh ]]; then
 		{
-			printf '# Worker-context refresh\n\n'
-			printf 'This is operator-requested worker-context reset `%s` at cycle `%s`.\n\n' \
-				"$reset_id" "$cycle"
-			printf 'The previous goal is archived at `%s/worker-goal.md` for audit only. Do not inherit its narrower ownership prohibitions. Author a complete replacement under the current owner-authority and exceptions policy above.\n\n' \
-				"$archive"
+			if [[ "$recovery_kind" == operator_resolution ]]; then
+				printf '# Operator resolution\n\n'
+				printf 'An operator resolved the external blocker at cycle `%s`. The prior report and worker context are archived at `%s`. Treat the following immutable resolution as current environment evidence; direct Luna to perform the previously blocked repository work and verification.\n\n' \
+					"$cycle" "$archive"
+				cat "$resolution"
+				printf '\n\n'
+			else
+				printf '# Worker-context refresh\n\n'
+				printf 'This is operator-requested worker-context reset `%s` at cycle `%s`.\n\n' \
+					"$reset_id" "$cycle"
+				printf 'The previous goal is archived at `%s/worker-goal.md` for audit only. Do not inherit its narrower ownership prohibitions. Author a complete replacement under the current owner-authority and exceptions policy above.\n\n' \
+					"$archive"
+			fi
 		} >> "$prompt"
 		write_state ACTIVE GOAL_REFRESH_RUNNING "$cycle"
-		log_event "GOAL_REFRESH_STARTED reset=$reset_id cycle=$cycle model=$MANAGER_MODEL effort=$MANAGER_REASONING_EFFORT"
+		log_event "${event_prefix}_STARTED reset=$reset_id cycle=$cycle model=$MANAGER_MODEL effort=$MANAGER_REASONING_EFFORT"
 	else
 		write_state ACTIVE GOAL_RUNNING 0
 		log_event "GOAL_AUTHORING_STARTED model=$MANAGER_MODEL effort=$MANAGER_REASONING_EFFORT"
@@ -509,6 +547,13 @@ prepare_worker_prompt()
 			printf '\nManager-authored persistent goal: `%s`\n\n' "$dir/control/worker-goal.md"
 			printf '# Completion addendum to resolve\n\n'
 			cat "$addendum"
+		} >> "$prompt"
+	fi
+	if [[ -s "$dir/inputs/operator-resolution.md" ]]; then
+		{
+			printf '\n# Current operator resolution\n\n'
+			cat "$dir/inputs/operator-resolution.md"
+			printf '\n'
 		} >> "$prompt"
 	fi
 	write_git_control_policy "$prompt"

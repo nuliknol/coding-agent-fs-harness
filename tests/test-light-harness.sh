@@ -824,6 +824,55 @@ grep -q 'CONVERGENCE_TRIGGERED cycle=3 threshold=3 keys=external-decision-unavai
 grep -q 'CONVERGENCE_AUDIT_FINISHED cycle=3 decision=NEEDS_OPERATOR' \
 	"$repeat_project/logs/events.log"
 test ! -f "$repeat_project/outputs/worker-004.md"
+printf '%s\n' 'Operator resolution: the external dependency is now available.' \
+	> "$TEST_DIR/repeat-resolution.md"
+"$ROOT/bin/harness-resolve-operator" "$TEST_DIR/repeat-project.env" \
+	"$TEST_DIR/repeat-resolution.md" >/dev/null
+grep -qx 'status=ACTIVE' "$repeat_project/control/state.env"
+grep -qx 'phase=GOAL_REFRESH_REQUIRED' "$repeat_project/control/state.env"
+grep -qx 'cycle=3' "$repeat_project/control/state.env"
+test ! -e "$repeat_project/control/worker-goal.md"
+test ! -e "$repeat_project/control/worker.thread"
+test ! -e "$repeat_project/control/operator-required.md"
+cmp -s "$TEST_DIR/repeat-resolution.md" \
+	"$repeat_project/inputs/operator-resolution.md"
+repeat_resolution_archive="$repeat_project/reviews/operator-resolution-001"
+test -d "$repeat_resolution_archive"
+test -f "$repeat_resolution_archive/state-before.env"
+test -f "$repeat_resolution_archive/worker-goal.md"
+test -f "$repeat_resolution_archive/worker.thread"
+test -f "$repeat_resolution_archive/operator-required.md"
+cmp -s "$TEST_DIR/repeat-resolution.md" \
+	"$repeat_resolution_archive/operator-resolution.md"
+grep -qx 'recovery_kind=operator_resolution' \
+	"$repeat_project/control/worker-context-reset.env"
+grep -qx 'resume_phase=WORKER_REQUIRED' \
+	"$repeat_project/control/worker-context-reset.env"
+grep -q 'OPERATOR_RESOLUTION_REQUESTED resolution=001 .*cycle=3' \
+	"$repeat_project/logs/events.log"
+repeat_resolution_status="$($ROOT/bin/harness-status "$TEST_DIR/repeat-project.env")"
+grep -q 'Operator resolutions: 1' <<< "$repeat_resolution_status"
+grep -q 'Operator resolution pending: 001 (resume at WORKER_REQUIRED)' \
+	<<< "$repeat_resolution_status"
+printf 'export FAKE_REPEAT_FINDINGS="0"\n' >> "$TEST_DIR/repeat-project.env"
+"$ROOT/bin/harness-start" "$TEST_DIR/repeat-project.env" >/dev/null
+for _ in {1..30}; do
+	grep -qx 'status=COMPLETE' "$repeat_project/control/state.env" 2>/dev/null && break
+	sleep 1
+done
+grep -qx 'status=COMPLETE' "$repeat_project/control/state.env"
+grep -qx 'cycle=5' "$repeat_project/control/state.env"
+test -f "$repeat_resolution_archive/worker-goal-after.md"
+grep -q '^completed_at=' "$repeat_resolution_archive/resolution.env"
+test ! -f "$repeat_project/control/worker-context-reset.env"
+grep -q 'Operator resolution: the external dependency is now available.' \
+	"$repeat_project/prompts/manager-goal-operator-resolution-001.md"
+grep -q 'Operator resolution: the external dependency is now available.' \
+	"$repeat_project/prompts/worker-004.md"
+grep -q 'OPERATOR_RESOLUTION_GOAL_REFRESH_STARTED reset=001 cycle=3' \
+	"$repeat_project/logs/events.log"
+grep -q 'OPERATOR_RESOLUTION_COMPLETED reset=001 cycle=3 resume_phase=WORKER_REQUIRED' \
+	"$repeat_project/logs/events.log"
 
 action_repo="$TEST_DIR/action-repository"
 action_state="$TEST_DIR/action-state"

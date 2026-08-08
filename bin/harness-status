@@ -108,13 +108,23 @@ fi
 worker_context_reset_count="$(find "$dir/reviews" -maxdepth 1 -type d \
 	-name 'worker-context-reset-[0-9][0-9][0-9]*' | wc -l | tr -d ' ')"
 printf 'Worker context resets: %s\n' "$worker_context_reset_count"
+operator_resolution_count="$(find "$dir/reviews" -maxdepth 1 -type d \
+	-name 'operator-resolution-[0-9][0-9][0-9]*' | wc -l | tr -d ' ')"
+printf 'Operator resolutions: %s\n' "$operator_resolution_count"
 if [[ -f "$dir/control/worker-context-reset.env" ]]; then
 	reset_id="$(awk -F= '$1 == "reset_id" { print $2; exit }' \
 		"$dir/control/worker-context-reset.env")"
+	recovery_kind="$(awk -F= '$1 == "recovery_kind" { print $2; exit }' \
+		"$dir/control/worker-context-reset.env")"
 	reset_resume="$(awk -F= '$1 == "resume_phase" { print $2; exit }' \
 		"$dir/control/worker-context-reset.env")"
-	printf 'Worker context reset pending: %s (resume at %s)\n' \
-		"$reset_id" "$reset_resume"
+	if [[ "$recovery_kind" == operator_resolution ]]; then
+		printf 'Operator resolution pending: %s (resume at %s)\n' \
+			"$reset_id" "$reset_resume"
+	else
+		printf 'Worker context reset pending: %s (resume at %s)\n' \
+			"$reset_id" "$reset_resume"
+	fi
 fi
 printf 'Completion addenda: %s\n' \
 	"$(find "$dir/addenda" -maxdepth 1 -name 'addendum-*.md' -type f | wc -l | tr -d ' ')"
