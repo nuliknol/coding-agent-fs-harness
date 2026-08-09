@@ -26,13 +26,21 @@ ensure_project
 [[ -f "$prompt" ]] || die "prompt does not exist: $prompt"
 
 case "$role" in
-	manager_goal|manager_review|manager_convergence)
+	manager_goal|manager_review)
 		codex_bin="$MANAGER_CODEX_BIN"
 		codex_home="$MANAGER_CODEX_HOME"
 		model="$MANAGER_MODEL"
 		effort="$MANAGER_REASONING_EFFORT"
 		sandbox="$MANAGER_SANDBOX"
 		extra_args=("${MANAGER_CODEX_EXTRA_ARGS[@]}")
+		;;
+	manager_convergence)
+		codex_bin="$CONVERGENCE_CODEX_BIN"
+		codex_home="$CONVERGENCE_CODEX_HOME"
+		model="$CONVERGENCE_MODEL"
+		effort="$CONVERGENCE_REASONING_EFFORT"
+		sandbox="$CONVERGENCE_SANDBOX"
+		extra_args=("${CONVERGENCE_CODEX_EXTRA_ARGS[@]}")
 		;;
 	manager_protocol_repair)
 		codex_bin="$MANAGER_CODEX_BIN"
@@ -41,6 +49,14 @@ case "$role" in
 		effort="$MANAGER_REASONING_EFFORT"
 		sandbox=read-only
 		extra_args=("${MANAGER_CODEX_EXTRA_ARGS[@]}")
+		;;
+	convergence_protocol_repair)
+		codex_bin="$CONVERGENCE_CODEX_BIN"
+		codex_home="$CONVERGENCE_CODEX_HOME"
+		model="$CONVERGENCE_MODEL"
+		effort="$CONVERGENCE_REASONING_EFFORT"
+		sandbox=read-only
+		extra_args=("${CONVERGENCE_CODEX_EXTRA_ARGS[@]}")
 		;;
 	worker)
 		codex_bin="$WORKER_CODEX_BIN"
@@ -178,9 +194,14 @@ trap cleanup_integrity_snapshot EXIT
 
 protected_state_root="$(project_dir)"
 mkdir -p "$integrity_snapshot/state" "$integrity_snapshot/control"
+protected_directories=(inputs addenda reviews prompts)
+# Old initialized projects predate metrics.  When present it is protected just
+# like prompts/reviews; otherwise the legacy state remains compatible.
+[[ ! -d "$protected_state_root/metrics" ]] || protected_directories+=(metrics)
 protected_controls=(state.env worker-goal.md worker.thread final-acceptance.md \
 	provisional-acceptance.md \
 	last-error.txt last-convergence-audit-cycle operator-required.md \
+	dead-end.md post-oracle-remediation.env completion-progress.env \
 	supervisor.unit process-token worker-context-reset.env)
 shopt -s nullglob
 for protected_control_path in \
@@ -188,7 +209,7 @@ for protected_control_path in \
 	protected_controls+=("${protected_control_path##*/}")
 done
 shopt -u nullglob
-for protected_directory in inputs addenda reviews prompts; do
+for protected_directory in "${protected_directories[@]}"; do
 	cp -a -- "$protected_state_root/$protected_directory" \
 		"$integrity_snapshot/state/$protected_directory"
 done
@@ -295,7 +316,7 @@ if [[ -n "$git_state_before" ]]; then
 fi
 
 protected_state_changed=0
-for protected_directory in inputs addenda reviews prompts; do
+for protected_directory in "${protected_directories[@]}"; do
 	if ! diff -qr -- "$integrity_snapshot/state/$protected_directory" \
 		"$protected_state_root/$protected_directory" >/dev/null 2>&1; then
 		protected_state_changed=1

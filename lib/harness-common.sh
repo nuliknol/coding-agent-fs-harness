@@ -66,14 +66,21 @@ load_harness_env()
 	unset MANAGER_MODEL MANAGER_REASONING_EFFORT MANAGER_SANDBOX MANAGER_CODEX_BIN MANAGER_CODEX_HOME
 	unset WORKER_MODEL WORKER_REASONING_EFFORT WORKER_SANDBOX WORKER_CODEX_BIN WORKER_CODEX_HOME
 	unset ORACLE_MODEL ORACLE_REASONING_EFFORT ORACLE_SANDBOX ORACLE_CODEX_BIN ORACLE_CODEX_HOME
+	unset CONVERGENCE_MODEL CONVERGENCE_REASONING_EFFORT CONVERGENCE_SANDBOX
+	unset CONVERGENCE_CODEX_BIN CONVERGENCE_CODEX_HOME
 	unset MANAGER_CODEX_EXTRA_ARGS WORKER_CODEX_EXTRA_ARGS ORACLE_CODEX_EXTRA_ARGS
+	unset CONVERGENCE_CODEX_EXTRA_ARGS
 	unset CODEX_EXTRA_ARGS CODEX_BIN CODEX_HOME MAX_ORACLE_RUNS
 	unset HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS HARNESS_MAX_MANAGER_REVIEWS
 	unset HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS
 	unset HARNESS_MAX_REPEATED_FINDING_REVIEWS
 	unset HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS
 	unset HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS
+	unset HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE
+	unset HARNESS_MAX_LOW_YIELD_REVIEWS HARNESS_MAX_WORKTREE_OSCILLATIONS
+	unset HARNESS_MAX_FINDING_REAPPEARANCES HARNESS_MAX_COMPLETION_STAGNANT_AUDITS
 	unset HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS
+	unset HARNESS_METRICS_ENABLED HARNESS_METRICS_IMAGE_WIDTH HARNESS_METRICS_IMAGE_HEIGHT
 	unset HARNESS_MANAGER_REVIEW_CHECKLIST
 	unset HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS
 	unset HARNESS_CODEX_KILL_GRACE_SECONDS
@@ -119,32 +126,47 @@ load_harness_env()
 	WORKER_MODEL="${WORKER_MODEL:-gpt-5.6-luna}"
 	WORKER_REASONING_EFFORT="${WORKER_REASONING_EFFORT:-high}"
 	WORKER_SANDBOX="${WORKER_SANDBOX:-workspace-write}"
-	ORACLE_MODEL="${ORACLE_MODEL:-gpt-5.6-sol}"
-	ORACLE_REASONING_EFFORT="${ORACLE_REASONING_EFFORT:-high}"
+	ORACLE_MODEL="${ORACLE_MODEL:-gpt-5.6-terra}"
+	ORACLE_REASONING_EFFORT="${ORACLE_REASONING_EFFORT:-xhigh}"
 	ORACLE_SANDBOX="${ORACLE_SANDBOX:-$MANAGER_SANDBOX}"
-	MAX_ORACLE_RUNS="${MAX_ORACLE_RUNS:-3}"
+	MAX_ORACLE_RUNS="${MAX_ORACLE_RUNS:-1}"
+	CONVERGENCE_MODEL="${CONVERGENCE_MODEL:-gpt-5.6-terra}"
+	CONVERGENCE_REASONING_EFFORT="${CONVERGENCE_REASONING_EFFORT:-xhigh}"
+	CONVERGENCE_SANDBOX="${CONVERGENCE_SANDBOX:-$MANAGER_SANDBOX}"
 
 	MANAGER_CODEX_BIN="${MANAGER_CODEX_BIN:-${CODEX_BIN:-codex}}"
 	WORKER_CODEX_BIN="${WORKER_CODEX_BIN:-${CODEX_BIN:-codex}}"
 	ORACLE_CODEX_BIN="${ORACLE_CODEX_BIN:-$MANAGER_CODEX_BIN}"
+	CONVERGENCE_CODEX_BIN="${CONVERGENCE_CODEX_BIN:-$MANAGER_CODEX_BIN}"
 	MANAGER_CODEX_HOME="${MANAGER_CODEX_HOME:-${CODEX_HOME:-${HOME}/.codex}}"
 	WORKER_CODEX_HOME="${WORKER_CODEX_HOME:-${CODEX_HOME:-${HOME}/.codex}}"
 	ORACLE_CODEX_HOME="${ORACLE_CODEX_HOME:-$MANAGER_CODEX_HOME}"
+	CONVERGENCE_CODEX_HOME="${CONVERGENCE_CODEX_HOME:-$MANAGER_CODEX_HOME}"
 	MANAGER_CODEX_BIN="$(resolve_command_path "$MANAGER_CODEX_BIN")"
 	WORKER_CODEX_BIN="$(resolve_command_path "$WORKER_CODEX_BIN")"
 	ORACLE_CODEX_BIN="$(resolve_command_path "$ORACLE_CODEX_BIN")"
+	CONVERGENCE_CODEX_BIN="$(resolve_command_path "$CONVERGENCE_CODEX_BIN")"
 	MANAGER_CODEX_HOME="$(resolve_from_env_dir "$MANAGER_CODEX_HOME")"
 	WORKER_CODEX_HOME="$(resolve_from_env_dir "$WORKER_CODEX_HOME")"
 	ORACLE_CODEX_HOME="$(resolve_from_env_dir "$ORACLE_CODEX_HOME")"
+	CONVERGENCE_CODEX_HOME="$(resolve_from_env_dir "$CONVERGENCE_CODEX_HOME")"
 
 	HARNESS_PROVIDER_RETRY_SECONDS="${HARNESS_PROVIDER_RETRY_SECONDS:-60}"
 	HARNESS_QUOTA_RETRY_SECONDS="${HARNESS_QUOTA_RETRY_SECONDS:-600}"
-	HARNESS_MAX_MANAGER_REVIEWS="${HARNESS_MAX_MANAGER_REVIEWS:-50}"
+	HARNESS_MAX_MANAGER_REVIEWS="${HARNESS_MAX_MANAGER_REVIEWS:-20}"
+	HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE="${HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE:-5}"
 	HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS="${HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS:-2}"
 	HARNESS_MAX_REPEATED_FINDING_REVIEWS="${HARNESS_MAX_REPEATED_FINDING_REVIEWS:-3}"
 	HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS="${HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS:-5}"
 	HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS="${HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS:-3}"
+	HARNESS_MAX_LOW_YIELD_REVIEWS="${HARNESS_MAX_LOW_YIELD_REVIEWS:-4}"
+	HARNESS_MAX_WORKTREE_OSCILLATIONS="${HARNESS_MAX_WORKTREE_OSCILLATIONS:-2}"
+	HARNESS_MAX_FINDING_REAPPEARANCES="${HARNESS_MAX_FINDING_REAPPEARANCES:-2}"
+	HARNESS_MAX_COMPLETION_STAGNANT_AUDITS="${HARNESS_MAX_COMPLETION_STAGNANT_AUDITS:-2}"
 	HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS="${HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS:-10}"
+	HARNESS_METRICS_ENABLED="${HARNESS_METRICS_ENABLED:-1}"
+	HARNESS_METRICS_IMAGE_WIDTH="${HARNESS_METRICS_IMAGE_WIDTH:-1800}"
+	HARNESS_METRICS_IMAGE_HEIGHT="${HARNESS_METRICS_IMAGE_HEIGHT:-1200}"
 	HARNESS_MANAGER_REVIEW_CHECKLIST="${HARNESS_MANAGER_REVIEW_CHECKLIST:-none}"
 	HARNESS_CODEX_WALL_TIMEOUT_SECONDS="${HARNESS_CODEX_WALL_TIMEOUT_SECONDS:-0}"
 	HARNESS_CODEX_IDLE_TIMEOUT_SECONDS="${HARNESS_CODEX_IDLE_TIMEOUT_SECONDS:-0}"
@@ -168,26 +190,37 @@ load_harness_env()
 	[[ "$MANAGER_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid MANAGER_MODEL: $MANAGER_MODEL"
 	[[ "$WORKER_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid WORKER_MODEL: $WORKER_MODEL"
 	[[ "$ORACLE_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid ORACLE_MODEL: $ORACLE_MODEL"
+	[[ "$CONVERGENCE_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid CONVERGENCE_MODEL: $CONVERGENCE_MODEL"
 	[[ "$MANAGER_REASONING_EFFORT" =~ ^(low|medium|high|xhigh|max|ultra)$ ]] ||
 		die "invalid MANAGER_REASONING_EFFORT: $MANAGER_REASONING_EFFORT"
 	[[ "$WORKER_REASONING_EFFORT" =~ ^(low|medium|high|xhigh|max|ultra)$ ]] ||
 		die "invalid WORKER_REASONING_EFFORT: $WORKER_REASONING_EFFORT"
 	[[ "$ORACLE_REASONING_EFFORT" =~ ^(low|medium|high|xhigh|max|ultra)$ ]] ||
 		die "invalid ORACLE_REASONING_EFFORT: $ORACLE_REASONING_EFFORT"
+	[[ "$CONVERGENCE_REASONING_EFFORT" =~ ^(low|medium|high|xhigh|max|ultra)$ ]] ||
+		die "invalid CONVERGENCE_REASONING_EFFORT: $CONVERGENCE_REASONING_EFFORT"
 	[[ "$MANAGER_SANDBOX" =~ ^(read-only|workspace-write|danger-full-access)$ ]] ||
 		die "invalid MANAGER_SANDBOX: $MANAGER_SANDBOX"
 	[[ "$WORKER_SANDBOX" =~ ^(read-only|workspace-write|danger-full-access)$ ]] ||
 		die "invalid WORKER_SANDBOX: $WORKER_SANDBOX"
 	[[ "$ORACLE_SANDBOX" =~ ^(read-only|workspace-write|danger-full-access)$ ]] ||
 		die "invalid ORACLE_SANDBOX: $ORACLE_SANDBOX"
+	[[ "$CONVERGENCE_SANDBOX" =~ ^(read-only|workspace-write|danger-full-access)$ ]] ||
+		die "invalid CONVERGENCE_SANDBOX: $CONVERGENCE_SANDBOX"
 	[[ "$HARNESS_MANAGER_REVIEW_CHECKLIST" =~ ^(none|c-strict)$ ]] ||
 		die "invalid HARNESS_MANAGER_REVIEW_CHECKLIST: $HARNESS_MANAGER_REVIEW_CHECKLIST"
+	[[ "$HARNESS_METRICS_ENABLED" =~ ^(0|1)$ ]] ||
+		die 'HARNESS_METRICS_ENABLED must be 0 or 1'
 	for value in HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS \
-		HARNESS_MAX_MANAGER_REVIEWS HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS \
+		HARNESS_MAX_MANAGER_REVIEWS HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE \
+		HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS \
 		HARNESS_MAX_REPEATED_FINDING_REVIEWS \
 		HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS \
 		HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS \
-		HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS MAX_ORACLE_RUNS \
+		HARNESS_MAX_LOW_YIELD_REVIEWS HARNESS_MAX_WORKTREE_OSCILLATIONS \
+		HARNESS_MAX_FINDING_REAPPEARANCES HARNESS_MAX_COMPLETION_STAGNANT_AUDITS \
+		HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS HARNESS_METRICS_IMAGE_WIDTH \
+		HARNESS_METRICS_IMAGE_HEIGHT MAX_ORACLE_RUNS \
 		HARNESS_CODEX_WALL_TIMEOUT_SECONDS \
 		HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS \
 		HARNESS_CODEX_STALL_DIAGNOSTIC_REPEAT_SECONDS; do
@@ -206,15 +239,25 @@ load_harness_env()
 		die 'HARNESS_PROVIDER_RETRY_SECONDS must be positive'
 	(( HARNESS_QUOTA_RETRY_SECONDS > 0 )) ||
 		die 'HARNESS_QUOTA_RETRY_SECONDS must be positive'
+	(( HARNESS_METRICS_IMAGE_WIDTH >= 640 )) ||
+		die 'HARNESS_METRICS_IMAGE_WIDTH must be at least 640'
+	(( HARNESS_METRICS_IMAGE_HEIGHT >= 480 )) ||
+		die 'HARNESS_METRICS_IMAGE_HEIGHT must be at least 480'
 
-	local -a shared_args manager_args worker_args oracle_args
+	local -a shared_args manager_args worker_args oracle_args convergence_args
 	load_array_setting shared_args CODEX_EXTRA_ARGS
 	load_array_setting manager_args MANAGER_CODEX_EXTRA_ARGS
 	load_array_setting worker_args WORKER_CODEX_EXTRA_ARGS
 	load_array_setting oracle_args ORACLE_CODEX_EXTRA_ARGS
+	if declare -p CONVERGENCE_CODEX_EXTRA_ARGS >/dev/null 2>&1; then
+		load_array_setting convergence_args CONVERGENCE_CODEX_EXTRA_ARGS
+	else
+		convergence_args=("${manager_args[@]}")
+	fi
 	MANAGER_CODEX_EXTRA_ARGS=("${shared_args[@]}" "${manager_args[@]}")
 	WORKER_CODEX_EXTRA_ARGS=("${shared_args[@]}" "${worker_args[@]}")
 	ORACLE_CODEX_EXTRA_ARGS=("${shared_args[@]}" "${oracle_args[@]}")
+	CONVERGENCE_CODEX_EXTRA_ARGS=("${shared_args[@]}" "${convergence_args[@]}")
 }
 
 project_dir()
@@ -230,6 +273,363 @@ state_file()
 events_file()
 {
 	printf '%s/logs/events.log\n' "$(project_dir)"
+}
+
+# The metrics repository is deliberately separate from REPOSITORY/.git.  It owns
+# snapshots only; it never writes the project's index, refs, or commit history.
+metrics_dir()
+{
+	printf '%s/metrics\n' "$(project_dir)"
+}
+
+metrics_git_dir()
+{
+	printf '%s/git\n' "$(metrics_dir)"
+}
+
+metrics_index_file()
+{
+	printf '%s/index\n' "$(metrics_dir)"
+}
+
+metrics_ref_for_cycle()
+{
+	local cycle="$1"
+	[[ "$cycle" =~ ^[0-9]+$ ]] || die "invalid metrics cycle: $cycle"
+	printf 'refs/harness-metrics/cycles/%03d\n' "$((10#$cycle))"
+}
+
+metrics_git()
+{
+	local git_dir index
+	git_dir="$(metrics_git_dir)"
+	index="$(metrics_index_file)"
+	GIT_DIR="$git_dir" GIT_INDEX_FILE="$index" GIT_WORK_TREE="$REPOSITORY" \
+		git -C "$REPOSITORY" "$@"
+}
+
+metrics_bare_git()
+{
+	git --git-dir="$(metrics_git_dir)" "$@"
+}
+
+metrics_path_category()
+{
+	local path="$1" lower
+	lower="${path,,}"
+	case "$lower" in
+		*/test/*|*/tests/*|test_*|*_test.*|*_tests.*|*/fixtures/*|*/spec/*|*/specs/*)
+			printf 'tests\n'
+			;;
+		*.md|*.rst|*.adoc|*.txt)
+			printf 'docs\n'
+			;;
+		makefile|*/makefile|cmakelists.txt|*/cmakelists.txt|*.cmake|*.mk|configure|configure.ac|meson.build|meson_options.txt|package.json|cargo.toml|go.mod)
+			printf 'build\n'
+			;;
+		*.c|*.h|*.cc|*.cp|*.cpp|*.cxx|*.hpp|*.hh|*.hxx|*.m|*.mm|*.hip|*.cu|*.py|*.rs|*.go|*.java|*.kt|*.kts|*.js|*.jsx|*.ts|*.tsx|*.cs|*.swift|*.sh|*.bash|*.zsh|*.fish|*.pl|*.pm|*.rb|*.php|*.lua|*.sql)
+			printf 'source\n'
+			;;
+		*)
+			printf 'other\n'
+			;;
+	esac
+}
+
+metrics_numstat()
+{
+	local from="$1" to="$2" detail="$3" summary="$4"
+	local added deleted path category
+	local source_added=0 source_deleted=0 source_files=0
+	local tests_added=0 tests_deleted=0 tests_files=0
+	local docs_added=0 docs_deleted=0 docs_files=0
+	local build_added=0 build_deleted=0 build_files=0
+	local other_added=0 other_deleted=0 other_files=0 binary_files=0
+	[[ -z "$detail" ]] || printf 'path\tcategory\tadded\tdeleted\n' > "$detail"
+	while IFS=$'\t' read -r added deleted path; do
+		[[ -n "$path" ]] || continue
+		category="$(metrics_path_category "$path")"
+		if [[ "$added" == - || "$deleted" == - ]]; then
+			binary_files=$((binary_files + 1))
+			added=0
+			deleted=0
+		fi
+		[[ -z "$detail" ]] || printf '%s\t%s\t%s\t%s\n' \
+			"$path" "$category" "$added" "$deleted" >> "$detail"
+		case "$category" in
+			source)
+				source_added=$((source_added + added)); source_deleted=$((source_deleted + deleted)); source_files=$((source_files + 1))
+				;;
+			tests)
+				tests_added=$((tests_added + added)); tests_deleted=$((tests_deleted + deleted)); tests_files=$((tests_files + 1))
+				;;
+			docs)
+				docs_added=$((docs_added + added)); docs_deleted=$((docs_deleted + deleted)); docs_files=$((docs_files + 1))
+				;;
+			build)
+				build_added=$((build_added + added)); build_deleted=$((build_deleted + deleted)); build_files=$((build_files + 1))
+				;;
+			*)
+				other_added=$((other_added + added)); other_deleted=$((other_deleted + deleted)); other_files=$((other_files + 1))
+				;;
+		esac
+	done < <(metrics_bare_git diff --no-ext-diff --numstat "$from" "$to")
+	{
+		printf 'source_added=%s\nsource_deleted=%s\nsource_files=%s\n' "$source_added" "$source_deleted" "$source_files"
+		printf 'tests_added=%s\ntests_deleted=%s\ntests_files=%s\n' "$tests_added" "$tests_deleted" "$tests_files"
+		printf 'docs_added=%s\ndocs_deleted=%s\ndocs_files=%s\n' "$docs_added" "$docs_deleted" "$docs_files"
+		printf 'build_added=%s\nbuild_deleted=%s\nbuild_files=%s\n' "$build_added" "$build_deleted" "$build_files"
+		printf 'other_added=%s\nother_deleted=%s\nother_files=%s\nbinary_files=%s\n' "$other_added" "$other_deleted" "$other_files" "$binary_files"
+	} > "$summary"
+}
+
+metrics_value()
+{
+	local file="$1" key="$2"
+	awk -F= -v key="$key" '$1 == key { print substr($0, length(key) + 2); exit }' "$file"
+}
+
+metrics_write_cycle_record()
+{
+	local cycle="$1" commit="$2" parent="$3" initial="$4"
+	local metrics record detail patch delta cumulative csv header diff_base
+	metrics="$(metrics_dir)"
+	record="$metrics/cycles/cycle-$(printf '%03d' "$((10#$cycle))").env"
+	detail="$metrics/cycles/cycle-$(printf '%03d' "$((10#$cycle))").numstat.tsv"
+	patch="$metrics/cycles/cycle-$(printf '%03d' "$((10#$cycle))").patch"
+	delta="$metrics/cycles/cycle-$(printf '%03d' "$((10#$cycle))").delta.env"
+	cumulative="$metrics/cycles/cycle-$(printf '%03d' "$((10#$cycle))").cumulative.env"
+	csv="$metrics/cycles.csv"
+	if (( initial )); then
+		: > "$detail"
+		printf 'path\tcategory\tadded\tdeleted\n' > "$detail"
+		diff_base='4b825dc642cb6eb9a060e54bf8d69288fbee4904'
+		metrics_bare_git diff --binary --no-ext-diff "$diff_base" "$commit" > "$patch"
+		metrics_numstat "$commit" "$commit" '' "$delta"
+		metrics_numstat "$commit" "$commit" '' "$cumulative"
+	else
+		metrics_bare_git diff --binary --no-ext-diff "$parent" "$commit" > "$patch"
+		metrics_numstat "$parent" "$commit" "$detail" "$delta"
+		metrics_numstat "$(metrics_ref_for_cycle 0)" "$commit" '' "$cumulative"
+	fi
+	{
+		printf 'cycle=%s\nrecorded_at=%s\nsnapshot=%s\nparent_snapshot=%s\n' \
+			"$cycle" "$(timestamp_utc)" "$commit" "${parent:-none}"
+		cat "$delta"
+		while IFS= read -r line; do printf 'cumulative_%s\n' "$line"; done < "$cumulative"
+	} > "$record"
+	chmod 600 "$record" "$detail" "$patch" "$delta" "$cumulative"
+	header='cycle,recorded_at,snapshot,parent_snapshot,source_added,source_deleted,source_files,tests_added,tests_deleted,tests_files,docs_added,docs_deleted,docs_files,build_added,build_deleted,build_files,other_added,other_deleted,other_files,binary_files,cumulative_source_added,cumulative_source_deleted,cumulative_source_files'
+	if [[ ! -f "$csv" ]]; then
+		printf '%s\n' "$header" > "$csv"
+	fi
+	# A retry of a completed cycle must not silently produce a duplicate row.
+	grep -q "^${cycle}," "$csv" 2>/dev/null || {
+		printf '%s,%s,%s,%s' "$cycle" "$(metrics_value "$record" recorded_at)" "$commit" "${parent:-none}"
+		for key in source_added source_deleted source_files tests_added tests_deleted tests_files \
+			docs_added docs_deleted docs_files build_added build_deleted build_files other_added \
+			other_deleted other_files binary_files cumulative_source_added \
+			cumulative_source_deleted cumulative_source_files; do
+			printf ',%s' "$(metrics_value "$record" "$key")"
+		done
+		printf '\n'
+	} >> "$csv"
+	chmod 600 "$csv"
+}
+
+metrics_snapshot()
+{
+	local cycle="$1" kind="${2:-worker}" metrics git_dir ref latest parent tree commit
+	[[ "$HARNESS_METRICS_ENABLED" == 1 ]] || return 0
+	metrics="$(metrics_dir)"
+	git_dir="$(metrics_git_dir)"
+	[[ -d "$git_dir" ]] || {
+		printf 'metrics repository is unavailable: %s\n' "$git_dir" >&2
+		return 1
+	}
+	ref="$(metrics_ref_for_cycle "$cycle")"
+	if metrics_bare_git rev-parse --verify -q "$ref" >/dev/null; then
+		return 0
+	fi
+	latest='refs/harness-metrics/latest'
+	parent="$(metrics_bare_git rev-parse --verify -q "$latest" 2>/dev/null || true)"
+	if [[ -n "$parent" ]]; then
+		metrics_git read-tree "$parent^{tree}" || return 1
+	else
+		metrics_git read-tree --empty || return 1
+	fi
+	metrics_git add -A -- . || return 1
+	tree="$(metrics_git write-tree)" || return 1
+	if [[ -n "$parent" ]]; then
+		commit="$(GIT_DIR="$git_dir" GIT_INDEX_FILE="$(metrics_index_file)" GIT_WORK_TREE="$REPOSITORY" \
+			GIT_AUTHOR_NAME='Harness metrics' GIT_AUTHOR_EMAIL='harness-metrics@local' \
+			GIT_COMMITTER_NAME='Harness metrics' GIT_COMMITTER_EMAIL='harness-metrics@local' \
+			git -C "$REPOSITORY" commit-tree "$tree" -p "$parent" <<EOF
+Harness metrics snapshot: cycle $cycle ($kind)
+EOF
+)"
+	else
+		commit="$(GIT_DIR="$git_dir" GIT_INDEX_FILE="$(metrics_index_file)" GIT_WORK_TREE="$REPOSITORY" \
+			GIT_AUTHOR_NAME='Harness metrics' GIT_AUTHOR_EMAIL='harness-metrics@local' \
+			GIT_COMMITTER_NAME='Harness metrics' GIT_COMMITTER_EMAIL='harness-metrics@local' \
+			git -C "$REPOSITORY" commit-tree "$tree" <<EOF
+Harness metrics snapshot: cycle $cycle ($kind)
+EOF
+)"
+	fi
+	metrics_bare_git update-ref "$ref" "$commit" || return 1
+	metrics_bare_git update-ref "$latest" "$commit" || return 1
+	metrics_write_cycle_record "$cycle" "$commit" "$parent" \
+		"$([[ "$cycle" == 0 ]] && printf 1 || printf 0)" || return 1
+}
+
+metrics_initialize()
+{
+	local metrics git_dir
+	[[ "$HARNESS_METRICS_ENABLED" == 1 ]] || return 0
+	metrics="$(metrics_dir)"
+	git_dir="$(metrics_git_dir)"
+	mkdir -p "$metrics/cycles" "$metrics/graphs"
+	git init --bare -q "$git_dir"
+	{
+		printf 'repository=%s\n' "$REPOSITORY"
+		printf 'initialized_at=%s\n' "$(timestamp_utc)"
+		printf 'launch_commit=%s\n' "$(repository_head_commit)"
+		printf 'description=Sidecar Git snapshots; this repository never changes the project Git history or index.\n'
+	} > "$metrics/metadata.env"
+	chmod 600 "$metrics/metadata.env"
+	metrics_snapshot 0 initial
+}
+
+metrics_generate_provenance()
+{
+	local metrics git_dir latest provenance path hash cycle total_agent_lines=0
+	local -a snapshot_cycles
+	local -A cycle_by_commit origin_count
+	metrics="$(metrics_dir)"
+	git_dir="$(metrics_git_dir)"
+	provenance="$metrics/provenance.csv"
+	[[ -d "$git_dir" ]] || die "metrics repository is unavailable: $git_dir"
+	latest="$(metrics_bare_git rev-parse --verify -q refs/harness-metrics/latest 2>/dev/null)" ||
+		die 'metrics repository has no snapshots'
+	while IFS=' ' read -r hash cycle; do
+		[[ -n "$hash" && "$cycle" =~ ^[0-9]+$ ]] || continue
+		cycle="$((10#$cycle))"
+		cycle_by_commit["$hash"]="$cycle"
+		snapshot_cycles+=("$cycle")
+	done < <(metrics_bare_git for-each-ref --format='%(objectname) %(refname:lstrip=3)' \
+		refs/harness-metrics/cycles)
+	while IFS= read -r -d '' path; do
+		[[ "$(metrics_path_category "$path")" == source ]] || continue
+		while IFS= read -r hash; do
+			hash="${hash#^}"
+			cycle="${cycle_by_commit[$hash]:-unknown}"
+			origin_count["$cycle"]=$(( ${origin_count[$cycle]:-0} + 1 ))
+		done < <(metrics_bare_git blame --line-porcelain "$latest" -- "$path" 2>/dev/null |
+			awk 'length($1) == 40 && $1 ~ /^\^?[0-9a-f]+$/ { print $1 }')
+	done < <(metrics_bare_git ls-tree -r -z --name-only "$latest")
+	for cycle in "${!origin_count[@]}"; do
+		[[ "$cycle" =~ ^[0-9]+$ ]] && (( cycle > 0 )) || continue
+		total_agent_lines=$((total_agent_lines + origin_count[$cycle]))
+	done
+	{
+		printf 'cycle,source_lines,origin,percent_of_agent_attributed_source\n'
+		for cycle in "${snapshot_cycles[@]}"; do
+			local count="${origin_count[$cycle]:-0}" percent=0
+			if (( cycle > 0 && total_agent_lines > 0 )); then
+				percent=$(( count * 10000 / total_agent_lines ))
+			fi
+			printf '%s,%s,%s,%s.%02d\n' "$cycle" "$count" \
+				"$([[ "$cycle" == 0 ]] && printf baseline || printf worker-cycle)" \
+			"$((percent / 100))" "$((percent % 100))"
+		done
+		if [[ -n "${origin_count[unknown]:-}" ]]; then
+			printf 'unknown,%s,unmapped,0.00\n' "${origin_count[unknown]}"
+		fi
+	} > "$provenance"
+	chmod 600 "$provenance"
+}
+
+metrics_generate_survival()
+{
+	local metrics csv provenance survival cycle source_added current_lines percent
+	local -A current_by_cycle
+	metrics="$(metrics_dir)"
+	csv="$metrics/cycles.csv"
+	provenance="$metrics/provenance.csv"
+	survival="$metrics/survival.csv"
+	while IFS=, read -r cycle current_lines _origin _percent; do
+		[[ "$cycle" =~ ^[0-9]+$ ]] || continue
+		current_by_cycle["$cycle"]="$current_lines"
+	done < "$provenance"
+	{
+		printf 'cycle,source_added,source_deleted,current_source_lines_attributed,retained_percent_of_source_added\n'
+		while IFS=, read -r cycle _recorded _snapshot _parent source_added source_deleted _rest; do
+			[[ "$cycle" =~ ^[0-9]+$ ]] || continue
+			current_lines="${current_by_cycle[$cycle]:-0}"
+			percent=0
+			if (( source_added > 0 )); then
+				percent=$((current_lines * 10000 / source_added))
+			fi
+			printf '%s,%s,%s,%s,%s.%02d\n' "$cycle" "$source_added" \
+				"$source_deleted" "$current_lines" "$((percent / 100))" "$((percent % 100))"
+		done < "$csv"
+	} > "$survival"
+	chmod 600 "$survival"
+}
+
+metrics_generate_report()
+{
+	local metrics csv provenance survival report status phase cycle
+	metrics="$(metrics_dir)"
+	csv="$metrics/cycles.csv"
+	provenance="$metrics/provenance.csv"
+	survival="$metrics/survival.csv"
+	report="$metrics/report.md"
+	[[ -f "$csv" ]] || die "metrics report is unavailable: $csv"
+	metrics_generate_provenance
+	metrics_generate_survival
+	status="$(state_value status 2>/dev/null || printf unknown)"
+	phase="$(state_value phase 2>/dev/null || printf unknown)"
+	cycle="$(state_value cycle 2>/dev/null || printf unknown)"
+	{
+		printf '# Harness code metrics\n\n'
+		printf 'This report is generated only from the sidecar Git snapshots in `%s`.  It does not invoke an LLM and does not change the project Git history or index.\n\n' \
+			"$(metrics_git_dir)"
+		printf 'Current harness state: **%s / %s**, cycle **%s**.\n\n' "$status" "$phase" "$cycle"
+		printf '## Per-worker source deltas\n\n'
+		printf '| Cycle | Source + | Source - | Source files | Tests + | Tests - | Build + | Build - |\n'
+		printf '| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n'
+		while IFS=, read -r row_cycle row_recorded row_snapshot row_parent \
+			source_added source_deleted source_files tests_added tests_deleted tests_files \
+			docs_added docs_deleted docs_files build_added build_deleted _rest; do
+			[[ "$row_cycle" == cycle ]] && continue
+			printf '| %s | %s | %s | %s | %s | %s | %s | %s |\n' \
+				"$row_cycle" "$source_added" "$source_deleted" "$source_files" \
+				"$tests_added" "$tests_deleted" "$build_added" "$build_deleted"
+		done < "$csv"
+		printf '\n## Latest source-line provenance\n\n'
+		printf 'A source line is attributed to the worker cycle that last introduced or materially changed it in the snapshot history. Cycle 0 is the launch baseline.\n\n'
+		printf '| Origin | Source lines | Share of worker-attributed source |\n'
+		printf '| --- | ---: | ---: |\n'
+		while IFS=, read -r row_cycle source_lines origin percent; do
+			[[ "$row_cycle" == cycle ]] && continue
+			printf '| %s (%s) | %s | %s%% |\n' "$origin" "$row_cycle" "$source_lines" "$percent"
+		done < "$provenance"
+		printf '\n## Source retention by cycle\n\n'
+		printf 'This is mechanical line provenance, not an LLM judgment: it compares source lines added in a cycle with current source lines whose final sidecar `git blame` origin is that cycle. Refactors can lower this value even when the behavior survives.\n\n'
+		printf '| Cycle | Source + | Source - | Current source lines attributed | Retained of additions |\n'
+		printf '| ---: | ---: | ---: | ---: | ---: |\n'
+		while IFS=, read -r row_cycle source_added source_deleted current_lines retained; do
+			[[ "$row_cycle" == cycle ]] && continue
+			printf '| %s | %s | %s | %s | %s%% |\n' \
+				"$row_cycle" "$source_added" "$source_deleted" "$current_lines" "$retained"
+		done < "$survival"
+		printf '\n## Inspecting a range\n\n'
+		printf 'Use `harness-diff-range %q FROM_CYCLE TO_CYCLE` to inspect the exact sidecar Git diff for any cycle range.\n' "$HARNESS_ENV_FILE"
+	} > "$report"
+	chmod 600 "$report"
+	printf '%s\n' "$report"
 }
 
 project_config_value()
@@ -356,9 +756,13 @@ initialize_project()
 		printf 'worker_model=%s\n' "$WORKER_MODEL"
 		printf 'oracle_model=%s\n' "$ORACLE_MODEL"
 		printf 'oracle_reasoning_effort=%s\n' "$ORACLE_REASONING_EFFORT"
+		printf 'convergence_model=%s\n' "$CONVERGENCE_MODEL"
+		printf 'convergence_reasoning_effort=%s\n' "$CONVERGENCE_REASONING_EFFORT"
 		printf 'max_oracle_runs=%s\n' "$MAX_ORACLE_RUNS"
 		printf 'manager_review_checklist=%s\n' "$HARNESS_MANAGER_REVIEW_CHECKLIST"
 		printf 'max_manager_reviews=%s\n' "$HARNESS_MAX_MANAGER_REVIEWS"
+		printf 'max_manager_reviews_after_oracle=%s\n' \
+			"$HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE"
 		printf 'max_protocol_repair_attempts=%s\n' \
 			"$HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS"
 		printf 'max_repeated_finding_reviews=%s\n' \
@@ -367,8 +771,16 @@ initialize_project()
 			"$HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS"
 		printf 'max_repeated_convergence_audits=%s\n' \
 			"$HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS"
+		printf 'max_low_yield_reviews=%s\n' "$HARNESS_MAX_LOW_YIELD_REVIEWS"
+		printf 'max_worktree_oscillations=%s\n' "$HARNESS_MAX_WORKTREE_OSCILLATIONS"
+		printf 'max_finding_reappearances=%s\n' "$HARNESS_MAX_FINDING_REAPPEARANCES"
+		printf 'max_completion_stagnant_audits=%s\n' \
+			"$HARNESS_MAX_COMPLETION_STAGNANT_AUDITS"
 		printf 'progress_audit_every_reviews=%s\n' \
 			"$HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS"
+		printf 'metrics_enabled=%s\n' "$HARNESS_METRICS_ENABLED"
+		printf 'metrics_image_width=%s\n' "$HARNESS_METRICS_IMAGE_WIDTH"
+		printf 'metrics_image_height=%s\n' "$HARNESS_METRICS_IMAGE_HEIGHT"
 		printf 'codex_rust_log=%s\n' "$HARNESS_CODEX_RUST_LOG"
 		printf 'codex_diagnostic_profile=%s\n' \
 			"$HARNESS_CODEX_DIAGNOSTIC_PROFILE"
@@ -381,6 +793,10 @@ initialize_project()
 	chmod 600 "$dir/project.conf"
 	: > "$dir/logs/events.log"
 	write_state ACTIVE GOAL_REQUIRED 0
+	metrics_initialize
+	if [[ "$HARNESS_METRICS_ENABLED" == 1 ]]; then
+		log_event "METRICS_INITIALIZED snapshot=$(metrics_ref_for_cycle 0) directory=$(metrics_dir)"
+	fi
 }
 
 log_event()
@@ -456,7 +872,8 @@ validate_manager_findings()
 	local decision="$2"
 	local finding_count key key_count=0
 	local -A seen=()
-	[[ "$decision" == REVISE || "$decision" == ACTIONABLE ]] || return 0
+	[[ "$decision" == REVISE || "$decision" == ACTIONABLE || \
+		"$decision" == CONTINUE ]] || return 0
 
 	finding_count="$(manager_finding_ids "$file" | wc -l | tr -d ' ')"
 	(( finding_count > 0 )) || {
@@ -480,6 +897,162 @@ validate_manager_findings()
 			"$decision" "$finding_count" "$key_count" >&2
 		return 1
 	}
+}
+
+manager_progress_value()
+{
+	local report="$1"
+	local key="$2"
+	awk -v key="$key" '
+		$0 == "PROGRESS-DELTA: BEGIN" { active = 1; next }
+		$0 == "PROGRESS-DELTA-COMPLETE" { exit }
+		active && index($0, key ":") == 1 {
+			value = substr($0, length(key) + 2)
+			sub(/^[[:space:]]+/, "", value)
+			sub(/[[:space:]]+$/, "", value)
+			if (!seen++) print value
+		}
+	' "$report"
+}
+
+manager_progress_value_count()
+{
+	local report="$1"
+	local key="$2"
+	awk -v key="$key" '
+		$0 == "PROGRESS-DELTA: BEGIN" { active = 1; next }
+		$0 == "PROGRESS-DELTA-COMPLETE" { exit }
+		active && index($0, key ":") == 1 { count += 1 }
+		END { print count + 0 }
+	' "$report"
+}
+
+progress_list_items()
+{
+	local value="$1"
+	[[ "$value" != none ]] || return 0
+	tr ',' '\n' <<< "$value" | awk '
+		{
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "")
+			if ($0 != "") print
+		}
+	' | sort -u
+}
+
+validate_progress_identifier_list()
+{
+	local field="$1"
+	local value="$2"
+	local item count=0
+	[[ "$value" == none ]] && return 0
+	while IFS= read -r item; do
+		((count += 1))
+		[[ "$item" =~ ^[a-z0-9][a-z0-9._-]*$ && ${#item} -le 128 ]] || {
+			printf 'invalid %s progress identifier: %s\n' "$field" "$item" >&2
+			return 1
+		}
+	done < <(progress_list_items "$value")
+	(( count > 0 )) || {
+		printf '%s must be none or a comma-separated identifier list\n' "$field" >&2
+		return 1
+	}
+}
+
+validate_manager_progress_delta()
+{
+	local report="$1"
+	local cycle="$2"
+	local review_dir="$3"
+	local field value resolved new gained lost net previous
+	local expected_resolved expected_new actual
+	local tmp_root
+	[[ "$(grep -Fxc 'PROGRESS-DELTA: BEGIN' "$report" || true)" == 1 &&
+		"$(grep -Fxc 'PROGRESS-DELTA-COMPLETE' "$report" || true)" == 1 ]] || {
+		printf 'manager report requires exactly one progress-delta block\n' >&2
+		return 1
+	}
+	for field in Resolved-Findings New-Findings Verification-Gained \
+		Verification-Lost Net-Progress; do
+		[[ "$(manager_progress_value_count "$report" "$field")" == 1 ]] || {
+			printf 'progress delta requires exactly one %s field\n' "$field" >&2
+			return 1
+		}
+	done
+	resolved="$(manager_progress_value "$report" Resolved-Findings)"
+	new="$(manager_progress_value "$report" New-Findings)"
+	gained="$(manager_progress_value "$report" Verification-Gained)"
+	lost="$(manager_progress_value "$report" Verification-Lost)"
+	net="$(manager_progress_value "$report" Net-Progress)"
+	validate_progress_identifier_list Resolved-Findings "$resolved" || return 1
+	validate_progress_identifier_list New-Findings "$new" || return 1
+	validate_progress_identifier_list Verification-Gained "$gained" || return 1
+	validate_progress_identifier_list Verification-Lost "$lost" || return 1
+	[[ "$net" == YES || "$net" == NO ]] || {
+		printf 'Net-Progress must be YES or NO\n' >&2
+		return 1
+	}
+
+	tmp_root="$(mktemp -d)"
+	previous="$review_dir/../addenda/addendum-$(printf '%03d' "$((cycle - 1))").md"
+	[[ -f "$previous" ]] ||
+		previous="$review_dir/review-$(printf '%03d' "$((cycle - 1))").md"
+	if [[ -f "$previous" ]]; then
+		manager_finding_keys "$previous" | sort -u > "$tmp_root/previous"
+	else
+		: > "$tmp_root/previous"
+	fi
+	manager_finding_keys "$report" | sort -u > "$tmp_root/current"
+	comm -23 "$tmp_root/previous" "$tmp_root/current" > "$tmp_root/expected-resolved"
+	comm -13 "$tmp_root/previous" "$tmp_root/current" > "$tmp_root/expected-new"
+	progress_list_items "$resolved" > "$tmp_root/actual-resolved"
+	progress_list_items "$new" > "$tmp_root/actual-new"
+	expected_resolved="$(paste -sd, "$tmp_root/expected-resolved")"
+	expected_new="$(paste -sd, "$tmp_root/expected-new")"
+	if ! cmp -s "$tmp_root/expected-resolved" "$tmp_root/actual-resolved"; then
+		actual="$(paste -sd, "$tmp_root/actual-resolved")"
+		rm -rf -- "$tmp_root"
+		printf 'Resolved-Findings mismatch: expected %s, received %s\n' \
+			"${expected_resolved:-none}" "${actual:-none}" >&2
+		return 1
+	fi
+	if ! cmp -s "$tmp_root/expected-new" "$tmp_root/actual-new"; then
+		actual="$(paste -sd, "$tmp_root/actual-new")"
+		rm -rf -- "$tmp_root"
+		printf 'New-Findings mismatch: expected %s, received %s\n' \
+			"${expected_new:-none}" "${actual:-none}" >&2
+		return 1
+	fi
+	rm -rf -- "$tmp_root"
+	if [[ "$net" == YES && "$resolved" == none && "$gained" == none ]]; then
+		printf 'Net-Progress YES requires a resolved finding or gained verification\n' >&2
+		return 1
+	fi
+	if [[ "$net" == NO && ( "$resolved" != none || "$gained" != none ) ]]; then
+		printf 'Net-Progress NO conflicts with resolved findings or gained verification\n' >&2
+		return 1
+	fi
+}
+
+record_manager_progress_delta()
+{
+	local cycle="$1"
+	local report="$2"
+	local file="$(project_dir)/control/manager-progress-$(printf '%03d' "$cycle").env"
+	local resolved new gained lost net
+	resolved="$(manager_progress_value "$report" Resolved-Findings)"
+	new="$(manager_progress_value "$report" New-Findings)"
+	gained="$(manager_progress_value "$report" Verification-Gained)"
+	lost="$(manager_progress_value "$report" Verification-Lost)"
+	net="$(manager_progress_value "$report" Net-Progress)"
+	{
+		printf 'cycle=%s\n' "$cycle"
+		printf 'resolved_findings=%s\n' "$resolved"
+		printf 'new_findings=%s\n' "$new"
+		printf 'verification_gained=%s\n' "$gained"
+		printf 'verification_lost=%s\n' "$lost"
+		printf 'net_progress=%s\n' "$net"
+	} > "$file"
+	chmod 600 "$file"
 }
 
 specification_requirement_ids()
@@ -601,6 +1174,37 @@ validate_oracle_pass()
 			return 1
 		}
 	done
+}
+
+validate_dead_end_report()
+{
+	local report="$1"
+	local field value
+	for field in Dead-End-Category Evidence Why-Local-Remediation-Cannot-Work; do
+		[[ "$(grep -Ec "^${field}:[[:space:]]*[^[:space:]].*" "$report" || true)" == 1 ]] || {
+			printf 'DEAD_END requires exactly one non-empty %s field\n' "$field" >&2
+			return 1
+		}
+	done
+	value="$(sed -n 's/^Dead-End-Category:[[:space:]]*//p' "$report")"
+	[[ "$value" =~ ^(contradictory-specification|invalid-architecture|unavailable-contract|irreconcilable-assignment)$ ]] || {
+		printf 'invalid Dead-End-Category: %s\n' "$value" >&2
+		return 1
+	}
+}
+
+post_oracle_remediation_value()
+{
+	local key="$1"
+	local marker="$(project_dir)/control/post-oracle-remediation.env"
+	[[ -f "$marker" ]] || return 1
+	awk -F= -v key="$key" '$1 == key { print substr($0, length($1) + 2); exit }' \
+		"$marker"
+}
+
+post_oracle_remediation_active()
+{
+	[[ -f "$(project_dir)/control/post-oracle-remediation.env" ]]
 }
 
 completion_progress_audit_due()
@@ -992,6 +1596,7 @@ require_dependencies()
 	fi
 	require_runtime "$MANAGER_CODEX_BIN"
 	require_runtime "$WORKER_CODEX_BIN"
+	require_runtime "$CONVERGENCE_CODEX_BIN"
 	if oracle_enabled; then
 		require_runtime "$ORACLE_CODEX_BIN"
 	fi

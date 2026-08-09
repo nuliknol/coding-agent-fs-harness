@@ -12,6 +12,8 @@ Your first line must be exactly one of:
 
 `DECISION: REVISE`
 
+`DECISION: DEAD_END`
+
 `DECISION: NEEDS_OPERATOR`
 
 Use `PASS` only when every requirement is implemented and the required verification succeeds. The harness context provides the exact expected PASS requirement IDs. Immediately after the decision, emit these metadata lines:
@@ -55,5 +57,17 @@ Then provide every independently actionable finding in this exact schema:
 Finding keys must use only lowercase letters, digits, dots, underscores, or hyphens and must remain stable if the same underlying gap is seen again. Include all gaps found in this audit so that the worker receives the largest coherent remediation batch possible.
 
 Use `NEEDS_OPERATOR` only for a genuine external dependency, unavailable mandatory environment, contradictory specification, or decision that cannot be resolved through repository-local implementation. State the blocker, evidence, and exact operator action required. Lack of effort, complexity, test failures, or ordinary implementation uncertainty are `REVISE`, not operator blockers.
+
+Use `DEAD_END` only when the specification or assigned architecture itself
+cannot be completed coherently by repository-local work. Do not use it for
+difficulty, cost, failed tests, missing implementation, or repeated worker
+failure. A DEAD_END report generates no implementation addendum and must
+contain exactly one non-empty line for each field:
+
+`Dead-End-Category: contradictory-specification | invalid-architecture | unavailable-contract | irreconcilable-assignment`
+
+`Evidence: <exact conflicting requirements and repository/runtime evidence>`
+
+`Why-Local-Remediation-Cannot-Work: <why no local correction can converge>`
 
 End with the exact line `ORACLE_AUDIT_COMPLETE`.

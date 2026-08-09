@@ -17,6 +17,16 @@ require_dependencies
 ensure_project
 
 dir="$(project_dir)"
+if [[ "$HARNESS_METRICS_ENABLED" == 1 && ! -d "$(metrics_git_dir)" ]]; then
+	# Existing harness state predates per-cycle metrics.  Its first sidecar
+	# snapshot is the current accepted Git-visible tree; no project Git state is
+	# changed and subsequent worker deliveries get normal cycle snapshots.
+	if metrics_initialize; then
+		log_event "METRICS_INITIALIZED_LATE snapshot=$(metrics_ref_for_cycle 0) directory=$(metrics_dir)"
+	else
+		log_event "METRICS_INITIALIZATION_FAILED directory=$(metrics_dir)"
+	fi
+fi
 supervisor_env_file="$HARNESS_ENV_FILE"
 supervisor_env_dir="$HARNESS_ENV_DIR"
 supervisor_project="$PROJECT"
@@ -98,7 +108,7 @@ reload_review_environment()
 	fi
 
 	digest="$(sha256sum "$supervisor_env_file" | awk '{ print $1 }')"
-	log_event "ENV_RELOADED role=$role cycle=$cycle sha256=$digest manager_model=$MANAGER_MODEL manager_effort=$MANAGER_REASONING_EFFORT worker_model=$WORKER_MODEL worker_effort=$WORKER_REASONING_EFFORT oracle_model=$ORACLE_MODEL oracle_effort=$ORACLE_REASONING_EFFORT review_limit=$HARNESS_MAX_MANAGER_REVIEWS oracle_limit=$MAX_ORACLE_RUNS protocol_repair_attempts=$HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS repeated_finding_reviews=$HARNESS_MAX_REPEATED_FINDING_REVIEWS no_source_progress_reviews=$HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS repeated_convergence_audits=$HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS progress_audit_every_reviews=$HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS"
+	log_event "ENV_RELOADED role=$role cycle=$cycle sha256=$digest manager_model=$MANAGER_MODEL manager_effort=$MANAGER_REASONING_EFFORT worker_model=$WORKER_MODEL worker_effort=$WORKER_REASONING_EFFORT oracle_model=$ORACLE_MODEL oracle_effort=$ORACLE_REASONING_EFFORT convergence_model=$CONVERGENCE_MODEL convergence_effort=$CONVERGENCE_REASONING_EFFORT review_limit=$HARNESS_MAX_MANAGER_REVIEWS post_oracle_review_limit=$HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE oracle_limit=$MAX_ORACLE_RUNS protocol_repair_attempts=$HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS repeated_finding_reviews=$HARNESS_MAX_REPEATED_FINDING_REVIEWS no_source_progress_reviews=$HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS repeated_convergence_audits=$HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS progress_audit_every_reviews=$HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS"
 }
 
 invoke_with_retry()
@@ -220,6 +230,9 @@ record_completion_progress_audit()
 		fail_harness "completion-progress audit extraction was empty in cycle $cycle"
 	chmod 600 "$audit"
 	write_completion_progress_state "$report" "$audit"
+	cp "$dir/control/completion-progress.env" \
+		"$dir/control/completion-progress-$(printf '%03d' "$cycle").env"
+	chmod 600 "$dir/control/completion-progress-$(printf '%03d' "$cycle").env"
 	total="$(completion_progress_audit_value "$report" Requirements-Total)"
 	verified="$(completion_progress_audit_value "$report" Verified-Complete)"
 	implemented="$(completion_progress_audit_value "$report" Implemented-Unverified)"
@@ -249,6 +262,8 @@ validate_protocol_report()
 			if [[ "$decision" == REVISE ]]; then
 				validate_manager_findings "$report" "$decision" || return 1
 			fi
+			validate_manager_progress_delta "$report" "$cycle" "$dir/reviews" ||
+				return 1
 			if completion_progress_audit_due "$cycle"; then
 				validate_completion_progress_audit \
 					"$dir/inputs/specification.txt" "$report" "$cycle" \
@@ -256,18 +271,21 @@ validate_protocol_report()
 			fi
 			;;
 		manager_convergence)
-			[[ "$decision" == ACCEPT || "$decision" == ACTIONABLE || \
+			[[ "$decision" == ACCEPT || "$decision" == CONTINUE || \
+				"$decision" == ACTIONABLE || "$decision" == DEAD_END || \
 				"$decision" == NEEDS_OPERATOR ]] || {
 				printf 'invalid convergence-audit decision: %s\n' "$decision" >&2
 				return 1
 			}
-			if [[ "$decision" == ACTIONABLE ]]; then
+			if [[ "$decision" == ACTIONABLE || "$decision" == CONTINUE ]]; then
 				validate_manager_findings "$report" "$decision" || return 1
+			elif [[ "$decision" == DEAD_END ]]; then
+				validate_dead_end_report "$report" || return 1
 			fi
 			;;
 		oracle_audit)
 			[[ "$decision" == PASS || "$decision" == REVISE || \
-				"$decision" == NEEDS_OPERATOR ]] || {
+				"$decision" == DEAD_END || "$decision" == NEEDS_OPERATOR ]] || {
 				printf 'invalid Oracle decision: %s\n' "$decision" >&2
 				return 1
 			}
@@ -293,6 +311,8 @@ validate_protocol_report()
 							"$oracle_run" "$cycle" >&2
 						return 1
 					}
+			elif [[ "$decision" == DEAD_END ]]; then
+				validate_dead_end_report "$report" || return 1
 			fi
 			;;
 		*)
@@ -326,16 +346,18 @@ prepare_protocol_repair_prompt()
 			manager_review)
 				printf '%s\n' \
 					'The first line must be exactly `DECISION: ACCEPT` or `DECISION: REVISE`.' \
-					'For REVISE, retain every substantive finding as an `ADD-NNN` record with exactly one unique `Finding-Key:`, plus non-empty `Specification:`, `Evidence:`, `Required correction:`, and `Verification:` fields.'
+					'For REVISE, retain every substantive finding as an `ADD-NNN` record with exactly one unique `Finding-Key:`, plus non-empty `Specification:`, `Evidence:`, `Required correction:`, and `Verification:` fields.' \
+					'For either decision, include the mandatory PROGRESS-DELTA block and preserve its substantive claims while repairing its structure.'
 				;;
 			manager_convergence)
 				printf '%s\n' \
-					'The first line must be exactly `DECISION: ACCEPT`, `DECISION: ACTIONABLE`, or `DECISION: NEEDS_OPERATOR`.' \
-					'For ACTIONABLE, retain every substantive finding as an `ADD-NNN` record with exactly one unique `Finding-Key:`, plus non-empty `Specification:`, `Evidence:`, `Required correction:`, and `Verification:` fields.'
+					'The first line must be exactly `DECISION: ACCEPT`, `DECISION: CONTINUE`, `DECISION: DEAD_END`, or `DECISION: NEEDS_OPERATOR`.' \
+					'For CONTINUE, retain every substantive finding as an `ADD-NNN` record with exactly one unique `Finding-Key:`, plus non-empty `Specification:`, `Evidence:`, `Required correction:`, and `Verification:` fields.' \
+					'For DEAD_END, include exactly one non-empty Dead-End-Category, Evidence, and Why-Local-Remediation-Cannot-Work field.'
 				;;
 			oracle_audit)
 				printf '%s\n' \
-					'The first line must be exactly `DECISION: PASS`, `DECISION: REVISE`, or `DECISION: NEEDS_OPERATOR`.' \
+					'The first line must be exactly `DECISION: PASS`, `DECISION: REVISE`, `DECISION: DEAD_END`, or `DECISION: NEEDS_OPERATOR`.' \
 					'The last line must be exactly `ORACLE_AUDIT_COMPLETE`.' \
 					"For PASS, include exact lines \`Oracle-Run: $oracle_run\` and \`Manager-Cycle: $cycle\`, followed by one non-empty Evidence/Verification record for each expected requirement ID listed below." \
 					"For REVISE, include exact lines \`Addendum-Source: ORACLE\`, \`Oracle-Run: $oracle_run\`, and \`Manager-Cycle: $cycle\`, followed by valid ADD-NNN findings."
@@ -396,9 +418,10 @@ repair_protocol_report()
 	expected_decision="$(sed -n '1{s/^DECISION: //;p;q;}' "$result_ref")"
 	case "$role:$expected_decision" in
 		manager_review:ACCEPT|manager_review:REVISE|\
-		manager_convergence:ACCEPT|manager_convergence:ACTIONABLE|\
+		manager_convergence:ACCEPT|manager_convergence:CONTINUE|\
+		manager_convergence:ACTIONABLE|manager_convergence:DEAD_END|\
 		manager_convergence:NEEDS_OPERATOR|oracle_audit:PASS|\
-		oracle_audit:REVISE|oracle_audit:NEEDS_OPERATOR)
+		oracle_audit:REVISE|oracle_audit:DEAD_END|oracle_audit:NEEDS_OPERATOR)
 			;;
 		*) expected_decision="" ;;
 	esac
@@ -428,6 +451,7 @@ repair_protocol_report()
 		repair_stem="$stem-protocol-repair-$(printf '%03d' "$attempt")"
 		case "$role" in
 			oracle_audit) repair_role=oracle_protocol_repair ;;
+			manager_convergence) repair_role=convergence_protocol_repair ;;
 			*) repair_role=manager_protocol_repair ;;
 		esac
 		log_event "PROTOCOL_REPAIR_STARTED role=$role cycle=$cycle stem=$stem attempt=$attempt model=$([[ "$role" == oracle_audit ]] && printf '%s' "$ORACLE_MODEL" || printf '%s' "$MANAGER_MODEL")"
@@ -658,11 +682,57 @@ prepare_convergence_prompt()
 	printf '%s\n' "$prompt"
 }
 
+mark_dead_end()
+{
+	local report="$1"
+	local cycle="$2"
+	local source="$3"
+	cp "$report" "$dir/control/dead-end.md"
+	chmod 600 "$dir/control/dead-end.md"
+	rm -f "$dir/control/provisional-acceptance.md"
+	write_state DEAD_END DEAD_END "$cycle"
+	log_event "DEAD_END cycle=$cycle source=$source report=$dir/control/dead-end.md"
+}
+
+begin_post_oracle_remediation()
+{
+	local cycle="$1"
+	local run="$2"
+	local marker="$dir/control/post-oracle-remediation.env"
+	{
+		printf 'oracle_run=%s\n' "$run"
+		printf 'oracle_cycle=%s\n' "$cycle"
+		printf 'started_manager_cycle=%s\n' "$cycle"
+		printf 'reviews_completed=0\n'
+		printf 'max_reviews=%s\n' "$HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE"
+		printf 'started_at=%s\n' "$(timestamp_utc)"
+	} > "$marker"
+	chmod 600 "$marker"
+	log_event "POST_ORACLE_REMEDIATION_STARTED cycle=$cycle run=$run limit=$HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE marker=$marker"
+}
+
+finish_post_oracle_remediation()
+{
+	local cycle="$1"
+	local outcome="$2"
+	local marker="$dir/control/post-oracle-remediation.env"
+	local archive="$dir/reviews/post-oracle-remediation-$(printf '%03d' "$cycle")-$outcome.env"
+	[[ ! -f "$marker" ]] || mv "$marker" "$archive"
+}
+
 complete_or_queue_oracle()
 {
 	local acceptance="$1"
 	local cycle="$2"
 	local source="$3"
+	if post_oracle_remediation_active; then
+		cp "$acceptance" "$dir/control/final-acceptance.md"
+		chmod 600 "$dir/control/final-acceptance.md"
+		finish_post_oracle_remediation "$cycle" accepted
+		write_state COMPLETE ACCEPTED "$cycle"
+		log_event "PROJECT_COMPLETED cycle=$cycle acceptance=$dir/control/final-acceptance.md source=post-oracle-remediation"
+		return
+	fi
 	if ! oracle_enabled; then
 		cp "$acceptance" "$dir/control/final-acceptance.md"
 		chmod 600 "$dir/control/final-acceptance.md"
@@ -726,7 +796,7 @@ run_oracle_audit()
 	write_state ACTIVE ORACLE_RUNNING "$cycle"
 	log_event "ORACLE_AUDIT_STARTED cycle=$cycle run=$run model=$ORACLE_MODEL effort=$ORACLE_REASONING_EFFORT"
 	output="$(invoke_with_retry oracle_audit "$prompt" "$stem")" ||
-		fail_harness "Sol Oracle audit failed in run $run"
+		fail_harness "Oracle audit failed in run $run"
 	if ! repair_protocol_report oracle_audit "$cycle" "$run" "$stem" output; then
 		return
 	fi
@@ -750,6 +820,7 @@ run_oracle_audit()
 			cp "$audit" "$addendum"
 			chmod 600 "$addendum"
 			rm -f "$dir/control/provisional-acceptance.md"
+			begin_post_oracle_remediation "$cycle" "$run"
 			write_state ACTIVE WORKER_REQUIRED "$cycle"
 			log_event "ORACLE_ADDENDUM_PUBLISHED cycle=$cycle run=$run addendum=$addendum"
 			;;
@@ -758,6 +829,9 @@ run_oracle_audit()
 			chmod 600 "$dir/control/operator-required.md"
 			write_state PAUSED NEEDS_OPERATOR "$cycle"
 			log_event "OPERATOR_REQUIRED cycle=$cycle source=oracle run=$run report=$dir/control/operator-required.md"
+			;;
+		DEAD_END)
+			mark_dead_end "$audit" "$cycle" oracle
 			;;
 	esac
 }
@@ -774,7 +848,7 @@ run_convergence_audit()
 	prompt="$(prepare_convergence_prompt "$cycle" "$trigger")"
 	stem="manager-convergence-$(printf '%03d' "$cycle")"
 	write_state ACTIVE CONVERGENCE_RUNNING "$cycle"
-	log_event "CONVERGENCE_AUDIT_STARTED cycle=$cycle keys=$trigger model=$MANAGER_MODEL effort=$MANAGER_REASONING_EFFORT"
+	log_event "CONVERGENCE_AUDIT_STARTED cycle=$cycle keys=$trigger model=$CONVERGENCE_MODEL effort=$CONVERGENCE_REASONING_EFFORT"
 	output="$(invoke_with_retry manager_convergence "$prompt" "$stem")" ||
 		fail_harness "Terra convergence audit failed in cycle $cycle"
 	if ! repair_protocol_report manager_convergence "$cycle" 0 "$stem" output; then
@@ -791,7 +865,7 @@ run_convergence_audit()
 		ACCEPT)
 			complete_or_queue_oracle "$audit" "$cycle" convergence-audit
 			;;
-		ACTIONABLE)
+		ACTIONABLE|CONTINUE)
 			reset_cycle=0
 			if [[ -f "$dir/control/convergence-circuit-reset-cycle" ]]; then
 				reset_cycle="$(awk 'NR == 1 { print; exit }' \
@@ -843,6 +917,9 @@ run_convergence_audit()
 			chmod 600 "$dir/control/operator-required.md"
 			write_state PAUSED NEEDS_OPERATOR "$cycle"
 			log_event "OPERATOR_REQUIRED cycle=$cycle report=$dir/control/operator-required.md"
+			;;
+		DEAD_END)
+			mark_dead_end "$audit" "$cycle" convergence-audit
 			;;
 	esac
 }
@@ -906,6 +983,22 @@ run_worker()
 	chmod 600 "$progress_file" "$dir/control/no-source-progress-count"
 	log_event "WORKTREE_PROGRESS cycle=$cycle changed=$changed no_source_progress_reviews=$no_progress before=$before_fingerprint after=$after_fingerprint"
 	log_event "WORKER_DELIVERED cycle=$cycle thread=$thread report=$output"
+	if [[ "$HARNESS_METRICS_ENABLED" == 1 ]]; then
+		if [[ ! -d "$(metrics_git_dir)" ]]; then
+			if metrics_initialize; then
+				log_event "METRICS_INITIALIZED_LATE snapshot=$(metrics_ref_for_cycle 0) directory=$(metrics_dir)"
+			else
+				log_event "METRICS_INITIALIZATION_FAILED directory=$(metrics_dir)"
+			fi
+		fi
+		if metrics_snapshot "$cycle" worker; then
+			log_event "METRICS_SNAPSHOT_RECORDED cycle=$cycle snapshot=$(metrics_ref_for_cycle "$cycle")"
+		else
+			# Metrics are observational.  A storage or Git-sidecar issue must be visible,
+			# but it must not discard a successful Luna delivery or stop development.
+			log_event "METRICS_SNAPSHOT_FAILED cycle=$cycle directory=$(metrics_dir)"
+		fi
+	fi
 	if (( HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS > 0 &&
 		no_progress >= HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS )); then
 		report="$dir/control/operator-required.md"
@@ -975,10 +1068,107 @@ prepare_review_prompt()
 	printf '%s\n' "$prompt"
 }
 
+progress_counter_update()
+{
+	local name="$1"
+	local increment="$2"
+	local file="$dir/control/progress-counter-$name"
+	local value=0
+	[[ ! -f "$file" ]] || value="$(awk 'NR == 1 { print; exit }' "$file")"
+	[[ "$value" =~ ^[0-9]+$ ]] || value=0
+	if (( increment )); then
+		value=$((value + 1))
+	else
+		value=0
+	fi
+	printf '%s\n' "$value" > "$file"
+	chmod 600 "$file"
+	printf '%s\n' "$value"
+}
+
+manager_progress_suspicion_keys()
+{
+	local cycle="$1"
+	local report="$2"
+	local progress_file="$dir/control/worker-progress-$(printf '%03d' "$cycle").env"
+	local changed resolved gained lost low_count fingerprint old_file oscillated=0
+	local oscillation_count reappeared=0 reappearance_count key previous_review
+	local stagnant=0 stagnant_count current_completion previous_completion
+	changed="$(awk -F= '$1 == "changed" { print $2; exit }' "$progress_file" 2>/dev/null || true)"
+	resolved="$(manager_progress_value "$report" Resolved-Findings)"
+	gained="$(manager_progress_value "$report" Verification-Gained)"
+	lost="$(manager_progress_value "$report" Verification-Lost)"
+
+	low_count="$(progress_counter_update low-yield \
+		"$([[ "$changed" == 1 && "$resolved" == none && "$gained" == none ]] && printf 1 || printf 0)")"
+	if (( HARNESS_MAX_LOW_YIELD_REVIEWS > 0 &&
+		low_count >= HARNESS_MAX_LOW_YIELD_REVIEWS )); then
+		printf '%s\n' progress.low-yield
+	fi
+	[[ "$lost" == none ]] || printf '%s\n' progress.verification-regression
+
+	fingerprint="$(awk -F= '$1 == "after" { print $2; exit }' "$progress_file" 2>/dev/null || true)"
+	if [[ "$changed" == 1 && "$fingerprint" =~ ^[0-9a-f]{64}$ ]]; then
+		for old_file in "$dir/control/worker-progress-"*.env; do
+			[[ -f "$old_file" && "$old_file" != "$progress_file" ]] || continue
+			old_cycle="${old_file##*-}"
+			old_cycle="${old_cycle%.env}"
+			[[ "$old_cycle" =~ ^[0-9]+$ ]] || continue
+			(( 10#$old_cycle < cycle - 1 )) || continue
+			if [[ "$(awk -F= '$1 == "after" { print $2; exit }' "$old_file")" == "$fingerprint" ]]; then
+				oscillated=1
+				break
+			fi
+		done
+	fi
+	oscillation_count="$(progress_counter_update worktree-oscillation "$oscillated")"
+	if (( HARNESS_MAX_WORKTREE_OSCILLATIONS > 0 &&
+		oscillation_count >= HARNESS_MAX_WORKTREE_OSCILLATIONS )); then
+		printf '%s\n' progress.worktree-oscillation
+	fi
+
+	previous_review="$dir/addenda/addendum-$(printf '%03d' "$((cycle - 1))").md"
+	[[ -f "$previous_review" ]] ||
+		previous_review="$dir/reviews/review-$(printf '%03d' "$((cycle - 1))").md"
+	while IFS= read -r key; do
+		manager_finding_keys "$previous_review" 2>/dev/null | grep -Fqx -- "$key" && continue
+		for ((old_cycle = 1; old_cycle <= cycle - 2; old_cycle++)); do
+			if manager_finding_keys "$dir/reviews/review-$(printf '%03d' "$old_cycle").md" \
+				2>/dev/null | grep -Fqx -- "$key"; then
+				reappeared=1
+				break 2
+			fi
+		done
+	done < <(manager_finding_keys "$report")
+	reappearance_count="$(progress_counter_update finding-reappearance "$reappeared")"
+	if (( HARNESS_MAX_FINDING_REAPPEARANCES > 0 &&
+		reappearance_count >= HARNESS_MAX_FINDING_REAPPEARANCES )); then
+		printf '%s\n' progress.finding-reappearance
+	fi
+
+	if completion_progress_audit_due "$cycle"; then
+		current_completion="$dir/control/completion-progress-$(printf '%03d' "$cycle").env"
+		previous_completion="$(find "$dir/control" -maxdepth 1 -type f \
+			-name 'completion-progress-[0-9][0-9][0-9]*.env' ! -path "$current_completion" \
+			| sort | tail -n 1)"
+		if [[ -f "$previous_completion" && -f "$current_completion" ]] &&
+			[[ "$(awk -F= '$1 == "verified_complete" || $1 == "implemented_unverified" || $1 == "remaining_gap" || $1 == "blocked" { print }' "$previous_completion")" == \
+			"$(awk -F= '$1 == "verified_complete" || $1 == "implemented_unverified" || $1 == "remaining_gap" || $1 == "blocked" { print }' "$current_completion")" ]]; then
+			stagnant=1
+		fi
+		stagnant_count="$(progress_counter_update completion-stagnation "$stagnant")"
+		if (( HARNESS_MAX_COMPLETION_STAGNANT_AUDITS > 0 &&
+			stagnant_count >= HARNESS_MAX_COMPLETION_STAGNANT_AUDITS )); then
+			printf '%s\n' progress.completion-stagnation
+		fi
+	fi
+}
+
 review_worker()
 {
 	local cycle="$1"
 	local prompt output stem review decision addendum last_audit repeated trigger_file
+	local suspicious post_reviews post_marker
 	reload_review_environment manager_review "$cycle"
 	prompt="$(prepare_review_prompt "$cycle")"
 	stem="manager-review-$(printf '%03d' "$cycle")"
@@ -993,6 +1183,7 @@ review_worker()
 	review="$dir/reviews/review-$(printf '%03d' "$cycle").md"
 	cp "$output" "$review"
 	chmod 600 "$review"
+	record_manager_progress_delta "$cycle" "$review"
 	log_event "MANAGER_REVIEW_FINISHED cycle=$cycle decision=$decision review=$review"
 	if completion_progress_audit_due "$cycle"; then
 		record_completion_progress_audit "$cycle" "$review"
@@ -1006,10 +1197,32 @@ review_worker()
 	addendum="$dir/addenda/addendum-$(printf '%03d' "$cycle").md"
 	cp "$review" "$addendum"
 	chmod 600 "$addendum"
-	if (( HARNESS_MAX_MANAGER_REVIEWS > 0 &&
+	if post_oracle_remediation_active; then
+		post_marker="$dir/control/post-oracle-remediation.env"
+		post_reviews="$(post_oracle_remediation_value reviews_completed 2>/dev/null || printf 0)"
+		[[ "$post_reviews" =~ ^[0-9]+$ ]] || post_reviews=0
+		post_reviews=$((post_reviews + 1))
+		sed -i "s/^reviews_completed=.*/reviews_completed=$post_reviews/" "$post_marker"
+		log_event "POST_ORACLE_REVIEW cycle=$cycle completed=$post_reviews limit=$HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE"
+		if (( HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE == 0 ||
+			post_reviews >= HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE )); then
+			write_state PAUSED POST_ORACLE_REVIEW_LIMIT_REACHED "$cycle"
+			log_event "POST_ORACLE_REVIEW_LIMIT_REACHED cycle=$cycle completed=$post_reviews max=$HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE addendum=$addendum"
+			return
+		fi
+	elif (( HARNESS_MAX_MANAGER_REVIEWS > 0 &&
 		cycle >= HARNESS_MAX_MANAGER_REVIEWS )); then
 		write_state PAUSED REVIEW_LIMIT_REACHED "$cycle"
 		log_event "REVIEW_LIMIT_REACHED cycle=$cycle max=$HARNESS_MAX_MANAGER_REVIEWS addendum=$addendum"
+		return
+	fi
+	suspicious="$(manager_progress_suspicion_keys "$cycle" "$review")"
+	if [[ -n "$suspicious" ]]; then
+		trigger_file="$dir/control/convergence-trigger-$(printf '%03d' "$cycle").txt"
+		printf '%s\n' "$suspicious" > "$trigger_file"
+		chmod 600 "$trigger_file"
+		write_state ACTIVE CONVERGENCE_REQUIRED "$cycle"
+		log_event "PROGRESS_SUSPICION_TRIGGERED cycle=$cycle keys=$(paste -sd, "$trigger_file")"
 		return
 	fi
 	last_audit="$(last_convergence_audit_cycle)"
@@ -1070,7 +1283,10 @@ while true; do
 	phase="$(state_value phase)"
 	cycle="$(state_value cycle)"
 	case "$status:$phase" in
-		COMPLETE:ACCEPTED|COMPLETE:ORACLE_ACCEPTED|PAUSED:REVIEW_LIMIT_REACHED|PAUSED:ORACLE_LIMIT_REACHED|PAUSED:NEEDS_OPERATOR|PAUSED:NO_SOURCE_PROGRESS|PAUSED:CONVERGENCE_LIMIT_REACHED)
+		COMPLETE:ACCEPTED|COMPLETE:ORACLE_ACCEPTED|DEAD_END:DEAD_END|\
+		PAUSED:REVIEW_LIMIT_REACHED|PAUSED:POST_ORACLE_REVIEW_LIMIT_REACHED|\
+		PAUSED:ORACLE_LIMIT_REACHED|PAUSED:NEEDS_OPERATOR|\
+		PAUSED:NO_SOURCE_PROGRESS|PAUSED:CONVERGENCE_LIMIT_REACHED)
 			break
 			;;
 		FAILED:*)

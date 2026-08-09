@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE FROM_CYCLE TO_CYCLE [--stat]\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -ge 3 && $# -le 4 ]] || usage
+env_file="$1"
+from_cycle="$2"
+to_cycle="$3"
+mode="${4:-}"
+[[ -z "$mode" || "$mode" == --stat ]] || usage
+[[ "$from_cycle" =~ ^[0-9]+$ && "$to_cycle" =~ ^[0-9]+$ ]] ||
+	die 'FROM_CYCLE and TO_CYCLE must be non-negative integers'
+
+load_harness_env "$env_file"
+ensure_project
+[[ "$HARNESS_METRICS_ENABLED" == 1 ]] || die 'code metrics are disabled for this harness'
+from_ref="$(metrics_ref_for_cycle "$from_cycle")"
+to_ref="$(metrics_ref_for_cycle "$to_cycle")"
+metrics_bare_git rev-parse --verify -q "$from_ref" >/dev/null ||
+	die "no metrics snapshot exists for cycle $from_cycle"
+metrics_bare_git rev-parse --verify -q "$to_ref" >/dev/null ||
+	die "no metrics snapshot exists for cycle $to_cycle"
+
+if [[ "$mode" == --stat ]]; then
+	metrics_bare_git diff --no-ext-diff --stat "$from_ref" "$to_ref"
+else
+	metrics_bare_git diff --no-ext-diff "$from_ref" "$to_ref"
+fi

@@ -87,6 +87,30 @@ The harness detects a key repeated across consecutive reviews and may request
 a separate convergence audit. Do not evade that safeguard by renaming an
 unchanged defect.
 
+After the decision, acceptance evidence or findings, append exactly one cheap
+progress-delta block. This is a report over the current and immediately prior
+manager reviews; it is not a separate audit or model call.
+
+```text
+PROGRESS-DELTA: BEGIN
+Resolved-Findings: <comma-separated stable Finding-Key values, or none>
+New-Findings: <comma-separated stable Finding-Key values, or none>
+Verification-Gained: <comma-separated stable lowercase evidence IDs, or none>
+Verification-Lost: <comma-separated stable lowercase evidence IDs, or none>
+Net-Progress: YES | NO
+PROGRESS-DELTA-COMPLETE
+```
+
+`Resolved-Findings` must be precisely the prior effective addendum's keys
+absent from this review. `New-Findings` must be precisely this review's keys
+absent from that addendum. When no prior addendum exists, compare with the
+prior regular review; on cycle 1, all current findings are new. Use stable
+concise IDs for verification evidence, such as `build.release` or
+`smoke.remote-query`.
+Set `Net-Progress: YES` only when at least one finding was resolved or one
+verification result was gained; otherwise use `NO`. Report regressions in
+`Verification-Lost` even when other progress occurred.
+
 For maximum protocol portability, prefer an undecorated `ADD-NNN` line and an
 undecorated `Finding-Key: lowercase-key` line. The harness tolerates ordinary
 Markdown bullets, bold, and backticks, but decoration is unnecessary.

@@ -93,12 +93,14 @@ if [[ "$model" == gpt-5.6-terra ]]; then
 			touch "$FAKE_CODEX_STATE/actionable-audit-ran"
 			message=$'DECISION: ACTIONABLE\n\nADD-001\nFinding-Key: convergence-first-gap\nSpecification: first convergence requirement.\nEvidence: first convergence evidence.\nRequired correction: first convergence correction.\nVerification: first convergence verification.\n\nADD-002\nFinding-Key: convergence-second-gap\nSpecification: second convergence requirement.\nEvidence: second convergence evidence.\nRequired correction: second convergence correction.\nVerification: second convergence verification.'
 		elif [[ "${FAKE_PROTOCOL_REPAIR_STAYS_INVALID:-0}" == 1 ]]; then
-			message=$'DECISION: ACCEPT\nThe formatting repair improperly changed the substantive decision.'
+			message=$'DECISION: ACCEPT\nThe formatting repair improperly changed the substantive decision.\n\nPROGRESS-DELTA: BEGIN\nResolved-Findings: none\nNew-Findings: none\nVerification-Gained: none\nVerification-Lost: none\nNet-Progress: NO\nPROGRESS-DELTA-COMPLETE'
 		else
-			message=$'DECISION: REVISE\n\nADD-001\nFinding-Key: first-distinct-gap\nSpecification: first requirement.\nEvidence: first evidence.\nRequired correction: first correction.\nVerification: first verification.\n\nADD-002\nFinding-Key: second-distinct-gap\nSpecification: second requirement.\nEvidence: second evidence.\nRequired correction: second correction.\nVerification: second verification.'
+			message=$'DECISION: REVISE\n\nADD-001\nFinding-Key: first-distinct-gap\nSpecification: first requirement.\nEvidence: first evidence.\nRequired correction: first correction.\nVerification: first verification.\n\nADD-002\nFinding-Key: second-distinct-gap\nSpecification: second requirement.\nEvidence: second evidence.\nRequired correction: second correction.\nVerification: second verification.\n\nPROGRESS-DELTA: BEGIN\nResolved-Findings: none\nNew-Findings: first-distinct-gap,second-distinct-gap\nVerification-Gained: none\nVerification-Lost: none\nNet-Progress: NO\nPROGRESS-DELTA-COMPLETE'
 		fi
 	elif [[ "$prompt" == *"fresh Terra convergence auditor"* ]]; then
-		if [[ "${FAKE_INVALID_CONVERGENCE:-0}" == 1 &&
+		if [[ "${FAKE_CONVERGENCE_DEAD_END:-0}" == 1 ]]; then
+			message=$'DECISION: DEAD_END\nDead-End-Category: contradictory-specification\nEvidence: immutable requirements A and B demand mutually exclusive outcomes.\nWhy-Local-Remediation-Cannot-Work: no repository state can satisfy both requirements.'
+		elif [[ "${FAKE_INVALID_CONVERGENCE:-0}" == 1 &&
 			! -f "$FAKE_CODEX_STATE/invalid-convergence-emitted" ]]; then
 			touch "$FAKE_CODEX_STATE/invalid-convergence-emitted"
 			touch "$FAKE_CODEX_STATE/actionable-audit-ran"
@@ -115,6 +117,9 @@ if [[ "$model" == gpt-5.6-terra ]]; then
 		! -f "$FAKE_CODEX_STATE/invalid-manager-review-emitted" ]]; then
 		touch "$FAKE_CODEX_STATE/invalid-manager-review-emitted"
 		message=$'DECISION: REVISE\n\nADD-001\nFinding-Key: duplicate-key\nSpecification: first requirement.\nEvidence: first evidence.\nRequired correction: first correction.\nVerification: first verification.\n\nADD-002\nFinding-Key: duplicate-key\nSpecification: second requirement.\nEvidence: second evidence.\nRequired correction: second correction.\nVerification: second verification.'
+	elif [[ "${FAKE_POST_ORACLE_REVISE:-0}" == 1 &&
+		-f "$FAKE_CODEX_STATE/oracle-counter" ]]; then
+		message=$'DECISION: REVISE\n\nADD-901\nFinding-Key: post-oracle-gap\nSpecification: the Oracle remediation remains incomplete.\nEvidence: the fake post-Oracle condition remains enabled.\nRequired correction: close the post-Oracle gap.\nVerification: disable the fake post-Oracle condition.'
 	elif [[ -f "$FAKE_CODEX_STATE/actionable-audit-ran" &&
 		"${FAKE_CONVERGENCE_STAYS_ACTIONABLE:-0}" != 1 ]]; then
 		message=$'DECISION: ACCEPT\nThe actionable convergence correction is complete.'
@@ -125,6 +130,25 @@ if [[ "$model" == gpt-5.6-terra ]]; then
 		message=$'DECISION: ACCEPT\nAll specified behavior is implemented.'
 	else
 		message=$'DECISION: REVISE\n\nADD-001\nFinding-Key: `feature-content-incomplete`\nSpecification: feature.txt must contain exactly complete.\nEvidence: the repository contains only a partial value.\nRequired correction: replace it with the complete value.\nVerification: test \"$(cat feature.txt)\" = complete.'
+	fi
+	if [[ "$prompt" == *'This is review cycle '* ]]; then
+		review_cycle="$(sed -n 's/^This is review cycle \([0-9][0-9]*\)\..*/\1/p' <<< "$prompt" | tail -n 1)"
+		project_dir="$(sed -n 's|^Latest worker report: `\(.*\)/outputs/worker-[^`]*`.*|\1|p' <<< "$prompt" | tail -n 1)"
+		previous_review="$project_dir/reviews/review-$(printf '%03d' "$((review_cycle - 1))").md"
+		previous_addendum="$project_dir/addenda/addendum-$(printf '%03d' "$((review_cycle - 1))").md"
+		[[ ! -f "$previous_addendum" ]] || previous_review="$previous_addendum"
+		previous_keys=""
+		[[ ! -f "$previous_review" ]] || previous_keys="$(sed -n 's/^[[:space:]`*-]*Finding-Key:[[:space:]`*]*\([a-z0-9._-]*\).*/\1/p' "$previous_review" | sort -u)"
+		current_keys="$(sed -n 's/^[[:space:]`*-]*Finding-Key:[[:space:]`*]*\([a-z0-9._-]*\).*/\1/p' <<< "$message" | sort -u)"
+		resolved="$(comm -23 <(sort <<< "$previous_keys") <(sort <<< "$current_keys") | paste -sd,)"
+		new="$(comm -13 <(sort <<< "$previous_keys") <(sort <<< "$current_keys") | paste -sd,)"
+		[[ -n "$resolved" ]] || resolved=none
+		[[ -n "$new" ]] || new=none
+		net=NO
+		[[ "$resolved" != none ]] && net=YES
+		printf -v progress_delta '\n\nPROGRESS-DELTA: BEGIN\nResolved-Findings: %s\nNew-Findings: %s\nVerification-Gained: none\nVerification-Lost: none\nNet-Progress: %s\nPROGRESS-DELTA-COMPLETE' \
+			"$resolved" "$new" "$net"
+		message+="$progress_delta"
 	fi
 	if [[ "$prompt" == *'# Mandatory completion-progress audit'* ]]; then
 		audit_cycle="$(sed -n 's/^Audit cycle: `\([0-9][0-9]*\)`.*/\1/p' <<< "$prompt" | tail -n 1)"
@@ -172,7 +196,11 @@ elif [[ "$model" == gpt-5.6-sol ]]; then
 		touch "$FAKE_CODEX_STATE/invalid-oracle-pass-emitted"
 		printf -v message 'DECISION: PASS\nOracle-Run: %s\nManager-Cycle: %s\n\nREQUIREMENT: SPECIFICATION-WHOLE\nEvidence: feature.txt appears complete.\nORACLE_AUDIT_COMPLETE' "$oracle_run" "$manager_cycle"
 	elif (( oracle_counter <= ${FAKE_ORACLE_REVISIONS:-0} )); then
-		printf -v message 'DECISION: REVISE\nAddendum-Source: ORACLE\nOracle-Run: %s\nManager-Cycle: %s\n\nADD-001: independent final gap\nFinding-Key: oracle-independent-gap\nSpecification: feature.txt must satisfy the complete immutable specification.\nEvidence: the independent audit found a repository-local completion gap.\nRequired correction: close the complete gap and rerun verification.\nVerification: run the focused feature smoke test.\nORACLE_AUDIT_COMPLETE' "$oracle_run" "$manager_cycle"
+		if [[ "${FAKE_ORACLE_DEAD_END:-0}" == 1 ]]; then
+			printf -v message 'DECISION: DEAD_END\nDead-End-Category: invalid-architecture\nEvidence: the immutable architecture requires mutually exclusive public behavior.\nWhy-Local-Remediation-Cannot-Work: no repository-local implementation can satisfy the contradiction.\nORACLE_AUDIT_COMPLETE'
+		else
+			printf -v message 'DECISION: REVISE\nAddendum-Source: ORACLE\nOracle-Run: %s\nManager-Cycle: %s\n\nADD-001: independent final gap\nFinding-Key: oracle-independent-gap\nSpecification: feature.txt must satisfy the complete immutable specification.\nEvidence: the independent audit found a repository-local completion gap.\nRequired correction: close the complete gap and rerun verification.\nVerification: run the focused feature smoke test.\nORACLE_AUDIT_COMPLETE' "$oracle_run" "$manager_cycle"
+		fi
 	else
 		printf -v message 'DECISION: PASS\nOracle-Run: %s\nManager-Cycle: %s\n\nREQUIREMENT: SPECIFICATION-WHOLE\nEvidence: feature.txt contains exactly complete and the repository matches the immutable specification.\nVerification: test "$(cat feature.txt)" = complete passed.\nORACLE_AUDIT_COMPLETE' "$oracle_run" "$manager_cycle"
 	fi
@@ -396,7 +424,10 @@ grep -v -e '^export HARNESS_MANAGER_REVIEW_CHECKLIST=' \
 chmod 600 "$TEST_DIR/default-project.env"
 default_check="$("$ROOT/bin/harness-check-env" "$TEST_DIR/default-project.env")"
 grep -q 'Manager first-review checklist: none' <<< "$default_check"
-grep -q 'Manager review limit: 50' <<< "$default_check"
+grep -q 'Manager review limit: 20' <<< "$default_check"
+grep -q 'Post-Oracle manager-review limit: 5' <<< "$default_check"
+grep -q 'Oracle: gpt-5.6-terra (xhigh).*maximum runs=1' <<< "$default_check"
+grep -q 'Convergence auditor: gpt-5.6-terra (xhigh)' <<< "$default_check"
 grep -q 'Protocol repair attempts: 2' <<< "$default_check"
 grep -q 'Repeated-finding convergence audit: after 3 consecutive reviews' \
 	<<< "$default_check"
@@ -405,8 +436,6 @@ grep -q 'No-source-progress pause: after 5 unchanged worker deliveries' \
 grep -q 'Repeated-convergence pause: after 3 audits retain a finding' \
 	<<< "$default_check"
 grep -q 'Completion-progress audit: every 10 completed manager reviews' \
-	<<< "$default_check"
-grep -q 'Oracle: gpt-5.6-sol (high), sandbox=workspace-write, maximum runs=3' \
 	<<< "$default_check"
 grep -q 'Codex diagnostic profile: disabled' <<< "$default_check"
 grep -q 'Codex goal tools: disabled by harness' <<< "$default_check"
@@ -600,6 +629,11 @@ grep -qx 'complete' "$repo/feature.txt"
 test -f "$project/addenda/addendum-001.md"
 test -f "$project/reviews/review-001.md"
 test -f "$project/reviews/review-002.md"
+grep -qx 'new_findings=feature-content-incomplete' \
+	"$project/control/manager-progress-001.env"
+grep -qx 'resolved_findings=feature-content-incomplete' \
+	"$project/control/manager-progress-002.env"
+grep -qx 'net_progress=YES' "$project/control/manager-progress-002.env"
 test -f "$project/control/final-acceptance.md"
 grep -q '^DECISION: REVISE$' "$project/addenda/addendum-001.md"
 grep -q '^Finding-Key: `feature-content-incomplete`$' \
@@ -608,10 +642,35 @@ grep -q '^DECISION: ACCEPT$' "$project/control/final-acceptance.md"
 grep -q '^worker fresh$' "$fake_state/invocations.log"
 grep -q '^worker resume worker-thread$' "$fake_state/invocations.log"
 grep -Fq -- '--disable goals' "$fake_state/codex-argv.log"
+test -d "$project/metrics/git"
+git --git-dir="$project/metrics/git" rev-parse --verify \
+	refs/harness-metrics/cycles/000 >/dev/null
+git --git-dir="$project/metrics/git" rev-parse --verify \
+	refs/harness-metrics/cycles/001 >/dev/null
+git --git-dir="$project/metrics/git" rev-parse --verify \
+	refs/harness-metrics/cycles/002 >/dev/null
+grep -q 'METRICS_SNAPSHOT_RECORDED cycle=1' "$project/logs/events.log"
+grep -q 'METRICS_SNAPSHOT_RECORDED cycle=2' "$project/logs/events.log"
+test -z "$(git -C "$repo" diff --cached --name-only)"
+"$ROOT/bin/harness-diff-range" "$TEST_DIR/project.env" 0 1 | \
+	grep -q 'feature.txt'
+metrics_output="$("$ROOT/bin/harness-metrics" "$TEST_DIR/project.env")"
+grep -q "Metrics report: $project/metrics/report.md" <<< "$metrics_output"
+test -s "$project/metrics/cycles.csv"
+test -s "$project/metrics/provenance.csv"
+test -s "$project/metrics/survival.csv"
+test -s "$project/metrics/report.md"
+test -s "$project/metrics/cycles/cycle-001.patch"
+grep -q 'feature.txt' "$project/metrics/cycles/cycle-001.patch"
+plot_output="$("$ROOT/bin/harness-plot-metrics" "$TEST_DIR/project.env")"
+grep -q "Code-growth graph: $project/metrics/graphs/code-growth.png" <<< "$plot_output"
+test -s "$project/metrics/graphs/code-growth.png"
+test -s "$project/metrics/graphs/source-provenance.png"
 grep -q '^manager_review_checklist=c-strict$' "$project/project.conf"
 grep -q '^max_no_source_progress_reviews=5$' "$project/project.conf"
 grep -q '^max_repeated_convergence_audits=3$' "$project/project.conf"
 grep -q '^progress_audit_every_reviews=10$' "$project/project.conf"
+grep -q '^metrics_enabled=1$' "$project/project.conf"
 grep -q '^# Operator-selected first-review checklist$' \
 	"$project/prompts/manager-review-001.md"
 grep -q '^## Strict C verification profile$' \
@@ -666,6 +725,7 @@ grep -q 'Manager first-review checklist: c-strict' <<< "$status_output"
 grep -q 'Completion-progress audit: every 10 completed manager reviews' \
 	<<< "$status_output"
 grep -q 'Codex goal tools: disabled by harness' <<< "$status_output"
+grep -q 'Code metrics: enabled' <<< "$status_output"
 grep -q 'Environment reload: before every manager review and Oracle audit (soft parameters only)' \
 	<<< "$status_output"
 grep -q "Repository launch commit: $launch_commit" <<< "$status_output"
@@ -717,6 +777,46 @@ if awk 'length($0) > 80 { found = 1 } END { exit !found }' \
 	exit 1
 fi
 grep -Eq '^ +\| +\| +\| +\|' <<< "$watch_many_output"
+
+percentage_watch_root="$TEST_DIR/percentage-watch-state"
+percentage_watch_project="$percentage_watch_root/projects/percentage-watch"
+percentage_watch_dir="$TEST_DIR/percentage-watch-configs"
+mkdir -p "$percentage_watch_project/control" "$percentage_watch_dir"
+cat > "$percentage_watch_project/control/state.env" <<'EOF'
+status=ACTIVE
+phase=WORKER_REQUIRED
+cycle=12
+started_at=2026-01-01T00:00:00Z
+updated_at=2026-01-01T00:00:00Z
+completed_at=
+EOF
+cat > "$percentage_watch_project/control/completion-progress.env" <<'EOF'
+audit_cycle=10
+updated_at=2026-01-01T00:00:00Z
+coverage_basis=REQUIREMENT-IDS
+requirements_total=4
+verified_complete=2
+implemented_unverified=1
+remaining_gap=1
+blocked=0
+verified_percent=50
+claimed_percent=75
+percentage_available=1
+audit_report=/tmp/completion-progress-010.md
+EOF
+cat > "$percentage_watch_dir/percentage.env" <<EOF
+export PROJECT="percentage-watch"
+export REPOSITORY="$repo"
+export SPECIFICATION="$TEST_DIR/oracle-pass-specification.md"
+export DEVELOPMENT_POLICY="$TEST_DIR/development-policy.txt"
+export HARNESS_HOME="$ROOT"
+export HARNESS_ROOT="$percentage_watch_root"
+export HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS="10"
+EOF
+chmod 600 "$percentage_watch_dir/percentage.env"
+percentage_watch_output="$(COLUMNS=130 LINES=24 \
+	"$ROOT/bin/harness-watch-many" --once "$percentage_watch_dir")"
+grep -q 'V50% 2/4; C75% @10' <<< "$percentage_watch_output"
 
 repair_repo="$TEST_DIR/protocol-repair-repository"
 repair_state="$TEST_DIR/protocol-repair-state"
@@ -890,6 +990,7 @@ export HARNESS_PROVIDER_RETRY_SECONDS="1"
 export HARNESS_QUOTA_RETRY_SECONDS="1"
 export HARNESS_MAX_MANAGER_REVIEWS="50"
 export HARNESS_MAX_REPEATED_FINDING_REVIEWS="3"
+export HARNESS_MAX_COMPLETION_STAGNANT_AUDITS="0"
 export HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS="1"
 export FAKE_CODEX_STATE="$repeat_fake_state"
 export FAKE_REPOSITORY="$repeat_repo"
@@ -929,6 +1030,8 @@ grep -qx 'DECISION: NEEDS_OPERATOR' \
 	"$repeat_project/control/operator-required.md"
 grep -q 'CONVERGENCE_TRIGGERED cycle=3 threshold=3 keys=external-decision-unavailable' \
 	"$repeat_project/logs/events.log"
+grep -Fq -- 'model_reasoning_effort="xhigh"' \
+	"$repeat_fake_state/codex-argv.log"
 grep -q 'CONVERGENCE_AUDIT_FINISHED cycle=3 decision=NEEDS_OPERATOR' \
 	"$repeat_project/logs/events.log"
 test ! -f "$repeat_project/outputs/worker-004.md"
@@ -1313,28 +1416,33 @@ export ORACLE_CODEX_BIN="$TEST_DIR/fake-codex"
 export MANAGER_CODEX_HOME="$TEST_DIR/codex-home"
 export WORKER_CODEX_HOME="$TEST_DIR/codex-home"
 export ORACLE_CODEX_HOME="$TEST_DIR/codex-home"
+export ORACLE_MODEL="gpt-5.6-sol"
+export ORACLE_REASONING_EFFORT="high"
 export HARNESS_PROVIDER_RETRY_SECONDS="1"
 export HARNESS_QUOTA_RETRY_SECONDS="1"
 export HARNESS_MAX_REPEATED_FINDING_REVIEWS="0"
 export MAX_ORACLE_RUNS="1"
+export HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE="2"
 export FAKE_CODEX_STATE="$oracle_fake_state"
 export FAKE_REPOSITORY="$oracle_repo"
 export FAKE_ORACLE_REVISIONS="1"
+export FAKE_POST_ORACLE_REVISE="1"
 EOF
 chmod 600 "$oracle_env"
 "$ROOT/bin/harness-init" "$oracle_env" >/dev/null
 "$ROOT/bin/harness-start" "$oracle_env" >/dev/null
 oracle_project="$oracle_state/projects/oracle-gate"
 for _ in {1..30}; do
-	grep -qx 'phase=ORACLE_LIMIT_REACHED' \
+	grep -qx 'phase=POST_ORACLE_REVIEW_LIMIT_REACHED' \
 		"$oracle_project/control/state.env" 2>/dev/null && break
 	sleep 1
 done
 grep -qx 'status=PAUSED' "$oracle_project/control/state.env"
-grep -qx 'phase=ORACLE_LIMIT_REACHED' "$oracle_project/control/state.env"
-grep -qx 'cycle=3' "$oracle_project/control/state.env"
-test ! -e "$oracle_project/control/final-acceptance.md"
-test -f "$oracle_project/control/provisional-acceptance.md"
+grep -qx 'phase=POST_ORACLE_REVIEW_LIMIT_REACHED' "$oracle_project/control/state.env"
+grep -qx 'cycle=4' "$oracle_project/control/state.env"
+grep -qx 'reviews_completed=2' "$oracle_project/control/post-oracle-remediation.env"
+test ! -f "$oracle_project/control/final-acceptance.md"
+test ! -f "$oracle_project/control/provisional-acceptance.md"
 test -f "$oracle_project/reviews/oracle-audit-001.md"
 grep -qx 'Addendum-Source: ORACLE' \
 	"$oracle_project/addenda/addendum-002.md"
@@ -1355,43 +1463,71 @@ grep -Fq -- 'model_reasoning_effort="high"' \
 	"$oracle_fake_state/codex-argv.log"
 grep -q 'ORACLE_ADDENDUM_PUBLISHED cycle=2 run=1' \
 	"$oracle_project/logs/events.log"
-grep -q 'ORACLE_LIMIT_REACHED cycle=3 completed_runs=1 max_runs=1' \
+grep -q 'POST_ORACLE_REMEDIATION_STARTED cycle=2 run=1 limit=2' \
+	"$oracle_project/logs/events.log"
+grep -q 'POST_ORACLE_REVIEW_LIMIT_REACHED cycle=4 completed=2 max=2' \
 	"$oracle_project/logs/events.log"
 
-sed -i 's/MAX_ORACLE_RUNS="1"/MAX_ORACLE_RUNS="2"/' "$oracle_env"
+printf 'export FAKE_POST_ORACLE_REVISE="0"\n' >> "$oracle_env"
+printf 'export HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE="3"\n' >> "$oracle_env"
 if oracle_start_output="$("$ROOT/bin/harness-start" "$oracle_env" 2>&1)"; then
-	printf 'harness-start incorrectly bypassed the Oracle audit cap\n' >&2
+	printf 'harness-start incorrectly bypassed the post-Oracle review cap\n' >&2
 	exit 1
 fi
-grep -q 'project is paused in ORACLE_LIMIT_REACHED at cycle 3' \
+grep -q 'project is paused in POST_ORACLE_REVIEW_LIMIT_REACHED at cycle 4' \
 	<<< "$oracle_start_output"
-grep -qx 'status=PAUSED' "$oracle_project/control/state.env"
 "$ROOT/bin/harness-resume" "$oracle_env" >/dev/null
-grep -qx 'status=ACTIVE' "$oracle_project/control/state.env"
-grep -qx 'phase=ORACLE_REQUIRED' "$oracle_project/control/state.env"
 "$ROOT/bin/harness-start" "$oracle_env" >/dev/null
 for _ in {1..30}; do
 	grep -qx 'status=COMPLETE' "$oracle_project/control/state.env" 2>/dev/null && break
 	sleep 1
 done
 grep -qx 'status=COMPLETE' "$oracle_project/control/state.env"
-grep -qx 'phase=ORACLE_ACCEPTED' "$oracle_project/control/state.env"
-grep -qx 'cycle=3' "$oracle_project/control/state.env"
-test -f "$oracle_project/reviews/oracle-audit-002.md"
-grep -qx 'DECISION: PASS' "$oracle_project/control/final-acceptance.md"
-grep -qx 'Oracle-Run: 2' "$oracle_project/control/final-acceptance.md"
-grep -qx 'Manager-Cycle: 3' "$oracle_project/control/final-acceptance.md"
-grep -qx 'REQUIREMENT: SPECIFICATION-WHOLE' \
-	"$oracle_project/control/final-acceptance.md"
-test ! -e "$oracle_project/control/provisional-acceptance.md"
-grep -q 'ORACLE_LIMIT_RESUMED cycle=3 completed_runs=1 new_limit=2' \
+grep -qx 'phase=ACCEPTED' "$oracle_project/control/state.env"
+grep -qx 'cycle=5' "$oracle_project/control/state.env"
+grep -q 'PROJECT_COMPLETED cycle=5 .*source=post-oracle-remediation' \
 	"$oracle_project/logs/events.log"
-grep -q 'PROJECT_COMPLETED cycle=3 oracle_run=2 .*source=oracle' \
-	"$oracle_project/logs/events.log"
+test -f "$oracle_project/reviews/post-oracle-remediation-005-accepted.env"
 oracle_status="$({ "$ROOT/bin/harness-status" "$oracle_env"; })"
 grep -q 'Oracle: gpt-5.6-sol (high)' <<< "$oracle_status"
-grep -q 'Oracle audits: 2 of 2' <<< "$oracle_status"
-grep -q 'Oracle tokens: input=1000 cached=600 output=100' <<< "$oracle_status"
+grep -q 'Oracle audits: 1 of 1' <<< "$oracle_status"
+grep -q 'Oracle tokens: input=500 cached=300 output=50' <<< "$oracle_status"
+
+dead_end_repo="$TEST_DIR/dead-end-repository"
+dead_end_state="$TEST_DIR/dead-end-state"
+dead_end_fake_state="$TEST_DIR/dead-end-fake-state"
+dead_end_env="$TEST_DIR/dead-end-project.env"
+mkdir -p "$dead_end_repo" "$dead_end_fake_state"
+git -C "$dead_end_repo" init -q
+git -C "$dead_end_repo" config user.name 'Harness Test'
+git -C "$dead_end_repo" config user.email 'harness-test@example.invalid'
+printf 'baseline\n' > "$dead_end_repo/baseline.txt"
+git -C "$dead_end_repo" add baseline.txt
+git -C "$dead_end_repo" commit -q -m baseline
+sed -e 's/PROJECT="oracle-gate"/PROJECT="dead-end-gate"/' \
+	-e "s|REPOSITORY=\"$oracle_repo\"|REPOSITORY=\"$dead_end_repo\"|" \
+	-e "s|HARNESS_ROOT=\"$oracle_state\"|HARNESS_ROOT=\"$dead_end_state\"|" \
+	-e "s|FAKE_CODEX_STATE=\"$oracle_fake_state\"|FAKE_CODEX_STATE=\"$dead_end_fake_state\"|" \
+	-e "s|FAKE_REPOSITORY=\"$oracle_repo\"|FAKE_REPOSITORY=\"$dead_end_repo\"|" \
+	"$oracle_env" > "$dead_end_env"
+printf 'export FAKE_ORACLE_DEAD_END="1"\n' >> "$dead_end_env"
+chmod 600 "$dead_end_env"
+"$ROOT/bin/harness-init" "$dead_end_env" >/dev/null
+"$ROOT/bin/harness-start" "$dead_end_env" >/dev/null
+dead_end_project="$dead_end_state/projects/dead-end-gate"
+for _ in {1..30}; do
+	grep -qx 'status=DEAD_END' "$dead_end_project/control/state.env" 2>/dev/null && break
+	sleep 1
+done
+grep -qx 'status=DEAD_END' "$dead_end_project/control/state.env"
+grep -qx 'phase=DEAD_END' "$dead_end_project/control/state.env"
+grep -qx 'DECISION: DEAD_END' "$dead_end_project/control/dead-end.md"
+test ! -e "$dead_end_project/addenda/addendum-002.md"
+grep -q 'DEAD_END cycle=2 source=oracle' "$dead_end_project/logs/events.log"
+if "$ROOT/bin/harness-start" "$dead_end_env" >/dev/null 2>&1; then
+	printf 'harness-start incorrectly restarted a DEAD_END project\n' >&2
+	exit 1
+fi
 
 oracle_repair_repo="$TEST_DIR/oracle-repair-repository"
 oracle_repair_state="$TEST_DIR/oracle-repair-state"
@@ -1417,6 +1553,8 @@ export ORACLE_CODEX_BIN="$TEST_DIR/fake-codex"
 export MANAGER_CODEX_HOME="$TEST_DIR/codex-home"
 export WORKER_CODEX_HOME="$TEST_DIR/codex-home"
 export ORACLE_CODEX_HOME="$TEST_DIR/codex-home"
+export ORACLE_MODEL="gpt-5.6-sol"
+export ORACLE_REASONING_EFFORT="high"
 export MAX_ORACLE_RUNS="3"
 export HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS="2"
 export HARNESS_PROVIDER_RETRY_SECONDS="1"

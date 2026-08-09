@@ -16,7 +16,7 @@ launch_commit="$(project_config_value repository_launch_commit 2>/dev/null || tr
 current_commit="$(repository_head_commit 2>/dev/null || true)"
 [[ -z "$launch_commit" ]] || printf 'Repository launch commit: %s\n' "$launch_commit"
 [[ -z "$current_commit" ]] || printf 'Canonical repository baseline: %s\n' "$current_commit"
-printf 'Harness mode: persistent Luna worker, sparse Terra reviews, final Sol Oracle\n'
+printf 'Harness mode: persistent Luna worker, sparse Terra reviews, final independent Oracle\n'
 if supervisor_running; then
 	printf 'Supervisor: running (PID %s)\n' "$(supervisor_pid)"
 else
@@ -34,13 +34,39 @@ printf 'Environment reload: before every manager review and Oracle audit (soft p
 printf 'Status: %s\n' "$(state_value status)"
 printf 'Phase: %s\n' "$(state_value phase)"
 printf 'Worker/review cycle: %s\n' "$(state_value cycle)"
+if [[ "$HARNESS_METRICS_ENABLED" == 1 ]]; then
+	metrics_root="$(metrics_dir)"
+	metrics_snapshots=0
+	[[ ! -d "$metrics_root/git" ]] || metrics_snapshots="$(git --git-dir="$metrics_root/git" \
+		for-each-ref --format='%(refname)' refs/harness-metrics/cycles 2>/dev/null | wc -l | tr -d ' ')"
+	printf 'Code metrics: enabled (%s sidecar snapshots)\n' "$metrics_snapshots"
+	printf 'Code metrics CSV: %s/cycles.csv\n' "$metrics_root"
+	if [[ -f "$metrics_root/report.md" ]]; then
+		printf 'Code metrics report: %s/report.md\n' "$metrics_root"
+	fi
+	if [[ -f "$metrics_root/graphs/code-growth.png" ]]; then
+		printf 'Code metrics graph: %s/graphs/code-growth.png\n' "$metrics_root"
+	fi
+else
+	printf 'Code metrics: disabled\n'
+fi
 printf 'Manager: %s (%s)\n' "$MANAGER_MODEL" "$MANAGER_REASONING_EFFORT"
 printf 'Worker: %s (%s)\n' "$WORKER_MODEL" "$WORKER_REASONING_EFFORT"
+printf 'Convergence auditor: %s (%s)\n' \
+	"$CONVERGENCE_MODEL" "$CONVERGENCE_REASONING_EFFORT"
 if oracle_enabled; then
 	printf 'Oracle: %s (%s)\n' "$ORACLE_MODEL" "$ORACLE_REASONING_EFFORT"
 	printf 'Oracle audits: %s of %s\n' "$(oracle_audit_run_count)" "$MAX_ORACLE_RUNS"
 else
 	printf 'Oracle: disabled (MAX_ORACLE_RUNS=0)\n'
+fi
+if post_oracle_remediation_active; then
+	post_reviews="$(post_oracle_remediation_value reviews_completed 2>/dev/null || printf 0)"
+	printf 'Post-Oracle remediation: active (%s of %s manager reviews)\n' \
+		"$post_reviews" "$HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE"
+else
+	printf 'Post-Oracle remediation limit: %s manager reviews\n' \
+		"$HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE"
 fi
 printf 'Manager first-review checklist: %s\n' \
 	"$HARNESS_MANAGER_REVIEW_CHECKLIST"
@@ -70,6 +96,14 @@ else
 	printf 'Repeated-convergence pause: after %s audits retain a finding\n' \
 		"$HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS"
 fi
+printf 'Low-yield progress audit: after %s consecutive reviews\n' \
+	"$HARNESS_MAX_LOW_YIELD_REVIEWS"
+printf 'Worktree-oscillation audit: after %s detections\n' \
+	"$HARNESS_MAX_WORKTREE_OSCILLATIONS"
+printf 'Finding-reappearance audit: after %s detections\n' \
+	"$HARNESS_MAX_FINDING_REAPPEARANCES"
+printf 'Completion-stagnation audit: after %s scheduled audits\n' \
+	"$HARNESS_MAX_COMPLETION_STAGNANT_AUDITS"
 if (( HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS == 0 )); then
 	printf 'Completion-progress audit: disabled\n'
 else
@@ -177,6 +211,9 @@ if [[ -f "$dir/control/last-error.txt" ]]; then
 fi
 if [[ -f "$dir/control/operator-required.md" ]]; then
 	printf 'Operator report: %s\n' "$dir/control/operator-required.md"
+fi
+if [[ -f "$dir/control/dead-end.md" ]]; then
+	printf 'Dead-end report: %s\n' "$dir/control/dead-end.md"
 fi
 printf 'Latest events:\n'
 tail -n 8 "$(events_file)" 2>/dev/null || true

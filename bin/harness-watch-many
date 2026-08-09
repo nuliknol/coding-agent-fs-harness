@@ -299,8 +299,10 @@ describe_harness()
 	local stall_seconds="$6"
 	local max_manager_reviews="$7"
 	local max_oracle_runs="$8"
-	local role report summary keys trace age action warning_file warning_age
+	local max_post_oracle_reviews="$9"
+	local role report summary keys trace age action warning_file warning_age trigger_file
 	local warning_class warning_detail no_progress oracle_runs completed_oracle_runs
+	local post_completed
 	role="$(phase_role "$phase")"
 	report="$project_dir/control/operator-required.md"
 
@@ -308,11 +310,21 @@ describe_harness()
 		if [[ "$phase" == ORACLE_ACCEPTED ]]; then
 			oracle_runs="$(find "$project_dir/reviews" -maxdepth 1 -type f \
 				-name 'oracle-audit-*.md' | wc -l | tr -d ' ')"
-			printf 'Completed normally. Sol Oracle accepted the repository after %s audit(s); no blocker remains.' \
+			printf 'Completed normally. The independent Oracle accepted the repository after %s audit(s); no blocker remains.' \
 				"$oracle_runs"
+		elif find "$project_dir/reviews" -maxdepth 1 -type f \
+			-name 'post-oracle-remediation-*-accepted.env' -print -quit 2>/dev/null | grep -q .; then
+			printf 'Completed normally after Terra accepted the bounded Oracle-directed remediation; no blocker remains.'
 		else
 			printf 'Completed normally without an enabled Oracle gate; no blocker remains.'
 		fi
+		return
+	fi
+
+	if [[ "$status" == DEAD_END ]]; then
+		summary="$(markdown_summary "$project_dir/control/dead-end.md")"
+		printf 'DEAD END: %s\nAction: inspect %s/control/dead-end.md; this terminal judgment produced no implementation addendum.' \
+			"${summary:-the audit found no coherent repository-local completion path.}" "$project_dir"
 		return
 	fi
 
@@ -347,6 +359,16 @@ describe_harness()
 						"$cycle"
 				fi
 				;;
+			POST_ORACLE_REVIEW_LIMIT_REACHED)
+				post_completed="$(state_value_from "$project_dir/control/post-oracle-remediation.env" reviews_completed)"
+				if [[ "$max_post_oracle_reviews" =~ ^[0-9]+$ && "$post_completed" =~ ^[0-9]+$ ]] &&
+					(( max_post_oracle_reviews > post_completed )); then
+					printf 'POST-ORACLE LIMIT: %s remediation reviews were consumed. Configuration now permits %s; run harness-resume and then harness-start.' \
+						"$post_completed" "$max_post_oracle_reviews"
+				else
+					printf 'POST-ORACLE LIMIT: the independent remediation budget was exhausted. Inspect the latest addendum before explicitly increasing HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE.'
+				fi
+				;;
 			ORACLE_LIMIT_REACHED)
 				completed_oracle_runs="$(find "$project_dir/reviews" -maxdepth 1 \
 					-type f -name 'oracle-audit-*.md' | wc -l | tr -d ' ')"
@@ -374,6 +396,13 @@ describe_harness()
 		printf 'PROBLEM: unfinished harness has no live supervisor. Durable phase is %s at cycle %s. Run harness-start with its environment file to continue.' \
 			"$phase" "$cycle"
 		return
+	fi
+	if [[ "$phase" == CONVERGENCE_REQUIRED || "$phase" == CONVERGENCE_RUNNING ]]; then
+		trigger_file="$project_dir/control/convergence-trigger-$(printf '%03d' "$cycle").txt"
+		if [[ -s "$trigger_file" ]]; then
+			keys="$(paste -sd, "$trigger_file")"
+			printf 'Convergence audit trigger: %s.\n' "$keys"
+		fi
 	fi
 
 	trace="$(latest_trace_file "$project_dir" "$phase" "$cycle")"
@@ -521,11 +550,12 @@ while IFS= read -r -d '' env_file; do
 		set -Eeuo pipefail
 		source "$1"
 		load_harness_env "$2"
-		printf "HARNESS_WATCH_DATA\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n" \
+		printf "HARNESS_WATCH_DATA\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n" \
 			"$PROJECT" "$HARNESS_ROOT" "$HARNESS_ENV_FILE" \
 			"$HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS" \
 			"$HARNESS_MAX_MANAGER_REVIEWS" "$MAX_ORACLE_RUNS" \
-			"$HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS"
+			"$HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS" \
+			"$HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE"
 	' _ "$COMMON" "$env_file" 2>&1)" || {
 		error="$(tail -n 2 <<< "$loaded" | tr '\n' ' ')"
 		print_row "${probe_project:-${env_file##*/}}" '-' \
@@ -534,7 +564,8 @@ while IFS= read -r -d '' env_file; do
 	}
 	data="$(awk -F '\t' '$1 == "HARNESS_WATCH_DATA" { print; exit }' <<< "$loaded")"
 	IFS=$'\t' read -r _ project harness_root canonical_env stall_seconds \
-		max_manager_reviews max_oracle_runs progress_audit_every_reviews <<< "$data"
+		max_manager_reviews max_oracle_runs progress_audit_every_reviews \
+		max_post_oracle_reviews <<< "$data"
 	project_dir="$harness_root/projects/$project"
 	state_file="$project_dir/control/state.env"
 	if [[ ! -f "$state_file" ]]; then
@@ -553,6 +584,7 @@ while IFS= read -r -d '' env_file; do
 		COMPLETE) display_status='complete/stopped' ;;
 		PAUSED) display_status='paused/stopped' ;;
 		FAILED) display_status='failed/stopped' ;;
+		DEAD_END) display_status='dead-end/stopped' ;;
 		ACTIVE)
 			if (( running )); then
 				display_status="$role/running"
@@ -564,7 +596,8 @@ while IFS= read -r -d '' env_file; do
 	esac
 	description="$(describe_harness "$project_dir" "$status" "$phase" \
 		"$cycle" "$running" "${stall_seconds:-0}" \
-		"${max_manager_reviews:-0}" "${max_oracle_runs:-0}")"
+		"${max_manager_reviews:-0}" "${max_oracle_runs:-0}" \
+		"${max_post_oracle_reviews:-0}")"
 	completion="$(completion_summary "$project_dir" "${progress_audit_every_reviews:-0}")"
 	print_row "$project" "$cycle" "$display_status" "$completion" "$description"
 done < <(find "$config_dir" -maxdepth 1 -type f -name '*.env' -print0 | sort -z)

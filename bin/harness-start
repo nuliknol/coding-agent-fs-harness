@@ -22,6 +22,9 @@ case "$status" in
 	FAILED)
 		die "project is in TERMINAL_FAILURE; inspect $(project_dir)/control/last-error.txt"
 		;;
+	DEAD_END)
+		die "project reached DEAD_END; inspect $(project_dir)/control/dead-end.md"
+		;;
 	PAUSED)
 		die "project is paused in $phase at cycle $cycle; resolve its condition, then run harness-resume before harness-start"
 		;;

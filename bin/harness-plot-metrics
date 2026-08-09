@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 1 ]] || die "Usage: ${0##*/} ENV_FILE"
+command -v convert >/dev/null 2>&1 ||
+	die 'harness-plot-metrics requires ImageMagick (the convert command)'
+load_harness_env "$1"
+ensure_project
+[[ "$HARNESS_METRICS_ENABLED" == 1 ]] || die 'code metrics are disabled for this harness'
+metrics_generate_report >/dev/null
+
+metrics="$(metrics_dir)"
+csv="$metrics/cycles.csv"
+provenance="$metrics/provenance.csv"
+graphs="$metrics/graphs"
+mkdir -p "$graphs"
+width="$HARNESS_METRICS_IMAGE_WIDTH"
+height="$HARNESS_METRICS_IMAGE_HEIGHT"
+growth="$graphs/code-growth.png"
+origins="$graphs/source-provenance.png"
+
+declare -a cycles additions deletions
+while IFS=, read -r cycle _recorded _snapshot _parent source_added source_deleted _rest; do
+	[[ "$cycle" == cycle ]] && continue
+	cycles+=("$cycle")
+	additions+=("${source_added:-0}")
+	deletions+=("${source_deleted:-0}")
+done < "$csv"
+
+count="${#cycles[@]}"
+(( count > 0 )) || die 'metrics repository contains no cycle records'
+left=130
+right=$((width - 70))
+top=170
+mid=$((height / 2 - 40))
+bottom=$((height - 145))
+plot_width=$((right - left))
+bar_gap=8
+bar_width=$((plot_width / count - bar_gap))
+(( bar_width >= 3 )) || bar_width=3
+max_delta=1
+for ((i = 0; i < count; i++)); do
+	(( additions[i] > max_delta )) && max_delta="${additions[i]}"
+	(( deletions[i] > max_delta )) && max_delta="${deletions[i]}"
+done
+
+args=(-size "${width}x${height}" "xc:#10151d" -font DejaVu-Sans)
+args+=(-fill '#f1f5f9' -pointsize 34 -gravity North -annotate +0+30 'Harness production-source deltas')
+args+=(-fill '#9fb0c3' -pointsize 17 -gravity North -annotate +0+82 'Synthetic sidecar Git snapshots after each Luna delivery; no LLM analysis')
+args+=(-fill '#243244' -stroke '#3b4b5f' -strokewidth 1 -draw "rectangle $left,$top $right,$mid")
+args+=(-fill '#243244' -stroke '#3b4b5f' -strokewidth 1 -draw "rectangle $left,$((mid + 95)) $right,$bottom")
+args+=(-fill '#dce7f2' -pointsize 17 -gravity NorthWest -annotate +"$left+$((top - 30))" "Source lines changed per cycle (scale: $max_delta)")
+args+=(-fill '#dce7f2' -pointsize 17 -gravity NorthWest -annotate +"$left+$((mid + 60))" 'Cumulative net production-source lines from launch baseline')
+
+label_step=$(((count + 19) / 20))
+for ((i = 0; i < count; i++)); do
+	x=$((left + i * plot_width / count + bar_gap / 2))
+	x2=$((x + bar_width / 2))
+	x3=$((x + bar_width))
+	add_height=$(( additions[i] * (mid - top - 30) / max_delta ))
+	del_height=$(( deletions[i] * (mid - top - 30) / max_delta ))
+	args+=(-fill '#4ade80' -stroke none -draw "rectangle $x,$((mid - add_height)) $x2,$mid")
+	args+=(-fill '#fb7185' -stroke none -draw "rectangle $x2,$((mid - del_height)) $x3,$mid")
+	if (( i % label_step == 0 || i == count - 1 )); then
+		args+=(-fill '#aebfd2' -pointsize 13 -gravity NorthWest -annotate +"$x+$((mid + 8))" "${cycles[i]}")
+	fi
+done
+
+cum=0
+min_cum=0
+max_cum=0
+declare -a cumulative
+for ((i = 0; i < count; i++)); do
+	cum=$((cum + additions[i] - deletions[i]))
+	cumulative+=("$cum")
+	(( cum < min_cum )) && min_cum="$cum"
+	(( cum > max_cum )) && max_cum="$cum"
+done
+cum_range=$((max_cum - min_cum))
+(( cum_range > 0 )) || cum_range=1
+line_path=''
+for ((i = 0; i < count; i++)); do
+	x=$((left + i * plot_width / (count > 1 ? count - 1 : 1)))
+	y=$((bottom - (cumulative[i] - min_cum) * (bottom - (mid + 95)) / cum_range))
+	if (( i == 0 )); then
+		line_path="M $x,$y"
+	else
+		line_path+=" L $x,$y"
+	fi
+done
+args+=(-fill none -stroke '#60a5fa' -strokewidth 4 -draw "path '$line_path'")
+args+=(-fill '#aebfd2' -pointsize 14 -gravity SouthWest -annotate +"$left+35" 'green = added   pink = deleted   blue = cumulative net')
+convert "${args[@]}" "$growth"
+
+declare -a provenance_cycle provenance_lines
+while IFS=, read -r cycle source_lines _origin _percent; do
+	[[ "$cycle" == cycle || "$cycle" == unknown ]] && continue
+	provenance_cycle+=("$cycle")
+	provenance_lines+=("${source_lines:-0}")
+done < "$provenance"
+provenance_count="${#provenance_cycle[@]}"
+max_lines=1
+for ((i = 0; i < provenance_count; i++)); do
+	(( provenance_lines[i] > max_lines )) && max_lines="${provenance_lines[i]}"
+done
+args=(-size "${width}x${height}" "xc:#10151d" -font DejaVu-Sans)
+args+=(-fill '#f1f5f9' -pointsize 34 -gravity North -annotate +0+30 'Latest production-source provenance')
+args+=(-fill '#9fb0c3' -pointsize 17 -gravity North -annotate +0+82 'Each current source line is credited to the snapshot that last introduced or changed it')
+args+=(-fill '#243244' -stroke '#3b4b5f' -strokewidth 1 -draw "rectangle $left,$top $right,$bottom")
+args+=(-fill '#dce7f2' -pointsize 17 -gravity NorthWest -annotate +"$left+$((top - 30))" "Current source lines by origin cycle (scale: $max_lines)")
+bar_width=$((plot_width / (provenance_count > 0 ? provenance_count : 1) - bar_gap))
+(( bar_width >= 3 )) || bar_width=3
+label_step=$(((provenance_count + 19) / 20))
+for ((i = 0; i < provenance_count; i++)); do
+	x=$((left + i * plot_width / provenance_count + bar_gap / 2))
+	x2=$((x + bar_width))
+	bar_height=$((provenance_lines[i] * (bottom - top - 35) / max_lines))
+	if [[ "${provenance_cycle[i]}" == 0 ]]; then
+		colour='#64748b'
+	else
+		colour='#a78bfa'
+	fi
+	args+=(-fill "$colour" -stroke none -draw "rectangle $x,$((bottom - bar_height)) $x2,$bottom")
+	if (( i % label_step == 0 || i == provenance_count - 1 )); then
+		args+=(-fill '#aebfd2' -pointsize 13 -gravity NorthWest -annotate +"$x+$((bottom + 8))" "${provenance_cycle[i]}")
+	fi
+done
+args+=(-fill '#aebfd2' -pointsize 14 -gravity SouthWest -annotate +"$left+35" 'gray = launch baseline   purple = Luna worker cycle')
+convert "${args[@]}" "$origins"
+
+printf 'Code-growth graph: %s\n' "$growth"
+printf 'Source-provenance graph: %s\n' "$origins"

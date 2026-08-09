@@ -42,6 +42,17 @@ case "$phase" in
 		write_state ACTIVE WORKER_REQUIRED "$cycle"
 		log_event "REVIEW_LIMIT_RESUMED cycle=$cycle new_limit=$HARNESS_MAX_MANAGER_REVIEWS"
 		;;
+	POST_ORACLE_REVIEW_LIMIT_REACHED)
+		completed_post_reviews="$(post_oracle_remediation_value reviews_completed 2>/dev/null || true)"
+		[[ "$completed_post_reviews" =~ ^[0-9]+$ ]] ||
+			die 'post-Oracle remediation marker is missing or invalid'
+		if (( HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE == 0 ||
+			HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE <= completed_post_reviews )); then
+			die "post-Oracle manager-review limit remains $HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE after $completed_post_reviews reviews; increase HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE first"
+		fi
+		write_state ACTIVE WORKER_REQUIRED "$cycle"
+		log_event "POST_ORACLE_REVIEW_LIMIT_RESUMED cycle=$cycle completed=$completed_post_reviews new_limit=$HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE"
+		;;
 	NO_SOURCE_PROGRESS)
 		pause_fingerprint="$(awk 'NR == 1 { print; exit }' \
 			"$dir/control/operator-pause-fingerprint" 2>/dev/null || true)"
