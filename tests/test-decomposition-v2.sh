@@ -34,15 +34,16 @@ export HARNESS_WORKER_GOAL_MODE="1"
 export HARNESS_DECOMPOSITION_V2="1"
 export HARNESS_DECOMPOSITION_CRITIC_ENABLED="0"
 export HARNESS_MIN_LUNA_NODE_PERCENT="50"
+export HARNESS_PREFERRED_WORKER_ROUTE="LUNA"
 export MAX_ORACLE_RUNS="0"
 ENV
 chmod 600 "$TEST_ROOT/harness.env"
 
 "$HARNESS_BIN/harness-init" "$TEST_ROOT/harness.env" >/dev/null
 cat > "$TEST_ROOT/plan.tsv" <<'PLAN'
-node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	complexity_class	worker_route
-n1	-	-	Implement target_symbol locally	target_symbol returns one	test "$(./focused-smoke)" = 1	src/a.c	target_symbol	LOW	LUNA
-n2	-	n1	Integrate target_symbol with its caller	focused integration smoke passes	./integration-smoke	src/a.c,src/caller.c	target_symbol,call_target	MEDIUM	TERRA
+node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route
+n1	-	-	Implement target_symbol locally	target_symbol returns one	test "$(./focused-smoke)" = 1	src/a.c	target_symbol	LOCAL_IMPLEMENTATION	LOW	LUNA
+n2	-	n1	Integrate target_symbol with its caller	focused integration smoke passes	./integration-smoke	src/a.c,src/caller.c	target_symbol,call_target	INTEGRATION	MEDIUM	TERRA
 PLAN
 "$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/harness.env" "$TEST_ROOT/plan.tsv" >/dev/null
 
@@ -101,9 +102,9 @@ grep -Fqx 'Context-Paths: src/a.c' "$capsule"
 grep -Fqx 'Architecture-Decisions: NONE' "$capsule"
 tree_output="$("$HARNESS_BIN/harness-decomposition-tree" --ascii "$TEST_ROOT/harness.env")"
 grep -Fqx 'Routes: LUNA=1 (50%)  TERRA=1 (50%)  configured Luna minimum=50%' <<< "$tree_output"
-grep -Fq '|-- n1 [ACTIVE] complexity=LOW route=LUNA' <<< "$tree_output"
+grep -Fq '|-- n1 [ACTIVE] type=LOCAL_IMPLEMENTATION complexity=LOW route=LUNA' <<< "$tree_output"
 grep -Fq 'task: 001 [READY] route=LUNA' <<< "$tree_output"
-grep -Fq '`-- n2 [PENDING] complexity=MEDIUM route=TERRA' <<< "$tree_output"
+grep -Fq '`-- n2 [PENDING] type=INTEGRATION complexity=MEDIUM route=TERRA' <<< "$tree_output"
 tree_details="$("$HARNESS_BIN/harness-decomposition-tree" --details --ascii "$TEST_ROOT/harness.env")"
 grep -Fq 'evidence: target_symbol returns one' <<< "$tree_details"
 grep -Fq 'validation: test "$(./focused-smoke)" = 1' <<< "$tree_details"
@@ -116,8 +117,8 @@ test -s "$project_dir/control/decomposition-metrics.tsv"
 grep -Eq $'^n2\tPENDING\t-' "$project_dir/control/project-plan-state.tsv"
 
 cat > "$TEST_ROOT/bad-plan.tsv" <<'PLAN'
-node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	complexity_class	worker_route
-bad	-	-	Bad Luna route	evidence	focused-test	src/a.c	target_symbol	MEDIUM	LUNA
+node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route
+bad	-	-	Bad Luna route	evidence	focused-test	src/a.c	target_symbol	LOCAL_IMPLEMENTATION	MEDIUM	LUNA
 PLAN
 sed \
 	-e 's/export PROJECT="decompv2"/export PROJECT="decompv2bad"/' \
@@ -132,8 +133,8 @@ if "$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/bad-harness.env" \
 fi
 
 cat > "$TEST_ROOT/terra-heavy-plan.tsv" <<'PLAN'
-node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	complexity_class	worker_route
-terra-only	-	-	Resolved local implementation	evidence	focused-test	src/a.c	target_symbol	LOW	TERRA
+node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route
+terra-only	-	-	Resolved local implementation	evidence	focused-test	src/a.c	target_symbol	LOCAL_IMPLEMENTATION	LOW	TERRA
 PLAN
 sed \
 	-e 's/export PROJECT="decompv2"/export PROJECT="decompv2terraheavy"/' \
@@ -148,18 +149,21 @@ if "$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/terra-heavy-harness.env"
 fi
 
 cat > "$TEST_ROOT/low-terra-plan.tsv" <<'PLAN'
-node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	complexity_class	worker_route
-t1	-	-	Implement target_symbol locally	target_symbol returns one	test "$(./focused-smoke)" = 1	src/a.c	target_symbol	LOW	TERRA
-t2	-	-	Add focused target_symbol fixture	fixture passes	./fixture-smoke	src/fixture.c	target_fixture	LOW	LUNA
+node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route
+t1	-	-	Implement target_symbol locally	target_symbol returns one	test "$(./focused-smoke)" = 1	src/a.c	target_symbol	LOCAL_IMPLEMENTATION	LOW	TERRA
+t2	-	-	Add focused target_symbol fixture	fixture passes	./fixture-smoke	src/fixture.c	target_fixture	LOCAL_IMPLEMENTATION	LOW	LUNA
 PLAN
 sed \
 	-e 's/export PROJECT="decompv2"/export PROJECT="decompv2lowterra"/' \
 	-e "s|export HARNESS_ROOT=\"$TEST_ROOT/state\"|export HARNESS_ROOT=\"$TEST_ROOT/low-terra-state\"|" \
+	-e 's/export HARNESS_PREFERRED_WORKER_ROUTE="LUNA"/export HARNESS_PREFERRED_WORKER_ROUTE="TERRA"/' \
 	"$TEST_ROOT/harness.env" > "$TEST_ROOT/low-terra-harness.env"
 chmod 600 "$TEST_ROOT/low-terra-harness.env"
 "$HARNESS_BIN/harness-init" "$TEST_ROOT/low-terra-harness.env" >/dev/null
 "$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/low-terra-harness.env" \
 	"$TEST_ROOT/low-terra-plan.tsv" >/dev/null
+sed -i 's/export HARNESS_PREFERRED_WORKER_ROUTE="TERRA"/export HARNESS_PREFERRED_WORKER_ROUTE="LUNA"/' \
+	"$TEST_ROOT/low-terra-harness.env"
 sed \
 	-e 's/Project: decompv2/Project: decompv2lowterra/' \
 	-e 's/Goal-ID: n1.goal/Goal-ID: t1.goal/' \
@@ -170,6 +174,33 @@ if "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/low-terra-harness.env" 001 \
 	printf 'resolved LOW local implementation was allowed to bypass Luna\n' >&2
 	exit 1
 fi
+
+# Existing immutable ten-column DAGs may override an inherited HIGH/TERRA route
+# when the manager proves the executable root leaf satisfies the Luna contract.
+cat > "$TEST_ROOT/legacy-route-plan.tsv" <<'PLAN'
+node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	complexity_class	worker_route
+t1	-	-	Implement target_symbol locally	target_symbol returns one	test "$(./focused-smoke)" = 1	src/a.c	target_symbol	HIGH	TERRA
+t2	-	t1	Add focused target_symbol fixture	fixture passes	./fixture-smoke	src/fixture.c	target_fixture	LOW	LUNA
+PLAN
+sed \
+	-e 's/export PROJECT="decompv2"/export PROJECT="decompv2legacyroute"/' \
+	-e "s|export HARNESS_ROOT=\"$TEST_ROOT/state\"|export HARNESS_ROOT=\"$TEST_ROOT/legacy-route-state\"|" \
+	-e 's/export HARNESS_PREFERRED_WORKER_ROUTE="LUNA"/export HARNESS_PREFERRED_WORKER_ROUTE="TERRA"/' \
+	"$TEST_ROOT/harness.env" > "$TEST_ROOT/legacy-route-harness.env"
+chmod 600 "$TEST_ROOT/legacy-route-harness.env"
+"$HARNESS_BIN/harness-init" "$TEST_ROOT/legacy-route-harness.env" >/dev/null
+"$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/legacy-route-harness.env" \
+	"$TEST_ROOT/legacy-route-plan.tsv" >/dev/null
+sed -i 's/export HARNESS_PREFERRED_WORKER_ROUTE="TERRA"/export HARNESS_PREFERRED_WORKER_ROUTE="LUNA"/' \
+	"$TEST_ROOT/legacy-route-harness.env"
+sed \
+	-e 's/Project: decompv2/Project: decompv2legacyroute/' \
+	-e 's/Goal-ID: n1.goal/Goal-ID: t1.goal/' \
+	"$TEST_ROOT/task.md" > "$TEST_ROOT/legacy-route-task.md"
+"$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/legacy-route-harness.env" 001 \
+	"$TEST_ROOT/legacy-route-task.md" t1 >/dev/null
+grep -Fqx 'Worker-Route: LUNA' \
+	"$TEST_ROOT/legacy-route-state/projects/decompv2legacyroute/tasks/decompv2legacyroute-task-001.ready.md"
 
 # The same public bin/ entry points must dispatch an explicit Light project to
 # the namespaced implementation without requiring a second checkout.

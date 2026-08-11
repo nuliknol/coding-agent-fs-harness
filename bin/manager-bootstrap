@@ -48,6 +48,7 @@ REPOSITORY=$REPOSITORY
 DEVELOPMENT_POLICY_FILE=$development_policy_file
 WORKER_GOAL_MODE=$HARNESS_WORKER_GOAL_MODE
 DECOMPOSITION_V2=$HARNESS_DECOMPOSITION_V2
+PREFERRED_WORKER_ROUTE=$HARNESS_PREFERRED_WORKER_ROUTE
 PROJECT_PLAN_FILE=$(project_plan_definition_file)
 PROJECT_DECOMPOSITION_FILE=$decomposition_file
 READY_PLAN_NODE=$ready_plan_node
@@ -63,7 +64,7 @@ fi
 if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
 
-V2 decomposition is mandatory. The task must correspond to the exact dependency-ready DAG node and copy its Depends-On, Deliverable, Goal-Success-Evidence, Focused-Validation, Allowed-Scope, Required-Symbols, Complexity-Class, and Worker-Route values exactly. It must also contain one line each for Leaf-Type, Context-Paths, Architecture-Decisions, Expected-Max-Implementation-Files, and Expected-Max-Worker-Turns. A LUNA leaf must be LOW complexity, use only LOCAL_IMPLEMENTATION, MECHANICAL_API, FOCUSED_BUG, or DOCUMENTATION, set Architecture-Decisions: NONE, expect at most five implementation files and three worker turns, and require no unresolved contract or integration judgment. Route contract design, architecture, concurrency, ambiguity, and integration to TERRA. The publisher rejects hidden dependency, route, scope, and evidence mismatches.
+V2 decomposition is mandatory and PREFERRED_WORKER_ROUTE=$HARNESS_PREFERRED_WORKER_ROUTE. The task must correspond to the exact dependency-ready DAG node and copy its Depends-On, Deliverable, Goal-Success-Evidence, Focused-Validation, Allowed-Scope, and Required-Symbols values exactly. New typed DAGs also require an exact Leaf-Type, Complexity-Class, and Worker-Route match. For a legacy untyped immutable DAG, the publisher permits a planned TERRA node to be reclassified LOW/LUNA when its first executable criterion is Luna-ready. Prefer that override whenever architecture and contracts are already resolved. Split a broad implementation into ordered Root-Criteria rather than assigning routine coding to Terra. A LUNA leaf must be LOW complexity, use only LOCAL_IMPLEMENTATION, MECHANICAL_API, FOCUSED_BUG, or DOCUMENTATION, set Architecture-Decisions: NONE, expect at most five implementation files and three worker turns, and require no unresolved contract or integration judgment. TERRA is for a concrete contract, architecture, concurrency, ambiguous-specification, or unexplained integration decision; it must checkpoint that decision before Luna performs the resulting implementation. The publisher rejects hidden dependency, route, scope, and evidence mismatches.
 PROMPT
 fi
 if codex_model_requires_narrow_prompt "$MANAGER_MODEL"; then

@@ -19,6 +19,9 @@ luna_complete=0
 luna_failed=0
 terra_complete=0
 terra_failed=0
+luna_coding_assignments=0
+terra_coding_assignments=0
+terra_decision_assignments=0
 terminal_goals=0
 identical_iterations=0
 total_iterations=0
@@ -26,12 +29,22 @@ verified_items=0
 replans=0
 worker_input=0
 worker_output=0
+manager_input=0
+manager_output=0
+declare -A worker_thread_input=() worker_thread_output=()
+declare -A manager_thread_input=() manager_thread_output=()
 
 shopt -s nullglob
 for assignment in "$dir"/archive/"$PROJECT-task-"*.assignment.md; do
 	route="$(metadata_value "$assignment" Worker-Route)"
 	[[ "$route" =~ ^(LUNA|TERRA)$ ]] || continue
 	[[ "$route" == LUNA ]] && luna_assignments=$((luna_assignments + 1)) || terra_assignments=$((terra_assignments + 1))
+	leaf_type="$(metadata_value "$assignment" Leaf-Type)"
+	if [[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]]; then
+		[[ "$route" == LUNA ]] && luna_coding_assignments=$((luna_coding_assignments + 1)) || terra_coding_assignments=$((terra_coding_assignments + 1))
+	elif [[ "$route" == TERRA ]]; then
+		terra_decision_assignments=$((terra_decision_assignments + 1))
+	fi
 	task_id="${assignment##*/}"
 	task_id="${task_id#${PROJECT}-task-}"
 	task_id="${task_id%.assignment.md}"
@@ -66,9 +79,25 @@ for ledger in "$dir"/control/progress/*.replans.tsv; do
 	replans=$((replans + $(awk 'NR > 1 {count++} END {print count + 0}' "$ledger")))
 done
 for json in "$dir"/logs/worker-task-*.jsonl; do
-	worker_input=$((worker_input + $(codex_usage_value_from_jsonl "$json" input_tokens)))
-	worker_output=$((worker_output + $(codex_usage_value_from_jsonl "$json" output_tokens)))
+	thread="$(codex_thread_id_from_jsonl "$json" 2>/dev/null || true)"
+	[[ -n "$thread" ]] || thread="$json"
+	input="$(codex_usage_value_from_jsonl "$json" input_tokens)"
+	output="$(codex_usage_value_from_jsonl "$json" output_tokens)"
+	(( input > ${worker_thread_input[$thread]:-0} )) && worker_thread_input[$thread]="$input"
+	(( output > ${worker_thread_output[$thread]:-0} )) && worker_thread_output[$thread]="$output"
 done
+for thread in "${!worker_thread_input[@]}"; do worker_input=$((worker_input + worker_thread_input[$thread])); done
+for thread in "${!worker_thread_output[@]}"; do worker_output=$((worker_output + worker_thread_output[$thread])); done
+for json in "$dir"/logs/manager-*.jsonl; do
+	thread="$(codex_thread_id_from_jsonl "$json" 2>/dev/null || true)"
+	[[ -n "$thread" ]] || thread="$json"
+	input="$(codex_usage_value_from_jsonl "$json" input_tokens)"
+	output="$(codex_usage_value_from_jsonl "$json" output_tokens)"
+	(( input > ${manager_thread_input[$thread]:-0} )) && manager_thread_input[$thread]="$input"
+	(( output > ${manager_thread_output[$thread]:-0} )) && manager_thread_output[$thread]="$output"
+done
+for thread in "${!manager_thread_input[@]}"; do manager_input=$((manager_input + manager_thread_input[$thread])); done
+for thread in "${!manager_thread_output[@]}"; do manager_output=$((manager_output + manager_thread_output[$thread])); done
 
 rate()
 {
@@ -87,6 +116,11 @@ per_item()
 	printf 'nodes_complete\t%s\n' "$nodes_complete"
 	printf 'luna_assignments\t%s\n' "$luna_assignments"
 	printf 'terra_assignments\t%s\n' "$terra_assignments"
+	printf 'luna_assignment_share_percent\t%s\n' "$(rate "$luna_assignments" "$((luna_assignments + terra_assignments))")"
+	printf 'luna_coding_assignments\t%s\n' "$luna_coding_assignments"
+	printf 'terra_coding_assignments\t%s\n' "$terra_coding_assignments"
+	printf 'terra_decision_assignments\t%s\n' "$terra_decision_assignments"
+	printf 'luna_coding_share_percent\t%s\n' "$(rate "$luna_coding_assignments" "$((luna_coding_assignments + terra_coding_assignments))")"
 	printf 'luna_terminal_complete\t%s\n' "$luna_complete"
 	printf 'luna_terminal_failed\t%s\n' "$luna_failed"
 	printf 'terra_terminal_complete\t%s\n' "$terra_complete"
@@ -100,8 +134,12 @@ per_item()
 	printf 'verified_items\t%s\n' "$verified_items"
 	printf 'worker_input_tokens\t%s\n' "$worker_input"
 	printf 'worker_output_tokens\t%s\n' "$worker_output"
+	printf 'manager_input_tokens\t%s\n' "$manager_input"
+	printf 'manager_output_tokens\t%s\n' "$manager_output"
 	printf 'worker_input_tokens_per_verified_item\t%s\n' "$(per_item "$worker_input")"
 	printf 'worker_output_tokens_per_verified_item\t%s\n' "$(per_item "$worker_output")"
+	printf 'manager_input_tokens_per_verified_item\t%s\n' "$(per_item "$manager_input")"
+	printf 'manager_output_tokens_per_verified_item\t%s\n' "$(per_item "$manager_output")"
 } > "$report.tmp.$$"
 chmod 600 "$report.tmp.$$"
 mv "$report.tmp.$$" "$report"

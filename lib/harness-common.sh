@@ -154,6 +154,7 @@ load_harness_env()
 	unset HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS
 	unset HARNESS_DECOMPOSITION_V2 HARNESS_DECOMPOSITION_CRITIC_ENABLED
 	unset HARNESS_MAX_LUNA_STRATEGY_FAILURES HARNESS_MIN_LUNA_NODE_PERCENT
+	unset HARNESS_PREFERRED_WORKER_ROUTE
 	unset HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
 	unset HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
 	unset HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_KILL_GRACE_SECONDS
@@ -252,10 +253,14 @@ load_harness_env()
 	# Luna-ready leaf contracts, context capsules, and per-leaf model routing.
 	HARNESS_DECOMPOSITION_V2="${HARNESS_DECOMPOSITION_V2:-0}"
 	HARNESS_DECOMPOSITION_CRITIC_ENABLED="${HARNESS_DECOMPOSITION_CRITIC_ENABLED:-$HARNESS_DECOMPOSITION_V2}"
-	HARNESS_MAX_LUNA_STRATEGY_FAILURES="${HARNESS_MAX_LUNA_STRATEGY_FAILURES:-2}"
+	HARNESS_MAX_LUNA_STRATEGY_FAILURES="${HARNESS_MAX_LUNA_STRATEGY_FAILURES:-3}"
 	# Fresh v2 plans must put most independently executable nodes on the cheap
 	# worker route. Existing immutable DAGs are not rewritten by this setting.
-	HARNESS_MIN_LUNA_NODE_PERCENT="${HARNESS_MIN_LUNA_NODE_PERCENT:-60}"
+	HARNESS_MIN_LUNA_NODE_PERCENT="${HARNESS_MIN_LUNA_NODE_PERCENT:-80}"
+	# V2 uses Terra for unresolved decisions and Luna for bounded coding.  This
+	# preference also lets old immutable Terra-heavy DAG nodes be reclassified at
+	# publication time when the manager can prove a Luna-ready execution leaf.
+	HARNESS_PREFERRED_WORKER_ROUTE="${HARNESS_PREFERRED_WORKER_ROUTE:-LUNA}"
 	# Provider-side failures retry forever. Short transient failures use a
 	# one-minute cadence; account usage-window exhaustion reports and probes every
 	# five minutes until Codex confirms quota is available again.
@@ -399,6 +404,8 @@ load_harness_env()
 		die 'HARNESS_MIN_LUNA_NODE_PERCENT must be an integer from 0 through 100'
 	(( HARNESS_MIN_LUNA_NODE_PERCENT <= 100 )) ||
 		die 'HARNESS_MIN_LUNA_NODE_PERCENT must be an integer from 0 through 100'
+	[[ "$HARNESS_PREFERRED_WORKER_ROUTE" =~ ^(LUNA|TERRA)$ ]] ||
+		die 'HARNESS_PREFERRED_WORKER_ROUTE must be LUNA or TERRA'
 	[[ "$HARNESS_PROVIDER_RETRY_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_PROVIDER_RETRY_SECONDS must be an integer'
 	(( HARNESS_PROVIDER_RETRY_SECONDS > 0 )) || die 'HARNESS_PROVIDER_RETRY_SECONDS must be greater than zero'
 	[[ "$HARNESS_QUOTA_RETRY_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_QUOTA_RETRY_SECONDS must be an integer'
@@ -452,7 +459,7 @@ load_harness_env()
 	export HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS HARNESS_GOAL_PROCESS_MAX_FIXES
 	export HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS
 	export HARNESS_DECOMPOSITION_V2 HARNESS_DECOMPOSITION_CRITIC_ENABLED HARNESS_MAX_LUNA_STRATEGY_FAILURES
-	export HARNESS_MIN_LUNA_NODE_PERCENT
+	export HARNESS_MIN_LUNA_NODE_PERCENT HARNESS_PREFERRED_WORKER_ROUTE
 	export HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
 	export HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_KILL_GRACE_SECONDS
 	export WORKER_HEARTBEAT_SECONDS
@@ -2187,6 +2194,13 @@ project_plan_node_value()
 	' "$(project_decomposition_plan_file)"
 }
 
+project_plan_has_column()
+{
+	local field="$1"
+	awk -F '\t' -v wanted="$field" 'NR == 1 {for (i = 1; i <= NF; i++) if ($i == wanted) exit 0; exit 1}' \
+		"$(project_decomposition_plan_file)"
+}
+
 project_plan_dependencies_satisfied()
 {
 	local item_id="$1" dependencies dependency status
@@ -2356,15 +2370,24 @@ initialize_project_plan()
 
 initialize_project_plan_v2()
 {
-	local source_file="$1" header expected_header definition state dag
+	local source_file="$1" header expected_header legacy_header definition state dag
 	local definition_tmp state_tmp dag_tmp seen_file
 	local node_id parent_id depends_on deliverable acceptance_evidence focused_validation
-	local allowed_paths required_symbols complexity_class worker_route extra dependency
-	local node_count luna_count luna_percent
-	expected_header=$'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tcomplexity_class\tworker_route'
+	local allowed_paths required_symbols leaf_type complexity_class worker_route dependency
+	local node_count luna_count luna_percent has_leaf_type=0 route_column=11
+	local -a fields=()
+	expected_header=$'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tleaf_type\tcomplexity_class\tworker_route'
+	legacy_header=$'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tcomplexity_class\tworker_route'
 	IFS= read -r header < "$source_file" || die 'decomposition DAG is empty'
-	[[ "$header" == "$expected_header" ]] ||
+	if [[ "$header" == "$expected_header" ]]; then
+		has_leaf_type=1
+	elif [[ "$header" == "$legacy_header" ]]; then
+		route_column=10
+		[[ "$HARNESS_PREFERRED_WORKER_ROUTE" != LUNA ]] ||
+			die "Luna-preferred decomposition requires the leaf_type column: $expected_header"
+	else
 		die "decomposition DAG header must be: $expected_header"
+	fi
 	definition="$(project_plan_definition_file)"
 	state="$(project_plan_state_file)"
 	dag="$(project_decomposition_plan_file)"
@@ -2373,7 +2396,7 @@ initialize_project_plan_v2()
 	dag_tmp="$dag.tmp.$$"
 	seen_file="$state.seen.$$"
 	: > "$seen_file"
-	printf '%s\n' "$expected_header" > "$dag_tmp"
+	printf '%s\n' "$header" > "$dag_tmp"
 	{
 		printf '# coding-harness-project-plan-v2\n'
 		printf '# project=%s\n' "$PROJECT"
@@ -2387,10 +2410,21 @@ initialize_project_plan_v2()
 		printf '# coding-harness-project-plan-state-v2\n'
 		printf '# item_id\tstatus\ttask_root\tupdated_at\n'
 	} > "$state_tmp"
-	while IFS=$'\t' read -r node_id parent_id depends_on deliverable acceptance_evidence \
-		focused_validation allowed_paths required_symbols complexity_class worker_route extra; do
+	while IFS=$'\t' read -r -a fields; do
+		if (( has_leaf_type == 1 )); then
+			(( ${#fields[@]} == 11 )) || die 'each decomposition node must contain exactly eleven tab-separated fields'
+			node_id="${fields[0]}"; parent_id="${fields[1]}"; depends_on="${fields[2]}"
+			deliverable="${fields[3]}"; acceptance_evidence="${fields[4]}"; focused_validation="${fields[5]}"
+			allowed_paths="${fields[6]}"; required_symbols="${fields[7]}"; leaf_type="${fields[8]}"
+			complexity_class="${fields[9]}"; worker_route="${fields[10]}"
+		else
+			(( ${#fields[@]} == 10 )) || die 'each legacy decomposition node must contain exactly ten tab-separated fields'
+			node_id="${fields[0]}"; parent_id="${fields[1]}"; depends_on="${fields[2]}"
+			deliverable="${fields[3]}"; acceptance_evidence="${fields[4]}"; focused_validation="${fields[5]}"
+			allowed_paths="${fields[6]}"; required_symbols="${fields[7]}"; leaf_type=""
+			complexity_class="${fields[8]}"; worker_route="${fields[9]}"
+		fi
 		[[ -n "$node_id" ]] || continue
-		[[ -z "$extra" ]] || die "decomposition node has more than ten fields: $node_id"
 		[[ "$node_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "invalid decomposition node ID: $node_id"
 		! grep -Fqx -- "$node_id" "$seen_file" || die "duplicate decomposition node ID: $node_id"
 		[[ "$parent_id" == - || "$parent_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "invalid parent ID for $node_id: $parent_id"
@@ -2410,21 +2444,39 @@ initialize_project_plan_v2()
 			die "node $node_id requires deliverable, acceptance_evidence, and focused_validation"
 		[[ -n "$allowed_paths" && "$allowed_paths" != - ]] || die "node $node_id requires explicit allowed_paths"
 		[[ -n "$required_symbols" ]] || die "node $node_id requires required_symbols or '-'"
+		if (( has_leaf_type == 1 )); then
+			[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]] ||
+				die "invalid leaf_type for $node_id: $leaf_type"
+		fi
 		[[ "$complexity_class" =~ ^(LOW|MEDIUM|HIGH)$ ]] || die "invalid complexity_class for $node_id: $complexity_class"
 		[[ "$worker_route" =~ ^(LUNA|TERRA)$ ]] || die "invalid worker_route for $node_id: $worker_route"
 		[[ "$worker_route" != LUNA || "$complexity_class" == LOW ]] ||
 			die "Luna node $node_id must have complexity_class LOW"
+		if (( has_leaf_type == 1 )) && [[ "$worker_route" == LUNA ]]; then
+			[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]] ||
+				die "Luna node $node_id has Terra-only leaf_type $leaf_type"
+		fi
+		if (( has_leaf_type == 1 )) && [[ "$HARNESS_PREFERRED_WORKER_ROUTE" == LUNA && "$worker_route" == TERRA &&
+			"$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]]; then
+			die "Luna-preferred DAG routes coding node $node_id to Terra; split it until it is LOW/LUNA"
+		fi
 		printf '%s\n' "$node_id" >> "$seen_file"
 		printf '%s\t%s\n' "$node_id" "$deliverable" >> "$definition_tmp"
 		printf '%s\tPENDING\t-\t%s\n' "$node_id" "$(timestamp_utc)" >> "$state_tmp"
-		printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-			"$node_id" "$parent_id" "$depends_on" "$deliverable" "$acceptance_evidence" \
-			"$focused_validation" "$allowed_paths" "$required_symbols" "$complexity_class" "$worker_route" >> "$dag_tmp"
+		if (( has_leaf_type == 1 )); then
+			printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+				"$node_id" "$parent_id" "$depends_on" "$deliverable" "$acceptance_evidence" \
+				"$focused_validation" "$allowed_paths" "$required_symbols" "$leaf_type" "$complexity_class" "$worker_route" >> "$dag_tmp"
+		else
+			printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+				"$node_id" "$parent_id" "$depends_on" "$deliverable" "$acceptance_evidence" \
+				"$focused_validation" "$allowed_paths" "$required_symbols" "$complexity_class" "$worker_route" >> "$dag_tmp"
+		fi
 	done < <(tail -n +2 "$source_file")
 	rm -f "$seen_file"
-	node_count="$(awk -F '\t' 'NR > 1 && NF == 10 {count++} END {print count + 0}' "$dag_tmp")"
+	node_count="$(awk -F '\t' -v fields="$route_column" 'NR > 1 && NF == fields {count++} END {print count + 0}' "$dag_tmp")"
 	(( node_count > 0 )) || die 'decomposition DAG must contain at least one node'
-	luna_count="$(awk -F '\t' 'NR > 1 && $10 == "LUNA" {count++} END {print count + 0}' "$dag_tmp")"
+	luna_count="$(awk -F '\t' -v route="$route_column" 'NR > 1 && $route == "LUNA" {count++} END {print count + 0}' "$dag_tmp")"
 	luna_percent=$((luna_count * 100 / node_count))
 	(( luna_percent >= HARNESS_MIN_LUNA_NODE_PERCENT )) ||
 		die "decomposition DAG routes only $luna_count/$node_count nodes ($luna_percent%) to Luna; minimum is $HARNESS_MIN_LUNA_NODE_PERCENT%. Split resolved implementation into bounded LOW/LUNA nodes"
@@ -2580,6 +2632,8 @@ write_manager_snapshot()
 		printf 'runtime_path_prefix=%s\n' "$HARNESS_RUNTIME_PATH_PREFIX"
 		printf 'auto_replan_enabled=%s\n' "$HARNESS_AUTO_REPLAN_ENABLED"
 		printf 'max_auto_replans_without_verified_gain=%s\n' "$HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN"
+		printf 'preferred_worker_route=%s\n' "$HARNESS_PREFERRED_WORKER_ROUTE"
+		printf 'min_luna_node_percent=%s\n' "$HARNESS_MIN_LUNA_NODE_PERCENT"
 		printf 'env_file=%s\n' "$HARNESS_ENV_FILE"
 		printf 'env_sha256=%s\n' "$(env_sha256)"
 		printf 'updated_at=%s\n' "$(timestamp_utc)"
@@ -2619,6 +2673,7 @@ write_worker_snapshot()
 		printf 'decomposition_critic_enabled=%s\n' "$HARNESS_DECOMPOSITION_CRITIC_ENABLED"
 		printf 'max_luna_strategy_failures=%s\n' "$HARNESS_MAX_LUNA_STRATEGY_FAILURES"
 		printf 'min_luna_node_percent=%s\n' "$HARNESS_MIN_LUNA_NODE_PERCENT"
+		printf 'preferred_worker_route=%s\n' "$HARNESS_PREFERRED_WORKER_ROUTE"
 		printf 'luna_model=%s\n' "$LUNA_WORKER_MODEL"
 		printf 'luna_reasoning_effort=%s\n' "$LUNA_WORKER_REASONING_EFFORT"
 		printf 'terra_model=%s\n' "$TERRA_WORKER_MODEL"

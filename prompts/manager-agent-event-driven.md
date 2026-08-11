@@ -119,8 +119,10 @@ for `Leaf-Type`, `Complexity-Class`, `Worker-Route`, `Depends-On`, `Deliverable`
 `Required-Symbols`, `Context-Paths`, `Architecture-Decisions`,
 `Expected-Max-Implementation-Files`, and `Expected-Max-Worker-Turns`, in
 addition to the leaf-goal fields. For a new root, copy every DAG-backed value
-exactly. The publisher enforces dependencies and rejects mismatched scope,
-evidence, symbols, complexity, and routing.
+exactly when the DAG has the typed `leaf_type` schema. For a legacy untyped DAG,
+copy dependency, deliverable, evidence, validation, scope, and symbols exactly,
+but reclassify a planned Terra node to `LOW`/Luna when the first executable
+criterion is Luna-ready. The publisher permits that compatibility override.
 
 A Luna leaf must be `LOW`, require no unresolved architecture decision, use
 `LOCAL_IMPLEMENTATION`, `MECHANICAL_API`, `FOCUSED_BUG`, or `DOCUMENTATION`,
@@ -137,6 +139,10 @@ implementation descendants normally become `LOW` Luna leaves. Do not inherit a
 Terra route from a parent or from the overall specification's size. Split broad
 implementation, mechanical propagation, fixtures, focused tests and fixes, and
 post-behavior documentation until each has one deterministic completion test.
+Terra must not perform routine coding merely because an implementation concern
+was initially labelled `MEDIUM` or `HIGH`; split it until Luna can own it. Keep
+one cohesive concern together once it is Luna-ready—microscopic leaves add
+expensive manager reviews without removing useful complexity.
 
 The generated context capsule is the worker's initial discovery boundary. Keep
 `Context-Paths`, `Allowed-Scope`, and `Required-Symbols` concise and sufficient;

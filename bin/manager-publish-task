@@ -257,6 +257,7 @@ leaf_context_paths=""
 leaf_architecture_decisions=""
 leaf_expected_files=""
 leaf_expected_turns=""
+preferred_route_override=0
 if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 	goal_mode=1
 	[[ "$(require_single_metadata_value "$task_file" Execution-Mode 'goal-mode assignment')" == LEAF_GOAL ]] ||
@@ -315,14 +316,27 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 			[[ "$goal_focused_validation" == "$(project_plan_node_value "$plan_item_id" focused_validation)" ]] || die 'leaf Focused-Validation does not match its DAG node'
 			[[ "$goal_allowed_scope" == "$(project_plan_node_value "$plan_item_id" allowed_paths)" ]] || die 'leaf Allowed-Scope does not match its DAG node'
 			[[ "$leaf_required_symbols" == "$(project_plan_node_value "$plan_item_id" required_symbols)" ]] || die 'leaf Required-Symbols does not match its DAG node'
-			[[ "$leaf_complexity" == "$(project_plan_node_value "$plan_item_id" complexity_class)" ]] || die 'leaf Complexity-Class does not match its DAG node'
-			[[ "$leaf_worker_route" == "$(project_plan_node_value "$plan_item_id" worker_route)" ]] || die 'leaf Worker-Route does not match its DAG node'
+			planned_complexity="$(project_plan_node_value "$plan_item_id" complexity_class)"
+			planned_route="$(project_plan_node_value "$plan_item_id" worker_route)"
+			planned_leaf_type="$(project_plan_node_value "$plan_item_id" leaf_type)"
+			if [[ -n "$planned_leaf_type" ]]; then
+				[[ "$leaf_type" == "$planned_leaf_type" ]] || die 'leaf Leaf-Type does not match its DAG node'
+			fi
+			if [[ "$leaf_complexity" != "$planned_complexity" || "$leaf_worker_route" != "$planned_route" ]]; then
+				if [[ -z "$planned_leaf_type" && "$HARNESS_PREFERRED_WORKER_ROUTE" == LUNA &&
+					"$planned_route" == TERRA && "$leaf_worker_route" == LUNA && "$leaf_complexity" == LOW ]]; then
+					preferred_route_override=1
+				else
+					[[ "$leaf_complexity" == "$planned_complexity" ]] || die 'leaf Complexity-Class does not match its DAG node'
+					[[ "$leaf_worker_route" == "$planned_route" ]] || die 'leaf Worker-Route does not match its DAG node'
+				fi
+			fi
 		fi
 		luna_failures="$(root_luna_strategy_failure_count "$root")"
-		if (( manager_remediation == 0 )) && [[ "$leaf_worker_route" == TERRA && "$leaf_complexity" == LOW &&
-			"$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ &&
-			"$leaf_architecture_decisions" == NONE ]] && (( luna_failures < HARNESS_MAX_LUNA_STRATEGY_FAILURES )); then
-			die "resolved LOW $leaf_type leaf must use Worker-Route: LUNA; Terra is allowed after $HARNESS_MAX_LUNA_STRATEGY_FAILURES failed Luna strategies or for unresolved architecture/integration"
+		if (( manager_remediation == 0 )) && [[ "$HARNESS_PREFERRED_WORKER_ROUTE" == LUNA && "$leaf_worker_route" == TERRA &&
+			"$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]] &&
+			(( luna_failures < HARNESS_MAX_LUNA_STRATEGY_FAILURES )); then
+			die "$leaf_type is coding work and must be decomposed to a LOW/LUNA leaf while HARNESS_PREFERRED_WORKER_ROUTE=LUNA; Terra is allowed after $HARNESS_MAX_LUNA_STRATEGY_FAILURES failed Luna strategies"
 		fi
 		if [[ "$leaf_worker_route" == LUNA ]] && (( luna_failures >= HARNESS_MAX_LUNA_STRATEGY_FAILURES )); then
 			die "root $root has $luna_failures failed Luna strategies; publish a fresh Terra leaf or decompose it further"
@@ -652,6 +666,6 @@ if (( recovery_publish == 1 )); then
 fi
 activate_project_plan_item "$plan_item_id" "$root"
 
-log_event "TASK_PUBLISHED task=$task_id root=$root plan_item=$plan_item_id starting_progress=$starting_progress target_criterion=${target_criterion:--} auto_replan=$auto_replan manager_remediation=$manager_remediation goal_mode=$goal_mode goal_id=${goal_id:--} file=$ready"
-trace_event TASK_PUBLISHED "task_id=$task_id" "task_root=$root" "plan_item=$plan_item_id" "starting_progress=$starting_progress" "target_criterion=${target_criterion:--}" "auto_replan=$auto_replan" "manager_remediation=$manager_remediation" "goal_mode=$goal_mode" "goal_id=${goal_id:-}" "source_file=$task_file" "ready_file=$ready" "progress_file=$progress"
+log_event "TASK_PUBLISHED task=$task_id root=$root plan_item=$plan_item_id starting_progress=$starting_progress target_criterion=${target_criterion:--} auto_replan=$auto_replan manager_remediation=$manager_remediation goal_mode=$goal_mode goal_id=${goal_id:--} worker_route=${leaf_worker_route:--} leaf_type=${leaf_type:--} preferred_route_override=$preferred_route_override file=$ready"
+trace_event TASK_PUBLISHED "task_id=$task_id" "task_root=$root" "plan_item=$plan_item_id" "starting_progress=$starting_progress" "target_criterion=${target_criterion:--}" "auto_replan=$auto_replan" "manager_remediation=$manager_remediation" "goal_mode=$goal_mode" "goal_id=${goal_id:-}" "worker_route=${leaf_worker_route:-}" "leaf_type=${leaf_type:-}" "preferred_route_override=$preferred_route_override" "source_file=$task_file" "ready_file=$ready" "progress_file=$progress"
 printf '%s\n' "$ready"
