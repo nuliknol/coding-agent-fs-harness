@@ -256,8 +256,8 @@ status_role()
 	case "$1" in
 		WORKER_*) printf 'w' ;;
 		REVIEW_*|CONVERGENCE_*|GOAL_*) printf 'm' ;;
-		ORACLE_*) printf 'oracle' ;;
-		*) printf 'harness' ;;
+		ORACLE_*) printf 'o' ;;
+		*) printf 'h' ;;
 	esac
 }
 
@@ -489,14 +489,14 @@ print_row()
 	fi
 	for ((index = 0; index < line_count; index++)); do
 		if (( index == 0 )); then
-			printf '%-*.*s | %*.*s | %-*.*s | %-*.*s | %s\n' \
+			printf '%-*.*s |%*.*s| %-*.*s | %-*.*s | %s\n' \
 				"$project_width" "$project_width" "$project" \
 				"$cycle_width" "$cycle_width" "$cycle" \
 				"$status_width" "$status_width" "$display_status" \
 				"$completion_width" "$completion_width" "${completion_lines[$index]:-}" \
 				"${description_lines[$index]:-}"
 		else
-			printf '%*s | %*s | %*s | %*s | %s\n' \
+			printf '%*s |%*s| %*s | %*s | %s\n' \
 				"$project_width" '' "$cycle_width" '' "$status_width" '' \
 				"$completion_width" "${completion_lines[$index]:-}" \
 				"${description_lines[$index]:-}"
@@ -509,23 +509,19 @@ screen_lines="$(terminal_lines)"
 (( columns >= 72 )) || columns=72
 if (( columns >= 170 )); then
 	project_width=24
-	status_width=22
 elif (( columns >= 130 )); then
 	project_width=18
-	status_width=19
 elif (( columns >= 96 )); then
 	project_width=13
-	status_width=16
 elif (( columns >= 80 )); then
 	project_width=11
-	status_width=16
 else
 	project_width=10
-	status_width=14
 fi
 cycle_width=3
+status_width=9
 completion_width=10
-description_width=$((columns - project_width - cycle_width - status_width - completion_width - 12))
+description_width=$((columns - project_width - cycle_width - status_width - completion_width - 10))
 (( description_width >= 18 )) || description_width=18
 environment_file_count="$(find "$config_dir" -maxdepth 1 -type f \
 	-name '*.env' | wc -l | tr -d ' ')"
@@ -534,7 +530,7 @@ row_line_limit=$(((screen_lines - 4) / environment_file_count))
 (( row_line_limit >= 2 )) || row_line_limit=2
 (( row_line_limit <= 8 )) || row_line_limit=8
 
-printf '%-*s | %*s | %-*s | %-*s | %s\n' \
+printf '%-*s |%*s| %-*s | %-*s | %s\n' \
 	"$project_width" PROJECT "$cycle_width" CYC \
 	"$status_width" STATUS "$completion_width" COMPLETION 'PROGRESS / BLOCKER'
 printf '%*s\n' "$columns" '' | tr ' ' '-'
@@ -582,7 +578,7 @@ while IFS= read -r -d '' env_file; do
 	project_dir="$harness_root/projects/$project"
 	state_file="$project_dir/control/state.env"
 	if [[ ! -f "$state_file" ]]; then
-		print_row "$project" '-' 'not initialized' '-' \
+		print_row "$project" '-' 'uninit' '-' \
 			"No harness state exists at $project_dir. Run harness-init before starting it."
 		continue
 	fi
@@ -595,10 +591,10 @@ while IFS= read -r -d '' env_file; do
 	role="$(phase_role "$phase")"
 	status_display_role="$(status_role "$phase")"
 	case "$status" in
-		COMPLETE) display_status='complete/stopped' ;;
-		PAUSED) display_status='paused/stopped' ;;
-		FAILED) display_status='failed/stopped' ;;
-		DEAD_END) display_status='dead-end/stopped' ;;
+		COMPLETE) display_status='done' ;;
+		PAUSED) display_status='paused' ;;
+		FAILED) display_status='failed' ;;
+		DEAD_END) display_status='dead-end' ;;
 		ACTIVE)
 			if (( running )); then
 				display_status="$status_display_role/running"
@@ -606,7 +602,7 @@ while IFS= read -r -d '' env_file; do
 				display_status="$status_display_role/stopped"
 			fi
 			;;
-		*) display_status="${status:-unknown}" ;;
+		*) display_status='unknown' ;;
 	esac
 	description="$(describe_harness "$project_dir" "$status" "$phase" \
 		"$cycle" "$running" "${stall_seconds:-0}" \

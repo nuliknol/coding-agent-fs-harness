@@ -764,15 +764,15 @@ EOF
 chmod 600 "$watch_many_dir/"*.env
 watch_many_output="$(COLUMNS=80 LINES=24 \
 	"$ROOT/bin/harness-watch-many" --once "$watch_many_dir")"
-grep -q '^PROJECT .*| CYC | STATUS .*| COMPLETION .*| PROGRESS / BLOCKER$' \
+grep -q '^PROJECT .*|CYC| STATUS .*| COMPLETION .*| PROGRESS / BLOCKER$' \
 	<<< "$watch_many_output"
-grep -q '^light-smoke .*| *2 | complete/stopped' <<< "$watch_many_output"
+grep -q '^light-smoke .*| *2| done' <<< "$watch_many_output"
 grep -q 'pending' <<< "$watch_many_output"
 grep -q '@10' <<< "$watch_many_output"
 grep -q 'Completed normally' <<< "$watch_many_output"
 grep -q 'without an enabled' <<< "$watch_many_output"
 grep -q 'Oracle gate; no' <<< "$watch_many_output"
-grep -q '^broken-watc.*| *- | config error' <<< "$watch_many_output"
+grep -q '^broken-watc.*| *-| config' <<< "$watch_many_output"
 grep -q 'CONFIGURATION ERROR:' <<< "$watch_many_output"
 if grep -q 'excluded-template' <<< "$watch_many_output"; then
 	printf 'watch-many included an environment with an empty specification\n' >&2
@@ -825,12 +825,12 @@ percentage_watch_output="$(COLUMNS=130 LINES=24 \
 	"$ROOT/bin/harness-watch-many" --once "$percentage_watch_dir")"
 grep -q 'V50% 2/4' <<< "$percentage_watch_output"
 grep -q 'C75% @10' <<< "$percentage_watch_output"
-grep -q '^percentage-watch .*| *12 | w/stopped' <<< "$percentage_watch_output"
+grep -q '^percentage-watch .*| *12| w/stopped' <<< "$percentage_watch_output"
 sed -i 's/^phase=WORKER_REQUIRED$/phase=REVIEW_REQUIRED/' \
 	"$percentage_watch_project/control/state.env"
 percentage_watch_output="$(COLUMNS=130 LINES=24 \
 	"$ROOT/bin/harness-watch-many" --once "$percentage_watch_dir")"
-grep -q '^percentage-watch .*| *12 | m/stopped' <<< "$percentage_watch_output"
+grep -q '^percentage-watch .*| *12| m/stopped' <<< "$percentage_watch_output"
 
 repair_repo="$TEST_DIR/protocol-repair-repository"
 repair_state="$TEST_DIR/protocol-repair-state"
