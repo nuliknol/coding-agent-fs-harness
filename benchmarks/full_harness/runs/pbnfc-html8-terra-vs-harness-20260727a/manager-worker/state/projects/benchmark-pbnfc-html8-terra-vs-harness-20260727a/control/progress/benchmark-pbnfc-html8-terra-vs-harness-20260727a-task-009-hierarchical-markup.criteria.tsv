@@ -1,0 +1,4 @@
+item_id	state	verified_by	evidence_sha256	updated_at
+p009.hierarchical-markup-acceptance	PASSED	009-hierarchical-markup	ba206038422747a9980a76806901c986a2f29a704f366891ddc0a24d8d639d4a	2026-07-28T05:43:26Z
+p009.hierarchical-rejection-diagnostics	PASSED	009-hierarchical-markup-revision-01	a28795eda23a8f75bbf874abddf49a38aef4cbe0cd536673c35546b0ba2531ba	2026-07-28T05:46:57Z
+p009.hierarchical-stress-repeatability	PASSED	009-hierarchical-markup-revision-02	24000ccfe447c705496ba471f37b1b20bf8984ba432f1b786edf502a140b663b	2026-07-28T05:51:20Z

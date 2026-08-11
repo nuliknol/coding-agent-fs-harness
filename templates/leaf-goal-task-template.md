@@ -14,6 +14,16 @@ Focused-Validation: State the affected build and one focused validation command.
 Allowed-Scope: State the exact file and behavior boundary.
 Baseline-Boundary: State the durable starting failure, diagnostic, or evidence boundary.
 Hard-Block-Conditions: List only explicit authority, external dependency, or incompatible observable product/specification outcomes. Worker file ownership, exclusive/forbidden paths, and baseline restrictions route to manager baseline remediation.
+Leaf-Type: LOCAL_IMPLEMENTATION
+Complexity-Class: LOW
+Worker-Route: LUNA
+Depends-On: dependency.node.id
+Deliverable: State the one independently useful artifact or behavior.
+Required-Symbols: exact_symbol,other_symbol
+Context-Paths: path/to/file.c,path/to/focused_test.c
+Architecture-Decisions: NONE
+Expected-Max-Implementation-Files: 3
+Expected-Max-Worker-Turns: 2
 
 <!-- New roots must also declare all immutable Root-Criterion lines. A new
 root's Target-Criterion is its first Root-Criterion. Continuations omit the
@@ -38,6 +48,7 @@ Complete the target leaf criterion without broadening the root.
 ## Constraints
 
 - Preserve durable checkpoints and the live workspace.
+- Treat the context capsule as the bounded discovery surface.
 - Publish a CONTINUE receipt when another bounded process turn is useful.
 - Use NEEDS_DECOMPOSITION only when a materially smaller criterion or changed
   manager strategy is required.

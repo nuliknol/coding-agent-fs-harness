@@ -1,0 +1,9 @@
+2026-07-28T03:32:48.065793Z ERROR codex_core::tools::router: error=apply_patch verification failed: Failed to find expected lines in /var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/single/repository/README.md:
+# bnfc
+2026-07-28T03:35:24.628599Z ERROR codex_core::tools::router: error=exec_command failed for `/bin/bash -lc 'work=tests/.manual && mkdir -p "$work" && trap '"'rm -rf \""'$work"'"' EXIT
+printf '%s\\n' '%start Root' \"Root ::= 'x' ;\" \"Alt ::= '\\\\\\\\' | '\\\\\\'' ;\" > \""'$work/smoke.bnf"
+bin/bnfc --grammar "$work/smoke.bnf" --input x
+bin/bnfc --grammar "$work/smoke.bnf" --start Alt --input '"'\\\\'
+bin/bnfc --grammar \""'$work/smoke.bnf" --start Alt --input "'"'\"
+printf '%s\\n' '%start A' \"A ::= A 'x' | 'y' ;\" > \""'$work/direct.bnf"
+if bin/bnfc --grammar "$work/direct.bnf" --input y; then exit 1; fi'`: CreateProcess { message: "Rejected(\"`/bin/bash -lc 'work=tests/.manual && mkdir -p \\\"$work\\\" && trap '\\\"'rm -rf \\\\\\\"\\\"'$work\\\"'\\\"' EXIT\\nprintf '%s\\\\\\\\n' '%start Root' \\\\\\\"Root ::= 'x' ;\\\\\\\" \\\\\\\"Alt ::= '\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\' | '\\\\\\\\\\\\\\\\\\\\\\\\'' ;\\\\\\\" > \\\\\\\"\\\"'$work/smoke.bnf\\\"\\nbin/bnfc --grammar \\\"$work/smoke.bnf\\\" --input x\\nbin/bnfc --grammar \\\"$work/smoke.bnf\\\" --start Alt --input '\\\"'\\\\\\\\\\\\\\\\'\\nbin/bnfc --grammar \\\\\\\"\\\"'$work/smoke.bnf\\\" --start Alt --input \\\"'\\\"'\\\\\\\"\\nprintf '%s\\\\\\\\n' '%start A' \\\\\\\"A ::= A 'x' | 'y' ;\\\\\\\" > \\\\\\\"\\\"'$work/direct.bnf\\\"\\nif bin/bnfc --grammar \\\"$work/direct.bnf\\\" --input y; then exit 1; fi'` rejected: rm -f style commands are not permitted. Use a safer approach\")" }

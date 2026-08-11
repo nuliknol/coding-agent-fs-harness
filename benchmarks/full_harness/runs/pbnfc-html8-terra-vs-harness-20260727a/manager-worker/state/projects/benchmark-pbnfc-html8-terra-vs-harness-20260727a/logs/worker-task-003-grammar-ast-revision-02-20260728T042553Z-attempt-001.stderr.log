@@ -1,0 +1,6 @@
+2026-07-28T04:29:00.242501Z ERROR codex_core::tools::router: error=apply_patch verification failed: Failed to find expected lines in /var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/repository/src/grammar_ast.c:
+            free(nullable);
+            return validation_error(diagnostics,
+                                    location,
+                                    location,
+                                    "left recursion detected");

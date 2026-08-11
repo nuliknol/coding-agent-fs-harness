@@ -1,0 +1,1 @@
+Checkpointed the core BNF lexer at 33% and published `002-grammar-lexer-revision-01` for terminals and declared token references.

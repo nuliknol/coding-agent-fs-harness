@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 1 ]] || die "Usage: ${0##*/} ENV_FILE"
+load_harness_env "$1"
+ensure_project
+
+status="$(state_value status)"
+phase="$(state_value phase)"
+cycle="$(state_value cycle)"
+[[ "$cycle" =~ ^[0-9]+$ ]] || die "invalid harness cycle: $cycle"
+
+case "$status" in
+	COMPLETE)
+		printf 'Project is already complete; final acceptance: %s\n' \
+			"$(project_dir)/control/final-acceptance.md"
+		exit 0
+		;;
+	FAILED)
+		die "project is in TERMINAL_FAILURE; inspect $(project_dir)/control/last-error.txt"
+		;;
+	DEAD_END)
+		die "project reached DEAD_END; inspect $(project_dir)/control/dead-end.md"
+		;;
+	PAUSED)
+		die "project is paused in $phase at cycle $cycle; resolve its condition, then run harness-resume before harness-start"
+		;;
+	ACTIVE) ;;
+	*) die "unsupported harness status for start: $status" ;;
+esac
+
+case "$phase" in
+	GOAL_REQUIRED|GOAL_RUNNING|GOAL_REFRESH_REQUIRED|GOAL_REFRESH_RUNNING|\
+	WORKER_REQUIRED|WORKER_RUNNING|WORKER_RETRY|\
+	REVIEW_REQUIRED|REVIEW_RUNNING|\
+	CONVERGENCE_REQUIRED|CONVERGENCE_RUNNING|\
+	ORACLE_REQUIRED|ORACLE_RUNNING)
+		;;
+	*) die "unsupported active harness phase for start: $phase" ;;
+esac
+
+if supervisor_running; then
+	die "supervisor is already running with PID $(supervisor_pid); harness-start requires a stopped supervisor"
+fi
+
+"$HARNESS_BIN/harness-supervisor-start" "$HARNESS_ENV_FILE"
+printf 'Events: %s\n' "$(events_file)"

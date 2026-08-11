@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 2 ]] || die "Usage: ${0##*/} ENV_FILE RESOLUTION_FILE"
+load_harness_env "$1"
+ensure_project
+
+resolution_source="$2"
+[[ -f "$resolution_source" && ! -L "$resolution_source" ]] ||
+	die "operator resolution must be a regular file: $resolution_source"
+[[ -s "$resolution_source" ]] ||
+	die "operator resolution is empty: $resolution_source"
+
+dir="$(project_dir)"
+lock="$dir/control/supervisor.lock"
+if supervisor_running; then
+	die "supervisor is running; run harness-stop first: $HARNESS_ENV_FILE"
+fi
+exec 9>"$lock"
+flock -n 9 || die "supervisor lock is retained; run harness-stop first: $lock"
+
+status="$(state_value status)"
+phase="$(state_value phase)"
+cycle="$(state_value cycle)"
+[[ "$cycle" =~ ^[0-9]+$ ]] || die "invalid harness cycle: $cycle"
+[[ "$status" == PAUSED && "$phase" == NEEDS_OPERATOR ]] ||
+	die "operator resolution requires PAUSED/NEEDS_OPERATOR; current state is $status/$phase at cycle $cycle"
+[[ -s "$dir/control/operator-required.md" ]] ||
+	die 'operator-required report is missing or empty'
+[[ -s "$dir/control/worker-goal.md" ]] ||
+	die 'persistent worker goal is missing or empty'
+[[ -s "$dir/control/worker.thread" ]] ||
+	die 'persistent worker thread is missing or empty'
+[[ ! -e "$dir/control/worker-context-reset.env" ]] ||
+	die 'a worker-context reset is already pending'
+
+resolution_id=1
+while :; do
+	printf -v resolution_label '%03d' "$resolution_id"
+	archive="$dir/reviews/operator-resolution-$resolution_label"
+	[[ -e "$archive" ]] || break
+	resolution_id=$((resolution_id + 1))
+done
+
+mkdir "$archive"
+chmod 700 "$archive"
+cp -p "$dir/control/state.env" "$archive/state-before.env"
+cp -p "$dir/control/worker-goal.md" "$archive/worker-goal.md"
+cp -p "$dir/control/worker.thread" "$archive/worker.thread"
+cp -p "$dir/control/operator-required.md" "$archive/operator-required.md"
+# A NEEDS_OPERATOR convergence pause may occur after the same cycle already
+# recorded its scheduled completion audit. The retry deliberately reuses that
+# cycle so it can consume the preceding addendum; preserve the old audit in the
+# resolution archive and clear its live pathname before the replacement review.
+printf -v paused_cycle_label '%03d' "$cycle"
+if [[ -f "$dir/reviews/completion-progress-$paused_cycle_label.md" ]]; then
+	mv "$dir/reviews/completion-progress-$paused_cycle_label.md" \
+		"$archive/completion-progress-before-resolution.md"
+fi
+if [[ -f "$dir/control/completion-progress-$paused_cycle_label.env" ]]; then
+	mv "$dir/control/completion-progress-$paused_cycle_label.env" \
+		"$archive/completion-progress-before-resolution.env"
+fi
+if [[ -f "$dir/inputs/operator-resolution.md" ]]; then
+	cp -p "$dir/inputs/operator-resolution.md" \
+		"$archive/operator-resolution-previous.md"
+fi
+cp -p "$resolution_source" "$archive/operator-resolution.md"
+cp -p "$resolution_source" "$dir/inputs/operator-resolution.md"
+chmod 600 "$archive/operator-resolution.md" \
+	"$dir/inputs/operator-resolution.md"
+
+requested_at="$(timestamp_utc)"
+{
+	printf 'reset_id=%s\n' "$resolution_label"
+	printf 'recovery_kind=operator_resolution\n'
+	printf 'requested_at=%s\n' "$requested_at"
+	printf 'source_status=%s\n' "$status"
+	printf 'source_phase=%s\n' "$phase"
+	printf 'source_cycle=%s\n' "$cycle"
+	# NEEDS_OPERATOR is reached after a worker delivery but before that cycle has
+	# necessarily produced a manager addendum (for example, an interrupted
+	# convergence audit or a rejected manager report). Retrying the same cycle
+	# uses the preceding addendum and avoids advancing into a nonexistent
+	# addendum-NNN file.
+	printf 'resume_phase=WORKER_RETRY\n'
+	printf 'archive=%s\n' "$archive"
+	printf 'resolution=%s\n' "$dir/inputs/operator-resolution.md"
+} > "$archive/resolution.env"
+chmod 600 "$archive/resolution.env"
+cp -p "$archive/resolution.env" "$dir/control/worker-context-reset.env"
+
+rm -f "$dir/control/worker-goal.md" "$dir/control/worker.thread" \
+	"$dir/control/operator-required.md" \
+	"$dir/control/operator-pause-kind" \
+	"$dir/control/operator-pause-fingerprint" \
+	"$dir/control/operator-pause-count"
+write_state ACTIVE GOAL_REFRESH_REQUIRED "$cycle"
+log_event "OPERATOR_RESOLUTION_REQUESTED resolution=$resolution_label source_phase=$phase cycle=$cycle archive=$archive resolution=$dir/inputs/operator-resolution.md"
+
+printf 'Operator resolution %s is ready.\n' "$resolution_label"
+printf 'Archived report and prior worker context: %s\n' "$archive"
+printf 'Resolution snapshot: %s\n' "$dir/inputs/operator-resolution.md"
+printf 'Run harness-start %s to regenerate the goal and continue with a fresh Luna thread.\n' \
+	"$HARNESS_ENV_FILE"

@@ -1,0 +1,4 @@
+{"type":"thread.started","thread_id":"019fa6d4-c399-7032-9ede-1a1281ebda94"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"Final worker-pool review is pending: validate clean shutdown, then accept item 006 if all three pool criteria pass."}}
+{"type":"turn.completed","usage":{"input_tokens":11894512,"cached_input_tokens":11661568,"cache_write_input_tokens":0,"output_tokens":50591,"reasoning_output_tokens":11325}}

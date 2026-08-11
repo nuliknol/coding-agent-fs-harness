@@ -1,0 +1,1 @@
+Checkpointed terminals and token references at 66% and published `002-grammar-lexer-revision-02` for deterministic lexer error diagnostics.

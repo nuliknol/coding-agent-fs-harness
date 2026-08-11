@@ -1,0 +1,24 @@
+Initialized project benchmark-bnfc-terra-vs-harness-20260727b
+Environment file: /var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/harness.env
+Harness root: /var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/state
+Project tmp dir: /tmp/benchmark-bnfc-terra-vs-harness-20260727b
+Repository: /var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/repository
+Specification: /var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/repository/SPECIFICATION.md
+Manager model: gpt-5.6-terra (high)
+Worker model: gpt-5.6-luna (high)
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/state/projects/benchmark-bnfc-terra-vs-harness-20260727b/logs/manager-bootstrap-20260728T032943Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/state/projects/benchmark-bnfc-terra-vs-harness-20260727b/logs/manager-bootstrap-20260728T032943Z-attempt-001.classification
+Manager bootstrap completed and exited.
+Thread ID: 019fa6c5-6cc1-77c3-b38c-616bf59ea140
+Supervisor started with PID 629051.
+Environment file: /var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/harness.env
+Log: /var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/state/projects/benchmark-bnfc-terra-vs-harness-20260727b/logs/supervisor.log
+Worker supervisor started with PID 629246.
+Environment file: /var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/harness.env
+Log: /var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/state/projects/benchmark-bnfc-terra-vs-harness-20260727b/logs/worker-supervisor.log
+
+Harness is active.
+Manager watcher: /var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/state/projects/benchmark-bnfc-terra-vs-harness-20260727b/logs/supervisor.log
+Worker watcher: /var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/state/projects/benchmark-bnfc-terra-vs-harness-20260727b/logs/worker-supervisor.log
+Events: /var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/state/projects/benchmark-bnfc-terra-vs-harness-20260727b/logs/events.log

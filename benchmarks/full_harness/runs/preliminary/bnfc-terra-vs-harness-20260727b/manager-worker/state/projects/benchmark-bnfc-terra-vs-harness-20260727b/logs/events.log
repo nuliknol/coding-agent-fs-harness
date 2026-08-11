@@ -1,0 +1,49 @@
+2026-07-28T03:29:43Z	PROJECT_INITIALIZED repository=/var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/repository env_file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/harness.env
+2026-07-28T03:29:43Z	MANAGER_BOOTSTRAP_STARTED attempt=1
+2026-07-28T03:30:57Z	PROJECT_PLAN_INITIALIZED items=6 complete=0 file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/state/projects/benchmark-bnfc-terra-vs-harness-20260727b/control/project-plan.tsv
+2026-07-28T03:31:01Z	PROJECT_PLAN_ITEM_ACTIVATED item=01 root=bnfc-01-foundation
+2026-07-28T03:31:01Z	TASK_PUBLISHED task=bnfc-01-foundation root=bnfc-01-foundation plan_item=01 starting_progress=0 target_criterion=- auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=bnfc.goal.01.foundation.build file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/state/projects/benchmark-bnfc-terra-vs-harness-20260727b/tasks/benchmark-bnfc-terra-vs-harness-20260727b-task-bnfc-01-foundation.ready.md
+2026-07-28T03:31:04Z	MANAGER_THREAD_REGISTERED thread_id=019fa6c5-6cc1-77c3-b38c-616bf59ea140
+2026-07-28T03:31:04Z	MANAGER_BOOTSTRAPPED thread_id=019fa6c5-6cc1-77c3-b38c-616bf59ea140 attempts=1
+2026-07-28T03:31:04Z	SUPERVISOR_STARTED pid=629051 env_file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/harness.env
+2026-07-28T03:31:04Z	WORKER_SUPERVISOR_STARTED pid=629246 env_file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/harness.env
+2026-07-28T03:31:04Z	WORKER_SUPERVISOR_TRIGGER task=bnfc-01-foundation fingerprint=22445091:3059:1785209461
+2026-07-28T03:31:04Z	SESSION_CREATED session=worker-20260728T033104Z-18e57fa6 role=worker
+2026-07-28T03:31:04Z	TASK_CLAIMED task=bnfc-01-foundation owner=worker-20260728T033104Z-18e57fa6
+2026-07-28T03:31:04Z	WORKER_CONTEXT_SELECTED task=bnfc-01-foundation root=bnfc-01-foundation mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=bnfc.goal.01.foundation.build execution_mode=WORKER
+2026-07-28T03:31:04Z	WORKER_INVOCATION_STARTED task=bnfc-01-foundation session=worker-20260728T033104Z-18e57fa6 model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T03:32:30Z	TASK_COMPLETED task=bnfc-01-foundation owner=worker-20260728T033104Z-18e57fa6 goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/state/projects/benchmark-bnfc-terra-vs-harness-20260727b/results/benchmark-bnfc-terra-vs-harness-20260727b-task-bnfc-01-foundation.result.md
+2026-07-28T03:32:31Z	SUPERVISOR_TRIGGER task=bnfc-01-foundation fingerprint=22445105:1743:1785209550
+2026-07-28T03:32:31Z	MANAGER_REVIEW_STARTED task=bnfc-01-foundation thread_id=019fa6c5-6cc1-77c3-b38c-616bf59ea140 attempt=1
+2026-07-28T03:32:35Z	WORKER_INVOCATION_FINISHED task=bnfc-01-foundation session=worker-20260728T033104Z-18e57fa6 status=0 result=published attempt=1
+2026-07-28T03:34:09Z	TASK_PROGRESS_UPDATED root=bnfc-01-foundation task=bnfc-01-foundation progress=33 improvement=33 decision=CHECKPOINT
+2026-07-28T03:34:09Z	WORKER_THREAD_CHECKPOINTED task=bnfc-01-foundation root=bnfc-01-foundation thread_id=019fa6c6-a8e4-7e50-b8a1-836b3d322719 rejection_count=0
+2026-07-28T03:34:09Z	TASK_CHECKPOINTED task=bnfc-01-foundation root=bnfc-01-foundation criteria=1 increments=0 artifact=/var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/state/projects/benchmark-bnfc-terra-vs-harness-20260727b/archive/checkpoints/benchmark-bnfc-terra-vs-harness-20260727b-task-bnfc-01-foundation
+2026-07-28T03:34:50Z	TASK_PUBLISHED task=bnfc-01-foundation-revision-01 root=bnfc-01-foundation plan_item=01 starting_progress=33 target_criterion=foundation.cli.required-options auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=bnfc.goal.01.foundation.cli file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/state/projects/benchmark-bnfc-terra-vs-harness-20260727b/tasks/benchmark-bnfc-terra-vs-harness-20260727b-task-bnfc-01-foundation-revision-01.ready.md
+2026-07-28T03:34:51Z	WORKER_SUPERVISOR_TRIGGER task=bnfc-01-foundation-revision-01 fingerprint=22445156:3537:1785209690
+2026-07-28T03:34:51Z	SESSION_CREATED session=worker-20260728T033451Z-8676c453 role=worker
+2026-07-28T03:34:51Z	TASK_CLAIMED task=bnfc-01-foundation-revision-01 owner=worker-20260728T033451Z-8676c453
+2026-07-28T03:34:52Z	WORKER_CONTEXT_SELECTED task=bnfc-01-foundation-revision-01 root=bnfc-01-foundation mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=bnfc.goal.01.foundation.cli execution_mode=WORKER
+2026-07-28T03:34:52Z	WORKER_INVOCATION_STARTED task=bnfc-01-foundation-revision-01 session=worker-20260728T033451Z-8676c453 model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T03:34:53Z	MANAGER_REVIEW_FINISHED task=bnfc-01-foundation attempt=1
+2026-07-28T03:37:24Z	TASK_COMPLETED task=bnfc-01-foundation-revision-01 owner=worker-20260728T033451Z-8676c453 goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/state/projects/benchmark-bnfc-terra-vs-harness-20260727b/results/benchmark-bnfc-terra-vs-harness-20260727b-task-bnfc-01-foundation-revision-01.result.md
+2026-07-28T03:37:24Z	SUPERVISOR_TRIGGER task=bnfc-01-foundation-revision-01 fingerprint=22444957:1871:1785209844
+2026-07-28T03:37:24Z	MANAGER_REVIEW_STARTED task=bnfc-01-foundation-revision-01 thread_id=019fa6c5-6cc1-77c3-b38c-616bf59ea140 attempt=1
+2026-07-28T03:37:27Z	WORKER_INVOCATION_FINISHED task=bnfc-01-foundation-revision-01 session=worker-20260728T033451Z-8676c453 status=0 result=published attempt=1
+2026-07-28T03:39:20Z	TASK_PROGRESS_UPDATED root=bnfc-01-foundation task=bnfc-01-foundation-revision-01 progress=66 improvement=33 decision=CHECKPOINT
+2026-07-28T03:39:21Z	WORKER_THREAD_CHECKPOINTED task=bnfc-01-foundation-revision-01 root=bnfc-01-foundation thread_id=019fa6ca-20fc-7901-859b-b8f4aad88ec2 rejection_count=0
+2026-07-28T03:39:21Z	TASK_CHECKPOINTED task=bnfc-01-foundation-revision-01 root=bnfc-01-foundation criteria=1 increments=0 artifact=/var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/state/projects/benchmark-bnfc-terra-vs-harness-20260727b/archive/checkpoints/benchmark-bnfc-terra-vs-harness-20260727b-task-bnfc-01-foundation-revision-01
+2026-07-28T03:39:25Z	TASK_PUBLISHED task=bnfc-01-foundation-revision-02 root=bnfc-01-foundation plan_item=01 starting_progress=66 target_criterion=foundation.lexer.grammar-tokens auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=bnfc.goal.01.foundation.lexer file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/state/projects/benchmark-bnfc-terra-vs-harness-20260727b/tasks/benchmark-bnfc-terra-vs-harness-20260727b-task-bnfc-01-foundation-revision-02.ready.md
+2026-07-28T03:39:26Z	WORKER_SUPERVISOR_TRIGGER task=bnfc-01-foundation-revision-02 fingerprint=22445152:3665:1785209965
+2026-07-28T03:39:26Z	SESSION_CREATED session=worker-20260728T033926Z-909bdb98 role=worker
+2026-07-28T03:39:26Z	TASK_CLAIMED task=bnfc-01-foundation-revision-02 owner=worker-20260728T033926Z-909bdb98
+2026-07-28T03:39:26Z	WORKER_CONTEXT_SELECTED task=bnfc-01-foundation-revision-02 root=bnfc-01-foundation mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=bnfc.goal.01.foundation.lexer execution_mode=WORKER
+2026-07-28T03:39:26Z	WORKER_INVOCATION_STARTED task=bnfc-01-foundation-revision-02 session=worker-20260728T033926Z-909bdb98 model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T03:39:27Z	MANAGER_REVIEW_FINISHED task=bnfc-01-foundation-revision-01 attempt=1
+2026-07-28T03:43:33Z	TASK_COMPLETED task=bnfc-01-foundation-revision-02 owner=worker-20260728T033926Z-909bdb98 goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/state/projects/benchmark-bnfc-terra-vs-harness-20260727b/results/benchmark-bnfc-terra-vs-harness-20260727b-task-bnfc-01-foundation-revision-02.result.md
+2026-07-28T03:43:34Z	SUPERVISOR_TRIGGER task=bnfc-01-foundation-revision-02 fingerprint=22445089:2387:1785210213
+2026-07-28T03:43:34Z	MANAGER_REVIEW_STARTED task=bnfc-01-foundation-revision-02 thread_id=019fa6c5-6cc1-77c3-b38c-616bf59ea140 attempt=1
+2026-07-28T03:43:36Z	WORKER_INVOCATION_FINISHED task=bnfc-01-foundation-revision-02 session=worker-20260728T033926Z-909bdb98 status=0 result=published attempt=1
+2026-07-28T03:43:38Z	WORKER_THREAD_CLEARED task=bnfc-01-foundation-revision-02 root=bnfc-01-foundation thread_id=019fa6ca-20fc-7901-859b-b8f4aad88ec2 reason=aborted
+2026-07-28T03:43:38Z	TASK_ABORTED task=bnfc-01-foundation-revision-02 reason=benchmark superseded by a harder eight-thread HTML grammar specification
+2026-07-28T03:43:39Z	WORKER_SUPERVISOR_STOPPED pid=629246

@@ -1,0 +1,687 @@
+        -:    0:Source:src/recognizer.c
+        -:    1:#include "recognizer.h"
+        -:    2:
+        -:    3:#include <stdatomic.h>
+        -:    4:#include <stdio.h>
+        -:    5:#include <stdlib.h>
+        -:    6:#include <string.h>
+        -:    7:
+        -:    8:typedef struct {
+        -:    9:    size_t rule;
+        -:   10:    size_t alternative;
+        -:   11:    size_t dot;
+        -:   12:    size_t origin;
+        -:   13:} ChartItem;
+        -:   14:
+        -:   15:typedef struct {
+        -:   16:    ChartItem *data;
+        -:   17:    size_t count;
+        -:   18:    size_t capacity;
+        -:   19:} ItemVector;
+        -:   20:
+        -:   21:typedef struct {
+        -:   22:    ChartItem *data;
+        -:   23:    size_t count;
+        -:   24:    size_t capacity;
+        -:   25:} CandidateVector;
+        -:   26:
+        -:   27:typedef struct {
+        -:   28:    const Grammar *grammar;
+        -:   29:    ItemVector *charts;
+        -:   30:    size_t position;
+        -:   31:    CandidateVector *candidates;
+        -:   32:    size_t *task_counts;
+        -:   33:    atomic_int failed;
+        -:   34:} ClosureWork;
+        -:   35:
+        -:   36:typedef struct {
+        -:   37:    const Grammar *grammar;
+        -:   38:    const Markup *markup;
+        -:   39:    const ItemVector *current;
+        -:   40:    size_t position;
+        -:   41:    CandidateVector *candidates;
+        -:   42:    size_t *task_counts;
+        -:   43:    atomic_int failed;
+        -:   44:} ScanWork;
+        -:   45:
+function item_equal called 454 returned 100% blocks executed 100%
+      454:   46:static int item_equal(const ChartItem *a, const ChartItem *b)
+        -:   47:{
+       87:   48:    return a->rule == b->rule && a->alternative == b->alternative &&
+branch  0 taken 46 (fallthrough)
+branch  1 taken 41
+      541:   49:           a->dot == b->dot && a->origin == b->origin;
+branch  0 taken 87 (fallthrough)
+branch  1 taken 367
+branch  2 taken 2 (fallthrough)
+branch  3 taken 44
+branch  4 taken 1 (fallthrough)
+branch  5 taken 1
+        -:   50:}
+        -:   51:
+function vector_grow called 235 returned 100% blocks executed 71%
+      235:   52:static int vector_grow(ChartItem **data, size_t *capacity, size_t needed)
+        -:   53:{
+      235:   54:    size_t next = *capacity == 0 ? 16 : *capacity * 2;
+branch  0 taken 196 (fallthrough)
+branch  1 taken 39
+        -:   55:    ChartItem *grown;
+      235:   56:    if (*capacity >= needed)
+branch  0 taken 196 (fallthrough)
+branch  1 taken 39
+      196:   57:        return 0;
+       39:   58:    while (next < needed) {
+branch  0 taken 0
+branch  1 taken 39 (fallthrough)
+    #####:   59:        if (next > ((size_t)-1) / 2)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:   60:            return -1;
+    #####:   61:        next *= 2;
+        -:   62:    }
+       39:   63:    grown = (ChartItem *)realloc(*data, next * sizeof(*grown));
+       39:   64:    if (grown == NULL)
+branch  0 taken 0 (fallthrough)
+branch  1 taken 39
+    #####:   65:        return -1;
+       39:   66:    *data = grown;
+       39:   67:    *capacity = next;
+       39:   68:    return 0;
+        -:   69:}
+        -:   70:
+function add_item called 121 returned 100% blocks executed 91%
+      121:   71:static int add_item(ItemVector *vector, ChartItem item)
+        -:   72:{
+        -:   73:    size_t i;
+      574:   74:    for (i = 0; i < vector->count; i++)
+branch  0 taken 454
+branch  1 taken 120 (fallthrough)
+      454:   75:        if (item_equal(&vector->data[i], &item))
+call    0 returned 454
+branch  1 taken 1 (fallthrough)
+branch  2 taken 453
+        1:   76:            return 0;
+      120:   77:    if (vector_grow(&vector->data, &vector->capacity, vector->count + 1) != 0)
+call    0 returned 120
+branch  1 taken 0 (fallthrough)
+branch  2 taken 120
+    #####:   78:        return -1;
+      120:   79:    vector->data[vector->count++] = item;
+      120:   80:    return 1;
+        -:   81:}
+        -:   82:
+function add_candidate called 115 returned 100% blocks executed 80%
+      115:   83:static int add_candidate(CandidateVector *vector, ChartItem item, atomic_int *failed)
+        -:   84:{
+      115:   85:    if (vector_grow(&vector->data, &vector->capacity, vector->count + 1) != 0) {
+call    0 returned 115
+branch  1 taken 0 (fallthrough)
+branch  2 taken 115
+    #####:   86:        atomic_store(failed, 1);
+    #####:   87:        return -1;
+        -:   88:    }
+      115:   89:    vector->data[vector->count++] = item;
+      115:   90:    return 0;
+        -:   91:}
+        -:   92:
+function rule_index called 141 returned 100% blocks executed 86%
+      141:   93:static size_t rule_index(const Grammar *grammar, const char *name)
+        -:   94:{
+        -:   95:    size_t i;
+      628:   96:    for (i = 0; i < grammar->rule_count; i++)
+branch  0 taken 628
+branch  1 taken 0 (fallthrough)
+      628:   97:        if (strcmp(grammar->rules[i].name, name) == 0)
+branch  0 taken 141 (fallthrough)
+branch  1 taken 487
+      141:   98:            return i;
+    #####:   99:    return (size_t)-1;
+        -:  100:}
+        -:  101:
+function next_symbol called 444 returned 100% blocks executed 100%
+      444:  102:static const GrammarSymbol *next_symbol(const Grammar *grammar, const ChartItem *item)
+        -:  103:{
+      444:  104:    const Alternative *alternative = &grammar->rules[item->rule].alternatives[item->alternative];
+      444:  105:    if (item->dot >= alternative->count)
+branch  0 taken 117 (fallthrough)
+branch  1 taken 327
+      117:  106:        return NULL;
+      327:  107:    return &alternative->symbols[item->dot];
+        -:  108:}
+        -:  109:
+function closure_task called 120 returned 100% blocks executed 88%
+      120:  110:static void closure_task(void *context, size_t worker, size_t begin, size_t end)
+        -:  111:{
+      120:  112:    ClosureWork *work = (ClosureWork *)context;
+      120:  113:    ItemVector *current = &work->charts[work->position];
+      120:  114:    CandidateVector *out = &work->candidates[worker];
+        -:  115:    size_t i;
+      120:  116:    if (begin < end)
+branch  0 taken 120 (fallthrough)
+branch  1 taken 0
+      120:  117:        work->task_counts[worker]++;
+      240:  118:    for (i = begin; i < end && !atomic_load(&work->failed); i++) {
+branch  0 taken 120 (fallthrough)
+branch  1 taken 120
+branch  2 taken 120
+branch  3 taken 0 (fallthrough)
+      120:  119:        ChartItem item = current->data[i];
+      120:  120:        const GrammarSymbol *symbol = next_symbol(work->grammar, &item);
+call    0 returned 120
+      158:  121:        if (symbol != NULL && symbol->kind == SYM_NONTERM) {
+branch  0 taken 89 (fallthrough)
+branch  1 taken 31
+branch  2 taken 38 (fallthrough)
+branch  3 taken 51
+       38:  122:            size_t target = rule_index(work->grammar, symbol->text);
+call    0 returned 38
+        -:  123:            size_t j;
+       95:  124:            for (j = 0; j < work->grammar->rules[target].count; j++) {
+branch  0 taken 57
+branch  1 taken 38 (fallthrough)
+       57:  125:                ChartItem candidate = {target, j, 0, work->position};
+       57:  126:                if (add_candidate(out, candidate, &work->failed) != 0)
+call    0 returned 57
+branch  1 taken 0 (fallthrough)
+branch  2 taken 57
+    #####:  127:                    return;
+        -:  128:            }
+        -:  129:            /* Prediction can follow an epsilon constituent already in this chart. */
+      236:  130:            for (j = 0; j < current->count; j++) {
+branch  0 taken 198
+branch  1 taken 38 (fallthrough)
+      198:  131:                ChartItem completed = current->data[j];
+      199:  132:                if (completed.rule == target && completed.origin == work->position &&
+branch  0 taken 16 (fallthrough)
+branch  1 taken 182
+branch  2 taken 1 (fallthrough)
+branch  3 taken 15
+branch  4 taken 1 (fallthrough)
+branch  5 taken 0
+        1:  133:                    next_symbol(work->grammar, &completed) == NULL) {
+call    0 returned 1
+        1:  134:                    ChartItem candidate = {item.rule, item.alternative, item.dot + 1, item.origin};
+        1:  135:                    if (add_candidate(out, candidate, &work->failed) != 0)
+call    0 returned 1
+branch  1 taken 0 (fallthrough)
+branch  2 taken 1
+    #####:  136:                        return;
+        -:  137:                }
+        -:  138:            }
+       82:  139:        } else if (symbol == NULL) {
+branch  0 taken 31 (fallthrough)
+branch  1 taken 51
+        -:  140:            size_t j;
+      31*:  141:            if (item.origin > work->position)
+branch  0 taken 0 (fallthrough)
+branch  1 taken 31
+    #####:  142:                continue;
+      245:  143:            for (j = 0; j < work->charts[item.origin].count; j++) {
+branch  0 taken 214
+branch  1 taken 31 (fallthrough)
+      214:  144:                ChartItem parent = work->charts[item.origin].data[j];
+      214:  145:                const GrammarSymbol *wanted = next_symbol(work->grammar, &parent);
+call    0 returned 214
+      214:  146:                if (wanted != NULL && wanted->kind == SYM_NONTERM &&
+branch  0 taken 152 (fallthrough)
+branch  1 taken 62
+branch  2 taken 103 (fallthrough)
+branch  3 taken 49
+      103:  147:                    rule_index(work->grammar, wanted->text) == item.rule) {
+call    0 returned 103
+branch  1 taken 27 (fallthrough)
+branch  2 taken 76
+       27:  148:                    ChartItem candidate = {parent.rule, parent.alternative, parent.dot + 1, parent.origin};
+       27:  149:                    if (add_candidate(out, candidate, &work->failed) != 0)
+call    0 returned 27
+branch  1 taken 0 (fallthrough)
+branch  2 taken 27
+    #####:  150:                        return;
+        -:  151:                }
+        -:  152:            }
+        -:  153:        }
+        -:  154:    }
+        -:  155:}
+        -:  156:
+function token_matches called 47 returned 100% blocks executed 80%
+       47:  157:static int token_matches(const GrammarSymbol *symbol, const MarkupToken *token)
+        -:  158:{
+       47:  159:    if (symbol->kind == SYM_LITERAL)
+branch  0 taken 40 (fallthrough)
+branch  1 taken 7
+       40:  160:        return strcmp(symbol->text, token->lexeme) == 0;
+        7:  161:    if (symbol->kind == SYM_TOKEN) {
+branch  0 taken 7 (fallthrough)
+branch  1 taken 0
+        7:  162:        if (symbol->token_kind == TOK_IDENT) return token->kind == MARKUP_IDENT;
+branch  0 taken 5 (fallthrough)
+branch  1 taken 2
+        2:  163:        if (symbol->token_kind == TOK_STRING) return token->kind == MARKUP_STRING;
+branch  0 taken 2 (fallthrough)
+branch  1 taken 0
+    #####:  164:        return token->kind == MARKUP_TEXT;
+        -:  165:    }
+    #####:  166:    return 0;
+        -:  167:}
+        -:  168:
+function scan_task called 80 returned 100% blocks executed 89%
+       80:  169:static void scan_task(void *context, size_t worker, size_t begin, size_t end)
+        -:  170:{
+       80:  171:    ScanWork *work = (ScanWork *)context;
+       80:  172:    CandidateVector *out = &work->candidates[worker];
+        -:  173:    size_t i;
+       80:  174:    if (end > work->current->count)
+branch  0 taken 0 (fallthrough)
+branch  1 taken 80
+    #####:  175:        end = work->current->count;
+       80:  176:    if (begin < end)
+branch  0 taken 80 (fallthrough)
+branch  1 taken 0
+       80:  177:        work->task_counts[worker]++;
+      175:  178:    for (i = begin; i < end && !atomic_load(&work->failed); i++) {
+branch  0 taken 95 (fallthrough)
+branch  1 taken 80
+branch  2 taken 95
+branch  3 taken 0 (fallthrough)
+       95:  179:        const ChartItem *item = &work->current->data[i];
+       95:  180:        const GrammarSymbol *symbol = next_symbol(work->grammar, item);
+call    0 returned 95
+      142:  181:        if (symbol != NULL && symbol->kind != SYM_NONTERM &&
+branch  0 taken 75 (fallthrough)
+branch  1 taken 20
+branch  2 taken 47 (fallthrough)
+branch  3 taken 28
+branch  4 taken 30 (fallthrough)
+branch  5 taken 17
+       47:  182:            token_matches(symbol, &work->markup->tokens[work->position])) {
+call    0 returned 47
+       30:  183:            ChartItem candidate = {item->rule, item->alternative, item->dot + 1, item->origin};
+       30:  184:            if (add_candidate(out, candidate, &work->failed) != 0)
+call    0 returned 30
+branch  1 taken 0 (fallthrough)
+branch  2 taken 30
+    #####:  185:                return;
+        -:  186:        }
+        -:  187:    }
+        -:  188:}
+        -:  189:
+function candidate_compare called 60 returned 100% blocks executed 68%
+       60:  190:static int candidate_compare(const void *left, const void *right)
+        -:  191:{
+       60:  192:    const ChartItem *a = (const ChartItem *)left;
+       60:  193:    const ChartItem *b = (const ChartItem *)right;
+       60:  194:    if (a->rule != b->rule) return a->rule < b->rule ? -1 : 1;
+branch  0 taken 33 (fallthrough)
+branch  1 taken 27
+branch  2 taken 19 (fallthrough)
+branch  3 taken 14
+      27*:  195:    if (a->alternative != b->alternative) return a->alternative < b->alternative ? -1 : 1;
+branch  0 taken 24 (fallthrough)
+branch  1 taken 3
+branch  2 taken 24 (fallthrough)
+branch  3 taken 0
+        3:  196:    if (a->dot != b->dot) return a->dot < b->dot ? -1 : 1;
+branch  0 taken 3 (fallthrough)
+branch  1 taken 0
+branch  2 taken 2 (fallthrough)
+branch  3 taken 1
+    #####:  197:    if (a->origin != b->origin) return a->origin < b->origin ? -1 : 1;
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+    #####:  198:    return 0;
+        -:  199:}
+        -:  200:
+function merge_candidates called 119 returned 100% blocks executed 89%
+      119:  201:static int merge_candidates(ItemVector *target, CandidateVector *vectors)
+        -:  202:{
+      119:  203:    size_t total = 0;
+        -:  204:    size_t i;
+        -:  205:    ChartItem *all;
+      119:  206:    size_t at = 0;
+     1071:  207:    for (i = 0; i < 8; i++)
+branch  0 taken 952
+branch  1 taken 119 (fallthrough)
+      952:  208:        total += vectors[i].count;
+      119:  209:    if (total == 0)
+branch  0 taken 51 (fallthrough)
+branch  1 taken 68
+       51:  210:        return 0;
+       68:  211:    all = (ChartItem *)malloc(total * sizeof(*all));
+       68:  212:    if (all == NULL)
+branch  0 taken 0 (fallthrough)
+branch  1 taken 68
+    #####:  213:        return -1;
+      612:  214:    for (i = 0; i < 8; i++) {
+branch  0 taken 544
+branch  1 taken 68 (fallthrough)
+      544:  215:        memcpy(all + at, vectors[i].data, vectors[i].count * sizeof(*all));
+      544:  216:        at += vectors[i].count;
+        -:  217:    }
+       68:  218:    qsort(all, total, sizeof(*all), candidate_compare);
+call    0 returned 68
+      183:  219:    for (i = 0; i < total; i++) {
+branch  0 taken 115
+branch  1 taken 68 (fallthrough)
+      115:  220:        if (add_item(target, all[i]) < 0) {
+call    0 returned 115
+branch  1 taken 0 (fallthrough)
+branch  2 taken 115
+    #####:  221:            free(all);
+    #####:  222:            return -1;
+        -:  223:        }
+        -:  224:    }
+       68:  225:    free(all);
+       68:  226:    return 0;
+        -:  227:}
+        -:  228:
+function clear_candidates called 119 returned 100% blocks executed 100%
+      119:  229:static void clear_candidates(CandidateVector *vectors)
+        -:  230:{
+        -:  231:    size_t i;
+     1071:  232:    for (i = 0; i < 8; i++)
+branch  0 taken 952
+branch  1 taken 119 (fallthrough)
+      952:  233:        vectors[i].count = 0;
+      119:  234:}
+        -:  235:
+function free_candidates called 6 returned 100% blocks executed 100%
+        6:  236:static void free_candidates(CandidateVector *vectors)
+        -:  237:{
+        -:  238:    size_t i;
+       54:  239:    for (i = 0; i < 8; i++)
+branch  0 taken 48
+branch  1 taken 6 (fallthrough)
+       48:  240:        free(vectors[i].data);
+        6:  241:}
+        -:  242:
+function free_charts called 6 returned 100% blocks executed 100%
+        6:  243:static void free_charts(ItemVector *charts, size_t count)
+        -:  244:{
+        -:  245:    size_t i;
+       57:  246:    for (i = 0; i < count; i++)
+branch  0 taken 51
+branch  1 taken 6 (fallthrough)
+       51:  247:        free(charts[i].data);
+        6:  248:    free(charts);
+        6:  249:}
+        -:  250:
+function expected_append called 6 returned 100% blocks executed 100%
+        6:  251:static void expected_append(char *expected, size_t capacity, const char *text)
+        -:  252:{
+        6:  253:    size_t used = strlen(expected);
+       18:  254:    while (*text != '\0' && used + 1 < capacity)
+branch  0 taken 12 (fallthrough)
+branch  1 taken 6
+branch  2 taken 12
+branch  3 taken 0 (fallthrough)
+       12:  255:        expected[used++] = *text++;
+        6:  256:    expected[used] = '\0';
+        6:  257:}
+        -:  258:
+function expected_append_literal called 2 returned 100% blocks executed 76%
+        2:  259:static void expected_append_literal(char *expected, size_t capacity, const char *text)
+        -:  260:{
+        -:  261:    char escaped[8];
+        -:  262:    unsigned char c;
+        2:  263:    expected_append(expected, capacity, "'");
+call    0 returned 2
+       17:  264:    while (*text != '\0') {
+branch  0 taken 15
+branch  1 taken 2 (fallthrough)
+       15:  265:        c = (unsigned char)*text++;
+       15:  266:        if (c == '\n') expected_append(expected, capacity, "\\n");
+branch  0 taken 1 (fallthrough)
+branch  1 taken 14
+call    2 returned 1
+      14*:  267:        else if (c == '\r') expected_append(expected, capacity, "\\r");
+branch  0 taken 0 (fallthrough)
+branch  1 taken 14
+call    2 never executed
+      14*:  268:        else if (c == '\t') expected_append(expected, capacity, "\\t");
+branch  0 taken 0 (fallthrough)
+branch  1 taken 14
+call    2 never executed
+      14*:  269:        else if (c == '\\') expected_append(expected, capacity, "\\\\");
+branch  0 taken 0 (fallthrough)
+branch  1 taken 14
+call    2 never executed
+      14*:  270:        else if (c == '\'') expected_append(expected, capacity, "\\'");
+branch  0 taken 0 (fallthrough)
+branch  1 taken 14
+call    2 never executed
+       14:  271:        else if (c < 0x20 || c >= 0x7f) {
+branch  0 taken 14 (fallthrough)
+branch  1 taken 0
+branch  2 taken 0 (fallthrough)
+branch  3 taken 14
+    #####:  272:            (void)snprintf(escaped, sizeof(escaped), "\\x%02X", (unsigned)c);
+    #####:  273:            expected_append(expected, capacity, escaped);
+call    0 never executed
+        -:  274:        } else {
+       14:  275:            size_t used = strlen(expected);
+       14:  276:            if (used + 1 < capacity) {
+branch  0 taken 14 (fallthrough)
+branch  1 taken 0
+       14:  277:                expected[used] = (char)c;
+       14:  278:                expected[used + 1] = '\0';
+        -:  279:            }
+        -:  280:        }
+        -:  281:    }
+        2:  282:    expected_append(expected, capacity, "'");
+call    0 returned 2
+        2:  283:}
+        -:  284:
+function expected_add called 3 returned 100% blocks executed 60%
+        3:  285:static void expected_add(char *expected, size_t capacity, const GrammarSymbol *symbol)
+        -:  286:{
+        3:  287:    if (expected[0] != '\0')
+branch  0 taken 0 (fallthrough)
+branch  1 taken 3
+    #####:  288:        expected_append(expected, capacity, ", ");
+call    0 never executed
+        3:  289:    if (symbol->kind == SYM_LITERAL)
+branch  0 taken 2 (fallthrough)
+branch  1 taken 1
+        2:  290:        expected_append_literal(expected, capacity, symbol->text);
+call    0 returned 2
+        1:  291:    else if (symbol->token_kind == TOK_IDENT)
+branch  0 taken 1 (fallthrough)
+branch  1 taken 0
+        1:  292:        expected_append(expected, capacity, "$IDENT");
+call    0 returned 1
+    #####:  293:    else if (symbol->token_kind == TOK_STRING)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  294:        expected_append(expected, capacity, "$STRING");
+call    0 never executed
+        -:  295:    else
+    #####:  296:        expected_append(expected, capacity, "$TEXT");
+call    0 never executed
+        3:  297:}
+        -:  298:
+function recognize called 6 returned 100% blocks executed 80%
+        6:  299:int recognize(const Grammar *grammar, const Markup *markup, Recognition *result)
+        -:  300:{
+        -:  301:    WorkerPool pool;
+        -:  302:    ItemVector *charts;
+        -:  303:    CandidateVector candidates[8];
+        6:  304:    size_t chart_count = markup->count + 1;
+        -:  305:    size_t position;
+        6:  306:    int pool_ok = 0;
+        6:  307:    memset(result, 0, sizeof(*result));
+        6:  308:    memset(&pool, 0, sizeof(pool));
+        6:  309:    memset(candidates, 0, sizeof(candidates));
+        6:  310:    charts = (ItemVector *)calloc(chart_count, sizeof(*charts));
+        6:  311:    if (charts == NULL)
+branch  0 taken 0 (fallthrough)
+branch  1 taken 6
+    #####:  312:        return -1;
+        6:  313:    if (pool_start(&pool) != 0) {
+call    0 returned 6
+branch  1 taken 0 (fallthrough)
+branch  2 taken 6
+    #####:  314:        free_charts(charts, chart_count);
+call    0 never executed
+    #####:  315:        return -1;
+        -:  316:    }
+        6:  317:    pool_ok = 1;
+       12:  318:    for (position = 0; position < grammar->rules[grammar->start_rule].count; position++) {
+branch  0 taken 6
+branch  1 taken 6 (fallthrough)
+        6:  319:        ChartItem seed = {grammar->start_rule, position, 0, 0};
+        6:  320:        if (add_item(&charts[0], seed) < 0)
+call    0 returned 6
+branch  1 taken 0 (fallthrough)
+branch  2 taken 6
+    #####:  321:            goto failed;
+        -:  322:    }
+       57:  323:    for (position = 0; position <= markup->count; position++) {
+branch  0 taken 51
+branch  1 taken 6 (fallthrough)
+       51:  324:        size_t processed = 0;
+      125:  325:        while (processed < charts[position].count) {
+branch  0 taken 74
+branch  1 taken 51 (fallthrough)
+        -:  326:            ClosureWork work;
+       74:  327:            size_t snapshot = charts[position].count;
+       74:  328:            clear_candidates(candidates);
+call    0 returned 74
+       74:  329:            work.grammar = grammar;
+       74:  330:            work.charts = charts;
+       74:  331:            work.position = position;
+       74:  332:            work.candidates = candidates;
+       74:  333:            work.task_counts = result->tasks;
+       74:  334:            atomic_init(&work.failed, 0);
+       74:  335:            if (pool_run_range(&pool, processed, snapshot, closure_task, &work) != 0 ||
+call    0 returned 74
+branch  1 taken 74 (fallthrough)
+branch  2 taken 0
+       74:  336:                atomic_load(&work.failed))
+branch  0 taken 0 (fallthrough)
+branch  1 taken 74
+    #####:  337:                goto failed;
+       74:  338:            result->rounds++;
+       74:  339:            if (merge_candidates(&charts[position], candidates) != 0)
+call    0 returned 74
+branch  1 taken 0 (fallthrough)
+branch  2 taken 74
+    #####:  340:                goto failed;
+       74:  341:            processed = snapshot;
+        -:  342:        }
+       51:  343:        if (position < markup->count) {
+branch  0 taken 45 (fallthrough)
+branch  1 taken 6
+        -:  344:            ScanWork work;
+       45:  345:            clear_candidates(candidates);
+call    0 returned 45
+       45:  346:            work.grammar = grammar;
+       45:  347:            work.markup = markup;
+       45:  348:            work.current = &charts[position];
+       45:  349:            work.position = position;
+       45:  350:            work.candidates = candidates;
+       45:  351:            work.task_counts = result->tasks;
+       45:  352:            atomic_init(&work.failed, 0);
+       45:  353:            if (pool_run_range(&pool, 0, charts[position].count, scan_task, &work) != 0 ||
+call    0 returned 45
+branch  1 taken 45 (fallthrough)
+branch  2 taken 0
+       45:  354:                atomic_load(&work.failed))
+branch  0 taken 0 (fallthrough)
+branch  1 taken 45
+    #####:  355:                goto failed;
+       45:  356:            result->rounds++;
+       45:  357:            if (merge_candidates(&charts[position + 1], candidates) != 0)
+call    0 returned 45
+branch  1 taken 0 (fallthrough)
+branch  2 taken 45
+    #####:  358:                goto failed;
+        -:  359:        }
+        -:  360:    }
+        6:  361:    result->accepted = 0;
+        -:  362:    {
+        -:  363:        size_t i;
+       25:  364:        for (i = 0; i < charts[markup->count].count; i++) {
+branch  0 taken 22
+branch  1 taken 3 (fallthrough)
+       22:  365:            ChartItem item = charts[markup->count].data[i];
+       29:  366:            if (item.rule == grammar->start_rule && item.origin == 0 &&
+branch  0 taken 7 (fallthrough)
+branch  1 taken 15
+branch  2 taken 7 (fallthrough)
+branch  3 taken 0
+branch  4 taken 3 (fallthrough)
+branch  5 taken 4
+        7:  367:                next_symbol(grammar, &item) == NULL) {
+call    0 returned 7
+        3:  368:                result->accepted = 1;
+        3:  369:                break;
+        -:  370:            }
+        -:  371:        }
+        -:  372:    }
+        6:  373:    if (!result->accepted) {
+branch  0 taken 3 (fallthrough)
+branch  1 taken 3
+        3:  374:        size_t furthest = 0;
+       27:  375:        for (position = 0; position <= markup->count; position++) {
+branch  0 taken 24
+branch  1 taken 3 (fallthrough)
+        -:  376:            size_t i;
+       24:  377:            int active = 0;
+       28:  378:            for (i = 0; i < charts[position].count; i++)
+branch  0 taken 4
+branch  1 taken 24 (fallthrough)
+        4:  379:                if (next_symbol(grammar, &charts[position].data[i]) != NULL)
+call    0 returned 4
+branch  1 taken 4 (fallthrough)
+branch  2 taken 0
+        4:  380:                    active = 1;
+       24:  381:            if (active)
+branch  0 taken 4 (fallthrough)
+branch  1 taken 20
+        4:  382:                furthest = position;
+        -:  383:        }
+        3:  384:        result->error_position = furthest;
+        3:  385:        result->expected[0] = '\0';
+        6:  386:        for (position = 0; position < charts[furthest].count; position++) {
+branch  0 taken 3
+branch  1 taken 3 (fallthrough)
+        3:  387:            const GrammarSymbol *symbol = next_symbol(grammar, &charts[furthest].data[position]);
+call    0 returned 3
+        3:  388:            if (symbol != NULL && symbol->kind != SYM_NONTERM)
+branch  0 taken 3 (fallthrough)
+branch  1 taken 0
+branch  2 taken 3 (fallthrough)
+branch  3 taken 0
+        3:  389:                expected_add(result->expected, sizeof(result->expected), symbol);
+call    0 returned 3
+        -:  390:        }
+        3:  391:        if (result->expected[0] == '\0')
+branch  0 taken 0 (fallthrough)
+branch  1 taken 3
+    #####:  392:            (void)snprintf(result->expected, sizeof(result->expected), "markup token");
+        -:  393:    }
+        6:  394:    free_candidates(candidates);
+call    0 returned 6
+        6:  395:    if (pool_ok)
+branch  0 taken 6 (fallthrough)
+branch  1 taken 0
+        6:  396:        pool_stop(&pool);
+call    0 returned 6
+        6:  397:    free_charts(charts, chart_count);
+call    0 returned 6
+        6:  398:    return 0;
+        -:  399:
+    #####:  400:failed:
+    #####:  401:    free_candidates(candidates);
+call    0 never executed
+    #####:  402:    if (pool_ok)
+branch  0 never executed (fallthrough)
+branch  1 never executed
+    #####:  403:        pool_stop(&pool);
+call    0 never executed
+    #####:  404:    free_charts(charts, chart_count);
+call    0 never executed
+    #####:  405:    return -1;
+        -:  406:}

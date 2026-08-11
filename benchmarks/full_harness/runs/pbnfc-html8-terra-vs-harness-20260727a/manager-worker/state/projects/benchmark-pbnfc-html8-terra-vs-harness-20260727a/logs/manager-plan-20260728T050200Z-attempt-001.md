@@ -1,0 +1,1 @@
+Published `006-worker-pool`, targeting the eight-worker pool lifecycle foundation.

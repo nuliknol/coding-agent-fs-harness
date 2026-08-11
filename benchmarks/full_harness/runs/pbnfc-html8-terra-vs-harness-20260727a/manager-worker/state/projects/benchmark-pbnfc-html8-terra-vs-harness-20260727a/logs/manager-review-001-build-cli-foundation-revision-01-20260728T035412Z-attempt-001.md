@@ -1,0 +1,1 @@
+Checkpointed the CLI option contract at 66% and published `001-build-cli-foundation-revision-02` for the final diagnostics/location foundation criterion.

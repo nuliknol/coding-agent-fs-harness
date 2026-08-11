@@ -1,0 +1,14 @@
+project=benchmark-pbnfc-html8-terra-vs-harness-20260727a
+task_id=002-grammar-lexer-revision-01
+task_root=002-grammar-lexer
+captured_at=2026-07-28T04:09:14Z
+repository=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/repository
+git_head=a9e4d7df2194326a8233729e9abadeb199cd1658
+result_sha256=ca2c439a7f39a86481f01be8590976f103a380905e0a8cb86d1e7176682c49a7
+review_sha256=3d46f057f92b28cf60790c6a1d087eab7fd5b45b0dcaec642295e03d923ac622
+progress_percent=66
+improvement_percent=33
+verified_criterion=p002.grammar-lexer-terminals-references
+path=include/grammar_lexer.h	type=file	mode=600	sha256=2c86f1fce56c00ee64503eff9970185bf8e08bd5fa3e5036f6784f9fe474f59d
+path=src/grammar_lexer.c	type=file	mode=600	sha256=7416369dfcada45abb9f01bbcf56071f5702e2ac8622654e075ad626ecdb2108
+path=tests/grammar_lexer_smoke.c	type=file	mode=600	sha256=866c21ea1e474a29d064c9969267eed453d714ec2c557ec0b9b43a549a84952f

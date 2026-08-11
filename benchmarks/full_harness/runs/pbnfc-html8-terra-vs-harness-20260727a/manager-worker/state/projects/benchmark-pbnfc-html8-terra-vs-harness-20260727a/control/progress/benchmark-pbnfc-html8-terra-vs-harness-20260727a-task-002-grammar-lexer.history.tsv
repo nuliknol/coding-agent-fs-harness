@@ -1,0 +1,4 @@
+updated_at	task_id	decision	progress_percent	improvement_percent	review_sha256
+2026-07-28T04:04:53Z	002-grammar-lexer	CHECKPOINT	33	33	189e2f9df6c2645eb5b60ef8f87ab63634146f58051f72983868b2f9f4a0518c
+2026-07-28T04:09:14Z	002-grammar-lexer-revision-01	CHECKPOINT	66	33	3d46f057f92b28cf60790c6a1d087eab7fd5b45b0dcaec642295e03d923ac622
+2026-07-28T04:13:28Z	002-grammar-lexer-revision-02	ACCEPT	100	34	e81678f2197825438847573482fa2cebc3e4e72999c1e050162a080fd5598fec

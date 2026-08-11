@@ -1,0 +1,4 @@
+2026-07-28T14:30:13.798756Z ERROR codex_core::tools::router: error=apply_patch verification failed: Failed to find expected lines in /var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/repository/README.md:
+`REJECT offset=... line=... column=...
+expected=...` and exits 1. CLI, grammar, markup-lexing, validation, and
+resource failures print one `GRAMMAR_ERROR` line and exit 2.

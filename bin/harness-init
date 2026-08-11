@@ -2,6 +2,8 @@
 
 set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-mode.sh"
+harness_dispatch_mode "$SCRIPT_DIR/.." "${0##*/}" "$@"
 source "$SCRIPT_DIR/../lib/harness-common.sh"
 
 usage()
@@ -31,6 +33,7 @@ initialize_project_state
 
 log_event "PROJECT_INITIALIZED repository=$REPOSITORY env_file=$HARNESS_ENV_FILE"
 printf 'Initialized project %s\n' "$PROJECT"
+printf 'Harness mode: %s\n' "$HARNESS_MODE"
 printf 'Environment file: %s\n' "$HARNESS_ENV_FILE"
 printf 'Harness root: %s\n' "$HARNESS_ROOT"
 printf 'Project tmp dir: %s\n' "$PROJECT_TMP_DIR"

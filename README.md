@@ -1,9 +1,25 @@
-# Coding Agent Filesystem Harness v4.5 (for Codex CLI)
+# Coding Agent Filesystem Harness v5.0 (for Codex CLI)
 
-A local, event-driven two-agent (or three-agent) coding harness for Linux.
+A local, event-driven coding harness for Linux. One source tree now contains
+both execution modes, selected per project with `HARNESS_MODE=full` or
+`HARNESS_MODE=light`. The lowercase spelling `harness_mode` is accepted as a
+compatibility alias; new files should use the uppercase shell variable.
 
 ## Features
 
+- Unified modes: Full keeps durable multi-level decomposition and independent
+  review; Light keeps the lower-overhead persistent worker loop. Existing
+  Light files that define `DEVELOPMENT_POLICY` but omit `HARNESS_MODE` continue
+  to dispatch to Light, while existing Full files default to Full.
+- Proactive v2 decomposition: a fresh Terra planning/critic turn registers a
+  topologically ordered DAG with dependencies, deliverables, evidence,
+  focused validation, bounded paths/symbols, complexity, and worker routing.
+- Per-leaf model routing: deterministic low-complexity leaves go to Luna;
+  architecture, contracts, concurrency, ambiguity, and integration go to
+  Terra. Optional final Oracle audits default to Sol when enabled.
+- Bounded context capsules: every v2 assignment receives a concise generated
+  package of its contract, dependencies, allowed discovery surface, baseline,
+  and authoritative files.
 - Durable specification planning: the manager records an immutable project
   plan and advances only the first unfinished plan item.
 - Explicit task decomposition: each root has ordered, independently verifiable
@@ -43,14 +59,18 @@ A local, event-driven two-agent (or three-agent) coding harness for Linux.
 ## Process model
 
 ```text
+manager-decomposition-critic (Full v2, fresh Terra context)
+    -> drafts and criticizes the dependency DAG
+    -> registers only a schema-valid, topologically ordered plan
+
 manager-bootstrap
-    -> records the complete specification plan
-    -> publishes one task for the first plan item
+    -> reads the registered DAG (or records a legacy plan)
+    -> publishes one dependency-ready routed leaf
     -> manager exits
 
 worker-supervisor (local Bash, no tokens)
     -> detects task 001
-    -> launches a worker `codex exec`
+    -> launches Luna or Terra from the leaf route
     -> legacy mode: worker publishes one result and exits
     -> leaf-goal mode: worker may publish CONTINUE and exit
        -> launcher resumes the same logical goal
@@ -69,6 +89,33 @@ worker-supervisor
     -> detects the next task
     -> repeats
 ```
+
+## Selecting a mode
+
+Use the same top-level `bin/` commands for both modes:
+
+```bash
+export HARNESS_MODE="full"  # or "light"
+export HARNESS_HOME="/path/to/coding-agent-fs-harness"
+export HARNESS_BIN="$HARNESS_HOME/bin"
+```
+
+Full v2 additionally uses:
+
+```bash
+export HARNESS_WORKER_GOAL_MODE="1"
+export HARNESS_DECOMPOSITION_V2="1"
+export HARNESS_DECOMPOSITION_CRITIC_ENABLED="1"
+export HARNESS_MAX_LUNA_STRATEGY_FAILURES="2"
+export LUNA_WORKER_MODEL="gpt-5.6-luna"
+export TERRA_WORKER_MODEL="gpt-5.6-terra"
+```
+
+`templates/project-plan-template.tsv` documents the exact DAG schema and
+`templates/leaf-goal-task-template.md` documents the routed leaf contract.
+Run `bin/harness-decomposition-metrics ENV_FILE` to write and display cost and
+quality signals such as route counts, terminal leaf success, zero-gain turns,
+replans, verified items, and worker tokens per verified item.
 
 The interactive Codex TUI is not used for automated workers. A root task starts
 a fresh non-interactive worker thread. If the manager rejects it, the harness
@@ -330,8 +377,9 @@ Create a file such as `/path/to/repository/harness.env`:
 export PROJECT="sample-project"
 export REPOSITORY="/path/to/repository"
 export SPECIFICATION="$REPOSITORY/work/specification.md"
+export HARNESS_MODE="full"
 
-export HARNESS_HOME="/opt/coding-agent-fs-harness-v4.5"
+export HARNESS_HOME="/opt/coding-agent-fs-harness-v5"
 export HARNESS_BIN="$HARNESS_HOME/bin"
 export HARNESS_ROOT="$HOME/.local/state/coding-harness"
 # Optional but recommended for service launches when the Codex shebang runtime
@@ -344,8 +392,8 @@ MANAGER_CODEX_EXTRA_ARGS=(
   --config model_context_window=272000
   --config model_auto_compact_token_limit=240000
 )
-export MANAGER_MODEL="gpt-5.5"
-export MANAGER_FALLBACK_MODEL="gpt-5.5"
+export MANAGER_MODEL="gpt-5.6-terra"
+export MANAGER_FALLBACK_MODEL="gpt-5.6-terra"
 export MANAGER_REASONING_EFFORT="high"
 export MANAGER_SANDBOX="workspace-write"
 
@@ -355,10 +403,20 @@ WORKER_CODEX_EXTRA_ARGS=(
   --config model_context_window=272000
   --config model_auto_compact_token_limit=240000
 )
-export WORKER_MODEL="gpt-5.4-mini"
-export WORKER_FALLBACK_MODEL="gpt-5.4-mini"
+export WORKER_MODEL="gpt-5.6-luna"
+export WORKER_FALLBACK_MODEL="gpt-5.6-luna"
 export WORKER_REASONING_EFFORT="high"
 export WORKER_SANDBOX="workspace-write"
+
+export LUNA_WORKER_MODEL="gpt-5.6-luna"
+export LUNA_WORKER_REASONING_EFFORT="high"
+export TERRA_WORKER_MODEL="gpt-5.6-terra"
+export TERRA_WORKER_REASONING_EFFORT="high"
+
+export HARNESS_WORKER_GOAL_MODE="1"
+export HARNESS_DECOMPOSITION_V2="1"
+export HARNESS_DECOMPOSITION_CRITIC_ENABLED="1"
+export HARNESS_MAX_LUNA_STRATEGY_FAILURES="2"
 
 export HARNESS_POLL_SECONDS="2"
 export HARNESS_WAIT_SECONDS="300"
@@ -390,17 +448,17 @@ The file is trusted Bash input and is sourced by every command.
 ## First initialization
 
 ```bash
-/opt/coding-agent-fs-harness-v4.5/bin/harness-check-env /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v5/bin/harness-check-env /path/to/repository/harness.env
 ```
 
 ```bash
-/opt/coding-agent-fs-harness-v4.5/bin/harness-init /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v5/bin/harness-init /path/to/repository/harness.env
 ```
 
 Start the complete system:
 
 ```bash
-/opt/coding-agent-fs-harness-v4.5/bin/harness-start /path/to/repository/harness.env
+/opt/coding-agent-fs-harness-v5/bin/harness-start /path/to/repository/harness.env
 ```
 
 `harness-init` and `harness-start` serialize on the environment file path. A
@@ -409,10 +467,10 @@ supervisors.
 
 `harness-start` performs these operations:
 
-1. If no manager thread exists, run one manager bootstrap turn.
-2. Start the manager result watcher.
-3. Start the worker task watcher.
-4. Return to the shell.
+1. If v2 is enabled and no plan exists, run the fresh decomposition critic.
+2. If no manager thread exists, run one manager bootstrap turn.
+3. Start the manager result watcher.
+4. Start the worker task watcher and return to the shell.
 
 After that, no manual prompt pushes are required.
 Bootstrap records every specification phase or acceptance gate in an immutable
@@ -470,7 +528,7 @@ becoming a rapid retry loop or a false human-intervention request.
 ```bash
 export ORACLE_MODEL="gpt-5.6-sol"
 export MAX_ORACLE_RUNS="1"
-export ORACLE_FALLBACK_MODEL="gpt-5.5"
+export ORACLE_FALLBACK_MODEL="gpt-5.6-terra"
 export ORACLE_REASONING_EFFORT="xhigh"
 export ORACLE_SANDBOX="danger-full-access"
 ```

@@ -1,0 +1,15 @@
+project=benchmark-pbnfc-html8-terra-vs-harness-20260727a
+task_id=005-sequential-chart-revision-01
+task_root=005-sequential-chart
+captured_at=2026-07-28T04:56:52Z
+repository=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/repository
+git_head=a9e4d7df2194326a8233729e9abadeb199cd1658
+result_sha256=707241943e8625f21fbf2ea1d74c6d1886dbd11a384b3bf010e1559ebb9b753e
+review_sha256=280628a03f1c8977272d697cd7290a45d03794c2463040f40c1b50b9b59170b9
+progress_percent=66
+improvement_percent=33
+verified_criterion=p005.sequential-earley-recognition
+path=Makefile	type=file	mode=600	sha256=95e8b91ad8a7e3c3a1cc394f5356b8db8fb53538cba5269d4c26304030850e37
+path=include/recognizer.h	type=file	mode=600	sha256=6145e0161014b3b3883046f2db87d69a8fafb6f65c93598c665dfe10ed1e1e1c
+path=src/recognizer.c	type=file	mode=600	sha256=42ab13d0c7cd7a8444a72aa67ca262e8aafadb6790bf6c1d3cb436fe2bc6c700
+path=tests/sequential_recognizer_smoke.c	type=file	mode=600	sha256=fc65599cf0987bf3ee8579e22ad4d7c78f8a96828995f17f3b7ae66e2ce5e2b7

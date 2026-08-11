@@ -1,0 +1,7 @@
+metric	full-harness	light-harness
+external_grader_score	12/12	12/12
+c_header_files	15	11
+c_header_physical_lines	3851	1710
+project_test_files	12	10
+project_test_physical_lines	1999	100
+readme_physical_lines	159	83

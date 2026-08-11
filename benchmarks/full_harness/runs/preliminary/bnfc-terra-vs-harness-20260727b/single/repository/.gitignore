@@ -1,0 +1,3 @@
+/bin/
+/src/*.o
+/tests/.tmp/

@@ -1,4 +1,3 @@
-# One immutable specification phase or acceptance gate per line.
-# Fields are tab-separated: ITEM_ID<TAB>TITLE
-phase-01	First specification phase
-phase-02	Second specification phase
+node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	complexity_class	worker_route
+contract-01	-	-	Freeze the public contract	Compile-only consumer proves the declared API	make test-contract	include/api.h,tests/contract_smoke.c	api_open,api_close	HIGH	TERRA
+implementation-01	contract-01	contract-01	Implement the bounded contract behavior	Focused happy-path smoke passes	make test-implementation	src/api.c,tests/implementation_smoke.c	api_open,api_close	LOW	LUNA

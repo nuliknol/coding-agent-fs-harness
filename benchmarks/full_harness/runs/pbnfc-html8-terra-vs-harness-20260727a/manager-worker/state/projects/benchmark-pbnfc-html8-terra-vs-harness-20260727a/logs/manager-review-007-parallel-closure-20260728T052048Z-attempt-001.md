@@ -1,0 +1,1 @@
+Checkpointed thread-local candidates at 33%; the next leaf is parallel prediction/completion.

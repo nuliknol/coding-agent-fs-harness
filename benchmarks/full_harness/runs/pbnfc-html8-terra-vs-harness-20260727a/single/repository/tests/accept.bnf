@@ -1,0 +1,20 @@
+%start Document
+%token IDENT
+%token STRING
+%token TEXT
+Document ::= Nodes ;
+Nodes ::= Node Nodes | ;
+Node ::= Text | A | Div | Span | P | Section | Ul | Li | Strong | Em | Img ;
+Text ::= $TEXT ;
+Attributes ::= Attribute Attributes | ;
+Attribute ::= $IDENT '=' $STRING ;
+A ::= '<' 'a' Attributes '>' Nodes '<' '/' 'a' '>' ;
+Div ::= '<' 'div' Attributes '>' Nodes '<' '/' 'div' '>' ;
+Span ::= '<' 'span' Attributes '>' Nodes '<' '/' 'span' '>' ;
+P ::= '<' 'p' Attributes '>' Nodes '<' '/' 'p' '>' ;
+Section ::= '<' 'section' Attributes '>' Nodes '<' '/' 'section' '>' ;
+Ul ::= '<' 'ul' Attributes '>' Nodes '<' '/' 'ul' '>' ;
+Li ::= '<' 'li' Attributes '>' Nodes '<' '/' 'li' '>' ;
+Strong ::= '<' 'strong' Attributes '>' Nodes '<' '/' 'strong' '>' ;
+Em ::= '<' 'em' Attributes '>' Nodes '<' '/' 'em' '>' ;
+Img ::= '<' 'img' Attributes '/' '>' ;

@@ -1,0 +1,1 @@
+The focused parallel-closure smoke passed, showing repeatable acceptance and positive chart work from all eight workers.

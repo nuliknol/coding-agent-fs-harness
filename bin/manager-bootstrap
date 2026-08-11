@@ -25,6 +25,17 @@ last_message="$project_path/logs/manager-bootstrap-last-message.md"
 prompt_file="$project_path/control/manager-bootstrap.prompt.md"
 development_policy_file="$REPOSITORY/design/development-policy.txt"
 [[ -f "$development_policy_file" ]] || development_policy_file=""
+decomposition_file="$(project_decomposition_plan_file)"
+ready_plan_node=""
+plan_instruction=""
+if project_plan_exists; then
+	ready_plan_node="$(project_plan_first_ready_item 2>/dev/null || true)"
+	plan_instruction="The decomposition plan is already registered. Read PROJECT_PLAN_FILE and PROJECT_DECOMPOSITION_FILE completely. Publish the initial root for READY_PLAN_NODE; do not initialize or replace the plan."
+elif (( HARNESS_DECOMPOSITION_V2 == 1 )); then
+	plan_instruction="Create and critic-check a topologically ordered v2 decomposition DAG using the exact schema required by manager-init-project-plan, register it, then publish the first dependency-ready node."
+else
+	plan_instruction="First write a tab-separated project plan under PROJECT_TMP_DIR with one immutable line per specification phase or acceptance gate: ITEM_ID<TAB>TITLE. Include the full execution stack, not merely the first task. Register it with manager-init-project-plan."
+fi
 cat > "$prompt_file.tmp.$$" <<PROMPT
 Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and follow it.
 
@@ -36,13 +47,23 @@ SPECIFICATION=$SPECIFICATION
 REPOSITORY=$REPOSITORY
 DEVELOPMENT_POLICY_FILE=$development_policy_file
 WORKER_GOAL_MODE=$HARNESS_WORKER_GOAL_MODE
+DECOMPOSITION_V2=$HARNESS_DECOMPOSITION_V2
+PROJECT_PLAN_FILE=$(project_plan_definition_file)
+PROJECT_DECOMPOSITION_FILE=$decomposition_file
+READY_PLAN_NODE=$ready_plan_node
 
-This is the bootstrap turn. Read DEVELOPMENT_POLICY_FILE when present and inspect the complete specification. First write a tab-separated project plan under PROJECT_TMP_DIR with one immutable line per specification phase or acceptance gate: ITEM_ID<TAB>TITLE. Include the full execution stack, not merely the first task. Register it with manager-init-project-plan. Then inspect the repository, write one bounded initial assignment under PROJECT_TMP_DIR with stable Root-Criterion lines for every independently verifiable acceptance criterion, and publish it with manager-publish-task including the corresponding PROJECT_PLAN_ITEM_ID. Terminate after exactly one task is published. Every harness command must receive ENV_FILE as its first argument. Do not wait for the worker and do not run any polling command.
+This is the bootstrap turn. Read DEVELOPMENT_POLICY_FILE when present and inspect the complete specification. $plan_instruction Then inspect the repository, write one bounded initial assignment under PROJECT_TMP_DIR with stable Root-Criterion lines for every independently verifiable acceptance criterion, and publish it with manager-publish-task including the corresponding PROJECT_PLAN_ITEM_ID. Terminate after exactly one task is published. Every harness command must receive ENV_FILE as its first argument. Do not wait for the worker and do not run any polling command.
 PROMPT
 if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
 
 Worker leaf-goal mode is enabled. The initial assignment must select its first Root-Criterion as Target-Criterion and contain exactly one nonempty line for each of: Execution-Mode: LEAF_GOAL, Goal-ID, Target-Criterion, Goal-Success-Evidence, Focused-Validation, Allowed-Scope, Baseline-Boundary, and Hard-Block-Conditions. Give the goal a stable identifier. Success evidence and validation must be independently checkable; allowed scope and genuine hard-block conditions must be explicit. The worker may span multiple internal turns, but the manager will receive only its terminal result.
+PROMPT
+fi
+if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
+	cat >> "$prompt_file.tmp.$$" <<PROMPT
+
+V2 decomposition is mandatory. The task must correspond to the exact dependency-ready DAG node and copy its Depends-On, Deliverable, Goal-Success-Evidence, Focused-Validation, Allowed-Scope, Required-Symbols, Complexity-Class, and Worker-Route values exactly. It must also contain one line each for Leaf-Type, Context-Paths, Architecture-Decisions, Expected-Max-Implementation-Files, and Expected-Max-Worker-Turns. A LUNA leaf must be LOW complexity, use only LOCAL_IMPLEMENTATION, MECHANICAL_API, FOCUSED_BUG, or DOCUMENTATION, set Architecture-Decisions: NONE, expect at most five implementation files and three worker turns, and require no unresolved contract or integration judgment. Route contract design, architecture, concurrency, ambiguity, and integration to TERRA. The publisher rejects hidden dependency, route, scope, and evidence mismatches.
 PROMPT
 fi
 if codex_model_requires_narrow_prompt "$MANAGER_MODEL"; then

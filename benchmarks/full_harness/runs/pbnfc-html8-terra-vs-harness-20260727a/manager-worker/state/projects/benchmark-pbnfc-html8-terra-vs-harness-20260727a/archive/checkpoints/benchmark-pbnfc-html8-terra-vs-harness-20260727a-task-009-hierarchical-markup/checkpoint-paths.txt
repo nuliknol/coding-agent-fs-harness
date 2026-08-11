@@ -1,0 +1,2 @@
+tests/hierarchical_markup_smoke.c
+Makefile

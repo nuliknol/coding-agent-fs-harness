@@ -1,0 +1,15 @@
+# coding-harness-project-plan-v1
+# project=benchmark-pbnfc-html8-terra-vs-harness-20260727a
+# specification=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/repository/SPECIFICATION.md
+# specification_sha256=86d2588cb2631957e68cc2629e64d4f31e5a55e398e90d71fbef50679af8c6ae
+# created_at=2026-07-28T03:47:12Z
+001	Strict pthread build skeleton, CLI contract, locations, and diagnostics.
+002	BNF lexer with directives, token kinds, escapes, alternatives, and epsilon.
+003	Grammar AST, ownership-safe storage, symbol resolution, and validation.
+004	Markup lexer for compact tags, text, identifiers, and quoted attributes.
+005	Sequential chart/item semantics serving as a correctness baseline.
+006	Persistent eight-thread pool, generation protocol, and clean shutdown.
+007	Parallel prediction/completion rounds with thread-local candidate buffers.
+008	Parallel scanning, deterministic merge/deduplication, and worker statistics.
+009	Hierarchical HTML grammar integration, rejection diagnostics, and stress cases.
+010	Strict full build, regression suite, concurrency checks, README, and final validation.

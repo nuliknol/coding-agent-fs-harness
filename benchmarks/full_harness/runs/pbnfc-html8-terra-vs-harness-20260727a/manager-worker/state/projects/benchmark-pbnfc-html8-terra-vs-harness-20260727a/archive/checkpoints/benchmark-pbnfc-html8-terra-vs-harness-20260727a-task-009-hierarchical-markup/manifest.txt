@@ -1,0 +1,13 @@
+project=benchmark-pbnfc-html8-terra-vs-harness-20260727a
+task_id=009-hierarchical-markup
+task_root=009-hierarchical-markup
+captured_at=2026-07-28T05:43:26Z
+repository=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/repository
+git_head=a9e4d7df2194326a8233729e9abadeb199cd1658
+result_sha256=6070408fcfb90a46aa2ab550ac0667f4f37580315f95e546fe2a186cd5f07c9e
+review_sha256=ba206038422747a9980a76806901c986a2f29a704f366891ddc0a24d8d639d4a
+progress_percent=33
+improvement_percent=33
+verified_criterion=p009.hierarchical-markup-acceptance
+path=tests/hierarchical_markup_smoke.c	type=file	mode=600	sha256=201d03fe5b19a952320cfb27e49a59af186e2e12f166357a369b7bb4c49da00e
+path=Makefile	type=file	mode=600	sha256=d63b035d05d01551deac7368ce0b2950aef92cb505a820b0c0f9c0fed915d0ea

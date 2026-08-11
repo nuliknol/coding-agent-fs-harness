@@ -29,6 +29,8 @@ execution_role=worker
 execution_model="$WORKER_MODEL"
 execution_fallback_model="$WORKER_FALLBACK_MODEL"
 execution_mode=WORKER
+worker_route=LEGACY
+leaf_expected_turns=0
 if assignment_is_manager_remediation "$ready"; then
 	manager_remediation=1
 	execution_role=manager_remediation
@@ -38,6 +40,26 @@ if assignment_is_manager_remediation "$ready"; then
 	require_manager_codex
 	write_manager_snapshot
 else
+	if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
+		worker_route="$(require_single_metadata_value "$ready" Worker-Route 'v2 worker assignment')"
+		leaf_expected_turns="$(require_single_metadata_value "$ready" Expected-Max-Worker-Turns 'v2 worker assignment')"
+		[[ "$leaf_expected_turns" =~ ^[1-9][0-9]*$ ]] || die 'invalid v2 Expected-Max-Worker-Turns'
+		case "$worker_route" in
+			LUNA)
+				execution_role=worker_luna
+				execution_model="$LUNA_WORKER_MODEL"
+				execution_fallback_model="$TERRA_WORKER_MODEL"
+				execution_mode=LUNA_LEAF
+				;;
+			TERRA)
+				execution_role=worker_terra
+				execution_model="$TERRA_WORKER_MODEL"
+				execution_fallback_model="$MANAGER_FALLBACK_MODEL"
+				execution_mode=TERRA_LEAF
+				;;
+			*) die "invalid v2 Worker-Route: $worker_route" ;;
+		esac
+	fi
 	require_worker_codex
 	write_worker_snapshot
 fi
@@ -64,6 +86,12 @@ root_assignment_file="$(task_root_assignment_file "$task_root")"
 starting_progress="$(task_progress_percent "$task_root")"
 development_policy_file="$REPOSITORY/design/development-policy.txt"
 [[ -f "$development_policy_file" ]] || development_policy_file=""
+context_capsule_file="$(task_context_capsule_file "$task_id")"
+if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
+	[[ -f "$context_capsule_file" ]] || die "v2 context capsule is missing: $context_capsule_file"
+else
+	context_capsule_file=""
+fi
 trace_event WORKER_TASK_CLAIMED "task_id=$task_id" "session=$session" "task_file=$task_file"
 
 worker_thread_file="$(worker_thread_state_file "$task_root")"
@@ -154,6 +182,7 @@ ROOT_ASSIGNMENT_FILE=$root_assignment_file
 PROGRESS_FILE=$progress_file
 STARTING_PROGRESS_PERCENT=$starting_progress
 DEVELOPMENT_POLICY_FILE=$development_policy_file
+CONTEXT_CAPSULE_FILE=$context_capsule_file
 SESSION=$session
 WORKER_CONTEXT_MODE=$worker_context_mode
 WORKER_CONTEXT_REASON=$worker_context_reason
@@ -171,7 +200,7 @@ GOAL_ITERATION_LEDGER_FILE=$goal_ledger
 GOAL_PROCESS_MAX_FIXES=$HARNESS_GOAL_PROCESS_MAX_FIXES
 GOAL_PROCESS_MAX_SMOKE_RUNS=$HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS
 
-The task is already claimed by this launcher. Read DEVELOPMENT_POLICY_FILE when present, then ROOT_ASSIGNMENT_FILE, PROGRESS_FILE, and TASK_FILE completely. The current files are authoritative even when this turn resumes an earlier worker conversation. Preserve verified work and continue from STARTING_PROGRESS_PERCENT rather than reimplementing the root task from zero. Implement exactly the remaining bounded assignment, validate only the developed feature according to the prototype policy, write any scratch files and the result report under PROJECT_TMP_DIR, publish the result with worker-complete-task, and terminate. Do not wait for another task. Do not create, stage, or commit Git changes.
+The task is already claimed by this launcher. Read DEVELOPMENT_POLICY_FILE when present, then CONTEXT_CAPSULE_FILE when present, ROOT_ASSIGNMENT_FILE, PROGRESS_FILE, and TASK_FILE completely. The current files are authoritative even when this turn resumes an earlier worker conversation. Preserve verified work and continue from STARTING_PROGRESS_PERCENT rather than reimplementing the root task from zero. Implement exactly the remaining bounded assignment, validate only the developed feature according to the prototype policy, write any scratch files and the result report under PROJECT_TMP_DIR, publish the result with worker-complete-task, and terminate. Do not wait for another task. Do not create, stage, or commit Git changes.
 PROMPT
 if (( manager_remediation == 1 )); then
 	remediation_scope="$(require_single_metadata_value "$task_file" Remediation-Scope 'manager remediation assignment')"
@@ -393,6 +422,33 @@ while true; do
 			goal_movement="$(kv_file_value "$(goal_continue_marker_file "$task_id")" movement 2>/dev/null || printf unknown)"
 			strategy_review="$(kv_file_value "$goal_state" strategy_review_required)"
 			context_state="$(kv_file_value "$goal_state" thread_context)"
+			if (( HARNESS_DECOMPOSITION_V2 == 1 && goal_iteration_after >= leaf_expected_turns )); then
+				handoff="$PROJECT_TMP_DIR/$base.declared-turn-limit-handoff.$$"
+				{
+					printf '# Worker Task Result\n\n'
+					printf 'Task-ID: %s\n' "$task_id"
+					printf 'Status: COMPLETED\n'
+					printf 'Goal-ID: %s\n' "$goal_id"
+					printf 'Goal-Outcome: NEEDS_DECOMPOSITION\n\n'
+					printf '## Summary\n\nThe routed leaf reached its declared maximum of %s durable worker turns without a terminal completion.\n\n' "$leaf_expected_turns"
+					printf '## Modified files\n\nWorkspace changes are preserved for independent manager inspection.\n\n'
+					printf '## Implemented behavior\n\nNo additional implementation claim is synthesized by the harness.\n\n'
+					printf '## Validation performed\n\nSee the assignment, context capsule, JSONL traces, and goal iteration ledger.\n\n'
+					printf '## Deviations from assignment\n\nThe leaf exceeded its manager-declared strategy budget.\n\n'
+					printf '## Remaining concerns\n\nThe manager must split the leaf further or choose a stronger route with fresh context.\n\n'
+					printf '## Worker assessment\n\nNEEDS_DECOMPOSITION due to the enforced routed-leaf turn budget.\n'
+				} > "$handoff"
+				chmod 600 "$handoff"
+				"$HARNESS_BIN/worker-complete-task" "$HARNESS_ENV_FILE" "$task_id" "$session" "$handoff" >/dev/null
+				rm -f "$handoff"
+				if completion_committed; then
+					cleanup_heartbeat
+					log_event "WORKER_GOAL_DECLARED_TURN_LIMIT task=$task_id goal=$goal_id route=$worker_route turns=$goal_iteration_after limit=$leaf_expected_turns"
+					printf 'Worker goal %s requested decomposition at its declared %s-turn limit.\n' "$goal_id" "$leaf_expected_turns"
+					exit 0
+				fi
+				die 'failed to publish routed-leaf turn-limit handoff'
+			fi
 			if [[ "$context_state" == rotation-requested ]]; then
 				worker_resume_thread_id=""
 				goal_state_set "$goal_state" thread_context rotated
@@ -446,6 +502,10 @@ while true; do
 		if (( fallback_stage == 1 )) && [[ "$execution_fallback_model" != "$current_model" ]]; then
 			fallback_stage=2
 			current_model="$execution_fallback_model"
+			if (( HARNESS_DECOMPOSITION_V2 == 1 )) && [[ "$current_model" == "$TERRA_WORKER_MODEL" ]]; then
+				execution_role=worker_terra
+				execution_mode=TERRA_FALLBACK
+			fi
 			attempt=$((attempt + 1))
 			log_event "WORKER_MODEL_FALLBACK task=$task_id session=$session classification=$classification model=$current_model"
 			continue

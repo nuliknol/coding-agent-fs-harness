@@ -1,0 +1,10 @@
+make: Entering directory '/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/repository'
+rm -f src/main.o src/diagnostics.o src/grammar.o src/markup.o src/pool.o src/recognizer.o bin/pbnfc
+cc -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic -pthread -Iinclude --coverage   -c -o src/main.o src/main.c
+cc -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic -pthread -Iinclude --coverage   -c -o src/diagnostics.o src/diagnostics.c
+cc -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic -pthread -Iinclude --coverage   -c -o src/grammar.o src/grammar.c
+cc -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic -pthread -Iinclude --coverage   -c -o src/markup.o src/markup.c
+cc -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic -pthread -Iinclude --coverage   -c -o src/pool.o src/pool.c
+cc -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic -pthread -Iinclude --coverage   -c -o src/recognizer.o src/recognizer.c
+cc -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic -pthread -Iinclude --coverage -o bin/pbnfc src/main.o src/diagnostics.o src/grammar.o src/markup.o src/pool.o src/recognizer.o -pthread --coverage
+make: Leaving directory '/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/repository'

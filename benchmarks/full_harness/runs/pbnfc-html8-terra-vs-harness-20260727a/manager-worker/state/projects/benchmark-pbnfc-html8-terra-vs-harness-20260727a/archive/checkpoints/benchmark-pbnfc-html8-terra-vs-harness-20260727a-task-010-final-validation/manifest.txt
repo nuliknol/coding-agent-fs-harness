@@ -1,0 +1,12 @@
+project=benchmark-pbnfc-html8-terra-vs-harness-20260727a
+task_id=010-final-validation
+task_root=010-final-validation
+captured_at=2026-07-28T05:54:28Z
+repository=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/repository
+git_head=a9e4d7df2194326a8233729e9abadeb199cd1658
+result_sha256=95be3dcc7cf4e184cd3300f06d2b55164e1f143b2150192de11edb93bc0c367a
+review_sha256=2b253993b1e1e6ac5143b6ba94ceba7373a5dcbc636aaba2099ba407a30f422e
+progress_percent=0
+improvement_percent=0
+verified_increment=p010.readme-contract-core-content
+path=README.md	type=file	mode=600	sha256=f56d7fa2a1061ef0dd7e317dbe5c1cc3a5fcebfc015ac6b28b10ea5d521c0106

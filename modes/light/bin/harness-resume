@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 1 ]] || die "Usage: ${0##*/} ENV_FILE"
+load_harness_env "$1"
+ensure_project
+
+dir="$(project_dir)"
+lock="$dir/control/supervisor.lock"
+if supervisor_running; then
+	die "supervisor is running; run harness-stop first: $HARNESS_ENV_FILE"
+fi
+exec 9>"$lock"
+flock -n 9 || die "supervisor lock is retained; run harness-stop first: $lock"
+
+status="$(state_value status)"
+phase="$(state_value phase)"
+cycle="$(state_value cycle)"
+[[ "$cycle" =~ ^[0-9]+$ ]] || die "invalid harness cycle: $cycle"
+[[ "$status" == PAUSED ]] ||
+	die "resume requires a PAUSED harness; current state is $status/$phase at cycle $cycle"
+
+case "$phase" in
+	ORACLE_LIMIT_REACHED)
+		completed_oracle_runs="$(oracle_audit_run_count)"
+		if (( MAX_ORACLE_RUNS <= completed_oracle_runs )); then
+			die "Oracle limit remains $MAX_ORACLE_RUNS after $completed_oracle_runs completed runs; increase MAX_ORACLE_RUNS first"
+		fi
+		write_state ACTIVE ORACLE_REQUIRED "$cycle"
+		log_event "ORACLE_LIMIT_RESUMED cycle=$cycle completed_runs=$completed_oracle_runs new_limit=$MAX_ORACLE_RUNS"
+		;;
+	REVIEW_LIMIT_REACHED)
+		if (( HARNESS_MAX_MANAGER_REVIEWS != 0 &&
+			HARNESS_MAX_MANAGER_REVIEWS <= cycle )); then
+			die "manager-review limit remains $HARNESS_MAX_MANAGER_REVIEWS at cycle $cycle; increase HARNESS_MAX_MANAGER_REVIEWS or set it to 0 first"
+		fi
+		# Terra published this cycle's addendum before the emergency limit
+		# paused the loop, so the acknowledged transition returns it to Luna.
+		write_state ACTIVE WORKER_REQUIRED "$cycle"
+		log_event "REVIEW_LIMIT_RESUMED cycle=$cycle new_limit=$HARNESS_MAX_MANAGER_REVIEWS"
+		;;
+	POST_ORACLE_REVIEW_LIMIT_REACHED)
+		completed_post_reviews="$(post_oracle_remediation_value reviews_completed 2>/dev/null || true)"
+		[[ "$completed_post_reviews" =~ ^[0-9]+$ ]] ||
+			die 'post-Oracle remediation marker is missing or invalid'
+		if (( HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE == 0 ||
+			HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE <= completed_post_reviews )); then
+			die "post-Oracle manager-review limit remains $HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE after $completed_post_reviews reviews; increase HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE first"
+		fi
+		write_state ACTIVE WORKER_REQUIRED "$cycle"
+		log_event "POST_ORACLE_REVIEW_LIMIT_RESUMED cycle=$cycle completed=$completed_post_reviews new_limit=$HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE"
+		;;
+	NO_SOURCE_PROGRESS)
+		pause_fingerprint="$(awk 'NR == 1 { print; exit }' \
+			"$dir/control/operator-pause-fingerprint" 2>/dev/null || true)"
+		pause_count="$(awk 'NR == 1 { print; exit }' \
+			"$dir/control/operator-pause-count" 2>/dev/null || true)"
+		current_fingerprint="$(repository_worktree_fingerprint)"
+		[[ "$pause_count" =~ ^[0-9]+$ ]] || pause_count=0
+		if [[ "$current_fingerprint" == "$pause_fingerprint" ]] &&
+			(( HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS != 0 &&
+			HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS <= pause_count )); then
+			die "repository is unchanged and no-source-progress limit remains $HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS after $pause_count deliveries; correct the repository, raise the limit, or reset worker context first"
+		fi
+		repository_changed=0
+		if [[ "$current_fingerprint" != "$pause_fingerprint" ]]; then
+			repository_changed=1
+			printf '0\n' > "$dir/control/no-source-progress-count"
+			chmod 600 "$dir/control/no-source-progress-count"
+		fi
+		if [[ -f "$dir/control/operator-required.md" ]]; then
+			mv "$dir/control/operator-required.md" \
+				"$dir/reviews/operator-pause-no-source-progress-${cycle}-${pause_count}.md"
+		fi
+		rm -f "$dir/control/operator-pause-kind" \
+			"$dir/control/operator-pause-fingerprint" \
+			"$dir/control/operator-pause-count"
+		# Luna already delivered this cycle; resume at its pending Terra review.
+		write_state ACTIVE REVIEW_REQUIRED "$cycle"
+		log_event "NO_SOURCE_PROGRESS_RESUMED cycle=$cycle previous_count=$pause_count new_limit=$HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS repository_changed=$repository_changed"
+		;;
+	CONVERGENCE_LIMIT_REACHED)
+		pause_fingerprint="$(awk 'NR == 1 { print; exit }' \
+			"$dir/control/operator-pause-fingerprint" 2>/dev/null || true)"
+		pause_count="$(awk 'NR == 1 { print; exit }' \
+			"$dir/control/operator-pause-count" 2>/dev/null || true)"
+		current_fingerprint="$(repository_worktree_fingerprint)"
+		[[ "$pause_count" =~ ^[0-9]+$ ]] || pause_count=0
+		if [[ "$current_fingerprint" == "$pause_fingerprint" ]] &&
+			(( HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS != 0 &&
+			HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS <= pause_count )); then
+			die "repository is unchanged and convergence limit remains $HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS after $pause_count audits; correct the repository, raise the limit, or reset worker context first"
+		fi
+		repository_changed=0
+		[[ "$current_fingerprint" == "$pause_fingerprint" ]] || repository_changed=1
+		printf '%s\n' "$cycle" > \
+			"$dir/control/convergence-circuit-reset-cycle"
+		chmod 600 "$dir/control/convergence-circuit-reset-cycle"
+		if [[ -f "$dir/control/operator-required.md" ]]; then
+			mv "$dir/control/operator-required.md" \
+				"$dir/reviews/operator-pause-convergence-${cycle}-${pause_count}.md"
+		fi
+		rm -f "$dir/control/operator-pause-kind" \
+			"$dir/control/operator-pause-fingerprint" \
+			"$dir/control/operator-pause-count"
+		write_state ACTIVE WORKER_REQUIRED "$cycle"
+		log_event "CONVERGENCE_LIMIT_RESUMED cycle=$cycle previous_count=$pause_count new_limit=$HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS repository_changed=$repository_changed"
+		;;
+	NEEDS_OPERATOR)
+		die "project still needs operator input; inspect $dir/control/operator-required.md and use the applicable repair command"
+		;;
+	*)
+		die "unsupported paused harness phase for resume: $phase"
+		;;
+esac
+
+printf 'Resumed durable state to %s/%s at cycle %s.\n' \
+	"$(state_value status)" "$(state_value phase)" "$(state_value cycle)"
+printf 'Run harness-start %s to launch the supervisor.\n' "$HARNESS_ENV_FILE"

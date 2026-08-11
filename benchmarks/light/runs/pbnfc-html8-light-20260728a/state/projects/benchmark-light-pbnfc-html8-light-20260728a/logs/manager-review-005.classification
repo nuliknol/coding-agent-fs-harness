@@ -1,0 +1,7 @@
+classification=success
+exit_status=0
+idle_timeout=0
+partial_edits=0
+jsonl=/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/state/projects/benchmark-light-pbnfc-html8-light-20260728a/logs/manager-review-005.jsonl
+stderr=/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/state/projects/benchmark-light-pbnfc-html8-light-20260728a/logs/manager-review-005.stderr.log
+last_message=/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/state/projects/benchmark-light-pbnfc-html8-light-20260728a/outputs/manager-review-005.md

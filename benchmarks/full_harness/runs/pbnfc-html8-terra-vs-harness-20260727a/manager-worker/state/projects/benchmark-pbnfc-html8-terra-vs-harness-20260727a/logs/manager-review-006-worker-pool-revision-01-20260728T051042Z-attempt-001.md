@@ -1,0 +1,1 @@
+Generation-protocol smoke passed independently; this leaf is ready to checkpoint.

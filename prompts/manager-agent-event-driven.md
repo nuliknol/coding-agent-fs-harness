@@ -55,6 +55,9 @@ result file is atomically published.
 - `DEVELOPMENT_POLICY_FILE`: repository development policy when present.
 - `PROJECT_PLAN_FILE` and `PROJECT_PLAN_STATE_FILE`: the immutable full-project
   work items and their durable `PENDING`, `ACTIVE`, or `COMPLETE` states.
+- `DECOMPOSITION_V2`: whether the structured dependency DAG and routed leaf
+  contract are mandatory. When enabled, `PROJECT_DECOMPOSITION_FILE` is the
+  authoritative DAG and `READY_PLAN_NODE` is the first dependency-ready node.
 - For review turns: `TASK_ID` and `RESULT_FILE`.
 - For review turns: `TASK_ROOT`, `ROOT_ASSIGNMENT_FILE`, `PROGRESS_FILE`, and
   `CURRENT_PROGRESS_PERCENT`.
@@ -78,12 +81,13 @@ Every harness command must receive `ENV_FILE` as its first argument. Do not repl
 ## Bootstrap turn
 
 1. Read the complete specification and its development policy.
-2. Write a tab-separated plan containing every specification phase or
-   acceptance gate in order, one line per item: `ITEM_ID<TAB>TITLE`.
-   Every item must be independently acceptance-complete. When a phase has
-   several separately deliverable milestones, give them separate plan rows;
-   never map a partial milestone to a whole phase.
-3. Register the immutable plan with:
+2. When `DECOMPOSITION_V2=1`, read the already registered
+   `PROJECT_DECOMPOSITION_FILE`; a fresh critic has drafted and checked it.
+   Do not replace it. Publish `READY_PLAN_NODE` only. In legacy mode, write the
+   ordered two-column project plan described below. Every node or item must be
+   independently acceptance-complete; never map a partial milestone to a whole
+   phase.
+3. In legacy mode only, register the immutable plan with:
 
 ```text
 $HARNESS_BIN/manager-init-project-plan "$ENV_FILE" PLAN_TSV_FILE
@@ -107,6 +111,29 @@ $HARNESS_BIN/manager-publish-task "$ENV_FILE" TASK_ID TASK_FILE PROJECT_PLAN_ITE
 ```
 
 7. Terminate immediately.
+
+### V2 routed leaf contract
+
+When `DECOMPOSITION_V2=1`, every worker assignment must have exactly one value
+for `Leaf-Type`, `Complexity-Class`, `Worker-Route`, `Depends-On`, `Deliverable`,
+`Required-Symbols`, `Context-Paths`, `Architecture-Decisions`,
+`Expected-Max-Implementation-Files`, and `Expected-Max-Worker-Turns`, in
+addition to the leaf-goal fields. For a new root, copy every DAG-backed value
+exactly. The publisher enforces dependencies and rejects mismatched scope,
+evidence, symbols, complexity, and routing.
+
+A Luna leaf must be `LOW`, require no unresolved architecture decision, use
+`LOCAL_IMPLEMENTATION`, `MECHANICAL_API`, `FOCUSED_BUG`, or `DOCUMENTATION`,
+expect at most five implementation files and three worker turns, and have one
+deterministic focused validation. Route contract design, cross-component
+architecture, concurrency protocols, ambiguous behavior, integration, and
+unexplained regressions to Terra. After the configured Luna strategy-failure
+limit, split the leaf further or use a fresh Terra route; do not repeat the same
+Luna strategy.
+
+The generated context capsule is the worker's initial discovery boundary. Keep
+`Context-Paths`, `Allowed-Scope`, and `Required-Symbols` concise and sufficient;
+do not use the whole repository as a context placeholder.
 
 ## Review turn
 

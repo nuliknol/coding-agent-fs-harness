@@ -42,6 +42,8 @@ project_plan_all_complete && die 'project plan is already complete'
 thread_id="$(kv_file_value "$thread_file" thread_id)"
 plan_definition="$(project_plan_definition_file)"
 plan_state="$(project_plan_state_file)"
+decomposition_definition="$(project_decomposition_plan_file)"
+ready_plan_node="$(project_plan_first_ready_item 2>/dev/null || true)"
 development_policy_file="$REPOSITORY/design/development-policy.txt"
 [[ -f "$development_policy_file" ]] || development_policy_file=""
 prompt_file="$project_path/control/manager-plan-next-task.prompt.md"
@@ -104,8 +106,11 @@ ACTIVE_FIRST_UNMET_CRITERION=$active_first_unmet_criterion
 ACTIVE_REPAIR_GOAL_ID=$active_repair_goal_id
 ACTIVE_REPAIR_GOAL_TASK=$active_repair_goal_task
 WORKER_GOAL_MODE=$HARNESS_WORKER_GOAL_MODE
+DECOMPOSITION_V2=$HARNESS_DECOMPOSITION_V2
+PROJECT_DECOMPOSITION_FILE=$decomposition_definition
+READY_PLAN_NODE=$ready_plan_node
 
-Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and follow it. Read DEVELOPMENT_POLICY_FILE when present, then read PROJECT_PLAN_FILE and PROJECT_PLAN_STATE_FILE completely. If ACTIVE_TASK_ROOT is set, also read ACTIVE_PROGRESS_FILE, ACTIVE_CRITERIA_FILE, ACTIVE_CRITERIA_DEFINITION_FILE, ACTIVE_CRITERION_DECOMPOSITION_FILE, ACTIVE_MANAGER_REMEDIATION_LEDGER, and ACTIVE_HARD_BLOCK_LEDGER when present, then publish one newly bounded continuation of that same root with Target-Criterion equal to ACTIVE_FIRST_UNMET_CRITERION. Manager-remediation ledger entries and their checkpoint artifacts are separately attributed baseline prerequisites, not feature-worker implementation changes; a scope acceptance leaf must disclose and validate them but must evaluate the feature-owned delta without charging those paths to the ordinary worker. Direct follow-up fixes causally exposed by a recorded manager remediation retain the same baseline-remediation provenance. An ordinary worker exclusive-file, forbidden-file, or ownership rule does not require human approval for such a bounded repair when observable product behavior and public contracts remain unchanged. Otherwise select the first PENDING item in specification order and publish a new root whose independently verifiable criteria are declared with stable Root-Criterion lines. Inspect the specification and actual repository state, write exactly one bounded task under PROJECT_TMP_DIR, and publish it with manager-publish-task including its PROJECT_PLAN_ITEM_ID. Preserve completed implementation and begin at the first unmet leaf criterion. Then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or repeat completed plan items.
+Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and follow it. Read DEVELOPMENT_POLICY_FILE when present, then read PROJECT_PLAN_FILE and PROJECT_PLAN_STATE_FILE completely. If ACTIVE_TASK_ROOT is set, also read ACTIVE_PROGRESS_FILE, ACTIVE_CRITERIA_FILE, ACTIVE_CRITERIA_DEFINITION_FILE, ACTIVE_CRITERION_DECOMPOSITION_FILE, ACTIVE_MANAGER_REMEDIATION_LEDGER, and ACTIVE_HARD_BLOCK_LEDGER when present, then publish one newly bounded continuation of that same root with Target-Criterion equal to ACTIVE_FIRST_UNMET_CRITERION. Manager-remediation ledger entries and their checkpoint artifacts are separately attributed baseline prerequisites, not feature-worker implementation changes; a scope acceptance leaf must disclose and validate them but must evaluate the feature-owned delta without charging those paths to the ordinary worker. Direct follow-up fixes causally exposed by a recorded manager remediation retain the same baseline-remediation provenance. An ordinary worker exclusive-file, forbidden-file, or ownership rule does not require human approval for such a bounded repair when observable product behavior and public contracts remain unchanged. Otherwise publish READY_PLAN_NODE, which is the first dependency-ready pending item; never publish a node whose dependencies are incomplete. Declare independently verifiable criteria with stable Root-Criterion lines. Inspect the specification and actual repository state, write exactly one bounded task under PROJECT_TMP_DIR, and publish it with manager-publish-task including its PROJECT_PLAN_ITEM_ID. Preserve completed implementation and begin at the first unmet leaf criterion. Then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or repeat completed plan items.
 PROMPT
 if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
@@ -113,6 +118,12 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 Worker leaf-goal mode is enabled. Every newly published assignment must contain exactly one nonempty line for each of: Execution-Mode: LEAF_GOAL, Goal-ID, Target-Criterion, Goal-Success-Evidence, Focused-Validation, Allowed-Scope, Baseline-Boundary, and Hard-Block-Conditions. Target the first unmet leaf (or the first Root-Criterion for a new root), use a stable goal identifier, and make the success evidence independently verifiable. Do not carry a legacy one-turn execution marker into this clean task boundary.
 
 If ACTIVE_REPAIR_GOAL_ID is nonempty, this planning gap follows a rejected terminal result for the same first-unmet leaf. Reuse ACTIVE_REPAIR_GOAL_ID in the repair assignment so its durable logical-goal state and thread resume; inspect ACTIVE_REPAIR_GOAL_TASK for the rejected boundary. Otherwise create a new stable goal identifier.
+PROMPT
+fi
+if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
+	cat >> "$prompt_file.tmp.$$" <<PROMPT
+
+Read PROJECT_DECOMPOSITION_FILE. Every assignment must contain the complete v2 leaf contract: Leaf-Type, Complexity-Class, Worker-Route, Depends-On, Deliverable, Required-Symbols, Context-Paths, Architecture-Decisions, Expected-Max-Implementation-Files, and Expected-Max-Worker-Turns, in addition to the leaf-goal fields. For a new root, copy all DAG-backed values exactly. A LUNA leaf must be LOW complexity, have no architecture decisions, use only a Luna-safe leaf type, and remain within five expected implementation files and three worker turns. Route architecture, contracts, concurrency, ambiguity, integration, or a leaf with $HARNESS_MAX_LUNA_STRATEGY_FAILURES failed Luna strategies to TERRA with fresh context.
 PROMPT
 fi
 if codex_model_requires_narrow_prompt "$MANAGER_MODEL"; then

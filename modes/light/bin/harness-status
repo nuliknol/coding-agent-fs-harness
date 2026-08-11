@@ -1,0 +1,220 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 1 ]] || die "Usage: ${0##*/} ENV_FILE"
+load_harness_env "$1"
+printf 'Harness mode: %s\n' "$HARNESS_MODE"
+ensure_project
+dir="$(project_dir)"
+
+printf 'Environment file: %s\n' "$HARNESS_ENV_FILE"
+printf 'Project: %s\n' "$PROJECT"
+printf 'Repository: %s\n' "$REPOSITORY"
+launch_commit="$(project_config_value repository_launch_commit 2>/dev/null || true)"
+current_commit="$(repository_head_commit 2>/dev/null || true)"
+[[ -z "$launch_commit" ]] || printf 'Repository launch commit: %s\n' "$launch_commit"
+[[ -z "$current_commit" ]] || printf 'Canonical repository baseline: %s\n' "$current_commit"
+printf 'Harness mode: persistent Luna worker, sparse Terra reviews, final independent Oracle\n'
+if supervisor_running; then
+	printf 'Supervisor: running (PID %s)\n' "$(supervisor_pid)"
+else
+	printf 'Supervisor: stopped\n'
+fi
+if [[ -f "$(supervisor_unit_file)" ]]; then
+	printf 'Process containment: systemd user cgroup (%s)\n' \
+		"$(awk 'NR == 1 { print; exit }' "$(supervisor_unit_file)")"
+elif [[ -f "$(process_token_file)" ]]; then
+	printf 'Process containment: tagged process group fallback\n'
+else
+	printf 'Process containment: legacy/unstarted\n'
+fi
+printf 'Environment reload: before every manager review and Oracle audit (soft parameters only)\n'
+printf 'Status: %s\n' "$(state_value status)"
+printf 'Phase: %s\n' "$(state_value phase)"
+printf 'Worker/review cycle: %s\n' "$(state_value cycle)"
+if [[ "$HARNESS_METRICS_ENABLED" == 1 ]]; then
+	metrics_root="$(metrics_dir)"
+	metrics_snapshots=0
+	[[ ! -d "$metrics_root/git" ]] || metrics_snapshots="$(git --git-dir="$metrics_root/git" \
+		for-each-ref --format='%(refname)' refs/harness-metrics/cycles 2>/dev/null | wc -l | tr -d ' ')"
+	printf 'Code metrics: enabled (%s sidecar snapshots)\n' "$metrics_snapshots"
+	printf 'Code metrics CSV: %s/cycles.csv\n' "$metrics_root"
+	if [[ -f "$metrics_root/report.md" ]]; then
+		printf 'Code metrics report: %s/report.md\n' "$metrics_root"
+	fi
+	if [[ -f "$metrics_root/graphs/code-growth.png" ]]; then
+		printf 'Code metrics graph: %s/graphs/code-growth.png\n' "$metrics_root"
+	fi
+else
+	printf 'Code metrics: disabled\n'
+fi
+printf 'Manager: %s (%s)\n' "$MANAGER_MODEL" "$MANAGER_REASONING_EFFORT"
+printf 'Worker: %s (%s)\n' "$WORKER_MODEL" "$WORKER_REASONING_EFFORT"
+printf 'Convergence auditor: %s (%s)\n' \
+	"$CONVERGENCE_MODEL" "$CONVERGENCE_REASONING_EFFORT"
+if oracle_enabled; then
+	printf 'Oracle: %s (%s)\n' "$ORACLE_MODEL" "$ORACLE_REASONING_EFFORT"
+	printf 'Oracle audits: %s of %s\n' "$(oracle_audit_run_count)" "$MAX_ORACLE_RUNS"
+else
+	printf 'Oracle: disabled (MAX_ORACLE_RUNS=0)\n'
+fi
+if post_oracle_remediation_active; then
+	post_reviews="$(post_oracle_remediation_value reviews_completed 2>/dev/null || printf 0)"
+	printf 'Post-Oracle remediation: active (%s of %s manager reviews)\n' \
+		"$post_reviews" "$HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE"
+else
+	printf 'Post-Oracle remediation limit: %s manager reviews\n' \
+		"$HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE"
+fi
+printf 'Manager first-review checklist: %s\n' \
+	"$HARNESS_MANAGER_REVIEW_CHECKLIST"
+printf 'Codex goal tools: disabled by harness\n'
+if (( HARNESS_MAX_MANAGER_REVIEWS == 0 )); then
+	printf 'Manager review limit: unlimited\n'
+else
+	printf 'Manager review limit: %s\n' "$HARNESS_MAX_MANAGER_REVIEWS"
+fi
+printf 'Protocol repair attempts: %s\n' \
+	"$HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS"
+if (( HARNESS_MAX_REPEATED_FINDING_REVIEWS == 0 )); then
+	printf 'Repeated-finding convergence audit: disabled\n'
+else
+	printf 'Repeated-finding convergence audit: after %s consecutive reviews\n' \
+		"$HARNESS_MAX_REPEATED_FINDING_REVIEWS"
+fi
+if (( HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS == 0 )); then
+	printf 'No-source-progress pause: disabled\n'
+else
+	printf 'No-source-progress pause: after %s unchanged worker deliveries (current %s)\n' \
+		"$HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS" "$(no_source_progress_count)"
+fi
+if (( HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS == 0 )); then
+	printf 'Repeated-convergence pause: disabled\n'
+else
+	printf 'Repeated-convergence pause: after %s audits retain a finding\n' \
+		"$HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS"
+fi
+printf 'Low-yield progress audit: after %s consecutive reviews\n' \
+	"$HARNESS_MAX_LOW_YIELD_REVIEWS"
+printf 'Worktree-oscillation audit: after %s detections\n' \
+	"$HARNESS_MAX_WORKTREE_OSCILLATIONS"
+printf 'Finding-reappearance audit: after %s detections\n' \
+	"$HARNESS_MAX_FINDING_REAPPEARANCES"
+printf 'Completion-stagnation audit: after %s scheduled audits\n' \
+	"$HARNESS_MAX_COMPLETION_STAGNANT_AUDITS"
+if (( HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS == 0 )); then
+	printf 'Completion-progress audit: disabled\n'
+else
+	printf 'Completion-progress audit: every %s completed manager reviews\n' \
+		"$HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS"
+	progress_state="$dir/control/completion-progress.env"
+	if [[ -f "$progress_state" ]]; then
+		progress_cycle="$(awk -F= '$1 == "audit_cycle" { print $2; exit }' "$progress_state")"
+		progress_basis="$(awk -F= '$1 == "coverage_basis" { print $2; exit }' "$progress_state")"
+		progress_total="$(awk -F= '$1 == "requirements_total" { print $2; exit }' "$progress_state")"
+		progress_verified="$(awk -F= '$1 == "verified_complete" { print $2; exit }' "$progress_state")"
+		progress_implemented="$(awk -F= '$1 == "implemented_unverified" { print $2; exit }' "$progress_state")"
+		progress_verified_percent="$(awk -F= '$1 == "verified_percent" { print $2; exit }' "$progress_state")"
+		progress_claimed_percent="$(awk -F= '$1 == "claimed_percent" { print $2; exit }' "$progress_state")"
+		progress_report="$(awk -F= '$1 == "audit_report" { print $2; exit }' "$progress_state")"
+		if [[ "$progress_basis" == SPECIFICATION-WHOLE ]]; then
+			printf 'Last completion audit: whole-specification assessment at cycle %s (percentage N/A)\n' \
+			"$progress_cycle"
+		else
+			printf 'Last completion audit: verified=%s%% (%s/%s), claimed=%s%% (%s verified + %s implemented), cycle=%s\n' \
+			"$progress_verified_percent" "$progress_verified" "$progress_total" \
+			"$progress_claimed_percent" "$progress_verified" "$progress_implemented" \
+			"$progress_cycle"
+		fi
+		printf 'Completion audit report: %s\n' "$progress_report"
+	fi
+fi
+printf 'Codex diagnostic profile: %s\n' \
+	"$([[ "$HARNESS_CODEX_DIAGNOSTIC_PROFILE" == 1 ]] && printf enabled || printf disabled)"
+printf 'Codex Rust diagnostics: %s\n' \
+	"${HARNESS_CODEX_RUST_LOG:-disabled}"
+printf 'Codex strace: %s\n' \
+	"$([[ "$HARNESS_CODEX_STRACE" == 1 ]] && printf enabled || printf disabled)"
+if (( HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS == 0 )); then
+	printf 'Codex stall snapshots: disabled\n'
+else
+	printf 'Codex stall snapshots: after %s seconds without output' \
+		"$HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS"
+	if (( HARNESS_CODEX_STALL_DIAGNOSTIC_REPEAT_SECONDS > 0 )); then
+		printf ', repeated every %s seconds\n' \
+			"$HARNESS_CODEX_STALL_DIAGNOSTIC_REPEAT_SECONDS"
+	else
+		printf ', one snapshot per quiet interval\n'
+	fi
+fi
+latest_warning="$(find "$dir/logs" -maxdepth 1 -type f -name '*.warning.env' \
+	-printf '%T@\t%p\n' 2>/dev/null | sort -nr | \
+	awk -F '\t' 'NR == 1 { print substr($0, index($0, $2)); exit }')"
+if [[ -n "$latest_warning" ]]; then
+	warning_classification="$(awk -F= '$1 == "classification" { print substr($0, length($1) + 2); exit }' "$latest_warning")"
+	warning_severity="$(awk -F= '$1 == "severity" { print substr($0, length($1) + 2); exit }' "$latest_warning")"
+	warning_detail="$(awk -F= '$1 == "detail" { print substr($0, length($1) + 2); exit }' "$latest_warning")"
+	warning_snapshot="$(awk -F= '$1 == "snapshot" { print substr($0, length($1) + 2); exit }' "$latest_warning")"
+	printf 'Codex warning: %s (%s)\n' "$warning_classification" "$warning_severity"
+	printf 'Warning detail: %s\n' "$warning_detail"
+	printf 'Warning evidence: %s\n' "$warning_snapshot"
+fi
+if [[ -f "$dir/control/worker.thread" ]]; then
+	printf 'Persistent worker thread: %s\n' "$(awk 'NR == 1 { print; exit }' "$dir/control/worker.thread")"
+else
+	printf 'Persistent worker thread: not started\n'
+fi
+worker_context_reset_count="$(find "$dir/reviews" -maxdepth 1 -type d \
+	-name 'worker-context-reset-[0-9][0-9][0-9]*' | wc -l | tr -d ' ')"
+printf 'Worker context resets: %s\n' "$worker_context_reset_count"
+operator_resolution_count="$(find "$dir/reviews" -maxdepth 1 -type d \
+	-name 'operator-resolution-[0-9][0-9][0-9]*' | wc -l | tr -d ' ')"
+printf 'Operator resolutions: %s\n' "$operator_resolution_count"
+if [[ -f "$dir/control/worker-context-reset.env" ]]; then
+	reset_id="$(awk -F= '$1 == "reset_id" { print $2; exit }' \
+		"$dir/control/worker-context-reset.env")"
+	recovery_kind="$(awk -F= '$1 == "recovery_kind" { print $2; exit }' \
+		"$dir/control/worker-context-reset.env")"
+	reset_resume="$(awk -F= '$1 == "resume_phase" { print $2; exit }' \
+		"$dir/control/worker-context-reset.env")"
+	if [[ "$recovery_kind" == operator_resolution ]]; then
+		printf 'Operator resolution pending: %s (resume at %s)\n' \
+			"$reset_id" "$reset_resume"
+	else
+		printf 'Worker context reset pending: %s (resume at %s)\n' \
+			"$reset_id" "$reset_resume"
+	fi
+fi
+printf 'Completion addenda: %s\n' \
+	"$(find "$dir/addenda" -maxdepth 1 -name 'addendum-*.md' -type f | wc -l | tr -d ' ')"
+
+manager_input="$(usage_sum_by_thread "$dir/logs" 'manager-*.jsonl' input_tokens)"
+manager_cached="$(usage_sum_by_thread "$dir/logs" 'manager-*.jsonl' cached_input_tokens)"
+manager_output="$(usage_sum_by_thread "$dir/logs" 'manager-*.jsonl' output_tokens)"
+worker_input="$(usage_sum_by_thread "$dir/logs" 'worker-*.jsonl' input_tokens)"
+worker_cached="$(usage_sum_by_thread "$dir/logs" 'worker-*.jsonl' cached_input_tokens)"
+worker_output="$(usage_sum_by_thread "$dir/logs" 'worker-*.jsonl' output_tokens)"
+oracle_input="$(usage_sum_by_thread "$dir/logs" 'oracle-*.jsonl' input_tokens)"
+oracle_cached="$(usage_sum_by_thread "$dir/logs" 'oracle-*.jsonl' cached_input_tokens)"
+oracle_output="$(usage_sum_by_thread "$dir/logs" 'oracle-*.jsonl' output_tokens)"
+printf 'Manager tokens: input=%s cached=%s output=%s\n' \
+	"$manager_input" "$manager_cached" "$manager_output"
+printf 'Worker tokens: input=%s cached=%s output=%s\n' \
+	"$worker_input" "$worker_cached" "$worker_output"
+printf 'Oracle tokens: input=%s cached=%s output=%s\n' \
+	"$oracle_input" "$oracle_cached" "$oracle_output"
+
+if [[ -f "$dir/control/last-error.txt" ]]; then
+	printf 'Last error: %s\n' "$(head -n 1 "$dir/control/last-error.txt")"
+fi
+if [[ -f "$dir/control/operator-required.md" ]]; then
+	printf 'Operator report: %s\n' "$dir/control/operator-required.md"
+fi
+if [[ -f "$dir/control/dead-end.md" ]]; then
+	printf 'Dead-end report: %s\n' "$dir/control/dead-end.md"
+fi
+printf 'Latest events:\n'
+tail -n 8 "$(events_file)" 2>/dev/null || true

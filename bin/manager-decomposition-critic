@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 1 ]] || { printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+require_manager_configuration
+require_manager_codex
+(( HARNESS_DECOMPOSITION_V2 == 1 )) || die 'decomposition critic requires HARNESS_DECOMPOSITION_V2=1'
+project_plan_exists && { printf 'Decomposition DAG already exists.\n'; exit 0; }
+
+trace_init manager_decomposition_critic
+trace_script_start "$@"
+trap 'trace_script_exit $?' EXIT
+dir="$(project_dir)"
+prompt="$dir/control/manager-decomposition-critic.prompt.md"
+last_message="$dir/logs/manager-decomposition-critic-last-message.md"
+cat > "$prompt.tmp.$$" <<PROMPT
+You are the fresh decomposition planner and critic for a filesystem-backed coding harness. Do not edit the repository.
+
+ENV_FILE=$HARNESS_ENV_FILE
+HARNESS_BIN=$HARNESS_BIN
+PROJECT=$PROJECT
+REPOSITORY=$REPOSITORY
+SPECIFICATION=$SPECIFICATION
+PROJECT_TMP_DIR=$PROJECT_TMP_DIR
+
+Read the complete specification, applicable repository development policy, and enough current repository structure to identify real dependencies and existing contracts. Produce a topologically ordered decomposition DAG with this exact tab-separated header:
+
+node_id<TAB>parent_id<TAB>depends_on<TAB>deliverable<TAB>acceptance_evidence<TAB>focused_validation<TAB>allowed_paths<TAB>required_symbols<TAB>complexity_class<TAB>worker_route
+
+Use '-' for no parent, no dependencies, or no required symbols. Dependency IDs must precede each consumer. Every node must be independently acceptance-complete and monotonically useful. Separate contract decisions from implementation and integration. Never place public contract design, cross-component architecture, concurrency protocol design, ambiguous specification resolution, or unexplained final integration in a Luna node.
+
+A LUNA node is valid only when complexity_class is LOW, architecture is already decided, dependencies are verified before scheduling, one principal implementation concern remains, allowed paths are narrow, and one deterministic focused validation establishes completion. Use TERRA for MEDIUM or HIGH complexity and for architecture, contracts, concurrency, ambiguous behavior, or integration.
+
+First draft the DAG privately. Then perform a critic pass over every node: attempt to identify hidden prerequisites, multiple implementation concerns, undeclared symbols, broad file scopes, validation chains, or architecture decisions. Split or reroute every failing node. Register only the corrected final DAG with:
+
+$HARNESS_BIN/manager-init-project-plan "$HARNESS_ENV_FILE" DAG_FILE
+
+After the command succeeds, terminate. Do not publish a worker task, wait, poll, or modify repository files.
+PROMPT
+chmod 600 "$prompt.tmp.$$"
+mv "$prompt.tmp.$$" "$prompt"
+
+attempt=1
+resume_thread=""
+while true; do
+	stamp="$(timestamp_compact_utc)"
+	json="$dir/logs/manager-decomposition-critic-$stamp-attempt-$(printf '%03d' "$attempt").jsonl"
+	stderr="$dir/logs/manager-decomposition-critic-$stamp-attempt-$(printf '%03d' "$attempt").stderr.log"
+	message="$dir/logs/manager-decomposition-critic-$stamp-attempt-$(printf '%03d' "$attempt").md"
+	set +e
+	if [[ -n "$resume_thread" ]]; then
+		"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" manager_plan "$MANAGER_MODEL" "$prompt" "$json" "$stderr" "$message" resume "$resume_thread"
+	else
+		"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" manager_plan "$MANAGER_MODEL" "$prompt" "$json" "$stderr" "$message"
+	fi
+	status=$?
+	set -e
+	thread="$(codex_thread_id_from_jsonl "$json" 2>/dev/null || true)"
+	[[ ! "$thread" =~ ^[A-Za-z0-9-]+$ ]] || resume_thread="$thread"
+	if project_plan_exists; then
+		cp -f "$message" "$last_message" 2>/dev/null || true
+		log_event "DECOMPOSITION_CRITIC_APPROVED nodes=$(project_plan_total_count) attempts=$attempt"
+		printf 'Decomposition critic approved %s DAG nodes.\n' "$(project_plan_total_count)"
+		exit 0
+	fi
+	classification="$(kv_file_value "${json%.jsonl}.classification" classification 2>/dev/null || true)"
+	retry_kind="$(codex_provider_retry_kind "$classification" 2>/dev/null || true)"
+	if [[ -n "$retry_kind" ]]; then
+		delay="$(codex_provider_retry_delay "$classification")"
+		printf 'Decomposition critic provider retry in %s seconds (%s).\n' "$delay" "$retry_kind" >&2
+		sleep "$delay"
+		attempt=$((attempt + 1))
+		continue
+	fi
+	(( status == 0 )) && die 'decomposition critic exited without registering a DAG'
+	die "decomposition critic failed with status $status; see $json"
+done

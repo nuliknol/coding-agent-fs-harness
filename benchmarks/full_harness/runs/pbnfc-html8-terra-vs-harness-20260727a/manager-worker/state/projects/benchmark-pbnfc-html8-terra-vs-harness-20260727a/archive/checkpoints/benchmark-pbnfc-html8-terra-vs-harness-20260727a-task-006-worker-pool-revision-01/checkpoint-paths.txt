@@ -1,0 +1,3 @@
+include/worker_pool.h
+src/worker_pool.c
+tests/worker_pool_core_smoke.c

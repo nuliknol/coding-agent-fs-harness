@@ -1,0 +1,9 @@
+PASS strict-build
+PASS arithmetic-precedence
+PASS arithmetic-parentheses
+PASS syntax-rejection
+PASS epsilon-empty
+PASS epsilon-repetition
+PASS undefined-name
+PASS indirect-left-recursion
+SCORE 8/8

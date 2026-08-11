@@ -2,6 +2,8 @@
 
 set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-mode.sh"
+harness_dispatch_mode "$SCRIPT_DIR/.." "${0##*/}" "$@"
 source "$SCRIPT_DIR/../lib/harness-common.sh"
 
 usage()
@@ -48,6 +50,7 @@ status_kv_value()
 
 printf 'Environment file: %s\n' "$HARNESS_ENV_FILE"
 printf 'Project: %s\n' "$PROJECT"
+printf 'Harness mode: %s\n' "$HARNESS_MODE"
 printf 'Repository: %s\n' "$REPOSITORY"
 printf 'Harness root: %s\n' "$HARNESS_ROOT"
 manager_supervisor='stopped'

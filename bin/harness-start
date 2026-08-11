@@ -2,6 +2,8 @@
 
 set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-mode.sh"
+harness_dispatch_mode "$SCRIPT_DIR/.." "${0##*/}" "$@"
 source "$SCRIPT_DIR/../lib/harness-common.sh"
 
 usage()
@@ -19,6 +21,11 @@ dir="$(project_dir)"
 
 if env_has_running_processes; then
 	printf 'Harness processes already reference this environment; preserving all state and progress.\n'
+fi
+
+if (( HARNESS_DECOMPOSITION_V2 == 1 && HARNESS_DECOMPOSITION_CRITIC_ENABLED == 1 )) &&
+	! project_plan_exists; then
+	"$HARNESS_BIN/manager-decomposition-critic" "$HARNESS_ENV_FILE"
 fi
 
 # Bootstrap before starting the worker watcher so a newly published first task

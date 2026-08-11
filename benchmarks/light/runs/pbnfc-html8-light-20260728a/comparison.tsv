@@ -1,0 +1,3 @@
+competitor	grader_score	grader_exit	seconds	completed_turns	manager_worker_handoffs	input_tokens	cached_input_tokens	output_tokens	estimated_api_usd	c_header_lines
+full-harness-terra-high_luna-high	12/12	0	8055	81	81	41023421	39280640	363966	13.467938	3851
+light-harness-terra-high_luna-high	12/12	0	2716	13	12	9337500	8833280	120848	3.296026	1710

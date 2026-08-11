@@ -1,0 +1,43 @@
+File 'src/diagnostics.c'
+Lines executed:82.05% of 39
+Branches executed:100.00% of 36
+Taken at least once:66.67% of 36
+Calls executed:37.50% of 8
+Creating 'diagnostics.c.gcov'
+
+File 'src/grammar.c'
+Lines executed:71.65% of 388
+Branches executed:93.27% of 297
+Taken at least once:67.68% of 297
+Calls executed:55.91% of 93
+Creating 'grammar.c.gcov'
+
+File 'src/main.c'
+Lines executed:67.50% of 120
+Branches executed:96.88% of 64
+Taken at least once:68.75% of 64
+Calls executed:61.90% of 42
+Creating 'main.c.gcov'
+
+File 'src/markup.c'
+Lines executed:69.43% of 157
+Branches executed:95.38% of 130
+Taken at least once:69.23% of 130
+Calls executed:54.76% of 42
+Creating 'markup.c.gcov'
+
+File 'src/pool.c'
+Lines executed:70.30% of 101
+Branches executed:94.44% of 36
+Taken at least once:72.22% of 36
+Calls executed:69.70% of 33
+Creating 'pool.c.gcov'
+
+File 'src/recognizer.c'
+Lines executed:83.72% of 258
+Branches executed:95.33% of 214
+Taken at least once:73.36% of 214
+Calls executed:75.00% of 48
+Creating 'recognizer.c.gcov'
+
+Lines executed:74.04% of 1063

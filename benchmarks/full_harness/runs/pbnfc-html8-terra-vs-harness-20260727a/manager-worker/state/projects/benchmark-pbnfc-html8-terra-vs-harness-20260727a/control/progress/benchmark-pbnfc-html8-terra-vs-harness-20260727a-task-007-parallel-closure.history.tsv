@@ -1,0 +1,4 @@
+updated_at	task_id	decision	progress_percent	improvement_percent	review_sha256
+2026-07-28T05:21:03Z	007-parallel-closure	CHECKPOINT	33	33	4683bf9c10826db39f5c60e932893182bbf3b14aa80a1ec0dd1b8a9187af7f6a
+2026-07-28T05:25:23Z	007-parallel-closure-revision-01	CHECKPOINT	66	33	55d4c0f2ce7206e566cb35a10dae0b6a955c4886d9ddc224c53417d963ecaadc
+2026-07-28T05:27:56Z	007-parallel-closure-revision-02	ACCEPT	100	34	2d46cdb6ded8d165b1907c902646169f7e7e6d95d94ee0d7347ed68533264568

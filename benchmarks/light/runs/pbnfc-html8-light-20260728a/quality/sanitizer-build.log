@@ -1,0 +1,10 @@
+make: Entering directory '/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/repository'
+rm -f src/main.o src/diagnostics.o src/grammar.o src/markup.o src/pool.o src/recognizer.o bin/pbnfc
+cc -std=c11 -O1 -g -Wall -Wextra -Werror -pedantic -pthread -Iinclude -fsanitize=address,undefined -fno-omit-frame-pointer   -c -o src/main.o src/main.c
+cc -std=c11 -O1 -g -Wall -Wextra -Werror -pedantic -pthread -Iinclude -fsanitize=address,undefined -fno-omit-frame-pointer   -c -o src/diagnostics.o src/diagnostics.c
+cc -std=c11 -O1 -g -Wall -Wextra -Werror -pedantic -pthread -Iinclude -fsanitize=address,undefined -fno-omit-frame-pointer   -c -o src/grammar.o src/grammar.c
+cc -std=c11 -O1 -g -Wall -Wextra -Werror -pedantic -pthread -Iinclude -fsanitize=address,undefined -fno-omit-frame-pointer   -c -o src/markup.o src/markup.c
+cc -std=c11 -O1 -g -Wall -Wextra -Werror -pedantic -pthread -Iinclude -fsanitize=address,undefined -fno-omit-frame-pointer   -c -o src/pool.o src/pool.c
+cc -std=c11 -O1 -g -Wall -Wextra -Werror -pedantic -pthread -Iinclude -fsanitize=address,undefined -fno-omit-frame-pointer   -c -o src/recognizer.o src/recognizer.c
+cc -std=c11 -O1 -g -Wall -Wextra -Werror -pedantic -pthread -Iinclude -fsanitize=address,undefined -fno-omit-frame-pointer -o bin/pbnfc src/main.o src/diagnostics.o src/grammar.o src/markup.o src/pool.o src/recognizer.o -pthread -fsanitize=address,undefined
+make: Leaving directory '/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/repository'

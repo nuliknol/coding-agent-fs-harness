@@ -1,0 +1,1 @@
+Checkpointed compact tag lexing at 33% and published `004-markup-lexer-revision-01` for quoted attributes and outside-tag text runs.

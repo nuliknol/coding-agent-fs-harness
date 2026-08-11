@@ -1,0 +1,1 @@
+Checkpointed sequential Earley recognition at 66%.

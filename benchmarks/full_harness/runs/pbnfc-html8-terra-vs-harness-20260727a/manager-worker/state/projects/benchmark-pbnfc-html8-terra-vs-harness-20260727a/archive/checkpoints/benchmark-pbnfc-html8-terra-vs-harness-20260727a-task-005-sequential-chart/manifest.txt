@@ -1,0 +1,15 @@
+project=benchmark-pbnfc-html8-terra-vs-harness-20260727a
+task_id=005-sequential-chart
+task_root=005-sequential-chart
+captured_at=2026-07-28T04:52:12Z
+repository=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/repository
+git_head=a9e4d7df2194326a8233729e9abadeb199cd1658
+result_sha256=9653b939096b9439286bd4043b25abd60cfa8f08a4716c7f7b59f5e0abbee4e4
+review_sha256=01257a80c55b2430eaacf2a5bd714260c190b9915c185cd1170954686cc57a87
+progress_percent=33
+improvement_percent=33
+verified_criterion=p005.chart-item-storage-dedup
+path=Makefile	type=file	mode=600	sha256=fce7f0f0c1a3d7e1541e59ac6459b032c17a764cb09d6276c7409efdaf810b2b
+path=include/chart.h	type=file	mode=600	sha256=2f2a75df152fbc7cacb1fe54559fbc9e538f3b979ea7998577374d0f305957a6
+path=src/chart.c	type=file	mode=600	sha256=2e9f561d04da44826b343d80eabf4423834699eb5bb0837e257567881102181b
+path=tests/chart_core_smoke.c	type=file	mode=600	sha256=3fad15ebd5ada49cd8dd0dd23a68cd189bc88941f066fabf7ff738274b8954e9

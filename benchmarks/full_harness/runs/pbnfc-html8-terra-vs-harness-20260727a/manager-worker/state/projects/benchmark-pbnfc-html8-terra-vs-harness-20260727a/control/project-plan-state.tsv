@@ -1,0 +1,12 @@
+# coding-harness-project-plan-state-v1
+# item_id	status	task_root	updated_at
+001	COMPLETE	001-build-cli-foundation	2026-07-28T04:00:06Z
+002	COMPLETE	002-grammar-lexer	2026-07-28T04:13:28Z
+003	COMPLETE	003-grammar-ast	2026-07-28T04:31:37Z
+004	COMPLETE	004-markup-lexer	2026-07-28T04:48:29Z
+005	COMPLETE	005-sequential-chart	2026-07-28T05:01:57Z
+006	COMPLETE	006-worker-pool	2026-07-28T05:15:19Z
+007	COMPLETE	007-parallel-closure	2026-07-28T05:27:56Z
+008	COMPLETE	008-parallel-scanning	2026-07-28T05:40:24Z
+009	COMPLETE	009-hierarchical-markup	2026-07-28T05:51:20Z
+010	COMPLETE	010-final-validation	2026-07-28T06:00:40Z

@@ -1,0 +1,1 @@
+The first parallel-closure leaf is verified and should be checkpointed at 33% before assigning the remaining prediction/completion and deterministic-merge criteria.

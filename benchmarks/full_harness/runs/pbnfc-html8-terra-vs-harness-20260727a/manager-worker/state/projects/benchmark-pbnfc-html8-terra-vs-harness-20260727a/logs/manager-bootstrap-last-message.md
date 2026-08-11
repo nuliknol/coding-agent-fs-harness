@@ -1,0 +1,1 @@
+Registered the complete ten-item project plan and published task `001-build-cli-foundation`, targeting the strict build-skeleton criterion.

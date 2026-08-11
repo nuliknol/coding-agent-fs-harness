@@ -1,0 +1,108 @@
+        -:    0:Source:src/diagnostics.c
+        -:    1:#include "diagnostics.h"
+        -:    2:
+        -:    3:#include <stdarg.h>
+        -:    4:#include <stdio.h>
+        -:    5:#include <string.h>
+        -:    6:
+function append_escaped called 1 returned 100% blocks executed 82%
+        1:    7:static void append_escaped(char *destination, size_t capacity, const char *source)
+        -:    8:{
+        1:    9:    size_t used = 0;
+       44:   10:    while (*source != '\0' && used + 1 < capacity) {
+branch  0 taken 43 (fallthrough)
+branch  1 taken 1
+branch  2 taken 43
+branch  3 taken 0 (fallthrough)
+       43:   11:        unsigned char c = (unsigned char)*source++;
+       43:   12:        const char *escape = NULL;
+        -:   13:        char hex[5];
+       43:   14:        if (c == '\n') escape = "\\n";
+branch  0 taken 1 (fallthrough)
+branch  1 taken 42
+      42*:   15:        else if (c == '\r') escape = "\\r";
+branch  0 taken 0 (fallthrough)
+branch  1 taken 42
+      42*:   16:        else if (c == '\t') escape = "\\t";
+branch  0 taken 0 (fallthrough)
+branch  1 taken 42
+      42*:   17:        else if (c == '\\') escape = "\\\\";
+branch  0 taken 0 (fallthrough)
+branch  1 taken 42
+       42:   18:        else if (c < 0x20 || c >= 0x7f) {
+branch  0 taken 42 (fallthrough)
+branch  1 taken 0
+branch  2 taken 0 (fallthrough)
+branch  3 taken 42
+    #####:   19:            (void)snprintf(hex, sizeof(hex), "\\x%02X", (unsigned)c);
+    #####:   20:            escape = hex;
+        -:   21:        }
+       43:   22:        if (escape != NULL) {
+branch  0 taken 1 (fallthrough)
+branch  1 taken 42
+        3:   23:            while (*escape != '\0' && used + 1 < capacity)
+branch  0 taken 2 (fallthrough)
+branch  1 taken 1
+branch  2 taken 2
+branch  3 taken 0
+        2:   24:                destination[used++] = *escape++;
+        -:   25:        } else {
+       42:   26:            destination[used++] = (char)c;
+        -:   27:        }
+        -:   28:    }
+        1:   29:    destination[used] = '\0';
+        1:   30:}
+        -:   31:
+function diagnostic_set called 0 returned 0% blocks executed 0%
+    #####:   32:void diagnostic_set(Diagnostic *d, Location loc, const char *message)
+        -:   33:{
+    #####:   34:    d->present = 1;
+    #####:   35:    d->loc = loc;
+    #####:   36:    append_escaped(d->message, sizeof(d->message), message);
+call    0 never executed
+    #####:   37:}
+        -:   38:
+function diagnostic_setf called 1 returned 100% blocks executed 100%
+        1:   39:void diagnostic_setf(Diagnostic *d, Location loc, const char *format, const char *arg)
+        -:   40:{
+        -:   41:    char formatted[256];
+        1:   42:    d->present = 1;
+        1:   43:    d->loc = loc;
+        1:   44:    (void)snprintf(formatted, sizeof(formatted), format, arg);
+        1:   45:    append_escaped(d->message, sizeof(d->message), formatted);
+call    0 returned 1
+        1:   46:}
+        -:   47:
+function diagnostic_print_escaped called 1 returned 100% blocks executed 75%
+        1:   48:void diagnostic_print_escaped(FILE *stream, const char *text)
+        -:   49:{
+       13:   50:    while (*text != '\0') {
+branch  0 taken 12
+branch  1 taken 1 (fallthrough)
+       12:   51:        unsigned char c = (unsigned char)*text++;
+       12:   52:        if (c == '\n') fputs("\\n", stream);
+branch  0 taken 1 (fallthrough)
+branch  1 taken 11
+call    2 returned 1
+      11*:   53:        else if (c == '\r') fputs("\\r", stream);
+branch  0 taken 0 (fallthrough)
+branch  1 taken 11
+call    2 never executed
+      11*:   54:        else if (c == '\t') fputs("\\t", stream);
+branch  0 taken 0 (fallthrough)
+branch  1 taken 11
+call    2 never executed
+      11*:   55:        else if (c == '\\') fputs("\\\\", stream);
+branch  0 taken 0 (fallthrough)
+branch  1 taken 11
+call    2 never executed
+      11*:   56:        else if (c < 0x20 || c >= 0x7f) (void)fprintf(stream, "\\x%02X", (unsigned)c);
+branch  0 taken 11 (fallthrough)
+branch  1 taken 0
+branch  2 taken 0 (fallthrough)
+branch  3 taken 11
+call    4 never executed
+       11:   57:        else (void)fputc((int)c, stream);
+call    0 returned 11
+        -:   58:    }
+        1:   59:}

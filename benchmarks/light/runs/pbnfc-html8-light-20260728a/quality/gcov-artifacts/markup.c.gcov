@@ -1,0 +1,402 @@
+        -:    0:Source:src/markup.c
+        -:    1:#include "markup.h"
+        -:    2:
+        -:    3:#include <stdlib.h>
+        -:    4:#include <string.h>
+        -:    5:
+function copy_text called 40 returned 100% blocks executed 100%
+       40:    6:static char *copy_text(const char *text, size_t length)
+        -:    7:{
+       40:    8:    char *result = (char *)malloc(length + 1);
+       40:    9:    if (result != NULL) {
+branch  0 taken 40 (fallthrough)
+branch  1 taken 0
+       40:   10:        memcpy(result, text, length);
+       40:   11:        result[length] = '\0';
+        -:   12:    }
+       40:   13:    return result;
+        -:   14:}
+        -:   15:
+function grow_tokens called 45 returned 100% blocks executed 82%
+       45:   16:static int grow_tokens(Markup *markup)
+        -:   17:{
+       45:   18:    size_t capacity = markup->capacity == 0 ? 16 : markup->capacity * 2;
+branch  0 taken 41 (fallthrough)
+branch  1 taken 4
+        -:   19:    MarkupToken *grown;
+       45:   20:    if (markup->capacity >= markup->count + 1)
+branch  0 taken 39 (fallthrough)
+branch  1 taken 6
+       39:   21:        return 0;
+        6:   22:    if (capacity < markup->count + 1)
+branch  0 taken 0 (fallthrough)
+branch  1 taken 6
+    #####:   23:        return -1;
+        6:   24:    grown = (MarkupToken *)realloc(markup->tokens, capacity * sizeof(*grown));
+        6:   25:    if (grown == NULL)
+branch  0 taken 0 (fallthrough)
+branch  1 taken 6
+    #####:   26:        return -1;
+        6:   27:    markup->tokens = grown;
+        6:   28:    markup->capacity = capacity;
+        6:   29:    return 0;
+        -:   30:}
+        -:   31:
+function add_token called 40 returned 100% blocks executed 75%
+       40:   32:static int add_token(Markup *markup, MarkupKind kind, const char *text, size_t length, Location loc)
+        -:   33:{
+        -:   34:    MarkupToken *token;
+       40:   35:    if (grow_tokens(markup) != 0)
+call    0 returned 40
+branch  1 taken 0 (fallthrough)
+branch  2 taken 40
+    #####:   36:        return -1;
+       40:   37:    token = &markup->tokens[markup->count++];
+       40:   38:    token->kind = kind;
+       40:   39:    token->lexeme = copy_text(text, length);
+call    0 returned 40
+       40:   40:    token->loc = loc;
+       40:   41:    if (token->lexeme == NULL) {
+branch  0 taken 0 (fallthrough)
+branch  1 taken 40
+    #####:   42:        markup->count--;
+    #####:   43:        return -1;
+        -:   44:    }
+       40:   45:    return 0;
+        -:   46:}
+        -:   47:
+function move_location called 115 returned 100% blocks executed 100%
+      115:   48:static void move_location(Location *loc, char c, size_t *offset)
+        -:   49:{
+      115:   50:    (*offset)++;
+      115:   51:    if (c == '\n') {
+branch  0 taken 4 (fallthrough)
+branch  1 taken 111
+        4:   52:        loc->line++;
+        4:   53:        loc->column = 1;
+        -:   54:    } else {
+      111:   55:        loc->column++;
+        -:   56:    }
+      115:   57:}
+        -:   58:
+function ascii_space called 80 returned 100% blocks executed 100%
+       80:   59:static int ascii_space(char c)
+        -:   60:{
+       80:   61:    return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+branch  0 taken 67 (fallthrough)
+branch  1 taken 13
+branch  2 taken 67 (fallthrough)
+branch  3 taken 0
+branch  4 taken 67 (fallthrough)
+branch  5 taken 0
+branch  6 taken 12 (fallthrough)
+branch  7 taken 55
+        -:   62:}
+        -:   63:
+function identifier_start called 40 returned 100% blocks executed 100%
+       40:   64:static int identifier_start(char c)
+        -:   65:{
+       40:   66:    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_' || c == ':';
+branch  0 taken 27 (fallthrough)
+branch  1 taken 13
+branch  2 taken 27 (fallthrough)
+branch  3 taken 0
+branch  4 taken 27 (fallthrough)
+branch  5 taken 13
+branch  6 taken 0 (fallthrough)
+branch  7 taken 27
+branch  8 taken 13 (fallthrough)
+branch  9 taken 0
+branch 10 taken 0 (fallthrough)
+branch 11 taken 13
+        -:   67:}
+        -:   68:
+function identifier_part called 27 returned 100% blocks executed 100%
+       27:   69:static int identifier_part(char c)
+        -:   70:{
+       27:   71:    return identifier_start(c) || (c >= '0' && c <= '9') || c == '.' || c == '-';
+call    0 returned 27
+branch  1 taken 13 (fallthrough)
+branch  2 taken 14
+branch  3 taken 8 (fallthrough)
+branch  4 taken 5
+branch  5 taken 8 (fallthrough)
+branch  6 taken 0
+branch  7 taken 13 (fallthrough)
+branch  8 taken 0
+branch  9 taken 0 (fallthrough)
+branch 10 taken 13
+        -:   72:}
+        -:   73:
+function markup_lex called 6 returned 100% blocks executed 63%
+        6:   74:int markup_lex(const char *source, size_t length, Markup *markup, Diagnostic *diagnostic)
+        -:   75:{
+        6:   76:    size_t offset = 0;
+        6:   77:    Location loc = {0, 1, 1};
+        6:   78:    int in_tag = 0;
+        6:   79:    memset(markup, 0, sizeof(*markup));
+        6:   80:    memset(diagnostic, 0, sizeof(*diagnostic));
+       62:   81:    while (offset < length) {
+branch  0 taken 56
+branch  1 taken 6 (fallthrough)
+       56:   82:        char c = source[offset];
+       56:   83:        Location start = loc;
+        -:   84:        size_t begin;
+       56:   85:        if ((unsigned char)c < 0x20 && !ascii_space(c)) {
+branch  0 taken 4 (fallthrough)
+branch  1 taken 52
+call    2 returned 4
+branch  3 taken 0 (fallthrough)
+branch  4 taken 4
+    #####:   86:            diagnostic_set(diagnostic, loc, "invalid byte in markup");
+call    0 never executed
+    #####:   87:            markup_free(markup);
+call    0 never executed
+    #####:   88:            return -1;
+        -:   89:        }
+       56:   90:        if ((unsigned char)c >= 0x7f) {
+branch  0 taken 0 (fallthrough)
+branch  1 taken 56
+    #####:   91:            diagnostic_set(diagnostic, loc, "invalid byte in markup");
+call    0 never executed
+    #####:   92:            markup_free(markup);
+call    0 never executed
+    #####:   93:            return -1;
+        -:   94:        }
+       56:   95:        if (!in_tag) {
+branch  0 taken 16 (fallthrough)
+branch  1 taken 40
+       16:   96:            if (c == '<') {
+branch  0 taken 8 (fallthrough)
+branch  1 taken 8
+        8:   97:                if (add_token(markup, MARKUP_LITERAL, "<", 1, start) != 0)
+call    0 returned 8
+branch  1 taken 0 (fallthrough)
+branch  2 taken 8
+    #####:   98:                    goto out_of_memory;
+        8:   99:                move_location(&loc, c, &offset);
+call    0 returned 8
+        8:  100:                in_tag = 1;
+        -:  101:            } else {
+        8:  102:                begin = offset;
+        -:  103:                {
+        8:  104:                    int all_whitespace = 1;
+       40:  105:                    while (offset < length && source[offset] != '<') {
+branch  0 taken 36 (fallthrough)
+branch  1 taken 4
+branch  2 taken 32
+branch  3 taken 4 (fallthrough)
+       32:  106:                    c = source[offset];
+       32:  107:                    if (((unsigned char)c < 0x20 && !ascii_space(c)) || (unsigned char)c >= 0x7f) {
+branch  0 taken 4 (fallthrough)
+branch  1 taken 28
+call    2 returned 4
+branch  3 taken 4 (fallthrough)
+branch  4 taken 0
+branch  5 taken 0 (fallthrough)
+branch  6 taken 32
+    #####:  108:                        diagnostic_set(diagnostic, loc, "invalid byte in markup");
+call    0 never executed
+    #####:  109:                        markup_free(markup);
+call    0 never executed
+    #####:  110:                        return -1;
+        -:  111:                    }
+       32:  112:                    if (!ascii_space(c))
+call    0 returned 32
+branch  1 taken 20 (fallthrough)
+branch  2 taken 12
+       20:  113:                        all_whitespace = 0;
+       32:  114:                    move_location(&loc, c, &offset);
+call    0 returned 32
+        -:  115:                    }
+        8:  116:                    if (!all_whitespace && add_token(markup, MARKUP_TEXT, source + begin,
+branch  0 taken 2 (fallthrough)
+branch  1 taken 6
+call    2 returned 2
+branch  3 taken 0 (fallthrough)
+branch  4 taken 2
+        -:  117:                                                     offset - begin, start) != 0)
+    #####:  118:                        goto out_of_memory;
+        -:  119:                }
+        -:  120:            }
+       56:  121:            continue;
+        -:  122:        }
+       40:  123:        if (ascii_space(c)) {
+call    0 returned 40
+branch  1 taken 5 (fallthrough)
+branch  2 taken 35
+        5:  124:            move_location(&loc, c, &offset);
+call    0 returned 5
+        5:  125:            continue;
+        -:  126:        }
+       35:  127:        if (c == '<' || c == '>' || c == '/' || c == '=') {
+branch  0 taken 35 (fallthrough)
+branch  1 taken 0
+branch  2 taken 27 (fallthrough)
+branch  3 taken 8
+branch  4 taken 23 (fallthrough)
+branch  5 taken 4
+branch  6 taken 5 (fallthrough)
+branch  7 taken 18
+       17:  128:            if (add_token(markup, MARKUP_LITERAL, &c, 1, start) != 0)
+call    0 returned 17
+branch  1 taken 0 (fallthrough)
+branch  2 taken 17
+    #####:  129:                goto out_of_memory;
+       17:  130:            move_location(&loc, c, &offset);
+call    0 returned 17
+       17:  131:            if (c == '>')
+branch  0 taken 8 (fallthrough)
+branch  1 taken 9
+        8:  132:                in_tag = 0;
+       17:  133:            continue;
+        -:  134:        }
+       18:  135:        if (c == '\'' || c == '"') {
+branch  0 taken 15 (fallthrough)
+branch  1 taken 3
+branch  2 taken 2 (fallthrough)
+branch  3 taken 13
+        5:  136:            char quote = c;
+        5:  137:            size_t out = 0;
+        5:  138:            char *value = (char *)malloc(1);
+        5:  139:            if (value == NULL)
+branch  0 taken 0 (fallthrough)
+branch  1 taken 5
+    #####:  140:                goto out_of_memory;
+        5:  141:            value[0] = '\0';
+        5:  142:            move_location(&loc, c, &offset);
+call    0 returned 5
+       21:  143:            while (offset < length && source[offset] != quote) {
+branch  0 taken 21 (fallthrough)
+branch  1 taken 0
+branch  2 taken 16
+branch  3 taken 5 (fallthrough)
+       16:  144:                c = source[offset];
+       16:  145:                if (c == '\\') {
+branch  0 taken 0 (fallthrough)
+branch  1 taken 16
+    #####:  146:                    move_location(&loc, c, &offset);
+call    0 never executed
+    #####:  147:                    if (offset == length || (source[offset] != quote && source[offset] != '\\')) {
+branch  0 never executed (fallthrough)
+branch  1 never executed
+branch  2 never executed (fallthrough)
+branch  3 never executed
+branch  4 never executed (fallthrough)
+branch  5 never executed
+    #####:  148:                        free(value);
+    #####:  149:                        diagnostic_set(diagnostic, loc, "invalid string escape in markup");
+call    0 never executed
+    #####:  150:                        markup_free(markup);
+call    0 never executed
+    #####:  151:                        return -1;
+        -:  152:                    }
+    #####:  153:                    c = source[offset];
+        -:  154:                }
+       16:  155:                if ((unsigned char)c < 0x20 || (unsigned char)c >= 0x7f) {
+branch  0 taken 16 (fallthrough)
+branch  1 taken 0
+branch  2 taken 0 (fallthrough)
+branch  3 taken 16
+    #####:  156:                    free(value);
+    #####:  157:                    diagnostic_set(diagnostic, loc, "invalid byte in markup string");
+call    0 never executed
+    #####:  158:                    markup_free(markup);
+call    0 never executed
+    #####:  159:                    return -1;
+        -:  160:                }
+        -:  161:                {
+       16:  162:                    char *grown = (char *)realloc(value, out + 2);
+       16:  163:                    if (grown == NULL) {
+branch  0 taken 0 (fallthrough)
+branch  1 taken 16
+    #####:  164:                        free(value);
+    #####:  165:                        goto out_of_memory;
+        -:  166:                    }
+       16:  167:                    value = grown;
+        -:  168:                }
+       16:  169:                value[out++] = c;
+       16:  170:                value[out] = '\0';
+       16:  171:                move_location(&loc, c, &offset);
+call    0 returned 16
+        -:  172:            }
+        5:  173:            if (offset == length) {
+branch  0 taken 0 (fallthrough)
+branch  1 taken 5
+    #####:  174:                free(value);
+    #####:  175:                diagnostic_set(diagnostic, start, "unterminated markup string");
+call    0 never executed
+    #####:  176:                markup_free(markup);
+call    0 never executed
+    #####:  177:                return -1;
+        -:  178:            }
+        5:  179:            move_location(&loc, quote, &offset);
+call    0 returned 5
+        5:  180:            if (grow_tokens(markup) != 0) {
+call    0 returned 5
+branch  1 taken 0 (fallthrough)
+branch  2 taken 5
+    #####:  181:                free(value);
+    #####:  182:                goto out_of_memory;
+        -:  183:            }
+        5:  184:            markup->tokens[markup->count++] = (MarkupToken){MARKUP_STRING, value, start};
+        5:  185:            continue;
+        -:  186:        }
+       13:  187:        if (identifier_start(c)) {
+call    0 returned 13
+branch  1 taken 13 (fallthrough)
+branch  2 taken 0
+       13:  188:            begin = offset;
+       13:  189:            move_location(&loc, c, &offset);
+call    0 returned 13
+       27:  190:            while (offset < length && identifier_part(source[offset]))
+branch  0 taken 27 (fallthrough)
+branch  1 taken 0
+call    2 returned 27
+branch  3 taken 14
+branch  4 taken 13 (fallthrough)
+       14:  191:                move_location(&loc, source[offset], &offset);
+call    0 returned 14
+       13:  192:            if (add_token(markup, MARKUP_IDENT, source + begin, offset - begin, start) != 0)
+call    0 returned 13
+branch  1 taken 0 (fallthrough)
+branch  2 taken 13
+    #####:  193:                goto out_of_memory;
+       13:  194:            continue;
+        -:  195:        }
+    #####:  196:        diagnostic_set(diagnostic, loc, "invalid character in markup tag");
+call    0 never executed
+    #####:  197:        markup_free(markup);
+call    0 never executed
+    #####:  198:        return -1;
+        -:  199:    }
+        6:  200:    if (in_tag) {
+branch  0 taken 0 (fallthrough)
+branch  1 taken 6
+    #####:  201:        diagnostic_set(diagnostic, loc, "unterminated markup tag");
+call    0 never executed
+    #####:  202:        markup_free(markup);
+call    0 never executed
+    #####:  203:        return -1;
+        -:  204:    }
+        6:  205:    return 0;
+        -:  206:
+    #####:  207:out_of_memory:
+    #####:  208:    diagnostic_set(diagnostic, loc, "out of memory");
+call    0 never executed
+    #####:  209:    markup_free(markup);
+call    0 never executed
+    #####:  210:    return -1;
+        -:  211:}
+        -:  212:
+function markup_free called 6 returned 100% blocks executed 100%
+        6:  213:void markup_free(Markup *markup)
+        -:  214:{
+        -:  215:    size_t i;
+       51:  216:    for (i = 0; i < markup->count; i++)
+branch  0 taken 45
+branch  1 taken 6 (fallthrough)
+       45:  217:        free(markup->tokens[i].lexeme);
+        6:  218:    free(markup->tokens);
+        6:  219:    memset(markup, 0, sizeof(*markup));
+        6:  220:}

@@ -1,0 +1,15 @@
+project=benchmark-pbnfc-html8-terra-vs-harness-20260727a
+task_id=004-markup-lexer
+task_root=004-markup-lexer
+captured_at=2026-07-28T04:36:36Z
+repository=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/repository
+git_head=a9e4d7df2194326a8233729e9abadeb199cd1658
+result_sha256=7be942389f8a9a9c16b50570ed8f769d15823d984a12d1522913668169382746
+review_sha256=7b804468c67c1d4937056fd15c08bb6fcdd34cc547ab6f33081ab788719b0f5a
+progress_percent=33
+improvement_percent=33
+verified_criterion=p004.markup-lexer-core-tags
+path=Makefile	type=file	mode=600	sha256=804b35c547ad6e68d87ad0898c5831166a06e22223677ba8aea31d4262522df8
+path=include/markup_lexer.h	type=file	mode=600	sha256=e7510085ba95f73a06de3d0dd0566b97aec985791d63c94b6c2c047bd11b16da
+path=src/markup_lexer.c	type=file	mode=600	sha256=25e137d4ded0d06b094cd9c752c5ec25af3ac86f3e75a241f2e302f58a3963c2
+path=tests/markup_lexer_smoke.c	type=file	mode=600	sha256=7adadb65ea347db1d0f6e63af7a6865c70a80b2222fecd15db77556441460422

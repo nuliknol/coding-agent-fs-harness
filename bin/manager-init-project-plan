@@ -7,7 +7,8 @@ source "$SCRIPT_DIR/../lib/harness-common.sh"
 usage()
 {
 	printf 'Usage: %s ENV_FILE PLAN_TSV_FILE\n' "${0##*/}" >&2
-	printf 'Each non-comment line: ITEM_ID<TAB>TITLE[<TAB>ACCEPTED_TASK_ROOT]\n' >&2
+	printf 'Legacy v1 rows: ITEM_ID<TAB>TITLE[<TAB>ACCEPTED_TASK_ROOT]\n' >&2
+	printf 'V2 requires the exact decomposition DAG header documented in templates/project-plan-template.tsv.\n' >&2
 	exit 2
 }
 

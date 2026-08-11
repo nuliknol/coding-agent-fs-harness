@@ -1,0 +1,3 @@
+competitor	grader_score	grader_exit	seconds	completed_turns	manager_worker_switches	input_tokens	cached_input_tokens	output_tokens	estimated_api_usd	c_header_lines
+single-terra-high	12/12	0	551	1	0	1370667	1317120	26662	0.863078	190
+manager-terra-high_worker-luna-high	12/12	0	8055	81	81	41023421	39280640	363966	13.467938	3851

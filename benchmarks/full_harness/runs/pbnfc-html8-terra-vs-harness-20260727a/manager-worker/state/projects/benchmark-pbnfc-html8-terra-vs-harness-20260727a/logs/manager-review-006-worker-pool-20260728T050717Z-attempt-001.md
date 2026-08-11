@@ -1,0 +1,1 @@
+The lifecycle result remains independently validated; the next required manager action is to checkpoint it and publish the generation-protocol continuation.

@@ -1,0 +1,2 @@
+?? src/recognizer.c
+?? tests/parallel_scanning_smoke.c

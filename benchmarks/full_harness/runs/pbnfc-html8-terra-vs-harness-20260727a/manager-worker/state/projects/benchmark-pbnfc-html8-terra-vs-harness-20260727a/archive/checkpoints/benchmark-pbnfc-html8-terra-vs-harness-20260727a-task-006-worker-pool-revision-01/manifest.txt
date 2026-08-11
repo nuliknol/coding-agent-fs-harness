@@ -1,0 +1,14 @@
+project=benchmark-pbnfc-html8-terra-vs-harness-20260727a
+task_id=006-worker-pool-revision-01
+task_root=006-worker-pool
+captured_at=2026-07-28T05:11:09Z
+repository=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/repository
+git_head=a9e4d7df2194326a8233729e9abadeb199cd1658
+result_sha256=05c73289e66b1750d30a311c9a610bebb21f6516b4b9965c1b0252900cae1478
+review_sha256=50b52cc39b8053bc5c8188e1ec9bde6d23289ff20230010a846561f21653d2d1
+progress_percent=66
+improvement_percent=33
+verified_criterion=p006.pool-generation-protocol
+path=include/worker_pool.h	type=file	mode=600	sha256=c158cb279962c7ff5820f34cab74458230f9b4dc1ea0935112d833c9de759ef0
+path=src/worker_pool.c	type=file	mode=600	sha256=be4ad9cb154d0a495c2a7d4d7a38258c21f62ec7c8e8c274e848662a2a1731d4
+path=tests/worker_pool_core_smoke.c	type=file	mode=600	sha256=ea42b5c15dae5b2d39038d5d9966b364656b5ed48445d4fd03d5d4b6b2043419

@@ -1,0 +1,3 @@
+item_id	state	verified_by	evidence_sha256	updated_at
+foundation.build.strict-c11	PASSED	bnfc-01-foundation	f24af838f1cc6b56d0c8d12bee0bd421504f6fb5edf2ab225f6f7645b9688bcd	2026-07-28T03:34:09Z
+foundation.cli.required-options	PASSED	bnfc-01-foundation-revision-01	44dbd31cf29db411c438b8d02b746156d40171b42c6ed856cf9d440e95d9b30c	2026-07-28T03:39:20Z

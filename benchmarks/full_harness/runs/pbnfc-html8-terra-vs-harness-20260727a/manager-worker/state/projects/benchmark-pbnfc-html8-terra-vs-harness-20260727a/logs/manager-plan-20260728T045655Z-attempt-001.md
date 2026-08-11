@@ -1,0 +1,1 @@
+Published `005-sequential-chart-revision-02`, targeting deterministic sequential rejection diagnostics.

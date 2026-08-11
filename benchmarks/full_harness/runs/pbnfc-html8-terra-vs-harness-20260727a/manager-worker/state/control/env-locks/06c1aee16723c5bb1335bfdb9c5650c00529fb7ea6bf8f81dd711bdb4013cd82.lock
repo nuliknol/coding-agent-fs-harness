@@ -1,0 +1,4 @@
+pid=697042
+started_at=2026-07-28T03:46:28Z
+operation=harness-start
+env_file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/harness.env

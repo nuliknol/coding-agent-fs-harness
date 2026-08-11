@@ -1,0 +1,3 @@
+include/grammar_lexer.h
+src/grammar_lexer.c
+tests/grammar_lexer_smoke.c

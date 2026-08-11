@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 1 ]] || die "Usage: ${0##*/} ENV_FILE"
+load_harness_env "$1"
+ensure_project
+dir="$(project_dir)"
+lock="$dir/control/supervisor.lock"
+pid="$(supervisor_pid 2>/dev/null || true)"
+unit="$(supervisor_unit_name)"
+if [[ -f "$(supervisor_unit_file)" ]]; then
+	recorded_unit="$(awk 'NR == 1 { print; exit }' "$(supervisor_unit_file)")"
+	if [[ "$recorded_unit" =~ ^coding-harness-light-[A-Za-z0-9._-]+\.service$ ]]; then
+		unit="$recorded_unit"
+	fi
+fi
+token="$(harness_process_token 2>/dev/null || true)"
+was_running=0
+supervisor_running && was_running=1
+
+declare -a legacy_pids=()
+if (( was_running )) && [[ -z "$token" ]]; then
+	mapfile -t legacy_pids < <(project_environment_process_pids | sort -nu)
+fi
+
+unit_state=""
+if systemd_user_available; then
+	unit_state="$(systemctl --user is-active "$unit" 2>/dev/null || true)"
+	case "$unit_state" in
+		active|activating|deactivating|reloading)
+			# The supervisor may finish between is-active and stop. Cleanup is
+			# verified below, so a unit that disappeared in that race is benign.
+			systemctl --user stop "$unit" 2>/dev/null || true
+			;;
+	esac
+fi
+
+if (( was_running )) && [[ "$unit_state" != active && "$unit_state" != activating &&
+	"$unit_state" != deactivating && "$unit_state" != reloading ]]; then
+	pgid="$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')"
+	if [[ "$pgid" =~ ^[1-9][0-9]*$ && "$pgid" == "$pid" ]]; then
+		kill -TERM -- "-$pgid" 2>/dev/null || true
+	else
+		kill -TERM "$pid" 2>/dev/null || true
+	fi
+fi
+
+signal_residuals()
+{
+	local signal="$1"
+	local candidate
+	declare -A signaled=()
+	declare -a candidates=()
+	if [[ -n "$token" ]]; then
+		mapfile -t candidates < <(tagged_process_pids "$token" | sort -nu)
+	else
+		candidates=("${legacy_pids[@]}")
+	fi
+	while read -r candidate; do
+		[[ -n "$candidate" ]] && candidates+=("$candidate")
+	done < <(lock_holder_pids "$lock" | sort -nu)
+	for candidate in "${candidates[@]}"; do
+		[[ "$candidate" =~ ^[1-9][0-9]*$ ]] || continue
+		[[ "$candidate" != "$$" && -z "${signaled[$candidate]:-}" ]] || continue
+		signaled[$candidate]=1
+		kill -s "$signal" "$candidate" 2>/dev/null || true
+	done
+}
+
+signal_residuals TERM
+for (( waited = 0; waited < HARNESS_CODEX_KILL_GRACE_SECONDS; ++waited )); do
+	residual=0
+	if [[ -n "$token" ]] && [[ -n "$(tagged_process_pids "$token")" ]]; then
+		residual=1
+	elif [[ -z "$token" ]]; then
+		for candidate in "${legacy_pids[@]}"; do
+			kill -0 "$candidate" 2>/dev/null && residual=1
+		done
+	fi
+	[[ -z "$(lock_holder_pids "$lock")" ]] || residual=1
+	(( residual == 0 )) && break
+	sleep 1
+done
+signal_residuals KILL
+sleep 1
+
+declare -a remaining=()
+if [[ -n "$token" ]]; then
+	mapfile -t remaining < <(tagged_process_pids "$token" | sort -nu)
+else
+	for candidate in "${legacy_pids[@]}"; do
+		kill -0 "$candidate" 2>/dev/null && remaining+=("$candidate")
+	done
+fi
+mapfile -t lock_holders < <(lock_holder_pids "$lock" | sort -nu)
+if (( ${#remaining[@]} > 0 || ${#lock_holders[@]} > 0 )); then
+	printf 'Residual harness processes remain after stop.\n' >&2
+	printf 'Tagged/project PIDs: %s\n' "${remaining[*]:-none}" >&2
+	printf 'Lock-holder PIDs: %s\n' "${lock_holders[*]:-none}" >&2
+	exit 1
+fi
+if ! flock -n "$lock" true; then
+	die "supervisor lock remains unavailable after process cleanup: $lock"
+fi
+
+rm -f "$dir/control/supervisor.pid" "$(process_token_file)" \
+	"$(supervisor_unit_file)"
+if (( was_running )); then
+	printf 'Stopped supervisor PID %s and verified process containment.\n' "$pid"
+else
+	printf 'Supervisor is not running; verified no residual harness processes.\n'
+fi

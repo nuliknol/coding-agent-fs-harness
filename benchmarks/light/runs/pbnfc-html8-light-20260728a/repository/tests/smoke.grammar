@@ -1,0 +1,12 @@
+%start Document
+%token IDENT
+%token STRING
+%token TEXT
+Document ::= Nodes ;
+Nodes ::= Node Nodes | ;
+Node ::= Text | A | Img ;
+Text ::= ' hello world ' ;
+A ::= '<' 'a' Attributes '>' Nodes '<' '/' 'a' '>' ;
+Attributes ::= Attribute Attributes | ;
+Attribute ::= $IDENT '=' $STRING ;
+Img ::= '<' 'img' Attributes '/' '>' ;

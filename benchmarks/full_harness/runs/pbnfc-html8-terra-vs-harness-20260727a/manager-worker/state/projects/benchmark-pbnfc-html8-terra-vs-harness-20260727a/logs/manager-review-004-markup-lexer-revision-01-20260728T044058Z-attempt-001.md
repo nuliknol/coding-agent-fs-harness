@@ -1,0 +1,1 @@
+Checkpointed quoted values and text runs at 66% and published `004-markup-lexer-revision-02` for deterministic malformed-markup diagnostics.

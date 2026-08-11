@@ -1,0 +1,11 @@
+make: Entering directory '/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/repository'
+src/recognizer.c:215:9: runtime error: null pointer passed as argument 2, which is declared to never be null
+    #0 0x5ed17adefeb9 in merge_candidates src/recognizer.c:215
+    #1 0x5ed17adf0d37 in recognize src/recognizer.c:339
+    #2 0x5ed17addd5a4 in main src/main.c:141
+    #3 0x706fada2a1c9 in __libc_start_call_main ../sysdeps/nptl/libc_start_call_main.h:58
+    #4 0x706fada2a28a in __libc_start_main_impl ../csu/libc-start.c:360
+    #5 0x5ed17addc764 in _start (/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/repository/bin/pbnfc+0x21764) (BuildId: fcf67d20deb65e204c1b7fb397190316bfb0afdc)
+
+make: *** [Makefile:18: test] Error 1
+make: Leaving directory '/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/repository'

@@ -1,0 +1,10 @@
+Environment: /var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/harness.env
+Project: benchmark-light-pbnfc-html8-light-20260728a
+Repository: /var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/repository
+Specification: /var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/repository/SPECIFICATION.md
+Development policy: /var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/development-policy.txt
+Harness root: /var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/state
+Manager: gpt-5.6-terra (high), sandbox=danger-full-access
+Worker: gpt-5.6-luna (high), sandbox=danger-full-access
+Manager review limit: unlimited
+Configuration is valid.

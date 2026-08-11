@@ -1,0 +1,1 @@
+Accepted plan item 003 at 100% and published `004-markup-lexer`, targeting compact tag punctuation and identifier lexing.

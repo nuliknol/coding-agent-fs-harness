@@ -247,6 +247,16 @@ goal_focused_validation=""
 goal_allowed_scope=""
 goal_baseline_boundary=""
 goal_hard_blocks=""
+leaf_type=""
+leaf_complexity=""
+leaf_worker_route=""
+leaf_depends_on=""
+leaf_deliverable=""
+leaf_required_symbols=""
+leaf_context_paths=""
+leaf_architecture_decisions=""
+leaf_expected_files=""
+leaf_expected_turns=""
 if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 	goal_mode=1
 	[[ "$(require_single_metadata_value "$task_file" Execution-Mode 'goal-mode assignment')" == LEAF_GOAL ]] ||
@@ -259,6 +269,60 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 	goal_allowed_scope="$(require_single_metadata_value "$task_file" Allowed-Scope 'goal-mode assignment')"
 	goal_baseline_boundary="$(require_single_metadata_value "$task_file" Baseline-Boundary 'goal-mode assignment')"
 	goal_hard_blocks="$(require_single_metadata_value "$task_file" Hard-Block-Conditions 'goal-mode assignment')"
+	if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
+		leaf_type="$(require_single_metadata_value "$task_file" Leaf-Type 'v2 leaf assignment')"
+		leaf_complexity="$(require_single_metadata_value "$task_file" Complexity-Class 'v2 leaf assignment')"
+		leaf_worker_route="$(require_single_metadata_value "$task_file" Worker-Route 'v2 leaf assignment')"
+		leaf_depends_on="$(require_single_metadata_value "$task_file" Depends-On 'v2 leaf assignment')"
+		leaf_deliverable="$(require_single_metadata_value "$task_file" Deliverable 'v2 leaf assignment')"
+		leaf_required_symbols="$(require_single_metadata_value "$task_file" Required-Symbols 'v2 leaf assignment')"
+		leaf_context_paths="$(require_single_metadata_value "$task_file" Context-Paths 'v2 leaf assignment')"
+		leaf_architecture_decisions="$(require_single_metadata_value "$task_file" Architecture-Decisions 'v2 leaf assignment')"
+		leaf_expected_files="$(require_single_metadata_value "$task_file" Expected-Max-Implementation-Files 'v2 leaf assignment')"
+		leaf_expected_turns="$(require_single_metadata_value "$task_file" Expected-Max-Worker-Turns 'v2 leaf assignment')"
+		[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]] ||
+			die "invalid Leaf-Type: $leaf_type"
+		[[ "$leaf_complexity" =~ ^(LOW|MEDIUM|HIGH)$ ]] || die "invalid Complexity-Class: $leaf_complexity"
+		[[ "$leaf_worker_route" =~ ^(LUNA|TERRA)$ ]] || die "invalid Worker-Route: $leaf_worker_route"
+		[[ "$leaf_expected_files" =~ ^[1-9][0-9]*$ ]] || die 'Expected-Max-Implementation-Files must be positive'
+		[[ "$leaf_expected_turns" =~ ^[1-9][0-9]*$ ]] || die 'Expected-Max-Worker-Turns must be positive'
+		[[ "$leaf_context_paths" != / && "$leaf_context_paths" != . && "$leaf_context_paths" != '*' && "$leaf_context_paths" != '**' ]] ||
+			die 'Context-Paths must be a bounded path or symbol capsule, not the whole repository'
+		if [[ "$leaf_worker_route" == LUNA ]]; then
+			[[ "$leaf_complexity" == LOW ]] || die 'Luna leaves must have Complexity-Class: LOW'
+			[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]] ||
+				die "Leaf-Type $leaf_type requires Terra"
+			[[ "$leaf_architecture_decisions" == NONE ]] || die 'Luna leaves must set Architecture-Decisions: NONE'
+			(( leaf_expected_files <= 5 )) || die 'Luna leaves may expect at most five implementation files'
+			(( leaf_expected_turns <= 3 )) || die 'Luna leaves may expect at most three worker turns'
+			[[ "$goal_allowed_scope" != / && "$goal_allowed_scope" != . && "$goal_allowed_scope" != *'*'* ]] ||
+				die 'Luna Allowed-Scope must name bounded explicit paths without repository-wide wildcards'
+			(( $(awk -F',' '{print NF}' <<< "$goal_allowed_scope") <= 5 )) ||
+				die 'Luna Allowed-Scope may name at most five path groups'
+			[[ "$leaf_context_paths" != *'*'* ]] ||
+				die 'Luna Context-Paths must use explicit paths without wildcards'
+			(( $(awk -F',' '{print NF}' <<< "$leaf_context_paths") <= 8 )) ||
+				die 'Luna Context-Paths may name at most eight bounded entries'
+		fi
+		if (( manager_remediation == 1 )); then
+			[[ "$leaf_worker_route" == TERRA ]] || die 'manager remediation must use Worker-Route: TERRA'
+		fi
+		if [[ "$task_id" == "$root" ]]; then
+			project_plan_uses_dag || die 'v2 leaf publication requires a registered decomposition DAG'
+			[[ "$leaf_depends_on" == "$(project_plan_node_value "$plan_item_id" depends_on)" ]] || die 'leaf Depends-On does not match its DAG node'
+			[[ "$leaf_deliverable" == "$(project_plan_node_value "$plan_item_id" deliverable)" ]] || die 'leaf Deliverable does not match its DAG node'
+			[[ "$goal_success_evidence" == "$(project_plan_node_value "$plan_item_id" acceptance_evidence)" ]] || die 'leaf Goal-Success-Evidence does not match its DAG node'
+			[[ "$goal_focused_validation" == "$(project_plan_node_value "$plan_item_id" focused_validation)" ]] || die 'leaf Focused-Validation does not match its DAG node'
+			[[ "$goal_allowed_scope" == "$(project_plan_node_value "$plan_item_id" allowed_paths)" ]] || die 'leaf Allowed-Scope does not match its DAG node'
+			[[ "$leaf_required_symbols" == "$(project_plan_node_value "$plan_item_id" required_symbols)" ]] || die 'leaf Required-Symbols does not match its DAG node'
+			[[ "$leaf_complexity" == "$(project_plan_node_value "$plan_item_id" complexity_class)" ]] || die 'leaf Complexity-Class does not match its DAG node'
+			[[ "$leaf_worker_route" == "$(project_plan_node_value "$plan_item_id" worker_route)" ]] || die 'leaf Worker-Route does not match its DAG node'
+		fi
+		luna_failures="$(root_luna_strategy_failure_count "$root")"
+		if [[ "$leaf_worker_route" == LUNA ]] && (( luna_failures >= HARNESS_MAX_LUNA_STRATEGY_FAILURES )); then
+			die "root $root has $luna_failures failed Luna strategies; publish a fresh Terra leaf or decompose it further"
+		fi
+	fi
 	if [[ "$task_id" == "$root" ]]; then
 		[[ "$goal_target" == "${declared_criteria[0]}" ]] ||
 			die "new root goal must target its first declared criterion: ${declared_criteria[0]}"
@@ -486,6 +550,18 @@ if (( goal_mode == 1 )); then
 		printf 'Allowed-Scope: %s\n' "$goal_allowed_scope"
 		printf 'Baseline-Boundary: %s\n' "$goal_baseline_boundary"
 		printf 'Hard-Block-Conditions: %s\n' "$goal_hard_blocks"
+		if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
+			printf 'Leaf-Type: %s\n' "$leaf_type"
+			printf 'Complexity-Class: %s\n' "$leaf_complexity"
+			printf 'Worker-Route: %s\n' "$leaf_worker_route"
+			printf 'Depends-On: %s\n' "$leaf_depends_on"
+			printf 'Deliverable: %s\n' "$leaf_deliverable"
+			printf 'Required-Symbols: %s\n' "$leaf_required_symbols"
+			printf 'Context-Paths: %s\n' "$leaf_context_paths"
+			printf 'Architecture-Decisions: %s\n' "$leaf_architecture_decisions"
+			printf 'Expected-Max-Implementation-Files: %s\n' "$leaf_expected_files"
+			printf 'Expected-Max-Worker-Turns: %s\n' "$leaf_expected_turns"
+		fi
 		printf '\nIteration receipts are authoritative in: %s\n' "$goal_ledger"
 	} > "$goal_summary"
 	chmod 600 "$goal_summary"
@@ -523,6 +599,46 @@ if (( recovery_publish == 1 )); then
 			"$blocking_fingerprint" "$remediation_blocker_class" "$remediation_scope" \
 			"$MANAGER_MODEL" >> "$remediation_ledger"
 	fi
+fi
+if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
+	context_capsule="$(task_context_capsule_file "$task_id")"
+	mkdir -p "$(dirname "$context_capsule")"
+	{
+		printf '# Bounded Worker Context Capsule\n\n'
+		printf 'Task-ID: %s\n' "$task_id"
+		printf 'Task-Root: %s\n' "$root"
+		printf 'Plan-Node: %s\n' "$plan_item_id"
+		printf 'Target-Criterion: %s\n' "$goal_target"
+		printf 'Worker-Route: %s\n' "$leaf_worker_route"
+		printf 'Leaf-Type: %s\n' "$leaf_type"
+		printf 'Complexity-Class: %s\n' "$leaf_complexity"
+		printf 'Deliverable: %s\n' "$leaf_deliverable"
+		printf 'Acceptance-Evidence: %s\n' "$goal_success_evidence"
+		printf 'Focused-Validation: %s\n' "$goal_focused_validation"
+		printf 'Allowed-Scope: %s\n' "$goal_allowed_scope"
+		printf 'Required-Symbols: %s\n' "$leaf_required_symbols"
+		printf 'Context-Paths: %s\n' "$leaf_context_paths"
+		printf 'Architecture-Decisions: %s\n' "$leaf_architecture_decisions"
+		printf 'Baseline-Boundary: %s\n' "$goal_baseline_boundary"
+		printf 'Expected-Max-Implementation-Files: %s\n' "$leaf_expected_files"
+		printf 'Expected-Max-Worker-Turns: %s\n' "$leaf_expected_turns"
+		printf '\n## Dependency evidence\n\n'
+		if [[ "$leaf_depends_on" == - ]]; then
+			printf -- '- No plan-node prerequisites.\n'
+		else
+			IFS=',' read -r -a dependency_list <<< "$leaf_depends_on"
+			for dependency in "${dependency_list[@]}"; do
+				printf -- '- %s: %s\n' "$dependency" "$(project_plan_item_status "$dependency")"
+			done
+		fi
+		printf '\n## Authoritative files\n\n'
+		printf -- '- Assignment: %s\n' "$ready"
+		printf -- '- Root assignment: %s\n' "$root_assignment"
+		printf -- '- Cumulative progress: %s\n' "$progress"
+		printf '\nThis capsule is intentionally narrow. Inspect other repository paths only when direct compiler, linker, or focused-validation evidence proves they are required by the declared leaf.\n'
+	} > "$context_capsule.tmp.$$"
+	chmod 600 "$context_capsule.tmp.$$"
+	mv "$context_capsule.tmp.$$" "$context_capsule"
 fi
 mv "$tmp" "$ready"
 goal_publish_ready=1

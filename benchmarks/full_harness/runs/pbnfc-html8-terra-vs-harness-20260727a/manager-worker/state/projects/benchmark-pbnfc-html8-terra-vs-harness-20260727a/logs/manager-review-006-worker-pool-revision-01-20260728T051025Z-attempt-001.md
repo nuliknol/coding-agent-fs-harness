@@ -1,0 +1,1 @@
+Review pending: verify the generation-protocol result, then checkpoint it if the focused pool smoke passes.

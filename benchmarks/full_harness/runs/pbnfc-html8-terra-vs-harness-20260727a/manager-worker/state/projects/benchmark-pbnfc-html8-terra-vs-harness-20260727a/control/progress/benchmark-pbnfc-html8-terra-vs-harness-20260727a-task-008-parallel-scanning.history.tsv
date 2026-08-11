@@ -1,0 +1,4 @@
+updated_at	task_id	decision	progress_percent	improvement_percent	review_sha256
+2026-07-28T05:31:45Z	008-parallel-scanning	CHECKPOINT	33	33	65bf1c21015f741945fabff83a22adeaf4985f5c6e95387eba942470b3088d9d
+2026-07-28T05:35:24Z	008-parallel-scanning-revision-01	CHECKPOINT	66	33	f42ff1492b42549dc411a32486c2e4f6735a712585a4ec0c6d0d56ce9117a08a
+2026-07-28T05:40:24Z	008-parallel-scanning-revision-02	ACCEPT	100	34	45f26a33c789a74b8f1e7f2763c2f29a68a667b918c02367a50f5a9c1c4cce2a

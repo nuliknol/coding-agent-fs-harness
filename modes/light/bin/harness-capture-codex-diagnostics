@@ -1,0 +1,306 @@
+#!/usr/bin/env bash
+# Capture bounded, read-only evidence for one live or recently exited Codex turn.
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE ROLE ROOT_PID JSONL STDERR REASON\n' \
+		"${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 6 ]] || usage
+env_file="$1"
+role="$2"
+root_pid="$3"
+jsonl="$4"
+stderr_log="$5"
+reason="$6"
+
+load_harness_env "$env_file"
+ensure_project
+[[ "$role" =~ ^(manager_goal|manager_review|manager_convergence|worker)$ ]] ||
+	die "invalid role: $role"
+[[ "$root_pid" =~ ^[1-9][0-9]*$ ]] || die "invalid root PID: $root_pid"
+[[ "$reason" =~ ^[A-Za-z0-9._-]+$ ]] || die "invalid diagnostic reason: $reason"
+
+case "$role" in
+	manager_goal|manager_review|manager_convergence) codex_home="$MANAGER_CODEX_HOME" ;;
+	worker) codex_home="$WORKER_CODEX_HOME" ;;
+esac
+
+umask 077
+stamp="$(date -u '+%Y%m%dT%H%M%SZ')"
+diagnostic_root="${jsonl%.jsonl}.diagnostics"
+snapshot="$diagnostic_root/snapshot-$stamp-$root_pid-$reason"
+mkdir -p "$snapshot/processes"
+
+declare -a queue=("$root_pid")
+declare -a pids=()
+declare -A seen=()
+process_token="${HARNESS_PROCESS_TOKEN:-}"
+if [[ "$process_token" =~ ^[0-9a-f]{64}$ ]]; then
+	mapfile -t containment_pids < <(tagged_process_pids "$process_token" | sort -nu)
+	queue+=("${containment_pids[@]}")
+	printf '%s\n' "${containment_pids[@]}" > "$snapshot/containment-members.txt"
+fi
+while (( ${#queue[@]} > 0 )); do
+	pid="${queue[0]}"
+	queue=("${queue[@]:1}")
+	[[ -z "${seen[$pid]:-}" ]] || continue
+	seen[$pid]=1
+	[[ -d "/proc/$pid" ]] || continue
+	pids+=("$pid")
+	mapfile -t children < <(ps -eo pid=,ppid= |
+		awk -v parent="$pid" '$2 == parent { print $1 }')
+	queue+=("${children[@]}")
+done
+
+{
+	printf 'captured_at=%s\n' "$(timestamp_utc)"
+	printf 'project=%s\n' "$PROJECT"
+	printf 'role=%s\n' "$role"
+	printf 'reason=%s\n' "$reason"
+	printf 'root_pid=%s\n' "$root_pid"
+	printf 'jsonl=%s\n' "$jsonl"
+	printf 'stderr=%s\n' "$stderr_log"
+	printf 'codex_home=%s\n' "$codex_home"
+	printf 'process_count=%s\n' "${#pids[@]}"
+	printf 'containment=%s\n' \
+		"$([[ "$process_token" =~ ^[0-9a-f]{64}$ ]] && printf process-token || printf descendant-tree)"
+	printf 'cgroup=%s\n' \
+		"$(awk -F: '$1 == "0" { print $3; exit }' "/proc/$root_pid/cgroup" 2>/dev/null || true)"
+	printf 'kernel=%s\n' "$(uname -srmo)"
+	printf 'uptime=%s\n' "$(uptime 2>/dev/null || true)"
+} > "$snapshot/metadata.env"
+
+if (( ${#pids[@]} > 0 )); then
+	pid_csv=""
+	for pid in "${pids[@]}"; do
+		pid_csv+="${pid},"
+	done
+	ps -o pid=,ppid=,pgid=,sid=,stat=,etime=,time=,%cpu=,%mem=,wchan:24=,comm=,args= \
+		-p "${pid_csv%,}" > "$snapshot/process-tree.txt" 2>&1 || true
+fi
+
+process_ticks=0
+process_read_bytes=0
+process_write_bytes=0
+compiler_process_count=0
+for pid in "${pids[@]}"; do
+	process_dir="$snapshot/processes/$pid"
+	mkdir -p "$process_dir"
+	tr '\0' ' ' 2>/dev/null < "/proc/$pid/cmdline" \
+		> "$process_dir/cmdline.txt" || true
+	printf '\n' >> "$process_dir/cmdline.txt"
+	cp "/proc/$pid/stat" "$process_dir/stat.txt" 2>/dev/null || true
+	cp "/proc/$pid/io" "$process_dir/io.txt" 2>/dev/null || true
+	stat_fields="$(sed -E 's/^[0-9]+ \(.*\) //' "/proc/$pid/stat" 2>/dev/null || true)"
+	if [[ -n "$stat_fields" ]]; then
+		utime="$(awk '{ print $12 + 0 }' <<< "$stat_fields")"
+		stime="$(awk '{ print $13 + 0 }' <<< "$stat_fields")"
+		process_ticks=$((process_ticks + utime + stime))
+	fi
+	read_bytes="$(awk '$1 == "read_bytes:" { print $2 + 0; exit }' "/proc/$pid/io" 2>/dev/null || printf 0)"
+	write_bytes="$(awk '$1 == "write_bytes:" { print $2 + 0; exit }' "/proc/$pid/io" 2>/dev/null || printf 0)"
+	process_read_bytes=$((process_read_bytes + read_bytes))
+	process_write_bytes=$((process_write_bytes + write_bytes))
+	command_name="$(cat "/proc/$pid/comm" 2>/dev/null || true)"
+	if [[ "$command_name" =~ ^(cc1|cc1plus|clang|clang\+\+|gcc|g\+\+|ld|ld\.lld|lld|make|ninja|cmake|cargo|rustc|hipcc)$ ]]; then
+		compiler_process_count=$((compiler_process_count + 1))
+	fi
+	sed -nE '/^(Name|State|Tgid|Pid|PPid|TracerPid|Uid|Gid|FDSize|Groups|NStgid|NSpid|NSpgid|NSsid|Vm[A-Za-z]*|Threads|Sig[A-Za-z]*|Cap[A-Za-z]*|NoNewPrivs|Seccomp|voluntary_ctxt_switches|nonvoluntary_ctxt_switches):/p' \
+		"/proc/$pid/status" > "$process_dir/status.txt" 2>/dev/null || true
+	readlink "/proc/$pid/exe" > "$process_dir/exe.txt" 2>/dev/null || true
+	cat "/proc/$pid/wchan" > "$process_dir/wchan.txt" 2>/dev/null || true
+	cat "/proc/$pid/syscall" > "$process_dir/syscall.txt" 2>/dev/null || true
+	find "/proc/$pid/fd" -maxdepth 1 -type l -printf '%f\t%l\n' \
+		2>/dev/null | sort -n > "$process_dir/fds.tsv" || true
+	{
+		printf 'tid\tcomm\tstate\twchan\tsyscall\n'
+		for task in "/proc/$pid/task"/*; do
+			[[ -d "$task" ]] || continue
+			tid="${task##*/}"
+			comm="$(cat "$task/comm" 2>/dev/null || true)"
+			state="$(awk '/^State:/ { print $2; exit }' "$task/status" 2>/dev/null || true)"
+			wchan="$(cat "$task/wchan" 2>/dev/null || true)"
+			syscall="$(cat "$task/syscall" 2>/dev/null || true)"
+			printf '%s\t%s\t%s\t%s\t%s\n' \
+				"$tid" "$comm" "$state" "$wchan" "$syscall"
+		done
+	} > "$process_dir/threads.tsv"
+done
+
+if command -v ss >/dev/null 2>&1; then
+	{
+		for pid in "${pids[@]}"; do
+			ss -tanp 2>/dev/null | awk -v needle="pid=$pid," \
+				'index($0, needle) { print }'
+		done
+	} | sort -u > "$snapshot/tcp-sockets.txt"
+	{
+		for pid in "${pids[@]}"; do
+			ss -xanp 2>/dev/null | awk -v needle="pid=$pid," \
+				'index($0, needle) { print }'
+		done
+	} | sort -u > "$snapshot/unix-sockets.txt"
+else
+	: > "$snapshot/tcp-sockets.txt"
+	: > "$snapshot/unix-sockets.txt"
+fi
+
+tail -n 200 "$jsonl" > "$snapshot/jsonl-tail.jsonl" 2>/dev/null || true
+tail -n 400 "$stderr_log" > "$snapshot/stderr-tail.log" 2>/dev/null || true
+
+thread_id="$(jq -rs '[.[] | select(.type == "thread.started") | .thread_id][0] // empty' \
+	"$jsonl" 2>/dev/null || true)"
+session_file=""
+if [[ "$thread_id" =~ ^[A-Za-z0-9._:-]+$ && -d "$codex_home/sessions" ]]; then
+	printf '%s\n' "$thread_id" > "$snapshot/thread-id.txt"
+	session_file="$(find "$codex_home/sessions" -type f \
+		-name "*$thread_id*.jsonl" -print -quit 2>/dev/null || true)"
+	if [[ -z "$session_file" ]]; then
+		while IFS= read -r -d '' candidate; do
+			if grep -aFqm1 -- "$thread_id" "$candidate" 2>/dev/null; then
+				session_file="$candidate"
+				break
+			fi
+		done < <(find "$codex_home/sessions" -type f -mtime -7 -print0 2>/dev/null)
+	fi
+	if [[ -n "$session_file" ]]; then
+		printf '%s\n' "$session_file" > "$snapshot/session-file.txt"
+		tail -n 2000 "$session_file" > "$snapshot/session-tail.jsonl" 2>/dev/null || true
+	fi
+fi
+
+file_size()
+{
+	stat -c '%s' "$1" 2>/dev/null || printf 0
+}
+
+file_mtime()
+{
+	stat -c '%Y' "$1" 2>/dev/null || printf 0
+}
+
+jsonl_size="$(file_size "$jsonl")"
+jsonl_mtime="$(file_mtime "$jsonl")"
+stderr_size="$(file_size "$stderr_log")"
+stderr_mtime="$(file_mtime "$stderr_log")"
+session_size=0
+session_mtime=0
+if [[ -n "$session_file" ]]; then
+	session_size="$(file_size "$session_file")"
+	session_mtime="$(file_mtime "$session_file")"
+fi
+tcp_established_count="$(grep -c 'ESTAB' "$snapshot/tcp-sockets.txt" 2>/dev/null || true)"
+tcp_established_count="${tcp_established_count:-0}"
+
+{
+	printf 'captured_at_epoch=%s\n' "$(date '+%s')"
+	printf 'process_count=%s\n' "${#pids[@]}"
+	printf 'process_ticks=%s\n' "$process_ticks"
+	printf 'process_read_bytes=%s\n' "$process_read_bytes"
+	printf 'process_write_bytes=%s\n' "$process_write_bytes"
+	printf 'compiler_process_count=%s\n' "$compiler_process_count"
+	printf 'tcp_established_count=%s\n' "$tcp_established_count"
+	printf 'jsonl_size=%s\n' "$jsonl_size"
+	printf 'jsonl_mtime=%s\n' "$jsonl_mtime"
+	printf 'stderr_size=%s\n' "$stderr_size"
+	printf 'stderr_mtime=%s\n' "$stderr_mtime"
+	printf 'session_size=%s\n' "$session_size"
+	printf 'session_mtime=%s\n' "$session_mtime"
+} > "$snapshot/activity.env"
+
+previous_activity="$(find "$diagnostic_root" -mindepth 2 -maxdepth 2 \
+	-type f -name activity.env ! -path "$snapshot/activity.env" \
+	-printf '%T@\t%p\n' 2>/dev/null | sort -nr | \
+	awk -F '\t' 'NR == 1 { print substr($0, index($0, $2)); exit }')"
+
+activity_value()
+{
+	local file="$1"
+	local key="$2"
+	awk -F= -v key="$key" '$1 == key { print $2 + 0; exit }' "$file" 2>/dev/null || printf 0
+}
+
+classification=quiet_threshold_reached
+severity=warning
+detail='No JSONL or stderr output crossed the configured quiet threshold.'
+evidence_files=("$snapshot/session-tail.jsonl" "$snapshot/stderr-tail.log" "$snapshot/jsonl-tail.jsonl")
+if grep -aEqi 'custom_tool_call.*tools\.update_goal.*status[^}]*blocked' \
+	"${evidence_files[@]}" 2>/dev/null; then
+	classification=goal_marked_blocked
+	severity=critical
+	detail='The Codex rollout invoked update_goal with blocked status.'
+elif grep -aEqi 'custom_tool_call.*tools\.(create_goal|get_goal|update_goal)' \
+	"${evidence_files[@]}" 2>/dev/null; then
+	classification=goal_tool_invoked
+	severity=warning
+	detail='The Codex rollout invoked a goal-management tool.'
+else
+	policy_rejection_count="$(
+		{ grep -aEih \
+			'rejected by runtime policy|runtime policy.{0,80}reject|command.{0,40}rejected' \
+			"${evidence_files[@]}" 2>/dev/null || true; } |
+			wc -l | tr -d ' '
+	)"
+	if (( policy_rejection_count >= 2 )); then
+		classification=repeated_runtime_policy_rejection
+		severity=warning
+		detail="The captured evidence contains $policy_rejection_count runtime-policy command rejections."
+	elif (( compiler_process_count > 0 )); then
+		classification=active_build_or_compile
+		severity=info
+		detail="The process tree contains $compiler_process_count active compiler, linker, or build processes."
+	elif [[ -n "$previous_activity" ]]; then
+		previous_session_size="$(activity_value "$previous_activity" session_size)"
+		previous_jsonl_size="$(activity_value "$previous_activity" jsonl_size)"
+		previous_stderr_size="$(activity_value "$previous_activity" stderr_size)"
+		previous_read_bytes="$(activity_value "$previous_activity" process_read_bytes)"
+		previous_write_bytes="$(activity_value "$previous_activity" process_write_bytes)"
+		previous_ticks="$(activity_value "$previous_activity" process_ticks)"
+		if (( session_size > previous_session_size ||
+			jsonl_size > previous_jsonl_size || stderr_size > previous_stderr_size )); then
+			classification=codex_transcript_progress_observed
+			severity=info
+			detail='Codex transcript or turn logs grew since the previous quiet snapshot.'
+		elif (( process_read_bytes > previous_read_bytes ||
+			process_write_bytes > previous_write_bytes )); then
+			classification=process_io_progress_observed
+			severity=info
+			detail='Process I/O counters increased since the previous quiet snapshot.'
+		elif (( process_ticks > previous_ticks )); then
+			classification=internal_cpu_activity_only
+			severity=warning
+			detail='CPU time increased, but no transcript, log, or process I/O progress was observed.'
+		elif (( tcp_established_count > 0 )); then
+			classification=waiting_with_established_network
+			severity=warning
+			detail='No observable progress occurred while Codex retained established network connections.'
+		else
+			classification=no_observable_progress
+			severity=critical
+			detail='No transcript, log, CPU, process I/O, compiler, or established-network progress was observed.'
+		fi
+	fi
+fi
+
+{
+	printf 'classification=%s\n' "$classification"
+	printf 'severity=%s\n' "$severity"
+	printf 'captured_at=%s\n' "$(timestamp_utc)"
+	printf 'snapshot=%s\n' "$snapshot"
+	printf 'detail=%s\n' "$detail"
+} > "$snapshot/warning.env"
+warning_file="${jsonl%.jsonl}.warning.env"
+warning_tmp="$warning_file.tmp.$$"
+cp "$snapshot/warning.env" "$warning_tmp"
+chmod 600 "$warning_tmp"
+mv "$warning_tmp" "$warning_file"
+
+find "$snapshot" -type f -exec chmod 600 {} +
+printf '%s\n' "$snapshot"

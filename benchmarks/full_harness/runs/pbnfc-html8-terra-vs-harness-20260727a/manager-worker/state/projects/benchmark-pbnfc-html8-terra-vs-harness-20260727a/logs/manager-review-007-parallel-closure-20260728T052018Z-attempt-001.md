@@ -1,0 +1,1 @@
+Review pending: independently run `make test-parallel-closure-core`, then checkpoint only if the thread-local candidate evidence holds.

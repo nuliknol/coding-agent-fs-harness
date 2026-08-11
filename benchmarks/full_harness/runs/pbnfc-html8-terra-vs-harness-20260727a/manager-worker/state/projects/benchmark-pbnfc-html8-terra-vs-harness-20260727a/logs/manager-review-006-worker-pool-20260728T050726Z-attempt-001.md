@@ -1,0 +1,1 @@
+Checkpointed the eight-worker lifecycle at 33% and published `006-worker-pool-revision-01` for generation coordination.

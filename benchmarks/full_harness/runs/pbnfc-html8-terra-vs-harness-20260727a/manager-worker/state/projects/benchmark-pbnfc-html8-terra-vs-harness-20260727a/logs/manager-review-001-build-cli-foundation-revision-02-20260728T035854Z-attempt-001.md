@@ -1,0 +1,1 @@
+Accepted plan item 001 at 100% and published `002-grammar-lexer`, targeting the core BNF lexer milestone.

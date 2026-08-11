@@ -1,0 +1,61 @@
+2026-07-28T13:51:32Z	PROJECT_INITIALIZED repository=/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/repository specification=/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/repository/SPECIFICATION.md policy=/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/development-policy.txt
+2026-07-28T13:51:32Z	SUPERVISOR_STARTED pid=1983302 env_file=/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/harness.env
+2026-07-28T13:51:32Z	GOAL_AUTHORING_STARTED model=gpt-5.6-terra effort=high
+2026-07-28T13:51:32Z	TURN_STARTED role=manager_goal stem=manager-goal attempt=1
+2026-07-28T13:52:10Z	TURN_COMPLETED role=manager_goal stem=manager-goal attempt=1
+2026-07-28T13:52:10Z	GOAL_READY file=/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/state/projects/benchmark-light-pbnfc-html8-light-20260728a/control/worker-goal.md
+2026-07-28T13:52:10Z	WORKER_STARTED cycle=1 mode=fresh model=gpt-5.6-luna effort=high retry=0
+2026-07-28T13:52:10Z	TURN_STARTED role=worker stem=worker-001 attempt=1
+2026-07-28T14:09:14Z	TURN_COMPLETED role=worker stem=worker-001 attempt=1
+2026-07-28T14:09:14Z	WORKER_DELIVERED cycle=1 thread=019fa8ff-4a18-72e2-8257-0c4eb4f85429 report=/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/state/projects/benchmark-light-pbnfc-html8-light-20260728a/outputs/worker-001.md
+2026-07-28T14:09:14Z	MANAGER_REVIEW_STARTED cycle=1 model=gpt-5.6-terra effort=high
+2026-07-28T14:09:14Z	TURN_STARTED role=manager_review stem=manager-review-001 attempt=1
+2026-07-28T14:12:24Z	TURN_COMPLETED role=manager_review stem=manager-review-001 attempt=1
+2026-07-28T14:12:24Z	MANAGER_REVIEW_FINISHED cycle=1 decision=REVISE review=/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/state/projects/benchmark-light-pbnfc-html8-light-20260728a/reviews/review-001.md
+2026-07-28T14:12:24Z	ADDENDUM_PUBLISHED cycle=1 addendum=/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/state/projects/benchmark-light-pbnfc-html8-light-20260728a/addenda/addendum-001.md
+2026-07-28T14:12:24Z	WORKER_STARTED cycle=2 mode=resume model=gpt-5.6-luna effort=high retry=0
+2026-07-28T14:12:24Z	TURN_STARTED role=worker stem=worker-002 attempt=1
+2026-07-28T14:15:30Z	TURN_COMPLETED role=worker stem=worker-002 attempt=1
+2026-07-28T14:15:30Z	WORKER_DELIVERED cycle=2 thread=019fa8ff-4a18-72e2-8257-0c4eb4f85429 report=/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/state/projects/benchmark-light-pbnfc-html8-light-20260728a/outputs/worker-002.md
+2026-07-28T14:15:30Z	MANAGER_REVIEW_STARTED cycle=2 model=gpt-5.6-terra effort=high
+2026-07-28T14:15:30Z	TURN_STARTED role=manager_review stem=manager-review-002 attempt=1
+2026-07-28T14:18:57Z	TURN_COMPLETED role=manager_review stem=manager-review-002 attempt=1
+2026-07-28T14:18:57Z	MANAGER_REVIEW_FINISHED cycle=2 decision=REVISE review=/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/state/projects/benchmark-light-pbnfc-html8-light-20260728a/reviews/review-002.md
+2026-07-28T14:18:57Z	ADDENDUM_PUBLISHED cycle=2 addendum=/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/state/projects/benchmark-light-pbnfc-html8-light-20260728a/addenda/addendum-002.md
+2026-07-28T14:18:57Z	WORKER_STARTED cycle=3 mode=resume model=gpt-5.6-luna effort=high retry=0
+2026-07-28T14:18:57Z	TURN_STARTED role=worker stem=worker-003 attempt=1
+2026-07-28T14:20:35Z	TURN_COMPLETED role=worker stem=worker-003 attempt=1
+2026-07-28T14:20:35Z	WORKER_DELIVERED cycle=3 thread=019fa8ff-4a18-72e2-8257-0c4eb4f85429 report=/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/state/projects/benchmark-light-pbnfc-html8-light-20260728a/outputs/worker-003.md
+2026-07-28T14:20:35Z	MANAGER_REVIEW_STARTED cycle=3 model=gpt-5.6-terra effort=high
+2026-07-28T14:20:35Z	TURN_STARTED role=manager_review stem=manager-review-003 attempt=1
+2026-07-28T14:23:16Z	TURN_COMPLETED role=manager_review stem=manager-review-003 attempt=1
+2026-07-28T14:23:16Z	MANAGER_REVIEW_FINISHED cycle=3 decision=REVISE review=/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/state/projects/benchmark-light-pbnfc-html8-light-20260728a/reviews/review-003.md
+2026-07-28T14:23:16Z	ADDENDUM_PUBLISHED cycle=3 addendum=/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/state/projects/benchmark-light-pbnfc-html8-light-20260728a/addenda/addendum-003.md
+2026-07-28T14:23:16Z	WORKER_STARTED cycle=4 mode=resume model=gpt-5.6-luna effort=high retry=0
+2026-07-28T14:23:16Z	TURN_STARTED role=worker stem=worker-004 attempt=1
+2026-07-28T14:24:41Z	TURN_COMPLETED role=worker stem=worker-004 attempt=1
+2026-07-28T14:24:41Z	WORKER_DELIVERED cycle=4 thread=019fa8ff-4a18-72e2-8257-0c4eb4f85429 report=/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/state/projects/benchmark-light-pbnfc-html8-light-20260728a/outputs/worker-004.md
+2026-07-28T14:24:41Z	MANAGER_REVIEW_STARTED cycle=4 model=gpt-5.6-terra effort=high
+2026-07-28T14:24:41Z	TURN_STARTED role=manager_review stem=manager-review-004 attempt=1
+2026-07-28T14:28:35Z	TURN_COMPLETED role=manager_review stem=manager-review-004 attempt=1
+2026-07-28T14:28:35Z	MANAGER_REVIEW_FINISHED cycle=4 decision=REVISE review=/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/state/projects/benchmark-light-pbnfc-html8-light-20260728a/reviews/review-004.md
+2026-07-28T14:28:35Z	ADDENDUM_PUBLISHED cycle=4 addendum=/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/state/projects/benchmark-light-pbnfc-html8-light-20260728a/addenda/addendum-004.md
+2026-07-28T14:28:35Z	WORKER_STARTED cycle=5 mode=resume model=gpt-5.6-luna effort=high retry=0
+2026-07-28T14:28:35Z	TURN_STARTED role=worker stem=worker-005 attempt=1
+2026-07-28T14:30:41Z	TURN_COMPLETED role=worker stem=worker-005 attempt=1
+2026-07-28T14:30:41Z	WORKER_DELIVERED cycle=5 thread=019fa8ff-4a18-72e2-8257-0c4eb4f85429 report=/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/state/projects/benchmark-light-pbnfc-html8-light-20260728a/outputs/worker-005.md
+2026-07-28T14:30:41Z	MANAGER_REVIEW_STARTED cycle=5 model=gpt-5.6-terra effort=high
+2026-07-28T14:30:41Z	TURN_STARTED role=manager_review stem=manager-review-005 attempt=1
+2026-07-28T14:33:18Z	TURN_COMPLETED role=manager_review stem=manager-review-005 attempt=1
+2026-07-28T14:33:18Z	MANAGER_REVIEW_FINISHED cycle=5 decision=REVISE review=/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/state/projects/benchmark-light-pbnfc-html8-light-20260728a/reviews/review-005.md
+2026-07-28T14:33:18Z	ADDENDUM_PUBLISHED cycle=5 addendum=/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/state/projects/benchmark-light-pbnfc-html8-light-20260728a/addenda/addendum-005.md
+2026-07-28T14:33:18Z	WORKER_STARTED cycle=6 mode=resume model=gpt-5.6-luna effort=high retry=0
+2026-07-28T14:33:18Z	TURN_STARTED role=worker stem=worker-006 attempt=1
+2026-07-28T14:35:04Z	TURN_COMPLETED role=worker stem=worker-006 attempt=1
+2026-07-28T14:35:04Z	WORKER_DELIVERED cycle=6 thread=019fa8ff-4a18-72e2-8257-0c4eb4f85429 report=/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/state/projects/benchmark-light-pbnfc-html8-light-20260728a/outputs/worker-006.md
+2026-07-28T14:35:04Z	MANAGER_REVIEW_STARTED cycle=6 model=gpt-5.6-terra effort=high
+2026-07-28T14:35:04Z	TURN_STARTED role=manager_review stem=manager-review-006 attempt=1
+2026-07-28T14:36:47Z	TURN_COMPLETED role=manager_review stem=manager-review-006 attempt=1
+2026-07-28T14:36:47Z	MANAGER_REVIEW_FINISHED cycle=6 decision=ACCEPT review=/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/state/projects/benchmark-light-pbnfc-html8-light-20260728a/reviews/review-006.md
+2026-07-28T14:36:47Z	PROJECT_COMPLETED cycle=6 acceptance=/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/state/projects/benchmark-light-pbnfc-html8-light-20260728a/control/final-acceptance.md
+2026-07-28T14:36:47Z	SUPERVISOR_EXIT status=COMPLETE phase=ACCEPTED

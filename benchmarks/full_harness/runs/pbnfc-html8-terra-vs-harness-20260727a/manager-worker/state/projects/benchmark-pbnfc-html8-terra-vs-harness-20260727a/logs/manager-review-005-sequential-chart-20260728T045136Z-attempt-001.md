@@ -1,0 +1,1 @@
+Checkpointed deterministic chart storage at 33% and published `005-sequential-chart-revision-01` for the sequential Earley recognition baseline.

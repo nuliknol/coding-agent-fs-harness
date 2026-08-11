@@ -1,0 +1,4 @@
+item_id	state	verified_by	evidence_sha256	updated_at
+p006.pool-lifecycle	PASSED	006-worker-pool	3238f405ea8ebe2c3059cb59b37924bb7d13ed053e09a6d5ea34ecde04f1e903	2026-07-28T05:07:39Z
+p006.pool-generation-protocol	PASSED	006-worker-pool-revision-01	50b52cc39b8053bc5c8188e1ec9bde6d23289ff20230010a846561f21653d2d1	2026-07-28T05:11:09Z
+p006.pool-clean-shutdown	PASSED	006-worker-pool-revision-02	d6f9a5bb78efb2c43930ca467e4ce221fb49bf75d6685c1972daeb087838b458	2026-07-28T05:15:19Z

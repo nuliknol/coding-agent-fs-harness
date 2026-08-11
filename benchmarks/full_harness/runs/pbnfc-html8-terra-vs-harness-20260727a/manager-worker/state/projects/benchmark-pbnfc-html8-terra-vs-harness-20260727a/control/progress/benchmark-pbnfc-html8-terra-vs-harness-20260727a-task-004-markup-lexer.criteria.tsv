@@ -1,0 +1,4 @@
+item_id	state	verified_by	evidence_sha256	updated_at
+p004.markup-lexer-core-tags	PASSED	004-markup-lexer	7b804468c67c1d4937056fd15c08bb6fcdd34cc547ab6f33081ab788719b0f5a	2026-07-28T04:36:36Z
+p004.markup-lexer-values-text	PASSED	004-markup-lexer-revision-01	6ee7fef2ed67cbe9dac58f95f4727d559ba22ab7f51d0b3c10075402b9b51c48	2026-07-28T04:42:00Z
+p004.markup-lexer-errors-locations	PASSED	004-markup-lexer-revision-02	c7815a23e871d19af9d775c3faa4802e986081a854d7e1a087a72644ed79dca6	2026-07-28T04:48:29Z

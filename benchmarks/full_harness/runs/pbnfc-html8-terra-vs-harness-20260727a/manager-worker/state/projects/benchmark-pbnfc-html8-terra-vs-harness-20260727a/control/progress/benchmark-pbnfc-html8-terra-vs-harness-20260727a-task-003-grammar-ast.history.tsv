@@ -1,0 +1,4 @@
+updated_at	task_id	decision	progress_percent	improvement_percent	review_sha256
+2026-07-28T04:19:17Z	003-grammar-ast	CHECKPOINT	33	33	af8183b31e01f72f46f28e6ff228492e2074a3b2b7820dfc16c86ba35c50cd92
+2026-07-28T04:25:38Z	003-grammar-ast-revision-01	CHECKPOINT	66	33	aedc71be233aa7dba8192af46ae989f0a1fadceae7338eefaf29daabdfc00db1
+2026-07-28T04:31:37Z	003-grammar-ast-revision-02	ACCEPT	100	34	255784d01dda0a9e1087dd712eb4923ccde07045e170d32f332bbe286428490a

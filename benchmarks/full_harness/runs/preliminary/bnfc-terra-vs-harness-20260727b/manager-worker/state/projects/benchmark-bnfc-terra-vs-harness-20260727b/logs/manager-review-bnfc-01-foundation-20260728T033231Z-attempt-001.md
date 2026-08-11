@@ -1,0 +1,1 @@
+Checkpointed `foundation.build.strict-c11` at 33% after independently verifying the strict build. Published the next leaf goal for CLI argument validation.

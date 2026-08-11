@@ -1,0 +1,78 @@
+ M README.md
+ M VERSION
+ M bin/codex-exec-jsonl
+ D bin/harness-abort-task
+ M bin/harness-check-env
+ D bin/harness-configure-manager
+ M bin/harness-init
+ D bin/harness-new-session
+ M bin/harness-project-path
+ D bin/harness-recover
+ M bin/harness-repository-path
+ D bin/harness-requeue-result
+ D bin/harness-reset-task
+ M bin/harness-start
+ M bin/harness-state-path
+ M bin/harness-status
+ M bin/harness-stop
+ M bin/harness-supervisor
+ M bin/harness-supervisor-start
+ M bin/harness-supervisor-stop
+ D bin/harness-unblock-project
+ D bin/harness-unblock-root
+ M bin/harness-watch-agents
+ D bin/harness-workspace-fingerprint
+ D bin/manager-accept-task
+ D bin/manager-auto-replan-root
+ D bin/manager-block-task
+ D bin/manager-bootstrap
+ D bin/manager-checkpoint-task
+ D bin/manager-init-project-plan
+ D bin/manager-invoke-result
+ D bin/manager-plan-next-task
+ D bin/manager-publish-task
+ D bin/manager-register-thread
+ D bin/manager-reject-task
+ D bin/manager-supervisor
+ D bin/manager-supervisor-start
+ D bin/manager-supervisor-stop
+ D bin/manager-wait-result
+ D bin/oracle-complete-audit
+ D bin/oracle-invoke-final-audit
+ D bin/worker-claim-next
+ D bin/worker-claim-task
+ D bin/worker-complete-task
+ D bin/worker-continue-task
+ D bin/worker-heartbeat
+ D bin/worker-invoke-task
+ D bin/worker-supervisor
+ D bin/worker-supervisor-start
+ D bin/worker-supervisor-stop
+ D demo/repo/Makefile
+ D demo/repo/include/calc.h
+ D demo/repo/src/calc.c
+ D demo/repo/tests/test_calc.c
+ D demo/setup-demo.sh
+ D demo/task-001.md.in
+ M examples/project.env.example
+ M lib/harness-common.sh
+ D prompts/manager-agent-event-driven.md
+ D prompts/manager-agent.md
+ D prompts/worker-agent-event-driven.md
+ D prompts/worker-agent.md
+ D templates/criteria-definition-template.tsv
+ D templates/goal-iteration-template.md
+ D templates/leaf-goal-task-template.md
+ D templates/project-plan-template.tsv
+ D templates/result-template.md
+ D templates/task-template.md
+ D tests/test-codex-exec-jsonl.sh
+ D tests/test-harness.sh
+ D tests/test-leaf-goal.sh
+?? benchmark/
+?? prompts/manager-goal.md
+?? prompts/manager-review.md
+?? prompts/worker-goal.md
+?? prompts/worker-remediation.md
+?? tests/test-light-harness.sh
+?? work/

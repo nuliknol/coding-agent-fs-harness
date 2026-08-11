@@ -1,0 +1,4 @@
+item_id	state	verified_by	evidence_sha256	updated_at
+p002.grammar-lexer-core	PASSED	002-grammar-lexer	189e2f9df6c2645eb5b60ef8f87ab63634146f58051f72983868b2f9f4a0518c	2026-07-28T04:04:53Z
+p002.grammar-lexer-terminals-references	PASSED	002-grammar-lexer-revision-01	3d46f057f92b28cf60790c6a1d087eab7fd5b45b0dcaec642295e03d923ac622	2026-07-28T04:09:14Z
+p002.grammar-lexer-errors	PASSED	002-grammar-lexer-revision-02	e81678f2197825438847573482fa2cebc3e4e72999c1e050162a080fd5598fec	2026-07-28T04:13:28Z

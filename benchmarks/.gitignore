@@ -1,0 +1,10 @@
+# Archived repositories are source snapshots, not nested repositories.
+**/repository/.benchmark-git-metadata/
+
+# Rebuildable compiler output from generated repositories.
+**/repository/bin/
+**/repository/build/
+**/repository/*.o
+**/repository/*.d
+**/repository/**/*.o
+**/repository/**/*.d

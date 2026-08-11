@@ -138,7 +138,7 @@ load_harness_env()
 	(( owner == UID || owner == 0 )) || die "environment file must be owned by UID $UID or root: $canonical_file"
 	(( (mode & 8#022) == 0 )) || die "environment file must not be group/world writable: $canonical_file"
 
-	unset PROJECT REPOSITORY SPECIFICATION HARNESS_HOME HARNESS_BIN HARNESS_ROOT PROJECT_TMP_DIR
+	unset PROJECT REPOSITORY SPECIFICATION HARNESS_MODE harness_mode HARNESS_HOME HARNESS_BIN HARNESS_ROOT PROJECT_TMP_DIR
 	unset HARNESS_POLL_SECONDS HARNESS_WAIT_SECONDS HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY
 	unset HARNESS_RUNTIME_PATH_PREFIX
 	unset HARNESS_MAX_IDENTICAL_BLOCKERS
@@ -152,6 +152,8 @@ load_harness_env()
 	unset HARNESS_WORKER_GOAL_MODE HARNESS_GOAL_MAX_IDENTICAL_ITERATIONS
 	unset HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS HARNESS_GOAL_PROCESS_MAX_FIXES
 	unset HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS
+	unset HARNESS_DECOMPOSITION_V2 HARNESS_DECOMPOSITION_CRITIC_ENABLED
+	unset HARNESS_MAX_LUNA_STRATEGY_FAILURES
 	unset HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
 	unset HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
 	unset HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_KILL_GRACE_SECONDS
@@ -165,6 +167,8 @@ load_harness_env()
 	unset MANAGER_CODEX_EXTRA_ARGS
 	unset WORKER_CODEX_BIN WORKER_CODEX_HOME WORKER_MODEL WORKER_REASONING_EFFORT WORKER_SANDBOX
 	unset WORKER_CODEX_EXTRA_ARGS
+	unset LUNA_WORKER_MODEL LUNA_WORKER_REASONING_EFFORT
+	unset TERRA_WORKER_MODEL TERRA_WORKER_REASONING_EFFORT
 	unset WORKER_HEARTBEAT_SECONDS
 
 	# The environment file is trusted Bash input.
@@ -172,6 +176,9 @@ load_harness_env()
 	source "$canonical_file"
 	HARNESS_ENV_FILE="$canonical_file"
 	HARNESS_ENV_DIR="$canonical_dir"
+	HARNESS_MODE="${HARNESS_MODE:-${harness_mode:-full}}"
+	[[ "$HARNESS_MODE" == full ]] ||
+		die "full-mode command received HARNESS_MODE=$HARNESS_MODE; use a shared top-level entry point"
 	HARNESS_RUNTIME_PATH_PREFIX="${HARNESS_RUNTIME_PATH_PREFIX:-}"
 	prepend_harness_runtime_path "$HARNESS_RUNTIME_PATH_PREFIX"
 
@@ -239,6 +246,13 @@ load_harness_env()
 	HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS="${HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS:-8}"
 	HARNESS_GOAL_PROCESS_MAX_FIXES="${HARNESS_GOAL_PROCESS_MAX_FIXES:-3}"
 	HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS="${HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS:-4}"
+	# Version-two decomposition is opt-in for old environment files so active
+	# projects keep their immutable v1 plan. New example configurations enable
+	# it. V2 installs a validated dependency DAG, a pre-execution critic gate,
+	# Luna-ready leaf contracts, context capsules, and per-leaf model routing.
+	HARNESS_DECOMPOSITION_V2="${HARNESS_DECOMPOSITION_V2:-0}"
+	HARNESS_DECOMPOSITION_CRITIC_ENABLED="${HARNESS_DECOMPOSITION_CRITIC_ENABLED:-$HARNESS_DECOMPOSITION_V2}"
+	HARNESS_MAX_LUNA_STRATEGY_FAILURES="${HARNESS_MAX_LUNA_STRATEGY_FAILURES:-2}"
 	# Provider-side failures retry forever. Short transient failures use a
 	# one-minute cadence; account usage-window exhaustion reports and probes every
 	# five minutes until Codex confirms quota is available again.
@@ -255,14 +269,18 @@ load_harness_env()
 	HARNESS_CODEX_KILL_GRACE_SECONDS="${HARNESS_CODEX_KILL_GRACE_SECONDS:-15}"
 	WORKER_HEARTBEAT_SECONDS="${WORKER_HEARTBEAT_SECONDS:-60}"
 
-	MANAGER_MODEL="${MANAGER_MODEL:-gpt-5.5}"
+	MANAGER_MODEL="${MANAGER_MODEL:-gpt-5.6-terra}"
 	MANAGER_REASONING_EFFORT="${MANAGER_REASONING_EFFORT:-high}"
 	MANAGER_SANDBOX="${MANAGER_SANDBOX:-workspace-write}"
-	WORKER_MODEL="${WORKER_MODEL:-gpt-5.4-mini}"
+	WORKER_MODEL="${WORKER_MODEL:-gpt-5.6-luna}"
 	WORKER_REASONING_EFFORT="${WORKER_REASONING_EFFORT:-high}"
 	WORKER_SANDBOX="${WORKER_SANDBOX:-workspace-write}"
-	MANAGER_FALLBACK_MODEL="${MANAGER_FALLBACK_MODEL:-gpt-5.5}"
-	WORKER_FALLBACK_MODEL="${WORKER_FALLBACK_MODEL:-gpt-5.4-mini}"
+	LUNA_WORKER_MODEL="${LUNA_WORKER_MODEL:-$WORKER_MODEL}"
+	LUNA_WORKER_REASONING_EFFORT="${LUNA_WORKER_REASONING_EFFORT:-$WORKER_REASONING_EFFORT}"
+	TERRA_WORKER_MODEL="${TERRA_WORKER_MODEL:-$MANAGER_MODEL}"
+	TERRA_WORKER_REASONING_EFFORT="${TERRA_WORKER_REASONING_EFFORT:-$MANAGER_REASONING_EFFORT}"
+	MANAGER_FALLBACK_MODEL="${MANAGER_FALLBACK_MODEL:-gpt-5.6-terra}"
+	WORKER_FALLBACK_MODEL="${WORKER_FALLBACK_MODEL:-gpt-5.6-luna}"
 	ORACLE_MODEL="${ORACLE_MODEL:-}"
 	ORACLE_FALLBACK_MODEL="${ORACLE_FALLBACK_MODEL:-$MANAGER_FALLBACK_MODEL}"
 	ORACLE_ENABLED="${ORACLE_ENABLED:-$([[ -n "$ORACLE_MODEL" ]] && printf 1 || printf 0)}"
@@ -271,6 +289,9 @@ load_harness_env()
 	MAX_ORACLE_RUNS="${MAX_ORACLE_RUNS:-}"
 	if [[ -n "$MAX_ORACLE_RUNS" ]]; then
 		ORACLE_ENABLED="$([[ "$MAX_ORACLE_RUNS" == 0 ]] && printf 0 || printf 1)"
+	fi
+	if [[ "$ORACLE_ENABLED" == 1 && -z "$ORACLE_MODEL" ]]; then
+		ORACLE_MODEL="gpt-5.6-sol"
 	fi
 	ORACLE_REASONING_EFFORT="${ORACLE_REASONING_EFFORT:-xhigh}"
 	ORACLE_SANDBOX="${ORACLE_SANDBOX:-$MANAGER_SANDBOX}"
@@ -363,6 +384,14 @@ load_harness_env()
 		die 'HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS must be a positive integer'
 	(( HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS >= HARNESS_GOAL_PROCESS_MAX_FIXES )) ||
 		die 'HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS must be at least HARNESS_GOAL_PROCESS_MAX_FIXES'
+	[[ "$HARNESS_DECOMPOSITION_V2" =~ ^[01]$ ]] || die 'HARNESS_DECOMPOSITION_V2 must be 0 or 1'
+	[[ "$HARNESS_DECOMPOSITION_CRITIC_ENABLED" =~ ^[01]$ ]] || die 'HARNESS_DECOMPOSITION_CRITIC_ENABLED must be 0 or 1'
+	(( HARNESS_DECOMPOSITION_V2 == 0 || HARNESS_WORKER_GOAL_MODE == 1 )) ||
+		die 'HARNESS_DECOMPOSITION_V2=1 requires HARNESS_WORKER_GOAL_MODE=1'
+	(( HARNESS_DECOMPOSITION_CRITIC_ENABLED == 0 || HARNESS_DECOMPOSITION_V2 == 1 )) ||
+		die 'HARNESS_DECOMPOSITION_CRITIC_ENABLED=1 requires HARNESS_DECOMPOSITION_V2=1'
+	[[ "$HARNESS_MAX_LUNA_STRATEGY_FAILURES" =~ ^[1-9][0-9]*$ ]] ||
+		die 'HARNESS_MAX_LUNA_STRATEGY_FAILURES must be a positive integer'
 	[[ "$HARNESS_PROVIDER_RETRY_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_PROVIDER_RETRY_SECONDS must be an integer'
 	(( HARNESS_PROVIDER_RETRY_SECONDS > 0 )) || die 'HARNESS_PROVIDER_RETRY_SECONDS must be greater than zero'
 	[[ "$HARNESS_QUOTA_RETRY_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_QUOTA_RETRY_SECONDS must be an integer'
@@ -373,6 +402,8 @@ load_harness_env()
 	[[ "$HARNESS_CODEX_KILL_GRACE_SECONDS" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_CODEX_KILL_GRACE_SECONDS must be a positive integer'
 	[[ "$MANAGER_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid MANAGER_MODEL: $MANAGER_MODEL"
 	[[ "$WORKER_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid WORKER_MODEL: $WORKER_MODEL"
+	[[ "$LUNA_WORKER_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid LUNA_WORKER_MODEL: $LUNA_WORKER_MODEL"
+	[[ "$TERRA_WORKER_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid TERRA_WORKER_MODEL: $TERRA_WORKER_MODEL"
 	[[ "$MANAGER_FALLBACK_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid MANAGER_FALLBACK_MODEL: $MANAGER_FALLBACK_MODEL"
 	[[ "$WORKER_FALLBACK_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid WORKER_FALLBACK_MODEL: $WORKER_FALLBACK_MODEL"
 	[[ "$ORACLE_FALLBACK_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid ORACLE_FALLBACK_MODEL: $ORACLE_FALLBACK_MODEL"
@@ -381,11 +412,13 @@ load_harness_env()
 	if [[ "$ORACLE_ENABLED" == 1 ]]; then
 		[[ "$ORACLE_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid ORACLE_MODEL: $ORACLE_MODEL"
 	fi
-	[[ "$MANAGER_REASONING_EFFORT" =~ ^(none|minimal|low|medium|high|xhigh)$ ]] || die "invalid MANAGER_REASONING_EFFORT: $MANAGER_REASONING_EFFORT"
-	[[ "$WORKER_REASONING_EFFORT" =~ ^(none|minimal|low|medium|high|xhigh)$ ]] || die "invalid WORKER_REASONING_EFFORT: $WORKER_REASONING_EFFORT"
+	[[ "$MANAGER_REASONING_EFFORT" =~ ^(none|minimal|low|medium|high|xhigh|max)$ ]] || die "invalid MANAGER_REASONING_EFFORT: $MANAGER_REASONING_EFFORT"
+	[[ "$WORKER_REASONING_EFFORT" =~ ^(none|minimal|low|medium|high|xhigh|max)$ ]] || die "invalid WORKER_REASONING_EFFORT: $WORKER_REASONING_EFFORT"
+	[[ "$LUNA_WORKER_REASONING_EFFORT" =~ ^(none|minimal|low|medium|high|xhigh|max)$ ]] || die "invalid LUNA_WORKER_REASONING_EFFORT: $LUNA_WORKER_REASONING_EFFORT"
+	[[ "$TERRA_WORKER_REASONING_EFFORT" =~ ^(none|minimal|low|medium|high|xhigh|max)$ ]] || die "invalid TERRA_WORKER_REASONING_EFFORT: $TERRA_WORKER_REASONING_EFFORT"
 	[[ "$MANAGER_SANDBOX" =~ ^(read-only|workspace-write|danger-full-access)$ ]] || die "invalid MANAGER_SANDBOX: $MANAGER_SANDBOX"
 	[[ "$WORKER_SANDBOX" =~ ^(read-only|workspace-write|danger-full-access)$ ]] || die "invalid WORKER_SANDBOX: $WORKER_SANDBOX"
-	[[ "$ORACLE_REASONING_EFFORT" =~ ^(none|minimal|low|medium|high|xhigh)$ ]] || die "invalid ORACLE_REASONING_EFFORT: $ORACLE_REASONING_EFFORT"
+	[[ "$ORACLE_REASONING_EFFORT" =~ ^(none|minimal|low|medium|high|xhigh|max)$ ]] || die "invalid ORACLE_REASONING_EFFORT: $ORACLE_REASONING_EFFORT"
 	[[ "$ORACLE_SANDBOX" =~ ^(read-only|workspace-write|danger-full-access)$ ]] || die "invalid ORACLE_SANDBOX: $ORACLE_SANDBOX"
 	[[ "$MANAGER_CODEX_BIN" != *[[:space:]]* ]] || die 'MANAGER_CODEX_BIN must not contain arguments'
 	[[ "$WORKER_CODEX_BIN" != *[[:space:]]* ]] || die 'WORKER_CODEX_BIN must not contain arguments'
@@ -394,10 +427,12 @@ load_harness_env()
 	[[ -d "$HARNESS_BIN" ]] || die "HARNESS_BIN does not exist: $HARNESS_BIN"
 
 	local invoked_bin
-	invoked_bin="$(realpath -m "$(dirname "${BASH_SOURCE[1]}")")"
-	[[ "$invoked_bin" == "$HARNESS_BIN" ]] || die "this command was launched from $invoked_bin but ENV_FILE selects HARNESS_BIN=$HARNESS_BIN"
+	if [[ -n "${BASH_SOURCE[1]:-}" ]]; then
+		invoked_bin="$(realpath -m "$(dirname "${BASH_SOURCE[1]}")")"
+		[[ "$invoked_bin" == "$HARNESS_BIN" ]] || die "this command was launched from $invoked_bin but ENV_FILE selects HARNESS_BIN=$HARNESS_BIN"
+	fi
 
-	export HARNESS_ENV_FILE HARNESS_ENV_DIR PROJECT REPOSITORY SPECIFICATION PROJECT_TMP_DIR
+	export HARNESS_ENV_FILE HARNESS_ENV_DIR HARNESS_MODE PROJECT REPOSITORY SPECIFICATION PROJECT_TMP_DIR
 	export HARNESS_HOME HARNESS_BIN HARNESS_ROOT HARNESS_POLL_SECONDS HARNESS_WAIT_SECONDS
 	export HARNESS_RUNTIME_PATH_PREFIX
 	export HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY HARNESS_MAX_IDENTICAL_BLOCKERS HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
@@ -409,11 +444,13 @@ load_harness_env()
 	export HARNESS_WORKER_GOAL_MODE HARNESS_GOAL_MAX_IDENTICAL_ITERATIONS
 	export HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS HARNESS_GOAL_PROCESS_MAX_FIXES
 	export HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS
+	export HARNESS_DECOMPOSITION_V2 HARNESS_DECOMPOSITION_CRITIC_ENABLED HARNESS_MAX_LUNA_STRATEGY_FAILURES
 	export HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
 	export HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_KILL_GRACE_SECONDS
 	export WORKER_HEARTBEAT_SECONDS
 	export MANAGER_CODEX_BIN MANAGER_CODEX_HOME MANAGER_MODEL MANAGER_REASONING_EFFORT MANAGER_SANDBOX
 	export WORKER_CODEX_BIN WORKER_CODEX_HOME WORKER_MODEL WORKER_REASONING_EFFORT WORKER_SANDBOX
+	export LUNA_WORKER_MODEL LUNA_WORKER_REASONING_EFFORT TERRA_WORKER_MODEL TERRA_WORKER_REASONING_EFFORT
 	export MANAGER_FALLBACK_MODEL WORKER_FALLBACK_MODEL ORACLE_FALLBACK_MODEL
 	export ORACLE_MODEL ORACLE_ENABLED MAX_ORACLE_RUNS ORACLE_REASONING_EFFORT ORACLE_SANDBOX ORACLE_CODEX_BIN ORACLE_CODEX_HOME
 	export HARNESS_MANAGER_INVOKER HARNESS_MANAGER_PLAN_INVOKER HARNESS_MANAGER_REPLAN_INVOKER
@@ -592,7 +629,7 @@ project_tmp_dir()
 
 ensure_project()
 {
-	local dir config stored_project stored_repository
+	local dir config stored_project stored_repository stored_mode
 	validate_project "$PROJECT"
 	dir="$(project_dir)"
 	[[ -d "$dir" ]] || die "project is not initialized for ENV_FILE $HARNESS_ENV_FILE; run harness-init"
@@ -600,8 +637,11 @@ ensure_project()
 	[[ -f "$config" ]] || die "project configuration is missing: $config"
 	stored_project="$(kv_file_value "$config" project)"
 	stored_repository="$(kv_file_value "$config" repository)"
+	stored_mode="$(kv_file_value "$config" harness_mode 2>/dev/null || true)"
 	[[ "$stored_project" == "$PROJECT" ]] || die "ENV_FILE project '$PROJECT' does not match initialized project '$stored_project'"
 	[[ "$stored_repository" == "$REPOSITORY" ]] || die "REPOSITORY changed from '$stored_repository' to '$REPOSITORY'; rerun harness-init with $HARNESS_ENV_FILE"
+	[[ -z "$stored_mode" || "$stored_mode" == "$HARNESS_MODE" ]] ||
+		die "project state was initialized in HARNESS_MODE=$stored_mode, not $HARNESS_MODE"
 }
 
 task_base()
@@ -632,6 +672,37 @@ task_root_assignment_file()
 	local root
 	root="$(task_root_id "$1")"
 	printf '%s/control/progress/%s-task-%s.root-assignment.md' "$(project_dir)" "$PROJECT" "$root"
+}
+
+task_context_capsule_file()
+{
+	printf '%s/control/context-capsules/%s.md' "$(project_dir)" "$(task_base "$1")"
+}
+
+root_luna_strategy_failure_count()
+{
+	local root assignment result count=0 task_id rejected
+	root="$(task_root_id "$1")"
+	shopt -s nullglob
+	for result in "$(project_dir)"/archive/"$PROJECT-task-$root"*.result.md \
+		"$(project_dir)"/archive/"$PROJECT-task-$root"*.checkpoint-result.md; do
+		[[ -f "$result" ]] || continue
+		task_id="${result##*/}"
+		task_id="${task_id#${PROJECT}-task-}"
+		task_id="${task_id%.result.md}"
+		task_id="${task_id%.checkpoint-result.md}"
+		[[ "$(task_root_id "$task_id")" == "$root" ]] || continue
+		assignment="$(project_dir)/archive/$(task_base "$task_id").assignment.md"
+		[[ -f "$assignment" ]] || continue
+		grep -Eq '^Worker-Route:[[:space:]]*LUNA[[:space:]]*$' "$assignment" || continue
+		rejected="$(project_dir)/archive/$(task_base "$task_id").rejected.md"
+		if ! grep -Eq '^Goal-Outcome:[[:space:]]*(NEEDS_DECOMPOSITION|HARD_BLOCKED)[[:space:]]*$' "$result" &&
+			[[ ! -f "$rejected" ]]; then
+			continue
+		fi
+		count=$((count + 1))
+	done
+	printf '%s\n' "$count"
 }
 
 task_root_block_file()
@@ -2086,6 +2157,54 @@ project_plan_state_file()
 	printf '%s/control/project-plan-state.tsv' "$(project_dir)"
 }
 
+project_decomposition_plan_file()
+{
+	printf '%s/control/project-decomposition-v2.tsv' "$(project_dir)"
+}
+
+project_plan_uses_dag()
+{
+	[[ -f "$(project_decomposition_plan_file)" ]]
+}
+
+project_plan_node_value()
+{
+	local item_id="$1" field="$2"
+	awk -F '\t' -v item="$item_id" -v wanted="$field" '
+		NR == 1 {
+			for (i = 1; i <= NF; i++) column[$i] = i
+			next
+		}
+		$1 == item && column[wanted] {print $column[wanted]; exit}
+	' "$(project_decomposition_plan_file)"
+}
+
+project_plan_dependencies_satisfied()
+{
+	local item_id="$1" dependencies dependency status
+	project_plan_uses_dag || return 0
+	dependencies="$(project_plan_node_value "$item_id" depends_on)"
+	[[ -n "$dependencies" && "$dependencies" != - ]] || return 0
+	IFS=',' read -r -a dependency_list <<< "$dependencies"
+	for dependency in "${dependency_list[@]}"; do
+		status="$(project_plan_item_status "$dependency")"
+		[[ "$status" == COMPLETE ]] || return 1
+	done
+}
+
+project_plan_first_ready_item()
+{
+	local item_id status
+	while IFS=$'\t' read -r item_id status _; do
+		[[ -n "$item_id" && "$item_id" != \#* && "$status" == PENDING ]] || continue
+		if project_plan_dependencies_satisfied "$item_id"; then
+			printf '%s\n' "$item_id"
+			return 0
+		fi
+	done < "$(project_plan_state_file)"
+	return 1
+}
+
 project_plan_exists()
 {
 	[[ -f "$(project_plan_definition_file)" && -f "$(project_plan_state_file)" ]]
@@ -2176,6 +2295,10 @@ initialize_project_plan()
 	local seen_file
 	[[ -f "$source_file" ]] || die "project plan source does not exist: $source_file"
 	! project_plan_exists || die "project plan already exists: $(project_plan_definition_file)"
+	if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
+		initialize_project_plan_v2 "$source_file"
+		return
+	fi
 	definition="$(project_plan_definition_file)"
 	state="$(project_plan_state_file)"
 	definition_tmp="$definition.tmp.$$"
@@ -2223,6 +2346,82 @@ initialize_project_plan()
 	trace_event PROJECT_PLAN_INITIALIZED "items=$(project_plan_total_count)" "complete=$(project_plan_complete_count)" "definition_file=$definition" "state_file=$state"
 }
 
+initialize_project_plan_v2()
+{
+	local source_file="$1" header expected_header definition state dag
+	local definition_tmp state_tmp dag_tmp seen_file
+	local node_id parent_id depends_on deliverable acceptance_evidence focused_validation
+	local allowed_paths required_symbols complexity_class worker_route extra dependency
+	expected_header=$'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tcomplexity_class\tworker_route'
+	IFS= read -r header < "$source_file" || die 'decomposition DAG is empty'
+	[[ "$header" == "$expected_header" ]] ||
+		die "decomposition DAG header must be: $expected_header"
+	definition="$(project_plan_definition_file)"
+	state="$(project_plan_state_file)"
+	dag="$(project_decomposition_plan_file)"
+	definition_tmp="$definition.tmp.$$"
+	state_tmp="$state.tmp.$$"
+	dag_tmp="$dag.tmp.$$"
+	seen_file="$state.seen.$$"
+	: > "$seen_file"
+	printf '%s\n' "$expected_header" > "$dag_tmp"
+	{
+		printf '# coding-harness-project-plan-v2\n'
+		printf '# project=%s\n' "$PROJECT"
+		printf '# specification=%s\n' "$SPECIFICATION"
+		if [[ -n "$SPECIFICATION" && -f "$SPECIFICATION" ]]; then
+			printf '# specification_sha256=%s\n' "$(sha256sum "$SPECIFICATION" | awk '{print $1}')"
+		fi
+		printf '# created_at=%s\n' "$(timestamp_utc)"
+	} > "$definition_tmp"
+	{
+		printf '# coding-harness-project-plan-state-v2\n'
+		printf '# item_id\tstatus\ttask_root\tupdated_at\n'
+	} > "$state_tmp"
+	while IFS=$'\t' read -r node_id parent_id depends_on deliverable acceptance_evidence \
+		focused_validation allowed_paths required_symbols complexity_class worker_route extra; do
+		[[ -n "$node_id" ]] || continue
+		[[ -z "$extra" ]] || die "decomposition node has more than ten fields: $node_id"
+		[[ "$node_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "invalid decomposition node ID: $node_id"
+		! grep -Fqx -- "$node_id" "$seen_file" || die "duplicate decomposition node ID: $node_id"
+		[[ "$parent_id" == - || "$parent_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "invalid parent ID for $node_id: $parent_id"
+		if [[ "$parent_id" != - ]]; then
+			grep -Fqx -- "$parent_id" "$seen_file" || die "parent must precede child $node_id: $parent_id"
+		fi
+		[[ -n "$depends_on" ]] || die "decomposition node has empty depends_on: $node_id"
+		if [[ "$depends_on" != - ]]; then
+			IFS=',' read -r -a dependency_list <<< "$depends_on"
+			for dependency in "${dependency_list[@]}"; do
+				[[ "$dependency" != "$node_id" ]] || die "node depends on itself: $node_id"
+				grep -Fqx -- "$dependency" "$seen_file" ||
+					die "dependency must precede node $node_id: $dependency"
+			done
+		fi
+		[[ -n "$deliverable" && -n "$acceptance_evidence" && -n "$focused_validation" ]] ||
+			die "node $node_id requires deliverable, acceptance_evidence, and focused_validation"
+		[[ -n "$allowed_paths" && "$allowed_paths" != - ]] || die "node $node_id requires explicit allowed_paths"
+		[[ -n "$required_symbols" ]] || die "node $node_id requires required_symbols or '-'"
+		[[ "$complexity_class" =~ ^(LOW|MEDIUM|HIGH)$ ]] || die "invalid complexity_class for $node_id: $complexity_class"
+		[[ "$worker_route" =~ ^(LUNA|TERRA)$ ]] || die "invalid worker_route for $node_id: $worker_route"
+		[[ "$worker_route" != LUNA || "$complexity_class" == LOW ]] ||
+			die "Luna node $node_id must have complexity_class LOW"
+		printf '%s\n' "$node_id" >> "$seen_file"
+		printf '%s\t%s\n' "$node_id" "$deliverable" >> "$definition_tmp"
+		printf '%s\tPENDING\t-\t%s\n' "$node_id" "$(timestamp_utc)" >> "$state_tmp"
+		printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+			"$node_id" "$parent_id" "$depends_on" "$deliverable" "$acceptance_evidence" \
+			"$focused_validation" "$allowed_paths" "$required_symbols" "$complexity_class" "$worker_route" >> "$dag_tmp"
+	done < <(tail -n +2 "$source_file")
+	rm -f "$seen_file"
+	(( $(wc -l < "$dag_tmp") > 1 )) || die 'decomposition DAG must contain at least one node'
+	chmod 600 "$definition_tmp" "$state_tmp" "$dag_tmp"
+	mv "$definition_tmp" "$definition"
+	mv "$state_tmp" "$state"
+	mv "$dag_tmp" "$dag"
+	log_event "PROJECT_DECOMPOSITION_V2_INITIALIZED nodes=$(project_plan_total_count) file=$dag"
+	trace_event PROJECT_DECOMPOSITION_V2_INITIALIZED "nodes=$(project_plan_total_count)" "dag_file=$dag"
+}
+
 activate_project_plan_item()
 {
 	local item_id="$1"
@@ -2237,6 +2436,7 @@ activate_project_plan_item()
 		return 0
 	fi
 	[[ "$status" == PENDING ]] || die "project plan item is not pending: $item_id ($status)"
+	project_plan_dependencies_satisfied "$item_id" || die "project plan dependencies are not complete for item: $item_id"
 	[[ -z "$(project_plan_item_for_root "$root")" ]] || die "task root is already assigned to a project plan item: $root"
 	[[ -z "$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" {print $1; exit}' "$state")" ]] || die 'another project plan item is already active'
 	tmp="$state.tmp.$$"
@@ -2338,6 +2538,8 @@ write_project_snapshot()
 	{
 		printf 'project=%s\n' "$PROJECT"
 		printf 'repository=%s\n' "$REPOSITORY"
+		printf 'harness_mode=%s\n' "$HARNESS_MODE"
+		printf 'decomposition_v2=%s\n' "$HARNESS_DECOMPOSITION_V2"
 		printf 'harness_home=%s\n' "$HARNESS_HOME"
 		printf 'harness_bin=%s\n' "$HARNESS_BIN"
 		printf 'project_tmp_dir=%s\n' "$(project_tmp_dir)"
@@ -2399,6 +2601,13 @@ write_worker_snapshot()
 		printf 'goal_context_rotation_iterations=%s\n' "$HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS"
 		printf 'goal_process_max_fixes=%s\n' "$HARNESS_GOAL_PROCESS_MAX_FIXES"
 		printf 'goal_process_max_smoke_runs=%s\n' "$HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS"
+		printf 'decomposition_v2=%s\n' "$HARNESS_DECOMPOSITION_V2"
+		printf 'decomposition_critic_enabled=%s\n' "$HARNESS_DECOMPOSITION_CRITIC_ENABLED"
+		printf 'max_luna_strategy_failures=%s\n' "$HARNESS_MAX_LUNA_STRATEGY_FAILURES"
+		printf 'luna_model=%s\n' "$LUNA_WORKER_MODEL"
+		printf 'luna_reasoning_effort=%s\n' "$LUNA_WORKER_REASONING_EFFORT"
+		printf 'terra_model=%s\n' "$TERRA_WORKER_MODEL"
+		printf 'terra_reasoning_effort=%s\n' "$TERRA_WORKER_REASONING_EFFORT"
 		printf 'env_file=%s\n' "$HARNESS_ENV_FILE"
 		printf 'env_sha256=%s\n' "$(env_sha256)"
 		printf 'updated_at=%s\n' "$(timestamp_utc)"

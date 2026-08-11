@@ -1,0 +1,647 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COMMON="$SCRIPT_DIR/../lib/harness-common.sh"
+interval=300
+render_once=0
+
+usage()
+{
+	cat <<EOF
+Usage: ${0##*/} [-n SECONDS] DIRECTORY
+       ${0##*/} --once DIRECTORY
+
+Watch every harness environment with a non-empty SPECIFICATION in DIRECTORY.
+The default refresh interval is 300 seconds (5 minutes).
+EOF
+}
+
+while (( $# > 0 )); do
+	case "$1" in
+		-n|--interval)
+			[[ $# -ge 2 ]] || { usage >&2; exit 2; }
+			interval="$2"
+			shift 2
+			;;
+		--once)
+			render_once=1
+			shift
+			;;
+		-h|--help)
+			usage
+			exit 0
+			;;
+		--)
+			shift
+			break
+			;;
+		-*)
+			printf 'Unknown option: %s\n' "$1" >&2
+			usage >&2
+			exit 2
+			;;
+		*) break ;;
+	esac
+done
+[[ $# -eq 1 ]] || { usage >&2; exit 2; }
+[[ "$interval" =~ ^[0-9]+([.][0-9]+)?$ ]] || {
+	printf 'Invalid refresh interval: %s\n' "$interval" >&2
+	exit 2
+}
+awk -v value="$interval" 'BEGIN { exit !(value > 0) }' || {
+	printf 'Refresh interval must be greater than zero.\n' >&2
+	exit 2
+}
+[[ -d "$1" ]] || {
+	printf 'Harness environment directory does not exist: %s\n' "$1" >&2
+	exit 1
+}
+config_dir="$(realpath "$1")"
+
+if (( ! render_once )); then
+	command -v watch >/dev/null 2>&1 || {
+		printf 'The watch command is required.\n' >&2
+		exit 1
+	}
+	exec watch --interval "$interval" --exec \
+		"$SCRIPT_DIR/harness-watch-many" --once "$config_dir"
+fi
+
+terminal_columns()
+{
+	local size columns
+	if [[ -r /dev/tty ]]; then
+		size="$( (stty size < /dev/tty) 2>/dev/null || true)"
+		columns="${size##* }"
+		if [[ "$columns" =~ ^[0-9]+$ && "$columns" -gt 0 ]]; then
+			printf '%s\n' "$columns"
+			return
+		fi
+	fi
+	if [[ "${COLUMNS:-}" =~ ^[0-9]+$ && "${COLUMNS:-0}" -gt 0 ]]; then
+		printf '%s\n' "$COLUMNS"
+		return
+	fi
+	columns="$(tput cols 2>/dev/null || true)"
+	[[ "$columns" =~ ^[0-9]+$ && "$columns" -gt 0 ]] || columns=120
+	printf '%s\n' "$columns"
+}
+
+terminal_lines()
+{
+	local size lines
+	if [[ -r /dev/tty ]]; then
+		size="$( (stty size < /dev/tty) 2>/dev/null || true)"
+		lines="${size%% *}"
+		if [[ "$lines" =~ ^[0-9]+$ && "$lines" -gt 0 ]]; then
+			printf '%s\n' "$lines"
+			return
+		fi
+	fi
+	if [[ "${LINES:-}" =~ ^[0-9]+$ && "${LINES:-0}" -gt 0 ]]; then
+		printf '%s\n' "$LINES"
+		return
+	fi
+	lines="$(tput lines 2>/dev/null || true)"
+	[[ "$lines" =~ ^[0-9]+$ && "$lines" -gt 0 ]] || lines=40
+	printf '%s\n' "$lines"
+}
+
+widest_project_name()
+{
+	local env_file owner mode_octal mode probe project specification widest=7
+	while IFS= read -r -d '' env_file; do
+		owner="$(stat -c %u "$env_file")"
+		mode_octal="$(stat -c %a "$env_file")"
+		mode=$((8#$mode_octal))
+		if (( (owner != UID && owner != 0) || (mode & 8#022) != 0 )); then
+			continue
+		fi
+		probe="$(bash -c '
+			set -Eeuo pipefail
+			unset PROJECT SPECIFICATION
+			{ source "$1"; } >/dev/null
+			printf "HARNESS_WATCH_PROBE\\t%s\\t%s\\n" \
+				"${PROJECT:-}" "${SPECIFICATION:-}"
+		' _ "$env_file" 2>/dev/null || true)"
+		probe="$(awk -F '\t' '$1 == "HARNESS_WATCH_PROBE" { print; exit }' <<< "$probe")"
+		[[ -n "$probe" ]] || continue
+		IFS=$'\t' read -r _ project specification <<< "$probe"
+		[[ -n "$specification" ]] || continue
+		(( ${#project} > widest )) && widest=${#project}
+	done < <(find "$config_dir" -maxdepth 1 -type f -name '*.env' -print0 | sort -z)
+	printf '%s\n' "$widest"
+}
+
+human_duration()
+{
+	local seconds="$1"
+	(( seconds >= 0 )) || seconds=0
+	if (( seconds < 60 )); then
+		printf '%ss' "$seconds"
+	elif (( seconds < 3600 )); then
+		printf '%sm' "$((seconds / 60))"
+	elif (( seconds < 86400 )); then
+		printf '%sh %sm' "$((seconds / 3600))" "$(((seconds % 3600) / 60))"
+	else
+		printf '%sd %sh' "$((seconds / 86400))" "$(((seconds % 86400) / 3600))"
+	fi
+}
+
+state_value_from()
+{
+	local file="$1"
+	local key="$2"
+	awk -F= -v key="$key" '$1 == key { print substr($0, length($1) + 2); exit }' \
+		"$file" 2>/dev/null || true
+}
+
+supervisor_is_running()
+{
+	local project_dir="$1"
+	local env_file="$2"
+	local pid command_line
+	pid="$(awk 'NR == 1 { print; exit }' \
+		"$project_dir/control/supervisor.pid" 2>/dev/null || true)"
+	[[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
+	kill -0 "$pid" 2>/dev/null || return 1
+	[[ -r "/proc/$pid/cmdline" ]] || return 1
+	command_line="$(tr '\0' ' ' < "/proc/$pid/cmdline")"
+	[[ "$command_line" == *harness-supervisor* &&
+		"$command_line" == *"$env_file"* ]]
+}
+
+markdown_summary()
+{
+	local file="$1"
+	[[ -s "$file" ]] || return 0
+	awk '
+		BEGIN { started = 0 }
+		/^#[[:space:]]/ { next }
+		/^[[:space:]]*$/ {
+			if (started) exit
+			next
+		}
+		{
+			started = 1
+			gsub(/`/, "", $0)
+			printf "%s%s", separator, $0
+			separator = " "
+		}
+		END { if (started) printf "\n" }
+	' "$file"
+}
+
+repeated_finding_summary()
+{
+	local file="$1"
+	[[ -s "$file" ]] || return 0
+	awk '
+		/^Repeated finding keys:/ { in_keys = 1; next }
+		in_keys && /^-[[:space:]]/ {
+			line = $0
+			sub(/^-[[:space:]]*/, "", line)
+			gsub(/`/, "", line)
+			printf "%s%s", separator, line
+			separator = ", "
+			next
+		}
+		in_keys && !/^[[:space:]]*$/ { exit }
+		END { if (separator != "") printf "\n" }
+	' "$file"
+}
+
+latest_trace_file()
+{
+	local project_dir="$1"
+	local phase="$2"
+	local cycle="$3"
+	local label
+	printf -v label '%03d' "$cycle"
+	case "$phase" in
+		WORKER_RUNNING|WORKER_RETRY)
+			printf '%s/logs/worker-%s.jsonl\n' "$project_dir" "$label"
+			;;
+		REVIEW_RUNNING)
+			printf '%s/logs/manager-review-%s.jsonl\n' "$project_dir" "$label"
+			;;
+		CONVERGENCE_RUNNING)
+			printf '%s/logs/manager-convergence-%s.jsonl\n' "$project_dir" "$label"
+			;;
+		GOAL_RUNNING)
+			printf '%s/logs/manager-goal.jsonl\n' "$project_dir"
+			;;
+		GOAL_REFRESH_RUNNING)
+			find "$project_dir/logs" -maxdepth 1 -type f \
+				-name 'manager-goal-reset-*.jsonl' -printf '%T@\t%p\n' \
+				2>/dev/null | sort -nr | awk -F '\t' 'NR == 1 { print $2; exit }'
+			;;
+		ORACLE_RUNNING)
+			find "$project_dir/logs" -maxdepth 1 -type f \
+				-name 'oracle-audit-*.jsonl' -printf '%T@\t%p\n' \
+				2>/dev/null | sort -nr | awk -F '\t' 'NR == 1 { print $2; exit }'
+			;;
+	esac
+}
+
+latest_trace_action()
+{
+	local file="$1"
+	[[ -s "$file" ]] || return 0
+	tail -n 120 "$file" 2>/dev/null | jq -rs '
+		def clean: gsub("[\\r\\n\\t ]+"; " ") | sub("^ "; "") | sub(" $"; "");
+		[.[] | select(.type == "item.started" or .type == "item.completed")]
+		| last // empty
+		| if .item.type == "command_execution" then
+			(if .type == "item.started" then "Running command: " else "Last command finished: " end) + (.item.command | clean)
+		  elif .item.type == "file_change" then
+			"Editing: " + ([.item.changes[]?.path] | join(", ") | clean)
+		  elif .item.type == "agent_message" then
+			"Latest agent report: " + (.item.text | clean)
+		  elif .item.type == "todo_list" then
+			"Planning and tracking the current implementation pass."
+		  else empty end
+	' 2>/dev/null | cut -c1-1600
+}
+
+phase_role()
+{
+	case "$1" in
+		WORKER_*) printf 'worker' ;;
+		REVIEW_*) printf 'manager' ;;
+		CONVERGENCE_*) printf 'manager' ;;
+		GOAL_*) printf 'manager' ;;
+		ORACLE_*) printf 'oracle' ;;
+		*) printf 'harness' ;;
+	esac
+}
+
+status_role()
+{
+	case "$1" in
+		WORKER_*) printf 'w' ;;
+		REVIEW_*|CONVERGENCE_*|GOAL_*) printf 'm' ;;
+		ORACLE_*) printf 'o' ;;
+		*) printf 'h' ;;
+	esac
+}
+
+completion_summary()
+{
+	local project_dir="$1"
+	local every_reviews="$2"
+	local state audit_cycle basis total verified implemented
+	local verified_percent claimed_percent percentage_available
+	[[ "$every_reviews" =~ ^[0-9]+$ ]] || every_reviews=0
+	if (( every_reviews == 0 )); then
+		printf 'disabled\n'
+		return
+	fi
+	state="$project_dir/control/completion-progress.env"
+	if [[ ! -f "$state" ]]; then
+		printf 'pending\n@%s\n' "$every_reviews"
+		return
+	fi
+	audit_cycle="$(state_value_from "$state" audit_cycle)"
+	basis="$(state_value_from "$state" coverage_basis)"
+	total="$(state_value_from "$state" requirements_total)"
+	verified="$(state_value_from "$state" verified_complete)"
+	implemented="$(state_value_from "$state" implemented_unverified)"
+	verified_percent="$(state_value_from "$state" verified_percent)"
+	claimed_percent="$(state_value_from "$state" claimed_percent)"
+	percentage_available="$(state_value_from "$state" percentage_available)"
+	if [[ "$basis" == SPECIFICATION-WHOLE || "$percentage_available" == 0 ]]; then
+		printf 'whole-spec\nN/A @%s\n' "${audit_cycle:-?}"
+		return
+	fi
+	if [[ "$audit_cycle" =~ ^[0-9]+$ && "$total" =~ ^[1-9][0-9]*$ &&
+		"$verified" =~ ^[0-9]+$ && "$implemented" =~ ^[0-9]+$ &&
+		"$verified_percent" =~ ^[0-9]+$ && "$claimed_percent" =~ ^[0-9]+$ ]]; then
+		printf 'V%s%% %s/%s\nC%s%% @%s\n' \
+			"$verified_percent" "$verified" "$total" "$claimed_percent" "$audit_cycle"
+	else
+		printf 'invalid\naudit state\n'
+	fi
+}
+
+describe_harness()
+{
+	local project_dir="$1"
+	local status="$2"
+	local phase="$3"
+	local cycle="$4"
+	local running="$5"
+	local stall_seconds="$6"
+	local max_manager_reviews="$7"
+	local max_oracle_runs="$8"
+	local max_post_oracle_reviews="$9"
+	local role report summary keys trace age action warning_file warning_age trigger_file
+	local warning_class warning_detail no_progress oracle_runs completed_oracle_runs
+	local post_completed
+	role="$(phase_role "$phase")"
+	report="$project_dir/control/operator-required.md"
+
+	if [[ "$status" == COMPLETE ]]; then
+		if [[ "$phase" == ORACLE_ACCEPTED ]]; then
+			oracle_runs="$(find "$project_dir/reviews" -maxdepth 1 -type f \
+				-name 'oracle-audit-*.md' | wc -l | tr -d ' ')"
+			printf 'Completed normally. The independent Oracle accepted the repository after %s audit(s); no blocker remains.' \
+				"$oracle_runs"
+		elif find "$project_dir/reviews" -maxdepth 1 -type f \
+			-name 'post-oracle-remediation-*-accepted.env' -print -quit 2>/dev/null | grep -q .; then
+			printf 'Completed normally after Terra accepted the bounded Oracle-directed remediation; no blocker remains.'
+		else
+			printf 'Completed normally without an enabled Oracle gate; no blocker remains.'
+		fi
+		return
+	fi
+
+	if [[ "$status" == DEAD_END ]]; then
+		summary="$(markdown_summary "$project_dir/control/dead-end.md")"
+		printf 'DEAD END: %s\nAction: inspect %s/control/dead-end.md; this terminal judgment produced no implementation addendum.' \
+			"${summary:-the audit found no coherent repository-local completion path.}" "$project_dir"
+		return
+	fi
+
+	if [[ "$status" == FAILED ]]; then
+		summary="$(head -n 1 "$project_dir/control/last-error.txt" 2>/dev/null || true)"
+		printf 'FAILURE: %s\nAction: inspect %s/control/last-error.txt and the latest role logs before repairing state.' \
+			"${summary:-terminal harness failure without a recorded error}" "$project_dir"
+		return
+	fi
+
+	if [[ "$status" == PAUSED ]]; then
+		summary="$(markdown_summary "$report")"
+		case "$phase" in
+			CONVERGENCE_LIMIT_REACHED)
+				keys="$(repeated_finding_summary "$report")"
+				printf 'CIRCUIT BREAKER: %s' \
+					"${summary:-the same actionable findings survived the convergence-audit limit.}"
+				[[ -z "$keys" ]] || printf '\nRepeated findings: %s' "$keys"
+				printf '\nAction: inspect the report; correct the repository and run harness-resume followed by harness-start, or use harness-reset-worker-context when stale worker policy caused the loop.'
+				;;
+			NO_SOURCE_PROGRESS)
+				printf 'NO SOURCE PROGRESS: %s\nAction: inspect the latest worker report and repository fingerprint; correct the blocker and run harness-resume followed by harness-start, or reset stale worker context.' \
+					"${summary:-consecutive worker deliveries left the Git-visible tree unchanged.}"
+				;;
+			REVIEW_LIMIT_REACHED)
+				if [[ "$max_manager_reviews" =~ ^[0-9]+$ ]] &&
+					(( max_manager_reviews == 0 || max_manager_reviews > cycle )); then
+					printf 'REVIEW LIMIT: cycle %s reached the old manager-review cap. Configuration now permits continuation through cycle %s. Run harness-resume to acknowledge the new limit, then harness-start.' \
+						"$cycle" "$([[ "$max_manager_reviews" == 0 ]] && printf unlimited || printf '%s' "$max_manager_reviews")"
+				else
+					printf 'REVIEW LIMIT: cycle %s reached the configured manager-review cap. Increase HARNESS_MAX_MANAGER_REVIEWS if the remaining addendum is valid, run harness-resume, then harness-start.' \
+						"$cycle"
+				fi
+				;;
+			POST_ORACLE_REVIEW_LIMIT_REACHED)
+				post_completed="$(state_value_from "$project_dir/control/post-oracle-remediation.env" reviews_completed)"
+				if [[ "$max_post_oracle_reviews" =~ ^[0-9]+$ && "$post_completed" =~ ^[0-9]+$ ]] &&
+					(( max_post_oracle_reviews > post_completed )); then
+					printf 'POST-ORACLE LIMIT: %s remediation reviews were consumed. Configuration now permits %s; run harness-resume and then harness-start.' \
+						"$post_completed" "$max_post_oracle_reviews"
+				else
+					printf 'POST-ORACLE LIMIT: the independent remediation budget was exhausted. Inspect the latest addendum before explicitly increasing HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE.'
+				fi
+				;;
+			ORACLE_LIMIT_REACHED)
+				completed_oracle_runs="$(find "$project_dir/reviews" -maxdepth 1 \
+					-type f -name 'oracle-audit-*.md' | wc -l | tr -d ' ')"
+				if [[ "$max_oracle_runs" =~ ^[0-9]+$ ]] &&
+					(( max_oracle_runs > completed_oracle_runs )); then
+					printf 'ORACLE LIMIT: %s final audits were consumed without PASS. Configuration now permits %s; run harness-resume to acknowledge the new limit, then harness-start.' \
+						"$completed_oracle_runs" "$max_oracle_runs"
+				else
+					printf 'ORACLE LIMIT: all configured final audits were consumed without PASS. Inspect the latest Oracle addendum, raise MAX_ORACLE_RUNS only if another independent audit is justified, run harness-resume, then harness-start.'
+				fi
+				;;
+			NEEDS_OPERATOR)
+				printf 'OPERATOR REQUIRED: %s\nAction: inspect %s and supply the external dependency or decision identified there.' \
+					"${summary:-the convergence or Oracle audit identified an external blocker.}" "$report"
+				;;
+			*)
+				printf 'Paused in %s. %s' "$phase" \
+					"${summary:-Inspect the latest events and operator report.}"
+				;;
+		esac
+		return
+	fi
+
+	if (( ! running )); then
+		printf 'PROBLEM: unfinished harness has no live supervisor. Durable phase is %s at cycle %s. Run harness-start with its environment file to continue.' \
+			"$phase" "$cycle"
+		return
+	fi
+	if [[ "$phase" == CONVERGENCE_REQUIRED || "$phase" == CONVERGENCE_RUNNING ]]; then
+		trigger_file="$project_dir/control/convergence-trigger-$(printf '%03d' "$cycle").txt"
+		if [[ -s "$trigger_file" ]]; then
+			keys="$(paste -sd, "$trigger_file")"
+			printf 'Convergence audit trigger: %s.\n' "$keys"
+		fi
+	fi
+
+	trace="$(latest_trace_file "$project_dir" "$phase" "$cycle")"
+	if [[ -n "$trace" && -f "$trace" ]]; then
+		age=$(( $(date +%s) - $(stat -c %Y "$trace") ))
+		(( age >= 0 )) || age=0
+		action="$(latest_trace_action "$trace")"
+		if (( stall_seconds > 0 && age >= stall_seconds )); then
+			printf 'WARNING: the %s turn has produced no JSONL activity for %s, exceeding the %s diagnostic threshold.' \
+				"$role" "$(human_duration "$age")" "$(human_duration "$stall_seconds")"
+		else
+			printf 'No blocker detected. %s is active; its activity was updated %s ago.' \
+				"${role^}" "$(human_duration "$age")"
+		fi
+		[[ -z "$action" ]] || printf '\n%s' "$action"
+	else
+		printf 'No blocker detected. %s is active in %s; no role activity has been recorded yet.' \
+			"${role^}" "$phase"
+	fi
+
+	no_progress="$(awk 'NR == 1 { print; exit }' \
+		"$project_dir/control/no-source-progress-count" 2>/dev/null || true)"
+	if [[ "$no_progress" =~ ^[1-9][0-9]*$ ]]; then
+		printf '\nWatch: %s consecutive worker deliver%s produced no Git-visible change.' \
+			"$no_progress" "$([[ "$no_progress" == 1 ]] && printf 'y has' || printf 'ies have')"
+	fi
+
+	warning_file="$(find "$project_dir/logs" -maxdepth 1 -type f \
+		-name '*.warning.env' -printf '%T@\t%p\n' 2>/dev/null | sort -nr | \
+		awk -F '\t' 'NR == 1 { print $2; exit }')"
+	if [[ -n "$warning_file" && -n "$trace" && -f "$trace" ]]; then
+		warning_age="$(stat -c %Y "$warning_file")"
+		if (( warning_age >= $(stat -c %W "$trace" 2>/dev/null || printf 0) )); then
+			warning_class="$(state_value_from "$warning_file" classification)"
+			warning_detail="$(state_value_from "$warning_file" detail)"
+			printf '\nDiagnostic warning: %s%s' "${warning_class:-unknown}" \
+				"$([[ -z "$warning_detail" ]] || printf ' — %s' "$warning_detail")"
+		fi
+	fi
+}
+
+wrap_description()
+{
+	local text="$1"
+	local width="$2"
+	printf '%s\n' "$text" | fold -s -w "$width"
+}
+
+print_row()
+{
+	local project="$1"
+	local cycle="$2"
+	local display_status="$3"
+	local completion="$4"
+	local description="$5"
+	local line last_index line_count index
+	local -a description_lines=() completion_lines=()
+	mapfile -t description_lines < <(wrap_description "$description" "$description_width")
+	mapfile -t completion_lines <<< "$completion"
+	(( ${#description_lines[@]} > 0 )) || description_lines=('')
+	(( ${#completion_lines[@]} > 0 )) || completion_lines=('')
+	if (( ${#description_lines[@]} > row_line_limit )); then
+		description_lines=("${description_lines[@]:0:row_line_limit}")
+		last_index=$((${#description_lines[@]} - 1))
+		line="${description_lines[$last_index]}"
+		if (( ${#line} > description_width - 3 )); then
+			line="${line:0:description_width-3}"
+		fi
+		description_lines[$last_index]="${line% }..."
+	fi
+	line_count=${#description_lines[@]}
+	if (( ${#completion_lines[@]} > line_count )); then
+		line_count=${#completion_lines[@]}
+	fi
+	for ((index = 0; index < line_count; index++)); do
+		if (( index == 0 )); then
+			printf '%-*.*s |%*.*s| %-*.*s | %-*.*s | %s\n' \
+				"$project_width" "$project_width" "$project" \
+				"$cycle_width" "$cycle_width" "$cycle" \
+				"$status_width" "$status_width" "$display_status" \
+				"$completion_width" "$completion_width" "${completion_lines[$index]:-}" \
+				"${description_lines[$index]:-}"
+		else
+			printf '%*s |%*s| %*s | %*s | %s\n' \
+				"$project_width" '' "$cycle_width" '' "$status_width" '' \
+				"$completion_width" "${completion_lines[$index]:-}" \
+				"${description_lines[$index]:-}"
+		fi
+	done
+}
+
+columns="$(terminal_columns)"
+screen_lines="$(terminal_lines)"
+(( columns >= 72 )) || columns=72
+if (( columns >= 170 )); then
+	project_width=24
+elif (( columns >= 130 )); then
+	project_width=18
+elif (( columns >= 96 )); then
+	project_width=13
+elif (( columns >= 80 )); then
+	project_width=11
+else
+	project_width=10
+fi
+widest_project="$(widest_project_name)"
+[[ "$widest_project" =~ ^[0-9]+$ ]] || widest_project=7
+(( widest_project > project_width )) && project_width=$widest_project
+cycle_width=3
+status_width=9
+completion_width=10
+description_width=$((columns - project_width - cycle_width - status_width - completion_width - 10))
+(( description_width >= 1 )) || description_width=1
+environment_file_count="$(find "$config_dir" -maxdepth 1 -type f \
+	-name '*.env' | wc -l | tr -d ' ')"
+(( environment_file_count > 0 )) || environment_file_count=1
+row_line_limit=$(((screen_lines - 4) / environment_file_count))
+(( row_line_limit >= 2 )) || row_line_limit=2
+(( row_line_limit <= 8 )) || row_line_limit=8
+
+printf '%-*s |%*s| %-*s | %-*s | %s\n' \
+	"$project_width" PROJECT "$cycle_width" CYC \
+	"$status_width" STATUS "$completion_width" COMPLETION 'PROGRESS / BLOCKER'
+printf '%*s\n' "$columns" '' | tr ' ' '-'
+
+found=0
+while IFS= read -r -d '' env_file; do
+	owner="$(stat -c %u "$env_file")"
+	mode_octal="$(stat -c %a "$env_file")"
+	mode=$((8#$mode_octal))
+	if (( (owner != UID && owner != 0) || (mode & 8#022) != 0 )); then
+		continue
+	fi
+	probe="$(bash -c '
+		set -Eeuo pipefail
+		unset PROJECT SPECIFICATION
+		{ source "$1"; } >/dev/null
+		printf "HARNESS_WATCH_PROBE\\t%s\\t%s\\n" \
+			"${PROJECT:-}" "${SPECIFICATION:-}"
+	' _ "$env_file" 2>/dev/null || true)"
+	probe="$(awk -F '\t' '$1 == "HARNESS_WATCH_PROBE" { print; exit }' <<< "$probe")"
+	[[ -n "$probe" ]] || continue
+	IFS=$'\t' read -r _ probe_project probe_specification <<< "$probe"
+	[[ -n "$probe_specification" ]] || continue
+	found=1
+	loaded="$(bash -c '
+		set -Eeuo pipefail
+		source "$1"
+		load_harness_env "$2"
+		printf "HARNESS_WATCH_DATA\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n" \
+			"$PROJECT" "$HARNESS_ROOT" "$HARNESS_ENV_FILE" \
+			"$HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS" \
+			"$HARNESS_MAX_MANAGER_REVIEWS" "$MAX_ORACLE_RUNS" \
+			"$HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS" \
+			"$HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE"
+	' _ "$COMMON" "$env_file" 2>&1)" || {
+		error="$(tail -n 2 <<< "$loaded" | tr '\n' ' ')"
+		print_row "${probe_project:-${env_file##*/}}" '-' \
+			'config error' '-' "CONFIGURATION ERROR: ${error:-unable to load environment file}."
+		continue
+	}
+	data="$(awk -F '\t' '$1 == "HARNESS_WATCH_DATA" { print; exit }' <<< "$loaded")"
+	IFS=$'\t' read -r _ project harness_root canonical_env stall_seconds \
+		max_manager_reviews max_oracle_runs progress_audit_every_reviews \
+		max_post_oracle_reviews <<< "$data"
+	project_dir="$harness_root/projects/$project"
+	state_file="$project_dir/control/state.env"
+	if [[ ! -f "$state_file" ]]; then
+		print_row "$project" '-' 'uninit' '-' \
+			"No harness state exists at $project_dir. Run harness-init before starting it."
+		continue
+	fi
+	status="$(state_value_from "$state_file" status)"
+	phase="$(state_value_from "$state_file" phase)"
+	cycle="$(state_value_from "$state_file" cycle)"
+	[[ "$cycle" =~ ^[0-9]+$ ]] || cycle='-'
+	running=0
+	supervisor_is_running "$project_dir" "$canonical_env" && running=1
+	role="$(phase_role "$phase")"
+	status_display_role="$(status_role "$phase")"
+	case "$status" in
+		COMPLETE) display_status='done' ;;
+		PAUSED) display_status='paused' ;;
+		FAILED) display_status='failed' ;;
+		DEAD_END) display_status='dead-end' ;;
+		ACTIVE)
+			if (( running )); then
+				display_status="$status_display_role/running"
+			else
+				display_status="$status_display_role/stopped"
+			fi
+			;;
+		*) display_status='unknown' ;;
+	esac
+	description="$(describe_harness "$project_dir" "$status" "$phase" \
+		"$cycle" "$running" "${stall_seconds:-0}" \
+		"${max_manager_reviews:-0}" "${max_oracle_runs:-0}" \
+		"${max_post_oracle_reviews:-0}")"
+	completion="$(completion_summary "$project_dir" "${progress_audit_every_reviews:-0}")"
+	print_row "$project" "$cycle" "$display_status" "$completion" "$description"
+done < <(find "$config_dir" -maxdepth 1 -type f -name '*.env' -print0 | sort -z)
+
+if (( ! found )); then
+	printf 'No environment files with a non-empty SPECIFICATION were found in %s.\n' \
+		"$config_dir"
+fi

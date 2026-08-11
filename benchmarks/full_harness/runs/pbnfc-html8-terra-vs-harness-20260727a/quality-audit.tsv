@@ -1,0 +1,19 @@
+metric	single-terra-high	manager-terra-high_worker-luna-high	notes
+external_grader_score	12/12	12/12	External grader rerun after quality audit
+c_header_files	6	15	src and include
+c_header_physical_lines	190	3851	src and include
+project_test_files	5	12	tests directory
+project_test_physical_lines	30	1999	Text test sources and fixtures
+readme_physical_lines	30	159	README.md
+maximum_c_header_line_length	1426	88	Characters
+coverage_executable_lines	102	1836	GCC gcov
+coverage_line_percent	97.06	83.99	GCC gcov; single result inflated by compressed physical lines
+coverage_executed_lines_approx	99	1542	Percentage multiplied by executable lines
+coverage_branch_outcomes_taken_percent_approx	69	70	Weighted across source files
+optimized_asan_ubsan_werror	full_build_failed	pass	Single: possible uninitialized start pointer warning
+asan_ubsan_runtime	null_qsort_base	pass	Single rerun without Werror reported null qsort base
+ambiguous_epsilon_recognition	accept	accept	Additional valid acyclic ambiguity probe
+ambiguous_epsilon_rounds	75	28	Reported recognition rounds
+ambiguous_epsilon_worker_tasks	1236	96	Sum of reported per-worker tasks
+architecture	compact_monolithic	modular	Qualitative source-structure classification
+quality_classification	working_prototype	maintainable_implementation	Post-run engineering assessment

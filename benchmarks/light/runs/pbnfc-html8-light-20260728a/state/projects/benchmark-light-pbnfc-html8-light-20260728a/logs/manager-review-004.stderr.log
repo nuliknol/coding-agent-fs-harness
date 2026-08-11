@@ -1,0 +1,45 @@
+2026-07-28T14:26:49.637539Z ERROR codex_core::tools::router: error=exec_command failed for `/bin/bash -lc 'task_tmp=$(mktemp -d /tmp/pbnfc-audit.XXXXXX)
+cleanup() { rm -rf "$task_tmp"; }
+trap cleanup EXIT
+run_case() {
+  case_name=$1
+  grammar_text=$2
+  input_text=$3
+  printf '"'%s' \""'$grammar_text" > "$task_tmp/$case_name.g"
+  printf '"'%s' \""'$input_text" > "$task_tmp/$case_name.i"
+  set +e
+  result=$(bin/pbnfc --grammar "$task_tmp/$case_name.g" --input "$task_tmp/$case_name.i" --stats 2>&1)
+  result_code=$?
+  set -e
+  printf '"'%s|%s|%s\\n' \""'$case_name" "$result_code" "$result"
+}
+run_case nested_epsilon '"'%start S
+S ::= X B A;
+X ::= A C;
+A ::=;
+B ::=;
+C ::=;
+' ''
+run_case prefix_extra '%start S
+S ::= '\\''<'\\'';
+' '<a>'
+run_case empty_terminal '%start S
+%token STRING
+S ::= '\\'''\\'';
+' \"''\"
+run_case empty_string_kind '%start S
+%token STRING
+S ::= "'$STRING;
+'"' \"<a x=''>\"
+run_case quoted_space '%start S
+%token STRING
+S ::= '\\''<'\\'' '\\''a'\\'' "'$STRING '"'\\''>'\\'';
+' '<a x=\"a b\">'
+run_case compact_text '%start S
+%token TEXT
+S ::= '\\''<'\\'' '\\''p'\\'' '\\''>'\\'' '\\''hello world'\\'' '\\''<'\\'' '\\''/'\\'' '\\''p'\\'' '\\''>'\\'';
+' '<p>hello world</p>'
+run_case grammar_escape '%start S
+S ::= '\\''\\\\'\\'''\\'';
+' '<'
+printf '%s\\n' 'left-recursion-long case omitted from shell output; covered by source topological traversal.'"`: CreateProcess { message: "Rejected(\"`/bin/bash -lc 'task_tmp=$(mktemp -d /tmp/pbnfc-audit.XXXXXX)\\ncleanup() { rm -rf \\\"$task_tmp\\\"; }\\ntrap cleanup EXIT\\nrun_case() {\\n  case_name=$1\\n  grammar_text=$2\\n  input_text=$3\\n  printf '\\\"'%s' \\\\\\\"\\\"'$grammar_text\\\" > \\\"$task_tmp/$case_name.g\\\"\\n  printf '\\\"'%s' \\\\\\\"\\\"'$input_text\\\" > \\\"$task_tmp/$case_name.i\\\"\\n  set +e\\n  result=$(bin/pbnfc --grammar \\\"$task_tmp/$case_name.g\\\" --input \\\"$task_tmp/$case_name.i\\\" --stats 2>&1)\\n  result_code=$?\\n  set -e\\n  printf '\\\"'%s|%s|%s\\\\\\\\n' \\\\\\\"\\\"'$case_name\\\" \\\"$result_code\\\" \\\"$result\\\"\\n}\\nrun_case nested_epsilon '\\\"'%start S\\nS ::= X B A;\\nX ::= A C;\\nA ::=;\\nB ::=;\\nC ::=;\\n' ''\\nrun_case prefix_extra '%start S\\nS ::= '\\\\\\\\''<'\\\\\\\\'';\\n' '<a>'\\nrun_case empty_terminal '%start S\\n%token STRING\\nS ::= '\\\\\\\\'''\\\\\\\\'';\\n' \\\\\\\"''\\\\\\\"\\nrun_case empty_string_kind '%start S\\n%token STRING\\nS ::= \\\"'$STRING;\\n'\\\"' \\\\\\\"<a x=''>\\\\\\\"\\nrun_case quoted_space '%start S\\n%token STRING\\nS ::= '\\\\\\\\''<'\\\\\\\\'' '\\\\\\\\''a'\\\\\\\\'' \\\"'$STRING '\\\"'\\\\\\\\''>'\\\\\\\\'';\\n' '<a x=\\\\\\\"a b\\\\\\\">'\\nrun_case compact_text '%start S\\n%token TEXT\\nS ::= '\\\\\\\\''<'\\\\\\\\'' '\\\\\\\\''p'\\\\\\\\'' '\\\\\\\\''>'\\\\\\\\'' '\\\\\\\\''hello world'\\\\\\\\'' '\\\\\\\\''<'\\\\\\\\'' '\\\\\\\\''/'\\\\\\\\'' '\\\\\\\\''p'\\\\\\\\'' '\\\\\\\\''>'\\\\\\\\'';\\n' '<p>hello world</p>'\\nrun_case grammar_escape '%start S\\nS ::= '\\\\\\\\''\\\\\\\\\\\\\\\\'\\\\\\\\'''\\\\\\\\'';\\n' '<'\\nprintf '%s\\\\\\\\n' 'left-recursion-long case omitted from shell output; covered by source topological traversal.'\\\"` rejected: rm -f style commands are not permitted. Use a safer approach\")" }

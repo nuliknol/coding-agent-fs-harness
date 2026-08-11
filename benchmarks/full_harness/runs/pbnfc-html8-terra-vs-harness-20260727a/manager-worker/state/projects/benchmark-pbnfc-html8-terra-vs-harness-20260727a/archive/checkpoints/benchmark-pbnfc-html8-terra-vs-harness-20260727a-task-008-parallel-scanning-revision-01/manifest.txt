@@ -1,0 +1,13 @@
+project=benchmark-pbnfc-html8-terra-vs-harness-20260727a
+task_id=008-parallel-scanning-revision-01
+task_root=008-parallel-scanning
+captured_at=2026-07-28T05:35:24Z
+repository=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/repository
+git_head=a9e4d7df2194326a8233729e9abadeb199cd1658
+result_sha256=c6cba9f2af74ce0fab7d367ac9f4438b7d7702a1a6478ca0d22c8156d0b2aacc
+review_sha256=f42ff1492b42549dc411a32486c2e4f6735a712585a4ec0c6d0d56ce9117a08a
+progress_percent=66
+improvement_percent=33
+verified_criterion=p008.scanning-merge-dedup
+path=src/recognizer.c	type=file	mode=600	sha256=137977bf2fb1f64dfcbb6826f74bdb91e5581c225712634a4ee66deebcaf3b5c
+path=tests/parallel_scanning_smoke.c	type=file	mode=600	sha256=9672fa845f0a05245f6f205101c85f99f78081c18d9060fc114c3c1c47f1e6f9

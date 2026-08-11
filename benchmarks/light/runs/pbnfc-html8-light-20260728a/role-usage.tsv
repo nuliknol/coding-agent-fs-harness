@@ -1,0 +1,4 @@
+role	completed_turns	input_tokens	cached_input_tokens	uncached_input_tokens	output_tokens	estimated_api_usd
+terra-manager	7	2131741	1840896	290845	52332	1.972317
+luna-worker	6	7205759	6992384	213375	68516	1.323709
+combined	13	9337500	8833280	504220	120848	3.296026

@@ -1,0 +1,1 @@
+Published `006-worker-pool-revision-02`, targeting clean worker shutdown.

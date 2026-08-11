@@ -1,0 +1,4 @@
+Makefile
+include/recognizer.h
+src/recognizer.c
+tests/sequential_recognizer_smoke.c

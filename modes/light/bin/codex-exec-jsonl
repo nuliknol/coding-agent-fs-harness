@@ -1,0 +1,439 @@
+#!/usr/bin/env bash
+# Run one Codex turn with isolated JSONL, stderr, and final-message files.
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE ROLE PROMPT JSONL STDERR LAST_MESSAGE [resume THREAD_ID]\n' \
+		"${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -ge 6 && $# -le 8 ]] || usage
+env_file="$1"
+role="$2"
+prompt="$3"
+jsonl="$4"
+stderr_log="$5"
+last_message="$6"
+shift 6
+
+load_harness_env "$env_file"
+ensure_project
+[[ -f "$prompt" ]] || die "prompt does not exist: $prompt"
+
+case "$role" in
+	manager_goal|manager_review)
+		codex_bin="$MANAGER_CODEX_BIN"
+		codex_home="$MANAGER_CODEX_HOME"
+		model="$MANAGER_MODEL"
+		effort="$MANAGER_REASONING_EFFORT"
+		sandbox="$MANAGER_SANDBOX"
+		extra_args=("${MANAGER_CODEX_EXTRA_ARGS[@]}")
+		;;
+	manager_convergence)
+		codex_bin="$CONVERGENCE_CODEX_BIN"
+		codex_home="$CONVERGENCE_CODEX_HOME"
+		model="$CONVERGENCE_MODEL"
+		effort="$CONVERGENCE_REASONING_EFFORT"
+		sandbox="$CONVERGENCE_SANDBOX"
+		extra_args=("${CONVERGENCE_CODEX_EXTRA_ARGS[@]}")
+		;;
+	manager_protocol_repair)
+		codex_bin="$MANAGER_CODEX_BIN"
+		codex_home="$MANAGER_CODEX_HOME"
+		model="$MANAGER_MODEL"
+		effort="$MANAGER_REASONING_EFFORT"
+		sandbox=read-only
+		extra_args=("${MANAGER_CODEX_EXTRA_ARGS[@]}")
+		;;
+	convergence_protocol_repair)
+		codex_bin="$CONVERGENCE_CODEX_BIN"
+		codex_home="$CONVERGENCE_CODEX_HOME"
+		model="$CONVERGENCE_MODEL"
+		effort="$CONVERGENCE_REASONING_EFFORT"
+		sandbox=read-only
+		extra_args=("${CONVERGENCE_CODEX_EXTRA_ARGS[@]}")
+		;;
+	worker)
+		codex_bin="$WORKER_CODEX_BIN"
+		codex_home="$WORKER_CODEX_HOME"
+		model="$WORKER_MODEL"
+		effort="$WORKER_REASONING_EFFORT"
+		sandbox="$WORKER_SANDBOX"
+		extra_args=("${WORKER_CODEX_EXTRA_ARGS[@]}")
+		;;
+	oracle_audit)
+		codex_bin="$ORACLE_CODEX_BIN"
+		codex_home="$ORACLE_CODEX_HOME"
+		model="$ORACLE_MODEL"
+		effort="$ORACLE_REASONING_EFFORT"
+		sandbox="$ORACLE_SANDBOX"
+		extra_args=("${ORACLE_CODEX_EXTRA_ARGS[@]}")
+		;;
+	oracle_protocol_repair)
+		codex_bin="$ORACLE_CODEX_BIN"
+		codex_home="$ORACLE_CODEX_HOME"
+		model="$ORACLE_MODEL"
+		effort="$ORACLE_REASONING_EFFORT"
+		sandbox=read-only
+		extra_args=("${ORACLE_CODEX_EXTRA_ARGS[@]}")
+		;;
+	*)
+		die "invalid role: $role"
+		;;
+esac
+require_runtime "$codex_bin"
+
+umask 077
+mkdir -p "$(dirname "$jsonl")" "$(dirname "$stderr_log")" "$(dirname "$last_message")"
+: > "$jsonl"
+: > "$stderr_log"
+: > "$last_message"
+
+cmd=(env "CODEX_HOME=$codex_home")
+if [[ -n "$HARNESS_CODEX_RUST_LOG" ]]; then
+	cmd+=("RUST_LOG=$HARNESS_CODEX_RUST_LOG")
+fi
+cmd+=(
+	"$codex_bin" exec
+	--json
+	--model "$model"
+	--sandbox "$sandbox"
+	--cd "$REPOSITORY"
+	--add-dir "$(project_dir)"
+	"${extra_args[@]}"
+	# This harness uses a plain-language persistent goal.  The real Codex goal
+	# subsystem can park a non-interactive exec turn and is never required here.
+	--disable goals
+	-c 'approval_policy="never"'
+	-c "model_reasoning_effort=\"$effort\""
+	--output-last-message "$last_message"
+)
+if [[ $# -eq 2 ]]; then
+	[[ "$1" == resume ]] || usage
+	[[ "$2" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid thread ID: $2"
+	cmd+=(resume "$2")
+elif [[ $# -ne 0 ]]; then
+	usage
+fi
+cmd+=(-)
+
+diagnostic_root="${jsonl%.jsonl}.diagnostics"
+warning_file="${jsonl%.jsonl}.warning.env"
+trace_prefix=""
+if (( HARNESS_CODEX_STRACE )); then
+	require_runtime strace
+	mkdir -p "$diagnostic_root"
+	trace_prefix="$diagnostic_root/strace"
+	cmd=(
+		strace -ff -ttt -T -yy -s "$HARNESS_CODEX_STRACE_STRING_BYTES"
+		-e 'trace=%network,%process,%signal'
+		-o "$trace_prefix"
+		"${cmd[@]}"
+	)
+fi
+
+capture_diagnostics()
+{
+	local reason="$1"
+	local capture_errors="$diagnostic_root/capture-errors.log"
+	local snapshot
+	mkdir -p "$diagnostic_root"
+	if snapshot="$("$HARNESS_BIN/harness-capture-codex-diagnostics" \
+		"$HARNESS_ENV_FILE" "$role" "$child_pid" "$jsonl" \
+		"$stderr_log" "$reason" 2>> "$capture_errors")"; then
+		log_event "CODEX_DIAGNOSTICS_CAPTURED role=$role reason=$reason root_pid=$child_pid path=$snapshot"
+		if [[ -f "$warning_file" ]]; then
+			warning_classification="$(awk -F= '$1 == "classification" { print substr($0, length($1) + 2); exit }' "$warning_file")"
+			warning_severity="$(awk -F= '$1 == "severity" { print substr($0, length($1) + 2); exit }' "$warning_file")"
+			log_event "CODEX_WARNING role=$role classification=$warning_classification severity=$warning_severity snapshot=$snapshot"
+		fi
+	else
+		log_event "CODEX_DIAGNOSTICS_FAILED role=$role reason=$reason root_pid=$child_pid errors=$capture_errors"
+	fi
+}
+
+descendants_postorder()
+{
+	local parent="$1"
+	local child
+	while read -r child; do
+		[[ -n "$child" ]] || continue
+		descendants_postorder "$child"
+		printf '%s\n' "$child"
+	done < <(ps -eo pid=,ppid= | awk -v parent="$parent" \
+		'$2 == parent { print $1 }')
+}
+
+signal_process_tree()
+{
+	local signal="$1"
+	local root="$2"
+	local pid
+	while read -r pid; do
+		[[ -n "$pid" ]] || continue
+		kill -s "$signal" "$pid" 2>/dev/null || true
+	done < <(descendants_postorder "$root")
+	kill -s "$signal" "$root" 2>/dev/null || true
+}
+
+integrity_snapshot="$(mktemp -d "${TMPDIR:-/tmp}/coding-harness-integrity.XXXXXX")"
+cleanup_integrity_snapshot()
+{
+	case "$integrity_snapshot" in
+		*/coding-harness-integrity.*)
+			[[ ! -d "$integrity_snapshot" ]] || rm -rf -- "$integrity_snapshot"
+			;;
+	esac
+}
+trap cleanup_integrity_snapshot EXIT
+
+protected_state_root="$(project_dir)"
+mkdir -p "$integrity_snapshot/state" "$integrity_snapshot/control"
+protected_directories=(inputs addenda reviews prompts)
+# Old initialized projects predate metrics.  When present it is protected just
+# like prompts/reviews; otherwise the legacy state remains compatible.
+[[ ! -d "$protected_state_root/metrics" ]] || protected_directories+=(metrics)
+protected_controls=(state.env worker-goal.md worker.thread final-acceptance.md \
+	provisional-acceptance.md \
+	last-error.txt last-convergence-audit-cycle operator-required.md \
+	dead-end.md post-oracle-remediation.env completion-progress.env \
+	supervisor.unit process-token worker-context-reset.env)
+shopt -s nullglob
+for protected_control_path in \
+	"$protected_state_root/control/"convergence-trigger-*.txt; do
+	protected_controls+=("${protected_control_path##*/}")
+done
+shopt -u nullglob
+for protected_directory in "${protected_directories[@]}"; do
+	cp -a -- "$protected_state_root/$protected_directory" \
+		"$integrity_snapshot/state/$protected_directory"
+done
+for protected_control in "${protected_controls[@]}"; do
+	if [[ -e "$protected_state_root/control/$protected_control" ]]; then
+		cp -a -- "$protected_state_root/control/$protected_control" \
+			"$integrity_snapshot/control/$protected_control"
+	else
+		: > "$integrity_snapshot/control/$protected_control.absent"
+	fi
+done
+cp -p -- "$protected_state_root/project.conf" \
+	"$integrity_snapshot/project.conf"
+cp -p -- "$SPECIFICATION" "$integrity_snapshot/source-specification"
+cp -p -- "$DEVELOPMENT_POLICY" "$integrity_snapshot/source-development-policy"
+
+git_index_path=""
+if git -C "$REPOSITORY" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+	git_index_path="$(git -C "$REPOSITORY" rev-parse --git-path index)"
+	[[ "$git_index_path" == /* ]] || git_index_path="$REPOSITORY/$git_index_path"
+	if [[ -f "$git_index_path" ]]; then
+		cp -p -- "$git_index_path" "$integrity_snapshot/git-index"
+	else
+		git_index_path=""
+	fi
+fi
+
+git_state_before=""
+git_head_before=""
+if git -C "$REPOSITORY" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+	git_state_before="$(git -C "$REPOSITORY" status --porcelain=v1 |
+		sha256sum | awk '{print $1}')"
+	git_head_before="$(git -C "$REPOSITORY" \
+		rev-parse --verify 'HEAD^{commit}' 2>/dev/null || true)"
+fi
+
+if (( HARNESS_CODEX_WALL_TIMEOUT_SECONDS > 0 )); then
+	timeout --signal=TERM \
+		--kill-after="${HARNESS_CODEX_KILL_GRACE_SECONDS}s" \
+		"${HARNESS_CODEX_WALL_TIMEOUT_SECONDS}s" \
+		"${cmd[@]}" < "$prompt" > "$jsonl" 2> "$stderr_log" &
+else
+	"${cmd[@]}" < "$prompt" > "$jsonl" 2> "$stderr_log" &
+fi
+child_pid=$!
+idle_timeout=0
+stall_diagnostic_captured=0
+last_stall_diagnostic_at=0
+last_activity="$(date '+%s')"
+while kill -0 "$child_pid" 2>/dev/null; do
+	sleep 1
+	if ! kill -0 "$child_pid" 2>/dev/null ||
+		[[ "$(ps -o stat= -p "$child_pid" 2>/dev/null || true)" == Z* ]]; then
+		break
+	fi
+	now="$(date '+%s')"
+	for file in "$jsonl" "$stderr_log"; do
+		mtime="$(stat -c '%Y' "$file" 2>/dev/null || printf 0)"
+		if (( mtime > last_activity )); then
+			last_activity="$mtime"
+			stall_diagnostic_captured=0
+			last_stall_diagnostic_at=0
+			rm -f -- "$warning_file"
+		fi
+	done
+	if (( HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS > 0 &&
+		now - last_activity >= HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS &&
+		( ! stall_diagnostic_captured ||
+		  ( HARNESS_CODEX_STALL_DIAGNOSTIC_REPEAT_SECONDS > 0 &&
+		    now - last_stall_diagnostic_at >= HARNESS_CODEX_STALL_DIAGNOSTIC_REPEAT_SECONDS ) ) )); then
+		capture_diagnostics stall
+		stall_diagnostic_captured=1
+		last_stall_diagnostic_at="$now"
+	fi
+	if (( HARNESS_CODEX_IDLE_TIMEOUT_SECONDS > 0 &&
+		now - last_activity >= HARNESS_CODEX_IDLE_TIMEOUT_SECONDS )); then
+		idle_timeout=1
+		(( stall_diagnostic_captured )) || capture_diagnostics idle_timeout
+		signal_process_tree TERM "$child_pid"
+		sleep "$HARNESS_CODEX_KILL_GRACE_SECONDS"
+		signal_process_tree KILL "$child_pid"
+		break
+	fi
+done
+set +e
+wait "$child_pid"
+exit_status=$?
+set -e
+
+if (( exit_status == 124 && ! stall_diagnostic_captured )); then
+	capture_diagnostics wall_clock_timeout
+fi
+
+git_state_changed=0
+git_head_changed=0
+git_head_after=""
+if [[ -n "$git_state_before" ]]; then
+	git_state_after="$(git -C "$REPOSITORY" status --porcelain=v1 |
+		sha256sum | awk '{print $1}')"
+	[[ "$git_state_before" == "$git_state_after" ]] || git_state_changed=1
+	git_head_after="$(git -C "$REPOSITORY" \
+		rev-parse --verify 'HEAD^{commit}' 2>/dev/null || true)"
+	[[ "$git_head_before" == "$git_head_after" ]] || git_head_changed=1
+fi
+
+protected_state_changed=0
+for protected_directory in "${protected_directories[@]}"; do
+	if ! diff -qr -- "$integrity_snapshot/state/$protected_directory" \
+		"$protected_state_root/$protected_directory" >/dev/null 2>&1; then
+		protected_state_changed=1
+		rm -rf -- "$protected_state_root/$protected_directory"
+		cp -a -- "$integrity_snapshot/state/$protected_directory" \
+			"$protected_state_root/$protected_directory"
+	fi
+done
+for protected_control in "${protected_controls[@]}"; do
+	protected_control_path="$protected_state_root/control/$protected_control"
+	if [[ -f "$integrity_snapshot/control/$protected_control.absent" ]]; then
+		if [[ -e "$protected_control_path" ]]; then
+			protected_state_changed=1
+			rm -f -- "$protected_control_path"
+		fi
+	elif ! cmp -s -- "$integrity_snapshot/control/$protected_control" \
+		"$protected_control_path"; then
+		protected_state_changed=1
+		cp -a -- "$integrity_snapshot/control/$protected_control" \
+			"$protected_control_path"
+	fi
+done
+if ! cmp -s -- "$integrity_snapshot/project.conf" \
+	"$protected_state_root/project.conf"; then
+	protected_state_changed=1
+	cp -p -- "$integrity_snapshot/project.conf" \
+		"$protected_state_root/project.conf"
+fi
+
+protected_source_changed=0
+if ! cmp -s -- "$integrity_snapshot/source-specification" "$SPECIFICATION"; then
+	protected_source_changed=1
+	mkdir -p "$(dirname "$SPECIFICATION")"
+	cp -p -- "$integrity_snapshot/source-specification" "$SPECIFICATION"
+fi
+if ! cmp -s -- "$integrity_snapshot/source-development-policy" \
+	"$DEVELOPMENT_POLICY"; then
+	protected_source_changed=1
+	mkdir -p "$(dirname "$DEVELOPMENT_POLICY")"
+	cp -p -- "$integrity_snapshot/source-development-policy" \
+		"$DEVELOPMENT_POLICY"
+fi
+
+git_index_restored=0
+if (( ! git_head_changed )) && [[ -n "$git_index_path" ]] &&
+	! cmp -s -- "$integrity_snapshot/git-index" "$git_index_path"; then
+	cp -p -- "$integrity_snapshot/git-index" "$git_index_path"
+	git_index_restored=1
+fi
+if (( protected_state_changed || protected_source_changed )); then
+	log_event "PROTECTED_CONTENT_RESTORED role=$role state=$protected_state_changed source=$protected_source_changed"
+fi
+if (( git_index_restored )); then
+	log_event "GIT_INDEX_RESTORED role=$role"
+fi
+
+error_text="$(cat "$stderr_log")"
+if [[ -s "$jsonl" ]] && jq -e -s 'all(.[]; type == "object")' "$jsonl" >/dev/null 2>&1; then
+	json_error="$(jq -r '
+		select(.type == "error" or .type == "turn.failed")
+		| [.message?, .error.message?, .error?]
+		| map(select(type == "string")) | join(" ")
+	' "$jsonl" 2>/dev/null || true)"
+	error_text+=$'\n'"$json_error"
+fi
+
+classification=success
+if (( idle_timeout )); then
+	classification=idle_timeout
+elif (( exit_status == 124 )); then
+	classification=wall_clock_timeout
+elif (( protected_state_changed || protected_source_changed )); then
+	classification=protected_content_modified
+elif (( git_head_changed )); then
+	classification=repository_head_changed
+elif { (( exit_status != 0 )) || [[ ! -s "$jsonl" ]]; } &&
+	printf '%s\n' "$error_text" |
+		grep -Eqi 'usage limit|quota.{0,40}(exceeded|exhausted|reached)|out of (credits|quota)|limit resets'; then
+	classification=provider_quota_exhausted
+elif { (( exit_status != 0 )) || [[ ! -s "$jsonl" ]]; } &&
+	printf '%s\n' "$error_text" |
+		grep -Eqi 'rate.?limit|at capacity|overloaded|too many requests|service unavailable|temporarily unavailable|server error|gateway timeout|connection reset|network error|request timed out'; then
+	classification=provider_transient_error
+elif (( exit_status != 0 && git_state_changed )); then
+	classification=partial_edit_failure
+elif (( exit_status != 0 )); then
+	classification=process_nonzero_exit
+elif ! jq -e -s 'all(.[]; type == "object" and (.type | type == "string"))' \
+	"$jsonl" >/dev/null 2>&1; then
+	classification=json_event_parse_failure
+elif ! jq -e 'select(.type == "turn.completed")' "$jsonl" >/dev/null 2>&1; then
+	classification=turn_incomplete
+elif [[ ! -s "$last_message" ]]; then
+	classification=empty_final_output
+fi
+
+classification_file="${jsonl%.jsonl}.classification"
+{
+	printf 'classification=%s\n' "$classification"
+	printf 'exit_status=%s\n' "$exit_status"
+	printf 'idle_timeout=%s\n' "$idle_timeout"
+	printf 'partial_edits=%s\n' "$git_state_changed"
+	printf 'repository_head_before=%s\n' "$git_head_before"
+	printf 'repository_head_after=%s\n' "$git_head_after"
+	printf 'protected_state_changed=%s\n' "$protected_state_changed"
+	printf 'protected_source_changed=%s\n' "$protected_source_changed"
+	printf 'git_index_restored=%s\n' "$git_index_restored"
+	printf 'jsonl=%s\n' "$jsonl"
+	printf 'stderr=%s\n' "$stderr_log"
+	printf 'last_message=%s\n' "$last_message"
+	printf 'diagnostics=%s\n' "$diagnostic_root"
+	printf 'strace_prefix=%s\n' "$trace_prefix"
+} > "$classification_file"
+chmod 600 "$classification_file"
+
+if [[ "$classification" == success ]]; then
+	rm -f -- "$warning_file"
+fi
+
+[[ "$classification" == success ]] || exit 1

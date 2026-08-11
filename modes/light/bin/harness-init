@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+force=0
+if [[ "${1:-}" == --force ]]; then
+	force=1
+	shift
+fi
+[[ $# -eq 1 ]] || die "Usage: ${0##*/} [--force] ENV_FILE"
+load_harness_env "$1"
+require_dependencies
+require_repository_initialization_state "$force"
+mkdir -p "$HARNESS_ROOT"
+exec 9>"$HARNESS_ROOT/.init.lock"
+flock -x 9
+initialize_project
+printf 'Harness mode: %s\n' "$HARNESS_MODE"
+log_event "PROJECT_INITIALIZED repository=$REPOSITORY specification=$SPECIFICATION policy=$DEVELOPMENT_POLICY"
+
+printf 'Initialized light harness project %s\n' "$PROJECT"
+printf 'State: %s\n' "$(project_dir)"
+printf 'Repository: %s\n' "$REPOSITORY"
+printf 'Repository launch commit: %s\n' \
+	"$(project_config_value repository_launch_commit)"
+printf 'Manager: %s (%s)\n' "$MANAGER_MODEL" "$MANAGER_REASONING_EFFORT"
+printf 'Worker: %s (%s)\n' "$WORKER_MODEL" "$WORKER_REASONING_EFFORT"
+printf 'Manager first-review checklist: %s\n' \
+	"$HARNESS_MANAGER_REVIEW_CHECKLIST"

@@ -1,0 +1,4 @@
+item_id	state	verified_by	evidence_sha256	updated_at
+p003.grammar-ast-parse-storage	PASSED	003-grammar-ast	af8183b31e01f72f46f28e6ff228492e2074a3b2b7820dfc16c86ba35c50cd92	2026-07-28T04:19:17Z
+p003.symbol-resolution-validation	PASSED	003-grammar-ast-revision-01	aedc71be233aa7dba8192af46ae989f0a1fadceae7338eefaf29daabdfc00db1	2026-07-28T04:25:38Z
+p003.left-recursion-validation	PASSED	003-grammar-ast-revision-02	255784d01dda0a9e1087dd712eb4923ccde07045e170d32f332bbe286428490a	2026-07-28T04:31:37Z

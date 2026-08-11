@@ -1853,7 +1853,7 @@ grep -q '^Human-Dependency-Class: HUMAN_AUTHORIZATION|HUMAN_SECRET|HUMAN_EXTERNA
 [[ "$(cat "$ORACLE_ROOT/state/mock-counts/oracle-1")" == 3 ]]
 grep -q 'ORACLE_TERRA_NARROW_RETRY audit_id=1 classification=model_refusal_or_blocked_content attempt=2' \
 	"$ORACLE_ROOT/state/projects/oracleproj/logs/events.log"
-grep -q 'ORACLE_MODEL_FALLBACK audit_id=1 classification=model_refusal_or_blocked_content attempt=3 model=gpt-5.5' \
+grep -q 'ORACLE_MODEL_FALLBACK audit_id=1 classification=model_refusal_or_blocked_content attempt=3 model=gpt-5.6-terra' \
 	"$ORACLE_ROOT/state/projects/oracleproj/logs/events.log"
 [[ -f "$ORACLE_ROOT/state/projects/oracleproj/control/project.complete" ]]
 [[ ! -f "$ORACLE_ROOT/state/projects/oracleproj/control/oracle/oracle.pending.md" ]]

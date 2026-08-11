@@ -1,0 +1,1 @@
+Registered the six-item project plan and published `bnfc-01-foundation` for plan item 01, targeting the strict C11 build-skeleton criterion.

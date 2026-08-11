@@ -1,0 +1,15 @@
+project=benchmark-pbnfc-html8-terra-vs-harness-20260727a
+task_id=007-parallel-closure
+task_root=007-parallel-closure
+captured_at=2026-07-28T05:21:03Z
+repository=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/repository
+git_head=a9e4d7df2194326a8233729e9abadeb199cd1658
+result_sha256=d9c998c4b65de5dd7a390a80cf4fa0bf4e9be7c243bdbce261f86137acf14dd3
+review_sha256=4683bf9c10826db39f5c60e932893182bbf3b14aa80a1ec0dd1b8a9187af7f6a
+progress_percent=33
+improvement_percent=33
+verified_criterion=p007.thread-local-candidates
+path=include/recognizer.h	type=file	mode=600	sha256=ca4221252576428d9df96a4d74388857613d53ada0af36aa873bc34c83288899
+path=src/recognizer.c	type=file	mode=600	sha256=34e089787f0a9034a211dd8f333d490c93b22857a015836e378aa691ec25d282
+path=Makefile	type=file	mode=600	sha256=fb9d88da481cad66f3d514d11b7e72ef6aaf7ed4d33ca2a98e988c2eef26c11a
+path=tests/parallel_closure_smoke.c	type=file	mode=600	sha256=2ab8f2e4a0716ee8d76c407d7df0deb6b69ac36ed1b7e2c39c58e3eb7cc6dfbf

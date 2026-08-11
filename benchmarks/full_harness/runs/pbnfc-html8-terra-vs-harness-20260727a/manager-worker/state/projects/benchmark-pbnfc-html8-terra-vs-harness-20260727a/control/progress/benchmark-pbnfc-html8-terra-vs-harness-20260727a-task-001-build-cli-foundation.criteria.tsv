@@ -1,0 +1,4 @@
+item_id	state	verified_by	evidence_sha256	updated_at
+p001.strict-build-skeleton	PASSED	001-build-cli-foundation	fe92b66aa8c901de994a2a9f255cd54105e4156993ab62df606a477b1db02338	2026-07-28T03:50:07Z
+p001.cli-option-contract	PASSED	001-build-cli-foundation-revision-01	c2a393a7ba0919c9a67480ee9eb0da9028016dc6ed71255362e656d074b5521e	2026-07-28T03:55:37Z
+p001.diagnostic-location-contract	PASSED	001-build-cli-foundation-revision-02	3688c039826d48099eb0015982d3448c35f2a2d1cd5b41e8b1b194b3dbd25f4a	2026-07-28T04:00:06Z

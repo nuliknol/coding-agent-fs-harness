@@ -1,0 +1,5 @@
+session=worker-20260728T040030Z-c667b1f2
+role=worker
+env_file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/harness.env
+created_at=2026-07-28T04:00:30Z
+created_epoch=1785211230

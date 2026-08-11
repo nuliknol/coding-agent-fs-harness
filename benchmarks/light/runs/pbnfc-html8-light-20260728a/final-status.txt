@@ -1,0 +1,23 @@
+Environment file: /var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/harness.env
+Project: benchmark-light-pbnfc-html8-light-20260728a
+Repository: /var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/repository
+Harness mode: persistent Luna worker with sparse Terra reviews
+Supervisor: stopped
+Status: COMPLETE
+Phase: ACCEPTED
+Worker/review cycle: 6
+Manager: gpt-5.6-terra (high)
+Worker: gpt-5.6-luna (high)
+Persistent worker thread: 019fa8ff-4a18-72e2-8257-0c4eb4f85429
+Completion addenda: 5
+Manager tokens: input=2131741 cached=1840896 output=52332
+Worker tokens: input=7205759 cached=6992384 output=68516
+Latest events:
+2026-07-28T14:35:04Z	TURN_COMPLETED role=worker stem=worker-006 attempt=1
+2026-07-28T14:35:04Z	WORKER_DELIVERED cycle=6 thread=019fa8ff-4a18-72e2-8257-0c4eb4f85429 report=/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/state/projects/benchmark-light-pbnfc-html8-light-20260728a/outputs/worker-006.md
+2026-07-28T14:35:04Z	MANAGER_REVIEW_STARTED cycle=6 model=gpt-5.6-terra effort=high
+2026-07-28T14:35:04Z	TURN_STARTED role=manager_review stem=manager-review-006 attempt=1
+2026-07-28T14:36:47Z	TURN_COMPLETED role=manager_review stem=manager-review-006 attempt=1
+2026-07-28T14:36:47Z	MANAGER_REVIEW_FINISHED cycle=6 decision=ACCEPT review=/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/state/projects/benchmark-light-pbnfc-html8-light-20260728a/reviews/review-006.md
+2026-07-28T14:36:47Z	PROJECT_COMPLETED cycle=6 acceptance=/var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/state/projects/benchmark-light-pbnfc-html8-light-20260728a/control/final-acceptance.md
+2026-07-28T14:36:47Z	SUPERVISOR_EXIT status=COMPLETE phase=ACCEPTED

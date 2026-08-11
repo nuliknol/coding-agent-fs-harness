@@ -1,0 +1,14 @@
+==2073597== Memcheck, a memory error detector
+==2073597== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==2073597== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==2073597== Command: /var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/repository/bin/pbnfc --grammar /var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/repository/tests/smoke.grammar --input /var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/repository/tests/smoke.input --stats
+==2073597== 
+==2073597== 
+==2073597== HEAP SUMMARY:
+==2073597==     in use at exit: 0 bytes in 0 blocks
+==2073597==   total heap usage: 274 allocs, 274 frees, 40,519 bytes allocated
+==2073597== 
+==2073597== All heap blocks were freed -- no leaks are possible
+==2073597== 
+==2073597== For lists of detected and suppressed errors, rerun with: -s
+==2073597== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)

@@ -1,0 +1,4 @@
+updated_at	task_id	decision	progress_percent	improvement_percent	review_sha256
+2026-07-28T05:07:39Z	006-worker-pool	CHECKPOINT	33	33	3238f405ea8ebe2c3059cb59b37924bb7d13ed053e09a6d5ea34ecde04f1e903
+2026-07-28T05:11:09Z	006-worker-pool-revision-01	CHECKPOINT	66	33	50b52cc39b8053bc5c8188e1ec9bde6d23289ff20230010a846561f21653d2d1
+2026-07-28T05:15:19Z	006-worker-pool-revision-02	ACCEPT	100	34	d6f9a5bb78efb2c43930ca467e4ce221fb49bf75d6685c1972daeb087838b458

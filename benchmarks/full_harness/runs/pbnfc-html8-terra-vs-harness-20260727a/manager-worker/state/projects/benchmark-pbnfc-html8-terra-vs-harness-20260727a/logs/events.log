@@ -1,0 +1,545 @@
+2026-07-28T03:46:28Z	PROJECT_INITIALIZED repository=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/repository env_file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/harness.env
+2026-07-28T03:46:29Z	MANAGER_BOOTSTRAP_STARTED attempt=1
+2026-07-28T03:47:12Z	PROJECT_PLAN_INITIALIZED items=10 complete=0 file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/control/project-plan.tsv
+2026-07-28T03:47:36Z	PROJECT_PLAN_ITEM_ACTIVATED item=001 root=001-build-cli-foundation
+2026-07-28T03:47:36Z	TASK_PUBLISHED task=001-build-cli-foundation root=001-build-cli-foundation plan_item=001 starting_progress=0 target_criterion=- auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p001.goal.strict-build-skeleton file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-001-build-cli-foundation.ready.md
+2026-07-28T03:47:38Z	MANAGER_THREAD_REGISTERED thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94
+2026-07-28T03:47:38Z	MANAGER_BOOTSTRAPPED thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempts=1
+2026-07-28T03:47:39Z	SUPERVISOR_STARTED pid=701016 env_file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/harness.env
+2026-07-28T03:47:39Z	WORKER_SUPERVISOR_STARTED pid=701218 env_file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/harness.env
+2026-07-28T03:47:39Z	WORKER_SUPERVISOR_TRIGGER task=001-build-cli-foundation fingerprint=22445291:2510:1785210456
+2026-07-28T03:47:39Z	SESSION_CREATED session=worker-20260728T034739Z-52db628b role=worker
+2026-07-28T03:47:39Z	TASK_CLAIMED task=001-build-cli-foundation owner=worker-20260728T034739Z-52db628b
+2026-07-28T03:47:39Z	WORKER_CONTEXT_SELECTED task=001-build-cli-foundation root=001-build-cli-foundation mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p001.goal.strict-build-skeleton execution_mode=WORKER
+2026-07-28T03:47:39Z	WORKER_INVOCATION_STARTED task=001-build-cli-foundation session=worker-20260728T034739Z-52db628b model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T03:49:04Z	TASK_COMPLETED task=001-build-cli-foundation owner=worker-20260728T034739Z-52db628b goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-001-build-cli-foundation.result.md
+2026-07-28T03:49:05Z	SUPERVISOR_TRIGGER task=001-build-cli-foundation fingerprint=22445413:1878:1785210544
+2026-07-28T03:49:05Z	MANAGER_REVIEW_STARTED task=001-build-cli-foundation thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T03:49:08Z	WORKER_INVOCATION_FINISHED task=001-build-cli-foundation session=worker-20260728T034739Z-52db628b status=0 result=published attempt=1
+2026-07-28T03:50:07Z	TASK_PROGRESS_UPDATED root=001-build-cli-foundation task=001-build-cli-foundation progress=33 improvement=33 decision=CHECKPOINT
+2026-07-28T03:50:07Z	WORKER_THREAD_CHECKPOINTED task=001-build-cli-foundation root=001-build-cli-foundation thread_id=019fa6d5-d77b-7921-8fc5-3d96c98498f9 rejection_count=0
+2026-07-28T03:50:07Z	TASK_CHECKPOINTED task=001-build-cli-foundation root=001-build-cli-foundation criteria=1 increments=0 artifact=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/archive/checkpoints/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-001-build-cli-foundation
+2026-07-28T03:51:57Z	TASK_PUBLISHED task=001-build-cli-foundation-revision-01 root=001-build-cli-foundation plan_item=001 starting_progress=33 target_criterion=p001.cli-option-contract auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p001.goal.cli-option-contract file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-001-build-cli-foundation-revision-01.ready.md
+2026-07-28T03:51:58Z	WORKER_SUPERVISOR_TRIGGER task=001-build-cli-foundation-revision-01 fingerprint=22445484:4085:1785210717
+2026-07-28T03:51:58Z	SESSION_CREATED session=worker-20260728T035158Z-191eff30 role=worker
+2026-07-28T03:51:58Z	TASK_CLAIMED task=001-build-cli-foundation-revision-01 owner=worker-20260728T035158Z-191eff30
+2026-07-28T03:51:58Z	WORKER_CONTEXT_SELECTED task=001-build-cli-foundation-revision-01 root=001-build-cli-foundation mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p001.goal.cli-option-contract execution_mode=WORKER
+2026-07-28T03:51:58Z	WORKER_INVOCATION_STARTED task=001-build-cli-foundation-revision-01 session=worker-20260728T035158Z-191eff30 model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T03:51:59Z	MANAGER_REVIEW_FINISHED task=001-build-cli-foundation attempt=1
+2026-07-28T03:54:12Z	TASK_COMPLETED task=001-build-cli-foundation-revision-01 owner=worker-20260728T035158Z-191eff30 goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-001-build-cli-foundation-revision-01.result.md
+2026-07-28T03:54:12Z	SUPERVISOR_TRIGGER task=001-build-cli-foundation-revision-01 fingerprint=22445515:2122:1785210852
+2026-07-28T03:54:12Z	MANAGER_REVIEW_STARTED task=001-build-cli-foundation-revision-01 thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T03:54:16Z	WORKER_INVOCATION_FINISHED task=001-build-cli-foundation-revision-01 session=worker-20260728T035158Z-191eff30 status=0 result=published attempt=1
+2026-07-28T03:55:37Z	TASK_PROGRESS_UPDATED root=001-build-cli-foundation task=001-build-cli-foundation-revision-01 progress=66 improvement=33 decision=CHECKPOINT
+2026-07-28T03:55:38Z	WORKER_THREAD_CHECKPOINTED task=001-build-cli-foundation-revision-01 root=001-build-cli-foundation thread_id=019fa6d9-cbda-7c10-aede-141013901a4a rejection_count=0
+2026-07-28T03:55:38Z	TASK_CHECKPOINTED task=001-build-cli-foundation-revision-01 root=001-build-cli-foundation criteria=1 increments=0 artifact=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/archive/checkpoints/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-001-build-cli-foundation-revision-01
+2026-07-28T03:56:00Z	TASK_PUBLISHED task=001-build-cli-foundation-revision-02 root=001-build-cli-foundation plan_item=001 starting_progress=66 target_criterion=p001.diagnostic-location-contract auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p001.goal.diagnostic-location-contract file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-001-build-cli-foundation-revision-02.ready.md
+2026-07-28T03:56:01Z	WORKER_SUPERVISOR_TRIGGER task=001-build-cli-foundation-revision-02 fingerprint=22445567:4044:1785210960
+2026-07-28T03:56:01Z	SESSION_CREATED session=worker-20260728T035601Z-109d08d5 role=worker
+2026-07-28T03:56:01Z	TASK_CLAIMED task=001-build-cli-foundation-revision-02 owner=worker-20260728T035601Z-109d08d5
+2026-07-28T03:56:01Z	WORKER_CONTEXT_SELECTED task=001-build-cli-foundation-revision-02 root=001-build-cli-foundation mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p001.goal.diagnostic-location-contract execution_mode=WORKER
+2026-07-28T03:56:01Z	WORKER_INVOCATION_STARTED task=001-build-cli-foundation-revision-02 session=worker-20260728T035601Z-109d08d5 model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T03:56:03Z	MANAGER_REVIEW_FINISHED task=001-build-cli-foundation-revision-01 attempt=1
+2026-07-28T03:58:54Z	SUPERVISOR_TRIGGER task=001-build-cli-foundation-revision-02 fingerprint=22445549:2479:1785211134
+2026-07-28T03:58:54Z	TASK_COMPLETED task=001-build-cli-foundation-revision-02 owner=worker-20260728T035601Z-109d08d5 goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-001-build-cli-foundation-revision-02.result.md
+2026-07-28T03:58:54Z	MANAGER_REVIEW_STARTED task=001-build-cli-foundation-revision-02 thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T03:58:58Z	WORKER_INVOCATION_FINISHED task=001-build-cli-foundation-revision-02 session=worker-20260728T035601Z-109d08d5 status=0 result=published attempt=1
+2026-07-28T04:00:06Z	TASK_PROGRESS_UPDATED root=001-build-cli-foundation task=001-build-cli-foundation-revision-02 progress=100 improvement=34 decision=ACCEPT
+2026-07-28T04:00:06Z	PROJECT_PLAN_ITEM_COMPLETED item=001 root=001-build-cli-foundation task=001-build-cli-foundation-revision-02 progress=10
+2026-07-28T04:00:06Z	WORKER_THREAD_CLEARED task=001-build-cli-foundation-revision-02 root=001-build-cli-foundation thread_id=019fa6d9-cbda-7c10-aede-141013901a4a reason=accepted
+2026-07-28T04:00:06Z	TASK_ACCEPTED task=001-build-cli-foundation-revision-02
+2026-07-28T04:00:30Z	PROJECT_PLAN_ITEM_ACTIVATED item=002 root=002-grammar-lexer
+2026-07-28T04:00:30Z	TASK_PUBLISHED task=002-grammar-lexer root=002-grammar-lexer plan_item=002 starting_progress=0 target_criterion=- auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p002.goal.grammar-lexer-core file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-002-grammar-lexer.ready.md
+2026-07-28T04:00:30Z	WORKER_SUPERVISOR_TRIGGER task=002-grammar-lexer fingerprint=22445569:2724:1785211229
+2026-07-28T04:00:30Z	SESSION_CREATED session=worker-20260728T040030Z-c667b1f2 role=worker
+2026-07-28T04:00:30Z	TASK_CLAIMED task=002-grammar-lexer owner=worker-20260728T040030Z-c667b1f2
+2026-07-28T04:00:30Z	WORKER_CONTEXT_SELECTED task=002-grammar-lexer root=002-grammar-lexer mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p002.goal.grammar-lexer-core execution_mode=WORKER
+2026-07-28T04:00:30Z	WORKER_INVOCATION_STARTED task=002-grammar-lexer session=worker-20260728T040030Z-c667b1f2 model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T04:00:32Z	MANAGER_REVIEW_FINISHED task=001-build-cli-foundation-revision-02 attempt=1
+2026-07-28T04:04:08Z	TASK_COMPLETED task=002-grammar-lexer owner=worker-20260728T040030Z-c667b1f2 goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-002-grammar-lexer.result.md
+2026-07-28T04:04:08Z	SUPERVISOR_TRIGGER task=002-grammar-lexer fingerprint=22445420:2054:1785211448
+2026-07-28T04:04:08Z	MANAGER_REVIEW_STARTED task=002-grammar-lexer thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T04:04:11Z	WORKER_INVOCATION_FINISHED task=002-grammar-lexer session=worker-20260728T040030Z-c667b1f2 status=0 result=published attempt=1
+2026-07-28T04:04:53Z	TASK_PROGRESS_UPDATED root=002-grammar-lexer task=002-grammar-lexer progress=33 improvement=33 decision=CHECKPOINT
+2026-07-28T04:04:53Z	WORKER_THREAD_CHECKPOINTED task=002-grammar-lexer root=002-grammar-lexer thread_id=019fa6e1-9bf4-7d21-bdba-199a9bb92263 rejection_count=0
+2026-07-28T04:04:53Z	TASK_CHECKPOINTED task=002-grammar-lexer root=002-grammar-lexer criteria=1 increments=0 artifact=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/archive/checkpoints/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-002-grammar-lexer
+2026-07-28T04:05:14Z	TASK_PUBLISHED task=002-grammar-lexer-revision-01 root=002-grammar-lexer plan_item=002 starting_progress=33 target_criterion=p002.grammar-lexer-terminals-references auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p002.goal.grammar-lexer-terminals-references file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-002-grammar-lexer-revision-01.ready.md
+2026-07-28T04:05:14Z	WORKER_SUPERVISOR_TRIGGER task=002-grammar-lexer-revision-01 fingerprint=22445529:3539:1785211514
+2026-07-28T04:05:14Z	SESSION_CREATED session=worker-20260728T040514Z-ea4ab579 role=worker
+2026-07-28T04:05:14Z	TASK_CLAIMED task=002-grammar-lexer-revision-01 owner=worker-20260728T040514Z-ea4ab579
+2026-07-28T04:05:14Z	WORKER_CONTEXT_SELECTED task=002-grammar-lexer-revision-01 root=002-grammar-lexer mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p002.goal.grammar-lexer-terminals-references execution_mode=WORKER
+2026-07-28T04:05:14Z	WORKER_INVOCATION_STARTED task=002-grammar-lexer-revision-01 session=worker-20260728T040514Z-ea4ab579 model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T04:05:16Z	MANAGER_REVIEW_FINISHED task=002-grammar-lexer attempt=1
+2026-07-28T04:08:19Z	TASK_COMPLETED task=002-grammar-lexer-revision-01 owner=worker-20260728T040514Z-ea4ab579 goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-002-grammar-lexer-revision-01.result.md
+2026-07-28T04:08:19Z	SUPERVISOR_TRIGGER task=002-grammar-lexer-revision-01 fingerprint=22445742:1414:1785211699
+2026-07-28T04:08:20Z	MANAGER_REVIEW_STARTED task=002-grammar-lexer-revision-01 thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T04:08:25Z	WORKER_INVOCATION_FINISHED task=002-grammar-lexer-revision-01 session=worker-20260728T040514Z-ea4ab579 status=0 result=published attempt=1
+2026-07-28T04:09:14Z	TASK_PROGRESS_UPDATED root=002-grammar-lexer task=002-grammar-lexer-revision-01 progress=66 improvement=33 decision=CHECKPOINT
+2026-07-28T04:09:14Z	WORKER_THREAD_CHECKPOINTED task=002-grammar-lexer-revision-01 root=002-grammar-lexer thread_id=019fa6e5-f05e-7562-9cc3-a667c53288b2 rejection_count=0
+2026-07-28T04:09:14Z	TASK_CHECKPOINTED task=002-grammar-lexer-revision-01 root=002-grammar-lexer criteria=1 increments=0 artifact=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/archive/checkpoints/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-002-grammar-lexer-revision-01
+2026-07-28T04:09:31Z	TASK_PUBLISHED task=002-grammar-lexer-revision-02 root=002-grammar-lexer plan_item=002 starting_progress=66 target_criterion=p002.grammar-lexer-errors auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p002.goal.grammar-lexer-errors file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-002-grammar-lexer-revision-02.ready.md
+2026-07-28T04:09:32Z	WORKER_SUPERVISOR_TRIGGER task=002-grammar-lexer-revision-02 fingerprint=22446440:3666:1785211771
+2026-07-28T04:09:32Z	SESSION_CREATED session=worker-20260728T040932Z-13c9d64b role=worker
+2026-07-28T04:09:32Z	TASK_CLAIMED task=002-grammar-lexer-revision-02 owner=worker-20260728T040932Z-13c9d64b
+2026-07-28T04:09:32Z	WORKER_CONTEXT_SELECTED task=002-grammar-lexer-revision-02 root=002-grammar-lexer mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p002.goal.grammar-lexer-errors execution_mode=WORKER
+2026-07-28T04:09:32Z	WORKER_INVOCATION_STARTED task=002-grammar-lexer-revision-02 session=worker-20260728T040932Z-13c9d64b model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T04:09:36Z	MANAGER_REVIEW_FINISHED task=002-grammar-lexer-revision-01 attempt=1
+2026-07-28T04:12:36Z	TASK_COMPLETED task=002-grammar-lexer-revision-02 owner=worker-20260728T040932Z-13c9d64b goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-002-grammar-lexer-revision-02.result.md
+2026-07-28T04:12:36Z	SUPERVISOR_TRIGGER task=002-grammar-lexer-revision-02 fingerprint=22444522:2107:1785211956
+2026-07-28T04:12:36Z	MANAGER_REVIEW_STARTED task=002-grammar-lexer-revision-02 thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T04:12:39Z	WORKER_INVOCATION_FINISHED task=002-grammar-lexer-revision-02 session=worker-20260728T040932Z-13c9d64b status=0 result=published attempt=1
+2026-07-28T04:13:28Z	TASK_PROGRESS_UPDATED root=002-grammar-lexer task=002-grammar-lexer-revision-02 progress=100 improvement=34 decision=ACCEPT
+2026-07-28T04:13:28Z	PROJECT_PLAN_ITEM_COMPLETED item=002 root=002-grammar-lexer task=002-grammar-lexer-revision-02 progress=20
+2026-07-28T04:13:28Z	WORKER_THREAD_CLEARED task=002-grammar-lexer-revision-02 root=002-grammar-lexer thread_id=019fa6e5-f05e-7562-9cc3-a667c53288b2 reason=accepted
+2026-07-28T04:13:28Z	TASK_ACCEPTED task=002-grammar-lexer-revision-02
+2026-07-28T04:13:45Z	PROJECT_PLAN_ITEM_ACTIVATED item=003 root=003-grammar-ast
+2026-07-28T04:13:45Z	TASK_PUBLISHED task=003-grammar-ast root=003-grammar-ast plan_item=003 starting_progress=0 target_criterion=- auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p003.goal.grammar-ast-parse-storage file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-003-grammar-ast.ready.md
+2026-07-28T04:13:45Z	WORKER_SUPERVISOR_TRIGGER task=003-grammar-ast fingerprint=22445647:2512:1785212024
+2026-07-28T04:13:45Z	SESSION_CREATED session=worker-20260728T041345Z-10de58b9 role=worker
+2026-07-28T04:13:45Z	TASK_CLAIMED task=003-grammar-ast owner=worker-20260728T041345Z-10de58b9
+2026-07-28T04:13:45Z	WORKER_CONTEXT_SELECTED task=003-grammar-ast root=003-grammar-ast mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p003.goal.grammar-ast-parse-storage execution_mode=WORKER
+2026-07-28T04:13:45Z	WORKER_INVOCATION_STARTED task=003-grammar-ast session=worker-20260728T041345Z-10de58b9 model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T04:13:47Z	MANAGER_REVIEW_FINISHED task=002-grammar-lexer-revision-02 attempt=1
+2026-07-28T04:18:01Z	TASK_COMPLETED task=003-grammar-ast owner=worker-20260728T041345Z-10de58b9 goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-003-grammar-ast.result.md
+2026-07-28T04:18:02Z	SUPERVISOR_TRIGGER task=003-grammar-ast fingerprint=22444034:1977:1785212281
+2026-07-28T04:18:02Z	MANAGER_REVIEW_STARTED task=003-grammar-ast thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T04:18:04Z	WORKER_INVOCATION_FINISHED task=003-grammar-ast session=worker-20260728T041345Z-10de58b9 status=0 result=published attempt=1
+2026-07-28T04:19:17Z	TASK_PROGRESS_UPDATED root=003-grammar-ast task=003-grammar-ast progress=33 improvement=33 decision=CHECKPOINT
+2026-07-28T04:19:17Z	WORKER_THREAD_CHECKPOINTED task=003-grammar-ast root=003-grammar-ast thread_id=019fa6ed-bcad-7323-acba-9b0d80b291b9 rejection_count=0
+2026-07-28T04:19:17Z	TASK_CHECKPOINTED task=003-grammar-ast root=003-grammar-ast criteria=1 increments=0 artifact=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/archive/checkpoints/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-003-grammar-ast
+2026-07-28T04:19:32Z	TASK_PUBLISHED task=003-grammar-ast-revision-01 root=003-grammar-ast plan_item=003 starting_progress=33 target_criterion=p003.symbol-resolution-validation auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p003.goal.symbol-resolution-validation file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-003-grammar-ast-revision-01.ready.md
+2026-07-28T04:19:33Z	WORKER_SUPERVISOR_TRIGGER task=003-grammar-ast-revision-01 fingerprint=22444946:3407:1785212372
+2026-07-28T04:19:33Z	SESSION_CREATED session=worker-20260728T041933Z-f4ca7271 role=worker
+2026-07-28T04:19:33Z	TASK_CLAIMED task=003-grammar-ast-revision-01 owner=worker-20260728T041933Z-f4ca7271
+2026-07-28T04:19:34Z	WORKER_CONTEXT_SELECTED task=003-grammar-ast-revision-01 root=003-grammar-ast mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p003.goal.symbol-resolution-validation execution_mode=WORKER
+2026-07-28T04:19:34Z	WORKER_INVOCATION_STARTED task=003-grammar-ast-revision-01 session=worker-20260728T041933Z-f4ca7271 model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T04:19:35Z	MANAGER_REVIEW_FINISHED task=003-grammar-ast attempt=1
+2026-07-28T04:25:00Z	TASK_COMPLETED task=003-grammar-ast-revision-01 owner=worker-20260728T041933Z-f4ca7271 goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-003-grammar-ast-revision-01.result.md
+2026-07-28T04:25:01Z	SUPERVISOR_TRIGGER task=003-grammar-ast-revision-01 fingerprint=22442728:1835:1785212700
+2026-07-28T04:25:01Z	MANAGER_REVIEW_STARTED task=003-grammar-ast-revision-01 thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T04:25:03Z	WORKER_INVOCATION_FINISHED task=003-grammar-ast-revision-01 session=worker-20260728T041933Z-f4ca7271 status=0 result=published attempt=1
+2026-07-28T04:25:38Z	TASK_PROGRESS_UPDATED root=003-grammar-ast task=003-grammar-ast-revision-01 progress=66 improvement=33 decision=CHECKPOINT
+2026-07-28T04:25:38Z	WORKER_THREAD_CHECKPOINTED task=003-grammar-ast-revision-01 root=003-grammar-ast thread_id=019fa6f3-0d9a-7481-8085-d42903024fd2 rejection_count=0
+2026-07-28T04:25:38Z	TASK_CHECKPOINTED task=003-grammar-ast-revision-01 root=003-grammar-ast criteria=1 increments=0 artifact=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/archive/checkpoints/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-003-grammar-ast-revision-01
+2026-07-28T04:25:53Z	TASK_PUBLISHED task=003-grammar-ast-revision-02 root=003-grammar-ast plan_item=003 starting_progress=66 target_criterion=p003.left-recursion-validation auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p003.goal.left-recursion-validation file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-003-grammar-ast-revision-02.ready.md
+2026-07-28T04:25:53Z	WORKER_SUPERVISOR_TRIGGER task=003-grammar-ast-revision-02 fingerprint=22442778:3108:1785212752
+2026-07-28T04:25:53Z	SESSION_CREATED session=worker-20260728T042553Z-b133b7f3 role=worker
+2026-07-28T04:25:53Z	TASK_CLAIMED task=003-grammar-ast-revision-02 owner=worker-20260728T042553Z-b133b7f3
+2026-07-28T04:25:53Z	WORKER_CONTEXT_SELECTED task=003-grammar-ast-revision-02 root=003-grammar-ast mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p003.goal.left-recursion-validation execution_mode=WORKER
+2026-07-28T04:25:53Z	WORKER_INVOCATION_STARTED task=003-grammar-ast-revision-02 session=worker-20260728T042553Z-b133b7f3 model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T04:25:55Z	MANAGER_REVIEW_FINISHED task=003-grammar-ast-revision-01 attempt=1
+2026-07-28T04:30:36Z	TASK_COMPLETED task=003-grammar-ast-revision-02 owner=worker-20260728T042553Z-b133b7f3 goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-003-grammar-ast-revision-02.result.md
+2026-07-28T04:30:37Z	SUPERVISOR_TRIGGER task=003-grammar-ast-revision-02 fingerprint=22442746:2099:1785213036
+2026-07-28T04:30:37Z	MANAGER_REVIEW_STARTED task=003-grammar-ast-revision-02 thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T04:30:39Z	WORKER_INVOCATION_FINISHED task=003-grammar-ast-revision-02 session=worker-20260728T042553Z-b133b7f3 status=0 result=published attempt=1
+2026-07-28T04:31:37Z	TASK_PROGRESS_UPDATED root=003-grammar-ast task=003-grammar-ast-revision-02 progress=100 improvement=34 decision=ACCEPT
+2026-07-28T04:31:37Z	PROJECT_PLAN_ITEM_COMPLETED item=003 root=003-grammar-ast task=003-grammar-ast-revision-02 progress=30
+2026-07-28T04:31:37Z	WORKER_THREAD_CLEARED task=003-grammar-ast-revision-02 root=003-grammar-ast thread_id=019fa6f3-0d9a-7481-8085-d42903024fd2 reason=accepted
+2026-07-28T04:31:37Z	TASK_ACCEPTED task=003-grammar-ast-revision-02
+2026-07-28T04:31:55Z	PROJECT_PLAN_ITEM_ACTIVATED item=004 root=004-markup-lexer
+2026-07-28T04:31:55Z	WORKER_SUPERVISOR_TRIGGER task=004-markup-lexer fingerprint=22442807:2281:1785213115
+2026-07-28T04:31:55Z	TASK_PUBLISHED task=004-markup-lexer root=004-markup-lexer plan_item=004 starting_progress=0 target_criterion=- auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p004.goal.markup-lexer-core-tags file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-004-markup-lexer.ready.md
+2026-07-28T04:31:55Z	SESSION_CREATED session=worker-20260728T043155Z-bdb4104b role=worker
+2026-07-28T04:31:55Z	TASK_CLAIMED task=004-markup-lexer owner=worker-20260728T043155Z-bdb4104b
+2026-07-28T04:31:55Z	WORKER_CONTEXT_SELECTED task=004-markup-lexer root=004-markup-lexer mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p004.goal.markup-lexer-core-tags execution_mode=WORKER
+2026-07-28T04:31:55Z	WORKER_INVOCATION_STARTED task=004-markup-lexer session=worker-20260728T043155Z-bdb4104b model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T04:31:57Z	MANAGER_REVIEW_FINISHED task=003-grammar-ast-revision-02 attempt=1
+2026-07-28T04:35:31Z	TASK_COMPLETED task=004-markup-lexer owner=worker-20260728T043155Z-bdb4104b goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-004-markup-lexer.result.md
+2026-07-28T04:35:32Z	SUPERVISOR_TRIGGER task=004-markup-lexer fingerprint=22442815:1938:1785213331
+2026-07-28T04:35:32Z	MANAGER_REVIEW_STARTED task=004-markup-lexer thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T04:35:35Z	WORKER_INVOCATION_FINISHED task=004-markup-lexer session=worker-20260728T043155Z-bdb4104b status=0 result=published attempt=1
+2026-07-28T04:36:36Z	TASK_PROGRESS_UPDATED root=004-markup-lexer task=004-markup-lexer progress=33 improvement=33 decision=CHECKPOINT
+2026-07-28T04:36:36Z	WORKER_THREAD_CHECKPOINTED task=004-markup-lexer root=004-markup-lexer thread_id=019fa6fe-5de7-70e0-a784-a222dbc67c1c rejection_count=0
+2026-07-28T04:36:36Z	TASK_CHECKPOINTED task=004-markup-lexer root=004-markup-lexer criteria=1 increments=0 artifact=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/archive/checkpoints/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-004-markup-lexer
+2026-07-28T04:36:51Z	TASK_PUBLISHED task=004-markup-lexer-revision-01 root=004-markup-lexer plan_item=004 starting_progress=33 target_criterion=p004.markup-lexer-values-text auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p004.goal.markup-lexer-values-text file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-004-markup-lexer-revision-01.ready.md
+2026-07-28T04:36:52Z	WORKER_SUPERVISOR_TRIGGER task=004-markup-lexer-revision-01 fingerprint=22442814:3210:1785213411
+2026-07-28T04:36:52Z	SESSION_CREATED session=worker-20260728T043652Z-a285e4c4 role=worker
+2026-07-28T04:36:52Z	TASK_CLAIMED task=004-markup-lexer-revision-01 owner=worker-20260728T043652Z-a285e4c4
+2026-07-28T04:36:52Z	WORKER_CONTEXT_SELECTED task=004-markup-lexer-revision-01 root=004-markup-lexer mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p004.goal.markup-lexer-values-text execution_mode=WORKER
+2026-07-28T04:36:52Z	WORKER_INVOCATION_STARTED task=004-markup-lexer-revision-01 session=worker-20260728T043652Z-a285e4c4 model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T04:36:54Z	MANAGER_REVIEW_FINISHED task=004-markup-lexer attempt=1
+2026-07-28T04:40:58Z	TASK_COMPLETED task=004-markup-lexer-revision-01 owner=worker-20260728T043652Z-a285e4c4 goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-004-markup-lexer-revision-01.result.md
+2026-07-28T04:40:58Z	SUPERVISOR_TRIGGER task=004-markup-lexer-revision-01 fingerprint=22442726:1952:1785213658
+2026-07-28T04:40:58Z	MANAGER_REVIEW_STARTED task=004-markup-lexer-revision-01 thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T04:41:01Z	WORKER_INVOCATION_FINISHED task=004-markup-lexer-revision-01 session=worker-20260728T043652Z-a285e4c4 status=0 result=published attempt=1
+2026-07-28T04:42:00Z	TASK_PROGRESS_UPDATED root=004-markup-lexer task=004-markup-lexer-revision-01 progress=66 improvement=33 decision=CHECKPOINT
+2026-07-28T04:42:00Z	WORKER_THREAD_CHECKPOINTED task=004-markup-lexer-revision-01 root=004-markup-lexer thread_id=019fa702-e651-7260-a332-be799ea07b84 rejection_count=0
+2026-07-28T04:42:00Z	TASK_CHECKPOINTED task=004-markup-lexer-revision-01 root=004-markup-lexer criteria=1 increments=0 artifact=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/archive/checkpoints/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-004-markup-lexer-revision-01
+2026-07-28T04:42:15Z	TASK_PUBLISHED task=004-markup-lexer-revision-02 root=004-markup-lexer plan_item=004 starting_progress=66 target_criterion=p004.markup-lexer-errors-locations auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p004.goal.markup-lexer-errors-locations file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-004-markup-lexer-revision-02.ready.md
+2026-07-28T04:42:15Z	WORKER_SUPERVISOR_TRIGGER task=004-markup-lexer-revision-02 fingerprint=22442857:3208:1785213735
+2026-07-28T04:42:16Z	SESSION_CREATED session=worker-20260728T044215Z-c7d02a7b role=worker
+2026-07-28T04:42:16Z	TASK_CLAIMED task=004-markup-lexer-revision-02 owner=worker-20260728T044215Z-c7d02a7b
+2026-07-28T04:42:16Z	WORKER_CONTEXT_SELECTED task=004-markup-lexer-revision-02 root=004-markup-lexer mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p004.goal.markup-lexer-errors-locations execution_mode=WORKER
+2026-07-28T04:42:16Z	WORKER_INVOCATION_STARTED task=004-markup-lexer-revision-02 session=worker-20260728T044215Z-c7d02a7b model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T04:42:18Z	MANAGER_REVIEW_FINISHED task=004-markup-lexer-revision-01 attempt=1
+2026-07-28T04:47:51Z	TASK_COMPLETED task=004-markup-lexer-revision-02 owner=worker-20260728T044215Z-c7d02a7b goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-004-markup-lexer-revision-02.result.md
+2026-07-28T04:47:51Z	SUPERVISOR_TRIGGER task=004-markup-lexer-revision-02 fingerprint=22442860:2334:1785214071
+2026-07-28T04:47:52Z	MANAGER_REVIEW_STARTED task=004-markup-lexer-revision-02 thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T04:47:54Z	WORKER_INVOCATION_FINISHED task=004-markup-lexer-revision-02 session=worker-20260728T044215Z-c7d02a7b status=0 result=published attempt=1
+2026-07-28T04:48:29Z	TASK_PROGRESS_UPDATED root=004-markup-lexer task=004-markup-lexer-revision-02 progress=100 improvement=34 decision=ACCEPT
+2026-07-28T04:48:29Z	PROJECT_PLAN_ITEM_COMPLETED item=004 root=004-markup-lexer task=004-markup-lexer-revision-02 progress=40
+2026-07-28T04:48:29Z	WORKER_THREAD_CLEARED task=004-markup-lexer-revision-02 root=004-markup-lexer thread_id=019fa702-e651-7260-a332-be799ea07b84 reason=accepted
+2026-07-28T04:48:29Z	TASK_ACCEPTED task=004-markup-lexer-revision-02
+2026-07-28T04:48:48Z	PROJECT_PLAN_ITEM_ACTIVATED item=005 root=005-sequential-chart
+2026-07-28T04:48:48Z	TASK_PUBLISHED task=005-sequential-chart root=005-sequential-chart plan_item=005 starting_progress=0 target_criterion=- auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p005.goal.chart-item-storage-dedup file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-005-sequential-chart.ready.md
+2026-07-28T04:48:49Z	WORKER_SUPERVISOR_TRIGGER task=005-sequential-chart fingerprint=22443709:2179:1785214128
+2026-07-28T04:48:49Z	SESSION_CREATED session=worker-20260728T044849Z-78074731 role=worker
+2026-07-28T04:48:49Z	TASK_CLAIMED task=005-sequential-chart owner=worker-20260728T044849Z-78074731
+2026-07-28T04:48:49Z	WORKER_CONTEXT_SELECTED task=005-sequential-chart root=005-sequential-chart mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p005.goal.chart-item-storage-dedup execution_mode=WORKER
+2026-07-28T04:48:49Z	WORKER_INVOCATION_STARTED task=005-sequential-chart session=worker-20260728T044849Z-78074731 model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T04:48:51Z	MANAGER_REVIEW_FINISHED task=004-markup-lexer-revision-02 attempt=1
+2026-07-28T04:51:35Z	TASK_COMPLETED task=005-sequential-chart owner=worker-20260728T044849Z-78074731 goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-005-sequential-chart.result.md
+2026-07-28T04:51:36Z	SUPERVISOR_TRIGGER task=005-sequential-chart fingerprint=22442921:1824:1785214295
+2026-07-28T04:51:36Z	MANAGER_REVIEW_STARTED task=005-sequential-chart thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T04:51:38Z	WORKER_INVOCATION_FINISHED task=005-sequential-chart session=worker-20260728T044849Z-78074731 status=0 result=published attempt=1
+2026-07-28T04:52:12Z	TASK_PROGRESS_UPDATED root=005-sequential-chart task=005-sequential-chart progress=33 improvement=33 decision=CHECKPOINT
+2026-07-28T04:52:12Z	WORKER_THREAD_CHECKPOINTED task=005-sequential-chart root=005-sequential-chart thread_id=019fa70d-d804-7393-ae79-121fe5cb10ca rejection_count=0
+2026-07-28T04:52:12Z	TASK_CHECKPOINTED task=005-sequential-chart root=005-sequential-chart criteria=1 increments=0 artifact=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/archive/checkpoints/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-005-sequential-chart
+2026-07-28T04:52:25Z	TASK_PUBLISHED task=005-sequential-chart-revision-01 root=005-sequential-chart plan_item=005 starting_progress=33 target_criterion=p005.sequential-earley-recognition auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p005.goal.sequential-earley-recognition file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-005-sequential-chart-revision-01.ready.md
+2026-07-28T04:52:25Z	WORKER_SUPERVISOR_TRIGGER task=005-sequential-chart-revision-01 fingerprint=22442888:2790:1785214344
+2026-07-28T04:52:25Z	SESSION_CREATED session=worker-20260728T045225Z-5b0af86f role=worker
+2026-07-28T04:52:25Z	TASK_CLAIMED task=005-sequential-chart-revision-01 owner=worker-20260728T045225Z-5b0af86f
+2026-07-28T04:52:25Z	WORKER_CONTEXT_SELECTED task=005-sequential-chart-revision-01 root=005-sequential-chart mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p005.goal.sequential-earley-recognition execution_mode=WORKER
+2026-07-28T04:52:25Z	WORKER_INVOCATION_STARTED task=005-sequential-chart-revision-01 session=worker-20260728T045225Z-5b0af86f model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T04:52:27Z	MANAGER_REVIEW_FINISHED task=005-sequential-chart attempt=1
+2026-07-28T04:56:27Z	TASK_COMPLETED task=005-sequential-chart-revision-01 owner=worker-20260728T045225Z-5b0af86f goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-005-sequential-chart-revision-01.result.md
+2026-07-28T04:56:27Z	SUPERVISOR_TRIGGER task=005-sequential-chart-revision-01 fingerprint=22442862:1987:1785214587
+2026-07-28T04:56:27Z	MANAGER_REVIEW_STARTED task=005-sequential-chart-revision-01 thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T04:56:30Z	WORKER_INVOCATION_FINISHED task=005-sequential-chart-revision-01 session=worker-20260728T045225Z-5b0af86f status=0 result=published attempt=1
+2026-07-28T04:56:52Z	TASK_PROGRESS_UPDATED root=005-sequential-chart task=005-sequential-chart-revision-01 progress=66 improvement=33 decision=CHECKPOINT
+2026-07-28T04:56:52Z	WORKER_THREAD_CHECKPOINTED task=005-sequential-chart-revision-01 root=005-sequential-chart thread_id=019fa711-2373-7990-aeda-f516fc266e4d rejection_count=0
+2026-07-28T04:56:52Z	TASK_CHECKPOINTED task=005-sequential-chart-revision-01 root=005-sequential-chart criteria=1 increments=0 artifact=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/archive/checkpoints/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-005-sequential-chart-revision-01
+2026-07-28T04:56:55Z	MANAGER_REVIEW_FINISHED task=005-sequential-chart-revision-01 attempt=1
+2026-07-28T04:56:55Z	SUPERVISOR_PLANNING_GAP progress=40 pending=6
+2026-07-28T04:56:55Z	MANAGER_PLAN_STARTED attempt=1 project_progress=40
+2026-07-28T04:57:17Z	TASK_PUBLISHED task=005-sequential-chart-revision-02 root=005-sequential-chart plan_item=005 starting_progress=66 target_criterion=p005.sequential-rejection-diagnostics auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p005.goal.rejection-diagnostics file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-005-sequential-chart-revision-02.ready.md
+2026-07-28T04:57:18Z	WORKER_SUPERVISOR_TRIGGER task=005-sequential-chart-revision-02 fingerprint=22442917:1943:1785214637
+2026-07-28T04:57:18Z	SESSION_CREATED session=worker-20260728T045718Z-c0849207 role=worker
+2026-07-28T04:57:18Z	TASK_CLAIMED task=005-sequential-chart-revision-02 owner=worker-20260728T045718Z-c0849207
+2026-07-28T04:57:18Z	WORKER_CONTEXT_SELECTED task=005-sequential-chart-revision-02 root=005-sequential-chart mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p005.goal.rejection-diagnostics execution_mode=WORKER
+2026-07-28T04:57:18Z	WORKER_INVOCATION_STARTED task=005-sequential-chart-revision-02 session=worker-20260728T045718Z-c0849207 model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T04:57:20Z	MANAGER_PLAN_COMMITTED attempt=1
+2026-07-28T05:01:23Z	TASK_COMPLETED task=005-sequential-chart-revision-02 owner=worker-20260728T045718Z-c0849207 goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-005-sequential-chart-revision-02.result.md
+2026-07-28T05:01:23Z	SUPERVISOR_TRIGGER task=005-sequential-chart-revision-02 fingerprint=22442961:1944:1785214883
+2026-07-28T05:01:23Z	MANAGER_REVIEW_STARTED task=005-sequential-chart-revision-02 thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T05:01:26Z	WORKER_INVOCATION_FINISHED task=005-sequential-chart-revision-02 session=worker-20260728T045718Z-c0849207 status=0 result=published attempt=1
+2026-07-28T05:01:40Z	MANAGER_REVIEW_LEFT_PENDING task=005-sequential-chart-revision-02 attempt=1
+2026-07-28T05:01:40Z	SUPERVISOR_FATAL status=3 line=107 command=\"\$manager_invoker\"\ \"\$HARNESS_ENV_FILE\"\ \"\$task_id\"\ 8\>\&-
+2026-07-28T05:01:40Z	SUPERVISOR_REVIEW_LEFT_UNCOMMITTED task=005-sequential-chart-revision-02
+2026-07-28T05:01:41Z	SUPERVISOR_TRIGGER task=005-sequential-chart-revision-02 fingerprint=22442961:1944:1785214883
+2026-07-28T05:01:41Z	MANAGER_REVIEW_STARTED task=005-sequential-chart-revision-02 thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T05:01:57Z	TASK_PROGRESS_UPDATED root=005-sequential-chart task=005-sequential-chart-revision-02 progress=100 improvement=34 decision=ACCEPT
+2026-07-28T05:01:57Z	PROJECT_PLAN_ITEM_COMPLETED item=005 root=005-sequential-chart task=005-sequential-chart-revision-02 progress=50
+2026-07-28T05:01:57Z	WORKER_THREAD_CLEARED task=005-sequential-chart-revision-02 root=005-sequential-chart thread_id=019fa711-2373-7990-aeda-f516fc266e4d reason=accepted
+2026-07-28T05:01:57Z	TASK_ACCEPTED task=005-sequential-chart-revision-02
+2026-07-28T05:02:00Z	MANAGER_REVIEW_FINISHED task=005-sequential-chart-revision-02 attempt=1
+2026-07-28T05:02:00Z	SUPERVISOR_PLANNING_GAP progress=50 pending=5
+2026-07-28T05:02:00Z	MANAGER_PLAN_STARTED attempt=1 project_progress=50
+2026-07-28T05:02:15Z	PROJECT_PLAN_ITEM_ACTIVATED item=006 root=006-worker-pool
+2026-07-28T05:02:15Z	TASK_PUBLISHED task=006-worker-pool root=006-worker-pool plan_item=006 starting_progress=0 target_criterion=- auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p006.goal.pool-lifecycle file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-006-worker-pool.ready.md
+2026-07-28T05:02:16Z	WORKER_SUPERVISOR_TRIGGER task=006-worker-pool fingerprint=22443039:705:1785214935
+2026-07-28T05:02:16Z	SESSION_CREATED session=worker-20260728T050216Z-4d194100 role=worker
+2026-07-28T05:02:16Z	TASK_CLAIMED task=006-worker-pool owner=worker-20260728T050216Z-4d194100
+2026-07-28T05:02:16Z	WORKER_CONTEXT_SELECTED task=006-worker-pool root=006-worker-pool mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p006.goal.pool-lifecycle execution_mode=WORKER
+2026-07-28T05:02:16Z	WORKER_INVOCATION_STARTED task=006-worker-pool session=worker-20260728T050216Z-4d194100 model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T05:02:18Z	MANAGER_PLAN_COMMITTED attempt=1
+2026-07-28T05:06:51Z	TASK_COMPLETED task=006-worker-pool owner=worker-20260728T050216Z-4d194100 goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-006-worker-pool.result.md
+2026-07-28T05:06:51Z	SUPERVISOR_TRIGGER task=006-worker-pool fingerprint=22443064:2032:1785215211
+2026-07-28T05:06:51Z	MANAGER_REVIEW_STARTED task=006-worker-pool thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T05:06:55Z	WORKER_INVOCATION_FINISHED task=006-worker-pool session=worker-20260728T050216Z-4d194100 status=0 result=published attempt=1
+2026-07-28T05:07:02Z	MANAGER_REVIEW_LEFT_PENDING task=006-worker-pool attempt=1
+2026-07-28T05:07:02Z	SUPERVISOR_FATAL status=3 line=107 command=\"\$manager_invoker\"\ \"\$HARNESS_ENV_FILE\"\ \"\$task_id\"\ 8\>\&-
+2026-07-28T05:07:02Z	SUPERVISOR_REVIEW_LEFT_UNCOMMITTED task=006-worker-pool
+2026-07-28T05:07:03Z	SUPERVISOR_TRIGGER task=006-worker-pool fingerprint=22443064:2032:1785215211
+2026-07-28T05:07:04Z	MANAGER_REVIEW_STARTED task=006-worker-pool thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T05:07:16Z	MANAGER_REVIEW_LEFT_PENDING task=006-worker-pool attempt=1
+2026-07-28T05:07:16Z	SUPERVISOR_FATAL status=3 line=107 command=\"\$manager_invoker\"\ \"\$HARNESS_ENV_FILE\"\ \"\$task_id\"\ 8\>\&-
+2026-07-28T05:07:16Z	SUPERVISOR_REVIEW_LEFT_UNCOMMITTED task=006-worker-pool
+2026-07-28T05:07:17Z	SUPERVISOR_TRIGGER task=006-worker-pool fingerprint=22443064:2032:1785215211
+2026-07-28T05:07:17Z	MANAGER_REVIEW_STARTED task=006-worker-pool thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T05:07:24Z	MANAGER_REVIEW_LEFT_PENDING task=006-worker-pool attempt=1
+2026-07-28T05:07:24Z	SUPERVISOR_FATAL status=3 line=107 command=\"\$manager_invoker\"\ \"\$HARNESS_ENV_FILE\"\ \"\$task_id\"\ 8\>\&-
+2026-07-28T05:07:25Z	SUPERVISOR_REVIEW_LEFT_UNCOMMITTED task=006-worker-pool
+2026-07-28T05:07:26Z	SUPERVISOR_TRIGGER task=006-worker-pool fingerprint=22443064:2032:1785215211
+2026-07-28T05:07:26Z	MANAGER_REVIEW_STARTED task=006-worker-pool thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T05:07:39Z	TASK_PROGRESS_UPDATED root=006-worker-pool task=006-worker-pool progress=33 improvement=33 decision=CHECKPOINT
+2026-07-28T05:07:39Z	WORKER_THREAD_CHECKPOINTED task=006-worker-pool root=006-worker-pool thread_id=019fa71a-26c3-7942-84f7-9e5578b2276f rejection_count=0
+2026-07-28T05:07:39Z	TASK_CHECKPOINTED task=006-worker-pool root=006-worker-pool criteria=1 increments=0 artifact=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/archive/checkpoints/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-006-worker-pool
+2026-07-28T05:07:49Z	TASK_PUBLISHED task=006-worker-pool-revision-01 root=006-worker-pool plan_item=006 starting_progress=33 target_criterion=p006.pool-generation-protocol auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p006.goal.generation-protocol file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-006-worker-pool-revision-01.ready.md
+2026-07-28T05:07:49Z	WORKER_SUPERVISOR_TRIGGER task=006-worker-pool-revision-01 fingerprint=22442994:1653:1785215269
+2026-07-28T05:07:50Z	SESSION_CREATED session=worker-20260728T050750Z-91ccb2fd role=worker
+2026-07-28T05:07:50Z	TASK_CLAIMED task=006-worker-pool-revision-01 owner=worker-20260728T050750Z-91ccb2fd
+2026-07-28T05:07:50Z	WORKER_CONTEXT_SELECTED task=006-worker-pool-revision-01 root=006-worker-pool mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p006.goal.generation-protocol execution_mode=WORKER
+2026-07-28T05:07:50Z	WORKER_INVOCATION_STARTED task=006-worker-pool-revision-01 session=worker-20260728T050750Z-91ccb2fd model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T05:07:51Z	MANAGER_REVIEW_FINISHED task=006-worker-pool attempt=1
+2026-07-28T05:10:24Z	TASK_COMPLETED task=006-worker-pool-revision-01 owner=worker-20260728T050750Z-91ccb2fd goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-006-worker-pool-revision-01.result.md
+2026-07-28T05:10:24Z	SUPERVISOR_TRIGGER task=006-worker-pool-revision-01 fingerprint=22443143:2262:1785215424
+2026-07-28T05:10:25Z	MANAGER_REVIEW_STARTED task=006-worker-pool-revision-01 thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T05:10:28Z	WORKER_INVOCATION_FINISHED task=006-worker-pool-revision-01 session=worker-20260728T050750Z-91ccb2fd status=0 result=published attempt=1
+2026-07-28T05:10:32Z	MANAGER_REVIEW_LEFT_PENDING task=006-worker-pool-revision-01 attempt=1
+2026-07-28T05:10:32Z	SUPERVISOR_FATAL status=3 line=107 command=\"\$manager_invoker\"\ \"\$HARNESS_ENV_FILE\"\ \"\$task_id\"\ 8\>\&-
+2026-07-28T05:10:32Z	SUPERVISOR_REVIEW_LEFT_UNCOMMITTED task=006-worker-pool-revision-01
+2026-07-28T05:10:33Z	SUPERVISOR_TRIGGER task=006-worker-pool-revision-01 fingerprint=22443143:2262:1785215424
+2026-07-28T05:10:33Z	MANAGER_REVIEW_STARTED task=006-worker-pool-revision-01 thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T05:10:40Z	MANAGER_REVIEW_LEFT_PENDING task=006-worker-pool-revision-01 attempt=1
+2026-07-28T05:10:40Z	SUPERVISOR_FATAL status=3 line=107 command=\"\$manager_invoker\"\ \"\$HARNESS_ENV_FILE\"\ \"\$task_id\"\ 8\>\&-
+2026-07-28T05:10:40Z	SUPERVISOR_REVIEW_LEFT_UNCOMMITTED task=006-worker-pool-revision-01
+2026-07-28T05:10:41Z	SUPERVISOR_TRIGGER task=006-worker-pool-revision-01 fingerprint=22443143:2262:1785215424
+2026-07-28T05:10:42Z	MANAGER_REVIEW_STARTED task=006-worker-pool-revision-01 thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T05:10:53Z	MANAGER_REVIEW_LEFT_PENDING task=006-worker-pool-revision-01 attempt=1
+2026-07-28T05:10:53Z	SUPERVISOR_FATAL status=3 line=107 command=\"\$manager_invoker\"\ \"\$HARNESS_ENV_FILE\"\ \"\$task_id\"\ 8\>\&-
+2026-07-28T05:10:53Z	SUPERVISOR_REVIEW_LEFT_UNCOMMITTED task=006-worker-pool-revision-01
+2026-07-28T05:10:54Z	SUPERVISOR_TRIGGER task=006-worker-pool-revision-01 fingerprint=22443143:2262:1785215424
+2026-07-28T05:10:54Z	MANAGER_REVIEW_STARTED task=006-worker-pool-revision-01 thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T05:11:09Z	TASK_PROGRESS_UPDATED root=006-worker-pool task=006-worker-pool-revision-01 progress=66 improvement=33 decision=CHECKPOINT
+2026-07-28T05:11:09Z	WORKER_THREAD_CHECKPOINTED task=006-worker-pool-revision-01 root=006-worker-pool thread_id=019fa71f-3ea0-7eb2-8b15-85dd5c5977e9 rejection_count=0
+2026-07-28T05:11:09Z	TASK_CHECKPOINTED task=006-worker-pool-revision-01 root=006-worker-pool criteria=1 increments=0 artifact=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/archive/checkpoints/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-006-worker-pool-revision-01
+2026-07-28T05:11:12Z	MANAGER_REVIEW_FINISHED task=006-worker-pool-revision-01 attempt=1
+2026-07-28T05:11:12Z	SUPERVISOR_PLANNING_GAP progress=50 pending=5
+2026-07-28T05:11:12Z	MANAGER_PLAN_STARTED attempt=1 project_progress=50
+2026-07-28T05:11:27Z	TASK_PUBLISHED task=006-worker-pool-revision-02 root=006-worker-pool plan_item=006 starting_progress=66 target_criterion=p006.pool-clean-shutdown auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p006.goal.clean-shutdown file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-006-worker-pool-revision-02.ready.md
+2026-07-28T05:11:27Z	WORKER_SUPERVISOR_TRIGGER task=006-worker-pool-revision-02 fingerprint=22444091:1660:1785215487
+2026-07-28T05:11:28Z	SESSION_CREATED session=worker-20260728T051128Z-0bb3d11d role=worker
+2026-07-28T05:11:28Z	TASK_CLAIMED task=006-worker-pool-revision-02 owner=worker-20260728T051128Z-0bb3d11d
+2026-07-28T05:11:28Z	WORKER_CONTEXT_SELECTED task=006-worker-pool-revision-02 root=006-worker-pool mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p006.goal.clean-shutdown execution_mode=WORKER
+2026-07-28T05:11:28Z	WORKER_INVOCATION_STARTED task=006-worker-pool-revision-02 session=worker-20260728T051128Z-0bb3d11d model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T05:11:31Z	MANAGER_PLAN_COMMITTED attempt=1
+2026-07-28T05:14:37Z	TASK_COMPLETED task=006-worker-pool-revision-02 owner=worker-20260728T051128Z-0bb3d11d goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-006-worker-pool-revision-02.result.md
+2026-07-28T05:14:37Z	SUPERVISOR_TRIGGER task=006-worker-pool-revision-02 fingerprint=22444365:1844:1785215677
+2026-07-28T05:14:38Z	MANAGER_REVIEW_STARTED task=006-worker-pool-revision-02 thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T05:14:40Z	WORKER_INVOCATION_FINISHED task=006-worker-pool-revision-02 session=worker-20260728T051128Z-0bb3d11d status=0 result=published attempt=1
+2026-07-28T05:14:47Z	MANAGER_REVIEW_LEFT_PENDING task=006-worker-pool-revision-02 attempt=1
+2026-07-28T05:14:47Z	SUPERVISOR_FATAL status=3 line=107 command=\"\$manager_invoker\"\ \"\$HARNESS_ENV_FILE\"\ \"\$task_id\"\ 8\>\&-
+2026-07-28T05:14:47Z	SUPERVISOR_REVIEW_LEFT_UNCOMMITTED task=006-worker-pool-revision-02
+2026-07-28T05:14:48Z	SUPERVISOR_TRIGGER task=006-worker-pool-revision-02 fingerprint=22444365:1844:1785215677
+2026-07-28T05:14:48Z	MANAGER_REVIEW_STARTED task=006-worker-pool-revision-02 thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T05:15:02Z	MANAGER_REVIEW_LEFT_PENDING task=006-worker-pool-revision-02 attempt=1
+2026-07-28T05:15:02Z	SUPERVISOR_FATAL status=3 line=107 command=\"\$manager_invoker\"\ \"\$HARNESS_ENV_FILE\"\ \"\$task_id\"\ 8\>\&-
+2026-07-28T05:15:02Z	SUPERVISOR_REVIEW_LEFT_UNCOMMITTED task=006-worker-pool-revision-02
+2026-07-28T05:15:03Z	SUPERVISOR_TRIGGER task=006-worker-pool-revision-02 fingerprint=22444365:1844:1785215677
+2026-07-28T05:15:03Z	MANAGER_REVIEW_STARTED task=006-worker-pool-revision-02 thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T05:15:19Z	TASK_PROGRESS_UPDATED root=006-worker-pool task=006-worker-pool-revision-02 progress=100 improvement=34 decision=ACCEPT
+2026-07-28T05:15:19Z	PROJECT_PLAN_ITEM_COMPLETED item=006 root=006-worker-pool task=006-worker-pool-revision-02 progress=60
+2026-07-28T05:15:19Z	WORKER_THREAD_CLEARED task=006-worker-pool-revision-02 root=006-worker-pool thread_id=019fa71f-3ea0-7eb2-8b15-85dd5c5977e9 reason=accepted
+2026-07-28T05:15:19Z	TASK_ACCEPTED task=006-worker-pool-revision-02
+2026-07-28T05:15:23Z	MANAGER_REVIEW_FINISHED task=006-worker-pool-revision-02 attempt=1
+2026-07-28T05:15:23Z	SUPERVISOR_PLANNING_GAP progress=60 pending=4
+2026-07-28T05:15:23Z	MANAGER_PLAN_STARTED attempt=1 project_progress=60
+2026-07-28T05:15:38Z	PROJECT_PLAN_ITEM_ACTIVATED item=007 root=007-parallel-closure
+2026-07-28T05:15:38Z	TASK_PUBLISHED task=007-parallel-closure root=007-parallel-closure plan_item=007 starting_progress=0 target_criterion=- auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p007.goal.thread-local-candidates file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-007-parallel-closure.ready.md
+2026-07-28T05:15:39Z	WORKER_SUPERVISOR_TRIGGER task=007-parallel-closure fingerprint=22444543:642:1785215738
+2026-07-28T05:15:39Z	SESSION_CREATED session=worker-20260728T051539Z-def957ff role=worker
+2026-07-28T05:15:39Z	TASK_CLAIMED task=007-parallel-closure owner=worker-20260728T051539Z-def957ff
+2026-07-28T05:15:39Z	WORKER_CONTEXT_SELECTED task=007-parallel-closure root=007-parallel-closure mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p007.goal.thread-local-candidates execution_mode=WORKER
+2026-07-28T05:15:39Z	WORKER_INVOCATION_STARTED task=007-parallel-closure session=worker-20260728T051539Z-def957ff model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T05:15:41Z	MANAGER_PLAN_COMMITTED attempt=1
+2026-07-28T05:20:17Z	TASK_COMPLETED task=007-parallel-closure owner=worker-20260728T051539Z-def957ff goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-007-parallel-closure.result.md
+2026-07-28T05:20:18Z	SUPERVISOR_TRIGGER task=007-parallel-closure fingerprint=22443079:2155:1785216017
+2026-07-28T05:20:18Z	MANAGER_REVIEW_STARTED task=007-parallel-closure thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T05:20:23Z	WORKER_INVOCATION_FINISHED task=007-parallel-closure session=worker-20260728T051539Z-def957ff status=0 result=published attempt=1
+2026-07-28T05:20:25Z	MANAGER_REVIEW_LEFT_PENDING task=007-parallel-closure attempt=1
+2026-07-28T05:20:25Z	SUPERVISOR_FATAL status=3 line=107 command=\"\$manager_invoker\"\ \"\$HARNESS_ENV_FILE\"\ \"\$task_id\"\ 8\>\&-
+2026-07-28T05:20:25Z	SUPERVISOR_REVIEW_LEFT_UNCOMMITTED task=007-parallel-closure
+2026-07-28T05:20:26Z	SUPERVISOR_TRIGGER task=007-parallel-closure fingerprint=22443079:2155:1785216017
+2026-07-28T05:20:27Z	MANAGER_REVIEW_STARTED task=007-parallel-closure thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T05:20:39Z	MANAGER_REVIEW_LEFT_PENDING task=007-parallel-closure attempt=1
+2026-07-28T05:20:39Z	SUPERVISOR_FATAL status=3 line=107 command=\"\$manager_invoker\"\ \"\$HARNESS_ENV_FILE\"\ \"\$task_id\"\ 8\>\&-
+2026-07-28T05:20:39Z	SUPERVISOR_REVIEW_LEFT_UNCOMMITTED task=007-parallel-closure
+2026-07-28T05:20:40Z	SUPERVISOR_TRIGGER task=007-parallel-closure fingerprint=22443079:2155:1785216017
+2026-07-28T05:20:40Z	MANAGER_REVIEW_STARTED task=007-parallel-closure thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T05:20:46Z	MANAGER_REVIEW_LEFT_PENDING task=007-parallel-closure attempt=1
+2026-07-28T05:20:46Z	SUPERVISOR_FATAL status=3 line=107 command=\"\$manager_invoker\"\ \"\$HARNESS_ENV_FILE\"\ \"\$task_id\"\ 8\>\&-
+2026-07-28T05:20:47Z	SUPERVISOR_REVIEW_LEFT_UNCOMMITTED task=007-parallel-closure
+2026-07-28T05:20:48Z	SUPERVISOR_TRIGGER task=007-parallel-closure fingerprint=22443079:2155:1785216017
+2026-07-28T05:20:48Z	MANAGER_REVIEW_STARTED task=007-parallel-closure thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T05:21:03Z	TASK_PROGRESS_UPDATED root=007-parallel-closure task=007-parallel-closure progress=33 improvement=33 decision=CHECKPOINT
+2026-07-28T05:21:03Z	WORKER_THREAD_CHECKPOINTED task=007-parallel-closure root=007-parallel-closure thread_id=019fa726-689d-7820-9c4a-acb1a3a50c1e rejection_count=0
+2026-07-28T05:21:03Z	TASK_CHECKPOINTED task=007-parallel-closure root=007-parallel-closure criteria=1 increments=0 artifact=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/archive/checkpoints/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-007-parallel-closure
+2026-07-28T05:21:06Z	MANAGER_REVIEW_FINISHED task=007-parallel-closure attempt=1
+2026-07-28T05:21:06Z	SUPERVISOR_PLANNING_GAP progress=60 pending=4
+2026-07-28T05:21:07Z	MANAGER_PLAN_STARTED attempt=1 project_progress=60
+2026-07-28T05:21:20Z	TASK_PUBLISHED task=007-parallel-closure-revision-01 root=007-parallel-closure plan_item=007 starting_progress=33 target_criterion=p007.parallel-prediction-completion auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p007.goal.parallel-prediction-completion file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-007-parallel-closure-revision-01.ready.md
+2026-07-28T05:21:20Z	WORKER_SUPERVISOR_TRIGGER task=007-parallel-closure-revision-01 fingerprint=22443157:1725:1785216080
+2026-07-28T05:21:20Z	SESSION_CREATED session=worker-20260728T052120Z-a4d4ac21 role=worker
+2026-07-28T05:21:20Z	TASK_CLAIMED task=007-parallel-closure-revision-01 owner=worker-20260728T052120Z-a4d4ac21
+2026-07-28T05:21:20Z	WORKER_CONTEXT_SELECTED task=007-parallel-closure-revision-01 root=007-parallel-closure mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p007.goal.parallel-prediction-completion execution_mode=WORKER
+2026-07-28T05:21:20Z	WORKER_INVOCATION_STARTED task=007-parallel-closure-revision-01 session=worker-20260728T052120Z-a4d4ac21 model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T05:21:23Z	MANAGER_PLAN_COMMITTED attempt=1
+2026-07-28T05:23:23Z	TASK_COMPLETED task=007-parallel-closure-revision-01 owner=worker-20260728T052120Z-a4d4ac21 goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-007-parallel-closure-revision-01.result.md
+2026-07-28T05:23:23Z	SUPERVISOR_TRIGGER task=007-parallel-closure-revision-01 fingerprint=22443145:1795:1785216203
+2026-07-28T05:23:24Z	MANAGER_REVIEW_STARTED task=007-parallel-closure-revision-01 thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T05:23:27Z	WORKER_INVOCATION_FINISHED task=007-parallel-closure-revision-01 session=worker-20260728T052120Z-a4d4ac21 status=0 result=published attempt=1
+2026-07-28T05:23:30Z	MANAGER_REVIEW_LEFT_PENDING task=007-parallel-closure-revision-01 attempt=1
+2026-07-28T05:23:30Z	SUPERVISOR_FATAL status=3 line=107 command=\"\$manager_invoker\"\ \"\$HARNESS_ENV_FILE\"\ \"\$task_id\"\ 8\>\&-
+2026-07-28T05:23:30Z	SUPERVISOR_REVIEW_LEFT_UNCOMMITTED task=007-parallel-closure-revision-01
+2026-07-28T05:23:31Z	SUPERVISOR_TRIGGER task=007-parallel-closure-revision-01 fingerprint=22443145:1795:1785216203
+2026-07-28T05:23:31Z	MANAGER_REVIEW_STARTED task=007-parallel-closure-revision-01 thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T05:25:23Z	TASK_PROGRESS_UPDATED root=007-parallel-closure task=007-parallel-closure-revision-01 progress=66 improvement=33 decision=CHECKPOINT
+2026-07-28T05:25:23Z	WORKER_THREAD_CHECKPOINTED task=007-parallel-closure-revision-01 root=007-parallel-closure thread_id=019fa72b-9d57-7ad1-b9c3-a65b8efd64ea rejection_count=0
+2026-07-28T05:25:23Z	TASK_CHECKPOINTED task=007-parallel-closure-revision-01 root=007-parallel-closure criteria=1 increments=0 artifact=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/archive/checkpoints/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-007-parallel-closure-revision-01
+2026-07-28T05:25:44Z	TASK_PUBLISHED task=007-parallel-closure-revision-02 root=007-parallel-closure plan_item=007 starting_progress=66 target_criterion=p007.deterministic-closure-merge auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p007.goal.deterministic-closure-merge file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-007-parallel-closure-revision-02.ready.md
+2026-07-28T05:25:44Z	WORKER_SUPERVISOR_TRIGGER task=007-parallel-closure-revision-02 fingerprint=22443183:2305:1785216344
+2026-07-28T05:25:44Z	SESSION_CREATED session=worker-20260728T052544Z-7b35e7ba role=worker
+2026-07-28T05:25:44Z	TASK_CLAIMED task=007-parallel-closure-revision-02 owner=worker-20260728T052544Z-7b35e7ba
+2026-07-28T05:25:44Z	WORKER_CONTEXT_SELECTED task=007-parallel-closure-revision-02 root=007-parallel-closure mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p007.goal.deterministic-closure-merge execution_mode=WORKER
+2026-07-28T05:25:44Z	WORKER_INVOCATION_STARTED task=007-parallel-closure-revision-02 session=worker-20260728T052544Z-7b35e7ba model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T05:25:49Z	MANAGER_REVIEW_FINISHED task=007-parallel-closure-revision-01 attempt=1
+2026-07-28T05:27:17Z	TASK_COMPLETED task=007-parallel-closure-revision-02 owner=worker-20260728T052544Z-7b35e7ba goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-007-parallel-closure-revision-02.result.md
+2026-07-28T05:27:17Z	SUPERVISOR_TRIGGER task=007-parallel-closure-revision-02 fingerprint=22443207:1734:1785216437
+2026-07-28T05:27:18Z	MANAGER_REVIEW_STARTED task=007-parallel-closure-revision-02 thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T05:27:20Z	WORKER_INVOCATION_FINISHED task=007-parallel-closure-revision-02 session=worker-20260728T052544Z-7b35e7ba status=0 result=published attempt=1
+2026-07-28T05:27:56Z	TASK_PROGRESS_UPDATED root=007-parallel-closure task=007-parallel-closure-revision-02 progress=100 improvement=34 decision=ACCEPT
+2026-07-28T05:27:56Z	PROJECT_PLAN_ITEM_COMPLETED item=007 root=007-parallel-closure task=007-parallel-closure-revision-02 progress=70
+2026-07-28T05:27:56Z	WORKER_THREAD_CLEARED task=007-parallel-closure-revision-02 root=007-parallel-closure thread_id=019fa72b-9d57-7ad1-b9c3-a65b8efd64ea reason=accepted
+2026-07-28T05:27:56Z	TASK_ACCEPTED task=007-parallel-closure-revision-02
+2026-07-28T05:28:17Z	PROJECT_PLAN_ITEM_ACTIVATED item=008 root=008-parallel-scanning
+2026-07-28T05:28:17Z	TASK_PUBLISHED task=008-parallel-scanning root=008-parallel-scanning plan_item=008 starting_progress=0 target_criterion=- auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p008.goal.parallel-scanning-workers file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-008-parallel-scanning.ready.md
+2026-07-28T05:28:17Z	WORKER_SUPERVISOR_TRIGGER task=008-parallel-scanning fingerprint=22443254:1381:1785216496
+2026-07-28T05:28:17Z	SESSION_CREATED session=worker-20260728T052817Z-5ec772e0 role=worker
+2026-07-28T05:28:17Z	TASK_CLAIMED task=008-parallel-scanning owner=worker-20260728T052817Z-5ec772e0
+2026-07-28T05:28:17Z	WORKER_CONTEXT_SELECTED task=008-parallel-scanning root=008-parallel-scanning mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p008.goal.parallel-scanning-workers execution_mode=WORKER
+2026-07-28T05:28:17Z	WORKER_INVOCATION_STARTED task=008-parallel-scanning session=worker-20260728T052817Z-5ec772e0 model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T05:28:19Z	MANAGER_REVIEW_FINISHED task=007-parallel-closure-revision-02 attempt=1
+2026-07-28T05:31:09Z	TASK_COMPLETED task=008-parallel-scanning owner=worker-20260728T052817Z-5ec772e0 goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-008-parallel-scanning.result.md
+2026-07-28T05:31:09Z	SUPERVISOR_TRIGGER task=008-parallel-scanning fingerprint=22443249:1819:1785216669
+2026-07-28T05:31:09Z	MANAGER_REVIEW_STARTED task=008-parallel-scanning thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T05:31:12Z	WORKER_INVOCATION_FINISHED task=008-parallel-scanning session=worker-20260728T052817Z-5ec772e0 status=0 result=published attempt=1
+2026-07-28T05:31:45Z	TASK_PROGRESS_UPDATED root=008-parallel-scanning task=008-parallel-scanning progress=33 improvement=33 decision=CHECKPOINT
+2026-07-28T05:31:45Z	WORKER_THREAD_CHECKPOINTED task=008-parallel-scanning root=008-parallel-scanning thread_id=019fa731-f85f-7023-809b-0ba51dbecbf3 rejection_count=0
+2026-07-28T05:31:45Z	TASK_CHECKPOINTED task=008-parallel-scanning root=008-parallel-scanning criteria=1 increments=0 artifact=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/archive/checkpoints/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-008-parallel-scanning
+2026-07-28T05:32:02Z	TASK_PUBLISHED task=008-parallel-scanning-revision-01 root=008-parallel-scanning plan_item=008 starting_progress=33 target_criterion=p008.scanning-merge-dedup auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p008.goal.scanning-merge-dedup file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-008-parallel-scanning-revision-01.ready.md
+2026-07-28T05:32:03Z	WORKER_SUPERVISOR_TRIGGER task=008-parallel-scanning-revision-01 fingerprint=22443223:2341:1785216722
+2026-07-28T05:32:03Z	SESSION_CREATED session=worker-20260728T053203Z-00b2b8c9 role=worker
+2026-07-28T05:32:03Z	TASK_CLAIMED task=008-parallel-scanning-revision-01 owner=worker-20260728T053203Z-00b2b8c9
+2026-07-28T05:32:03Z	WORKER_CONTEXT_SELECTED task=008-parallel-scanning-revision-01 root=008-parallel-scanning mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p008.goal.scanning-merge-dedup execution_mode=WORKER
+2026-07-28T05:32:03Z	WORKER_INVOCATION_STARTED task=008-parallel-scanning-revision-01 session=worker-20260728T053203Z-00b2b8c9 model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T05:32:05Z	MANAGER_REVIEW_FINISHED task=008-parallel-scanning attempt=1
+2026-07-28T05:34:46Z	TASK_COMPLETED task=008-parallel-scanning-revision-01 owner=worker-20260728T053203Z-00b2b8c9 goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-008-parallel-scanning-revision-01.result.md
+2026-07-28T05:34:47Z	SUPERVISOR_TRIGGER task=008-parallel-scanning-revision-01 fingerprint=22443275:2126:1785216886
+2026-07-28T05:34:48Z	MANAGER_REVIEW_STARTED task=008-parallel-scanning-revision-01 thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T05:34:49Z	WORKER_INVOCATION_FINISHED task=008-parallel-scanning-revision-01 session=worker-20260728T053203Z-00b2b8c9 status=0 result=published attempt=1
+2026-07-28T05:35:24Z	TASK_PROGRESS_UPDATED root=008-parallel-scanning task=008-parallel-scanning-revision-01 progress=66 improvement=33 decision=CHECKPOINT
+2026-07-28T05:35:24Z	WORKER_THREAD_CHECKPOINTED task=008-parallel-scanning-revision-01 root=008-parallel-scanning thread_id=019fa735-6b7b-7b52-ad97-f103193a5b73 rejection_count=0
+2026-07-28T05:35:24Z	TASK_CHECKPOINTED task=008-parallel-scanning-revision-01 root=008-parallel-scanning criteria=1 increments=0 artifact=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/archive/checkpoints/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-008-parallel-scanning-revision-01
+2026-07-28T05:35:38Z	TASK_PUBLISHED task=008-parallel-scanning-revision-02 root=008-parallel-scanning plan_item=008 starting_progress=66 target_criterion=p008.worker-statistics auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p008.goal.worker-statistics file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-008-parallel-scanning-revision-02.ready.md
+2026-07-28T05:35:39Z	WORKER_SUPERVISOR_TRIGGER task=008-parallel-scanning-revision-02 fingerprint=22443301:2340:1785216938
+2026-07-28T05:35:39Z	SESSION_CREATED session=worker-20260728T053539Z-54ad93a4 role=worker
+2026-07-28T05:35:39Z	TASK_CLAIMED task=008-parallel-scanning-revision-02 owner=worker-20260728T053539Z-54ad93a4
+2026-07-28T05:35:39Z	WORKER_CONTEXT_SELECTED task=008-parallel-scanning-revision-02 root=008-parallel-scanning mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p008.goal.worker-statistics execution_mode=WORKER
+2026-07-28T05:35:39Z	WORKER_INVOCATION_STARTED task=008-parallel-scanning-revision-02 session=worker-20260728T053539Z-54ad93a4 model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T05:35:44Z	MANAGER_REVIEW_FINISHED task=008-parallel-scanning-revision-01 attempt=1
+2026-07-28T05:39:41Z	TASK_COMPLETED task=008-parallel-scanning-revision-02 owner=worker-20260728T053539Z-54ad93a4 goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-008-parallel-scanning-revision-02.result.md
+2026-07-28T05:39:42Z	SUPERVISOR_TRIGGER task=008-parallel-scanning-revision-02 fingerprint=22443310:1823:1785217181
+2026-07-28T05:39:42Z	MANAGER_REVIEW_STARTED task=008-parallel-scanning-revision-02 thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T05:39:44Z	WORKER_INVOCATION_FINISHED task=008-parallel-scanning-revision-02 session=worker-20260728T053539Z-54ad93a4 status=0 result=published attempt=1
+2026-07-28T05:40:24Z	TASK_PROGRESS_UPDATED root=008-parallel-scanning task=008-parallel-scanning-revision-02 progress=100 improvement=34 decision=ACCEPT
+2026-07-28T05:40:24Z	PROJECT_PLAN_ITEM_COMPLETED item=008 root=008-parallel-scanning task=008-parallel-scanning-revision-02 progress=80
+2026-07-28T05:40:24Z	WORKER_THREAD_CLEARED task=008-parallel-scanning-revision-02 root=008-parallel-scanning thread_id=019fa735-6b7b-7b52-ad97-f103193a5b73 reason=accepted
+2026-07-28T05:40:24Z	TASK_ACCEPTED task=008-parallel-scanning-revision-02
+2026-07-28T05:40:37Z	PROJECT_PLAN_ITEM_ACTIVATED item=009 root=009-hierarchical-markup
+2026-07-28T05:40:37Z	TASK_PUBLISHED task=009-hierarchical-markup root=009-hierarchical-markup plan_item=009 starting_progress=0 target_criterion=- auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p009.goal.hierarchical-markup-acceptance file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-009-hierarchical-markup.ready.md
+2026-07-28T05:40:37Z	WORKER_SUPERVISOR_TRIGGER task=009-hierarchical-markup fingerprint=22443367:1256:1785217237
+2026-07-28T05:40:37Z	SESSION_CREATED session=worker-20260728T054037Z-3fbb0e14 role=worker
+2026-07-28T05:40:38Z	TASK_CLAIMED task=009-hierarchical-markup owner=worker-20260728T054037Z-3fbb0e14
+2026-07-28T05:40:38Z	WORKER_CONTEXT_SELECTED task=009-hierarchical-markup root=009-hierarchical-markup mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p009.goal.hierarchical-markup-acceptance execution_mode=WORKER
+2026-07-28T05:40:38Z	WORKER_INVOCATION_STARTED task=009-hierarchical-markup session=worker-20260728T054037Z-3fbb0e14 model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T05:40:39Z	MANAGER_REVIEW_FINISHED task=008-parallel-scanning-revision-02 attempt=1
+2026-07-28T05:42:47Z	TASK_COMPLETED task=009-hierarchical-markup owner=worker-20260728T054037Z-3fbb0e14 goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-009-hierarchical-markup.result.md
+2026-07-28T05:42:48Z	SUPERVISOR_TRIGGER task=009-hierarchical-markup fingerprint=22443062:1696:1785217367
+2026-07-28T05:42:48Z	MANAGER_REVIEW_STARTED task=009-hierarchical-markup thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T05:42:51Z	WORKER_INVOCATION_FINISHED task=009-hierarchical-markup session=worker-20260728T054037Z-3fbb0e14 status=0 result=published attempt=1
+2026-07-28T05:43:26Z	TASK_PROGRESS_UPDATED root=009-hierarchical-markup task=009-hierarchical-markup progress=33 improvement=33 decision=CHECKPOINT
+2026-07-28T05:43:26Z	WORKER_THREAD_CHECKPOINTED task=009-hierarchical-markup root=009-hierarchical-markup thread_id=019fa73d-458d-7c22-b379-f3dedec5d7d3 rejection_count=0
+2026-07-28T05:43:26Z	TASK_CHECKPOINTED task=009-hierarchical-markup root=009-hierarchical-markup criteria=1 increments=0 artifact=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/archive/checkpoints/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-009-hierarchical-markup
+2026-07-28T05:43:39Z	TASK_PUBLISHED task=009-hierarchical-markup-revision-01 root=009-hierarchical-markup plan_item=009 starting_progress=33 target_criterion=p009.hierarchical-rejection-diagnostics auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p009.goal.hierarchical-rejection-diagnostics file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-009-hierarchical-markup-revision-01.ready.md
+2026-07-28T05:43:40Z	WORKER_SUPERVISOR_TRIGGER task=009-hierarchical-markup-revision-01 fingerprint=22443335:2324:1785217419
+2026-07-28T05:43:40Z	SESSION_CREATED session=worker-20260728T054340Z-3a59b37b role=worker
+2026-07-28T05:43:40Z	TASK_CLAIMED task=009-hierarchical-markup-revision-01 owner=worker-20260728T054340Z-3a59b37b
+2026-07-28T05:43:40Z	WORKER_CONTEXT_SELECTED task=009-hierarchical-markup-revision-01 root=009-hierarchical-markup mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p009.goal.hierarchical-rejection-diagnostics execution_mode=WORKER
+2026-07-28T05:43:40Z	WORKER_INVOCATION_STARTED task=009-hierarchical-markup-revision-01 session=worker-20260728T054340Z-3a59b37b model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T05:43:42Z	MANAGER_REVIEW_FINISHED task=009-hierarchical-markup attempt=1
+2026-07-28T05:46:21Z	TASK_COMPLETED task=009-hierarchical-markup-revision-01 owner=worker-20260728T054340Z-3a59b37b goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-009-hierarchical-markup-revision-01.result.md
+2026-07-28T05:46:21Z	SUPERVISOR_TRIGGER task=009-hierarchical-markup-revision-01 fingerprint=22443388:1916:1785217581
+2026-07-28T05:46:21Z	MANAGER_REVIEW_STARTED task=009-hierarchical-markup-revision-01 thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T05:46:24Z	WORKER_INVOCATION_FINISHED task=009-hierarchical-markup-revision-01 session=worker-20260728T054340Z-3a59b37b status=0 result=published attempt=1
+2026-07-28T05:46:57Z	TASK_PROGRESS_UPDATED root=009-hierarchical-markup task=009-hierarchical-markup-revision-01 progress=66 improvement=33 decision=CHECKPOINT
+2026-07-28T05:46:57Z	WORKER_THREAD_CHECKPOINTED task=009-hierarchical-markup-revision-01 root=009-hierarchical-markup thread_id=019fa740-0d97-7160-a10f-5007ba2587bc rejection_count=0
+2026-07-28T05:46:57Z	TASK_CHECKPOINTED task=009-hierarchical-markup-revision-01 root=009-hierarchical-markup criteria=1 increments=0 artifact=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/archive/checkpoints/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-009-hierarchical-markup-revision-01
+2026-07-28T05:47:11Z	TASK_PUBLISHED task=009-hierarchical-markup-revision-02 root=009-hierarchical-markup plan_item=009 starting_progress=66 target_criterion=p009.hierarchical-stress-repeatability auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p009.goal.hierarchical-stress-repeatability file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-009-hierarchical-markup-revision-02.ready.md
+2026-07-28T05:47:11Z	WORKER_SUPERVISOR_TRIGGER task=009-hierarchical-markup-revision-02 fingerprint=22443407:2383:1785217630
+2026-07-28T05:47:11Z	SESSION_CREATED session=worker-20260728T054711Z-7923d3f9 role=worker
+2026-07-28T05:47:12Z	TASK_CLAIMED task=009-hierarchical-markup-revision-02 owner=worker-20260728T054711Z-7923d3f9
+2026-07-28T05:47:12Z	WORKER_CONTEXT_SELECTED task=009-hierarchical-markup-revision-02 root=009-hierarchical-markup mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p009.goal.hierarchical-stress-repeatability execution_mode=WORKER
+2026-07-28T05:47:12Z	WORKER_INVOCATION_STARTED task=009-hierarchical-markup-revision-02 session=worker-20260728T054711Z-7923d3f9 model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T05:47:16Z	MANAGER_REVIEW_FINISHED task=009-hierarchical-markup-revision-01 attempt=1
+2026-07-28T05:50:38Z	TASK_COMPLETED task=009-hierarchical-markup-revision-02 owner=worker-20260728T054711Z-7923d3f9 goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-009-hierarchical-markup-revision-02.result.md
+2026-07-28T05:50:39Z	SUPERVISOR_TRIGGER task=009-hierarchical-markup-revision-02 fingerprint=22443429:2138:1785217838
+2026-07-28T05:50:39Z	MANAGER_REVIEW_STARTED task=009-hierarchical-markup-revision-02 thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T05:50:41Z	WORKER_INVOCATION_FINISHED task=009-hierarchical-markup-revision-02 session=worker-20260728T054711Z-7923d3f9 status=0 result=published attempt=1
+2026-07-28T05:51:20Z	TASK_PROGRESS_UPDATED root=009-hierarchical-markup task=009-hierarchical-markup-revision-02 progress=100 improvement=34 decision=ACCEPT
+2026-07-28T05:51:20Z	PROJECT_PLAN_ITEM_COMPLETED item=009 root=009-hierarchical-markup task=009-hierarchical-markup-revision-02 progress=90
+2026-07-28T05:51:20Z	WORKER_THREAD_CLEARED task=009-hierarchical-markup-revision-02 root=009-hierarchical-markup thread_id=019fa740-0d97-7160-a10f-5007ba2587bc reason=accepted
+2026-07-28T05:51:20Z	TASK_ACCEPTED task=009-hierarchical-markup-revision-02
+2026-07-28T05:51:36Z	PROJECT_PLAN_ITEM_ACTIVATED item=010 root=010-final-validation
+2026-07-28T05:51:36Z	TASK_PUBLISHED task=010-final-validation root=010-final-validation plan_item=010 starting_progress=0 target_criterion=- auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p010.goal.readme-contract file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-010-final-validation.ready.md
+2026-07-28T05:51:36Z	WORKER_SUPERVISOR_TRIGGER task=010-final-validation fingerprint=22443481:1080:1785217895
+2026-07-28T05:51:37Z	SESSION_CREATED session=worker-20260728T055137Z-d4cc3c90 role=worker
+2026-07-28T05:51:37Z	TASK_CLAIMED task=010-final-validation owner=worker-20260728T055137Z-d4cc3c90
+2026-07-28T05:51:37Z	WORKER_CONTEXT_SELECTED task=010-final-validation root=010-final-validation mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p010.goal.readme-contract execution_mode=WORKER
+2026-07-28T05:51:37Z	WORKER_INVOCATION_STARTED task=010-final-validation session=worker-20260728T055137Z-d4cc3c90 model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T05:51:39Z	MANAGER_REVIEW_FINISHED task=009-hierarchical-markup-revision-02 attempt=1
+2026-07-28T05:53:28Z	TASK_COMPLETED task=010-final-validation owner=worker-20260728T055137Z-d4cc3c90 goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-010-final-validation.result.md
+2026-07-28T05:53:28Z	SUPERVISOR_TRIGGER task=010-final-validation fingerprint=22443476:1986:1785218008
+2026-07-28T05:53:29Z	MANAGER_REVIEW_STARTED task=010-final-validation thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T05:53:31Z	WORKER_INVOCATION_FINISHED task=010-final-validation session=worker-20260728T055137Z-d4cc3c90 status=0 result=published attempt=1
+2026-07-28T05:54:29Z	TASK_PROGRESS_UPDATED root=010-final-validation task=010-final-validation progress=0 improvement=0 decision=CHECKPOINT
+2026-07-28T05:54:29Z	WORKER_THREAD_CHECKPOINTED task=010-final-validation root=010-final-validation thread_id=019fa747-54d5-7421-9de7-6a4eb58e9f2e rejection_count=0
+2026-07-28T05:54:29Z	TASK_CHECKPOINTED task=010-final-validation root=010-final-validation criteria=0 increments=1 artifact=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/archive/checkpoints/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-010-final-validation
+2026-07-28T05:54:43Z	TASK_PUBLISHED task=010-final-validation-revision-01 root=010-final-validation plan_item=010 starting_progress=0 target_criterion=p010.readme-contract auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p010.goal.readme-contract-correction file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-010-final-validation-revision-01.ready.md
+2026-07-28T05:54:43Z	WORKER_SUPERVISOR_TRIGGER task=010-final-validation-revision-01 fingerprint=22443444:2197:1785218083
+2026-07-28T05:54:43Z	SESSION_CREATED session=worker-20260728T055443Z-9b0c073f role=worker
+2026-07-28T05:54:43Z	TASK_CLAIMED task=010-final-validation-revision-01 owner=worker-20260728T055443Z-9b0c073f
+2026-07-28T05:54:43Z	WORKER_CONTEXT_SELECTED task=010-final-validation-revision-01 root=010-final-validation mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p010.goal.readme-contract-correction execution_mode=WORKER
+2026-07-28T05:54:43Z	WORKER_INVOCATION_STARTED task=010-final-validation-revision-01 session=worker-20260728T055443Z-9b0c073f model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T05:54:47Z	MANAGER_REVIEW_FINISHED task=010-final-validation attempt=1
+2026-07-28T05:55:50Z	TASK_COMPLETED task=010-final-validation-revision-01 owner=worker-20260728T055443Z-9b0c073f goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-010-final-validation-revision-01.result.md
+2026-07-28T05:55:50Z	SUPERVISOR_TRIGGER task=010-final-validation-revision-01 fingerprint=22443504:1598:1785218150
+2026-07-28T05:55:50Z	MANAGER_REVIEW_STARTED task=010-final-validation-revision-01 thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T05:55:52Z	WORKER_INVOCATION_FINISHED task=010-final-validation-revision-01 session=worker-20260728T055443Z-9b0c073f status=0 result=published attempt=1
+2026-07-28T05:56:24Z	TASK_PROGRESS_UPDATED root=010-final-validation task=010-final-validation-revision-01 progress=33 improvement=33 decision=CHECKPOINT
+2026-07-28T05:56:25Z	WORKER_THREAD_CHECKPOINTED task=010-final-validation-revision-01 root=010-final-validation thread_id=019fa74a-2d44-7d43-a051-1dd19b5c6176 rejection_count=0
+2026-07-28T05:56:25Z	TASK_CHECKPOINTED task=010-final-validation-revision-01 root=010-final-validation criteria=1 increments=0 artifact=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/archive/checkpoints/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-010-final-validation-revision-01
+2026-07-28T05:56:39Z	TASK_PUBLISHED task=010-final-validation-revision-02 root=010-final-validation plan_item=010 starting_progress=33 target_criterion=p010.regression-and-concurrency-targets auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p010.goal.regression-and-concurrency-targets file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-010-final-validation-revision-02.ready.md
+2026-07-28T05:56:39Z	WORKER_SUPERVISOR_TRIGGER task=010-final-validation-revision-02 fingerprint=22443526:2321:1785218199
+2026-07-28T05:56:40Z	SESSION_CREATED session=worker-20260728T055640Z-834fddec role=worker
+2026-07-28T05:56:40Z	TASK_CLAIMED task=010-final-validation-revision-02 owner=worker-20260728T055640Z-834fddec
+2026-07-28T05:56:40Z	WORKER_CONTEXT_SELECTED task=010-final-validation-revision-02 root=010-final-validation mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p010.goal.regression-and-concurrency-targets execution_mode=WORKER
+2026-07-28T05:56:40Z	WORKER_INVOCATION_STARTED task=010-final-validation-revision-02 session=worker-20260728T055640Z-834fddec model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T05:56:43Z	MANAGER_REVIEW_FINISHED task=010-final-validation-revision-01 attempt=1
+2026-07-28T05:58:10Z	TASK_COMPLETED task=010-final-validation-revision-02 owner=worker-20260728T055640Z-834fddec goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-010-final-validation-revision-02.result.md
+2026-07-28T05:58:10Z	SUPERVISOR_TRIGGER task=010-final-validation-revision-02 fingerprint=22443590:1703:1785218290
+2026-07-28T05:58:10Z	MANAGER_REVIEW_STARTED task=010-final-validation-revision-02 thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T05:58:14Z	WORKER_INVOCATION_FINISHED task=010-final-validation-revision-02 session=worker-20260728T055640Z-834fddec status=0 result=published attempt=1
+2026-07-28T05:58:52Z	TASK_PROGRESS_UPDATED root=010-final-validation task=010-final-validation-revision-02 progress=66 improvement=33 decision=CHECKPOINT
+2026-07-28T05:58:52Z	WORKER_THREAD_CHECKPOINTED task=010-final-validation-revision-02 root=010-final-validation thread_id=019fa74b-f403-71b2-a6ea-de7029d2df2e rejection_count=0
+2026-07-28T05:58:52Z	TASK_CHECKPOINTED task=010-final-validation-revision-02 root=010-final-validation criteria=1 increments=0 artifact=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/archive/checkpoints/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-010-final-validation-revision-02
+2026-07-28T05:59:08Z	TASK_PUBLISHED task=010-final-validation-revision-03 root=010-final-validation plan_item=010 starting_progress=66 target_criterion=p010.final-external-validation auto_replan=0 manager_remediation=0 goal_mode=1 goal_id=p010.goal.final-external-validation file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/tasks/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-010-final-validation-revision-03.ready.md
+2026-07-28T05:59:09Z	WORKER_SUPERVISOR_TRIGGER task=010-final-validation-revision-03 fingerprint=22443564:2397:1785218348
+2026-07-28T05:59:09Z	SESSION_CREATED session=worker-20260728T055909Z-6300fd7b role=worker
+2026-07-28T05:59:09Z	TASK_CLAIMED task=010-final-validation-revision-03 owner=worker-20260728T055909Z-6300fd7b
+2026-07-28T05:59:09Z	WORKER_CONTEXT_SELECTED task=010-final-validation-revision-03 root=010-final-validation mode=fresh reason=fresh thread_id=none retained_rejections=0 closure_mode=0 goal_mode=1 goal_id=p010.goal.final-external-validation execution_mode=WORKER
+2026-07-28T05:59:09Z	WORKER_INVOCATION_STARTED task=010-final-validation-revision-03 session=worker-20260728T055909Z-6300fd7b model=gpt-5.6-luna execution_mode=WORKER attempt=1
+2026-07-28T05:59:12Z	MANAGER_REVIEW_FINISHED task=010-final-validation-revision-02 attempt=1
+2026-07-28T05:59:59Z	TASK_COMPLETED task=010-final-validation-revision-03 owner=worker-20260728T055909Z-6300fd7b goal_mode=1 goal_outcome=COMPLETE result=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/results/benchmark-pbnfc-html8-terra-vs-harness-20260727a-task-010-final-validation-revision-03.result.md
+2026-07-28T06:00:00Z	SUPERVISOR_TRIGGER task=010-final-validation-revision-03 fingerprint=22443594:1464:1785218399
+2026-07-28T06:00:00Z	MANAGER_REVIEW_STARTED task=010-final-validation-revision-03 thread_id=019fa6d4-c399-7032-9ede-1a1281ebda94 attempt=1
+2026-07-28T06:00:03Z	WORKER_INVOCATION_FINISHED task=010-final-validation-revision-03 session=worker-20260728T055909Z-6300fd7b status=0 result=published attempt=1
+2026-07-28T06:00:40Z	TASK_PROGRESS_UPDATED root=010-final-validation task=010-final-validation-revision-03 progress=100 improvement=34 decision=ACCEPT
+2026-07-28T06:00:40Z	PROJECT_PLAN_ITEM_COMPLETED item=010 root=010-final-validation task=010-final-validation-revision-03 progress=100
+2026-07-28T06:00:40Z	WORKER_THREAD_CLEARED task=010-final-validation-revision-03 root=010-final-validation thread_id=019fa74b-f403-71b2-a6ea-de7029d2df2e reason=accepted
+2026-07-28T06:00:40Z	TASK_ACCEPTED task=010-final-validation-revision-03
+2026-07-28T06:00:40Z	PROJECT_COMPLETED task=010-final-validation-revision-03 file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/control/project.complete
+2026-07-28T06:00:40Z	WORKER_SUPERVISOR_PROJECT_COMPLETED task=010-final-validation-revision-03 file=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/control/project.complete
+2026-07-28T06:00:43Z	MANAGER_REVIEW_FINISHED task=010-final-validation-revision-03 attempt=1
+2026-07-28T06:00:43Z	SUPERVISOR_EXIT status=3
+2026-07-28T06:00:43Z	SUPERVISOR_EXIT status=3

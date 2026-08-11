@@ -1,0 +1,4 @@
+updated_at	task_id	decision	progress_percent	improvement_percent	review_sha256
+2026-07-28T05:43:26Z	009-hierarchical-markup	CHECKPOINT	33	33	ba206038422747a9980a76806901c986a2f29a704f366891ddc0a24d8d639d4a
+2026-07-28T05:46:57Z	009-hierarchical-markup-revision-01	CHECKPOINT	66	33	a28795eda23a8f75bbf874abddf49a38aef4cbe0cd536673c35546b0ba2531ba
+2026-07-28T05:51:20Z	009-hierarchical-markup-revision-02	ACCEPT	100	34	24000ccfe447c705496ba471f37b1b20bf8984ba432f1b786edf502a140b663b

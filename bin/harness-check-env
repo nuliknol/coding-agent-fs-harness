@@ -2,6 +2,8 @@
 
 set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-mode.sh"
+harness_dispatch_mode "$SCRIPT_DIR/.." "${0##*/}" "$@"
 source "$SCRIPT_DIR/../lib/harness-common.sh"
 
 usage()
@@ -20,6 +22,7 @@ require_goal_mode_clean_boundary
 
 printf 'Environment file: %s\n' "$HARNESS_ENV_FILE"
 printf 'Project: %s\n' "$PROJECT"
+printf 'Harness mode: %s\n' "$HARNESS_MODE"
 printf 'Repository: %s\n' "$REPOSITORY"
 printf 'Specification: %s\n' "$SPECIFICATION"
 printf 'Harness home: %s\n' "$HARNESS_HOME"
@@ -34,6 +37,15 @@ printf 'Manager sandbox: %s\n' "$MANAGER_SANDBOX"
 printf 'Worker Codex: %s\n' "$WORKER_CODEX_BIN"
 printf 'Worker Codex home: %s\n' "$WORKER_CODEX_HOME"
 printf 'Worker model: %s (%s)\n' "$WORKER_MODEL" "$WORKER_REASONING_EFFORT"
+if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
+	printf 'Complexity decomposition: v2 proactive DAG (%s critic)\n' \
+		"$([[ "$HARNESS_DECOMPOSITION_CRITIC_ENABLED" == 1 ]] && printf enabled || printf disabled)"
+	printf 'Luna leaf route: %s (%s)\n' "$LUNA_WORKER_MODEL" "$LUNA_WORKER_REASONING_EFFORT"
+	printf 'Terra leaf route: %s (%s)\n' "$TERRA_WORKER_MODEL" "$TERRA_WORKER_REASONING_EFFORT"
+	printf 'Luna strategy failures before escalation: %s\n' "$HARNESS_MAX_LUNA_STRATEGY_FAILURES"
+else
+	printf 'Complexity decomposition: legacy v1\n'
+fi
 printf 'Worker sandbox: %s\n' "$WORKER_SANDBOX"
 printf 'Oracle enabled: %s\n' "$ORACLE_ENABLED"
 if [[ -n "$MAX_ORACLE_RUNS" ]]; then

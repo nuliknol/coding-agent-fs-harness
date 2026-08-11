@@ -1,0 +1,9 @@
+classification=success
+provider_code=
+http_status=
+exit_status=0
+idle_timeout=0
+partial_edits=1
+jsonl=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-005-sequential-chart-revision-01-20260728T045627Z-attempt-001.jsonl
+stderr=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-005-sequential-chart-revision-01-20260728T045627Z-attempt-001.stderr.log
+last_message=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-005-sequential-chart-revision-01-20260728T045627Z-attempt-001.md

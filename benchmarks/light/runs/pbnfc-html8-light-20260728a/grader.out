@@ -1,0 +1,13 @@
+PASS strict-pthread-build
+PASS requested-link
+PASS nested-attributes
+PASS deep-hierarchy
+PASS mismatched-tags
+PASS unquoted-attribute
+PASS unknown-tag
+PASS undefined-symbol
+PASS indirect-left-recursion
+PASS eight-worker-stress
+PASS deterministic-merge
+PASS project-tests
+SCORE 12/12

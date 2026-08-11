@@ -1,0 +1,13 @@
+project=benchmark-bnfc-terra-vs-harness-20260727b
+task_id=bnfc-01-foundation
+task_root=bnfc-01-foundation
+captured_at=2026-07-28T03:34:09Z
+repository=/var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/repository
+git_head=dfbcdc58b641f121f23c0452278ba675419c35a7
+result_sha256=429b3cc0a71049000dcc4cf463c8651367c41ddd5134e96134e698c00cb8cf32
+review_sha256=f24af838f1cc6b56d0c8d12bee0bd421504f6fb5edf2ab225f6f7645b9688bcd
+progress_percent=33
+improvement_percent=33
+verified_criterion=foundation.build.strict-c11
+path=Makefile	type=file	mode=600	sha256=4cd8a4543d4d825075e008166e9281fd4bef08ff6c380b1971d9c3bdc06b80a9
+path=src/main.c	type=file	mode=600	sha256=f186e4eb4aab6a1d9ec7bc5c49eaea6d9d162e0159dfe8f953bb48ade9b58d43

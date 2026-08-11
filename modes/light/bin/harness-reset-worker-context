@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 1 ]] || die "Usage: ${0##*/} ENV_FILE"
+load_harness_env "$1"
+ensure_project
+
+dir="$(project_dir)"
+lock="$dir/control/supervisor.lock"
+if supervisor_running; then
+	die "supervisor is running; run harness-stop first: $HARNESS_ENV_FILE"
+fi
+exec 9>"$lock"
+flock -n 9 || die "supervisor lock is retained; run harness-stop first: $lock"
+
+status="$(state_value status)"
+phase="$(state_value phase)"
+cycle="$(state_value cycle)"
+[[ "$cycle" =~ ^[0-9]+$ ]] || die "invalid harness cycle: $cycle"
+case "$status" in
+	ACTIVE|PAUSED) ;;
+	COMPLETE) die 'completed projects do not have a worker context to reset' ;;
+	FAILED) die 'failed projects require failure repair before a worker-context reset' ;;
+	*) die "unsupported harness status for worker-context reset: $status" ;;
+esac
+
+case "$phase" in
+	CONVERGENCE_LIMIT_REACHED|REVIEW_LIMIT_REACHED|WORKER_REQUIRED)
+		resume_phase=WORKER_REQUIRED
+		;;
+	NO_SOURCE_PROGRESS|REVIEW_REQUIRED|REVIEW_RUNNING)
+		resume_phase=REVIEW_REQUIRED
+		;;
+	WORKER_RUNNING|WORKER_RETRY)
+		resume_phase=WORKER_RETRY
+		;;
+	CONVERGENCE_REQUIRED|CONVERGENCE_RUNNING)
+		resume_phase=CONVERGENCE_REQUIRED
+		;;
+	*)
+		die "worker-context reset is not valid from phase: $phase"
+		;;
+esac
+
+[[ -s "$dir/control/worker-goal.md" ]] ||
+	die 'persistent worker goal is missing or empty'
+[[ -s "$dir/control/worker.thread" ]] ||
+	die 'persistent worker thread is missing or empty'
+[[ ! -e "$dir/control/worker-context-reset.env" ]] ||
+	die 'a worker-context reset is already pending'
+
+reset_id=1
+while :; do
+	printf -v reset_label '%03d' "$reset_id"
+	archive="$dir/reviews/worker-context-reset-$reset_label"
+	[[ -e "$archive" ]] || break
+	reset_id=$((reset_id + 1))
+done
+mkdir "$archive"
+chmod 700 "$archive"
+cp -p "$dir/control/state.env" "$archive/state-before.env"
+cp -p "$dir/control/worker-goal.md" "$archive/worker-goal.md"
+cp -p "$dir/control/worker.thread" "$archive/worker.thread"
+if [[ -f "$dir/control/operator-required.md" ]]; then
+	cp -p "$dir/control/operator-required.md" \
+		"$archive/operator-required.md"
+fi
+
+requested_at="$(timestamp_utc)"
+{
+	printf 'reset_id=%s\n' "$reset_label"
+	printf 'requested_at=%s\n' "$requested_at"
+	printf 'source_status=%s\n' "$status"
+	printf 'source_phase=%s\n' "$phase"
+	printf 'source_cycle=%s\n' "$cycle"
+	printf 'resume_phase=%s\n' "$resume_phase"
+	printf 'archive=%s\n' "$archive"
+} > "$archive/reset.env"
+chmod 600 "$archive/reset.env"
+cp -p "$archive/reset.env" "$dir/control/worker-context-reset.env"
+
+case "$phase" in
+	CONVERGENCE_LIMIT_REACHED)
+		printf '%s\n' "$cycle" > \
+			"$dir/control/convergence-circuit-reset-cycle"
+		chmod 600 "$dir/control/convergence-circuit-reset-cycle"
+		;;
+	NO_SOURCE_PROGRESS)
+		printf '0\n' > "$dir/control/no-source-progress-count"
+		chmod 600 "$dir/control/no-source-progress-count"
+		;;
+esac
+
+rm -f "$dir/control/worker-goal.md" "$dir/control/worker.thread" \
+	"$dir/control/operator-required.md" \
+	"$dir/control/operator-pause-kind" \
+	"$dir/control/operator-pause-fingerprint" \
+	"$dir/control/operator-pause-count"
+write_state ACTIVE GOAL_REFRESH_REQUIRED "$cycle"
+log_event "WORKER_CONTEXT_RESET_REQUESTED reset=$reset_label source_status=$status source_phase=$phase cycle=$cycle resume_phase=$resume_phase archive=$archive"
+
+printf 'Worker context reset %s is ready.\n' "$reset_label"
+printf 'Archived context: %s\n' "$archive"
+printf 'Next phase after goal refresh: %s at cycle %s.\n' \
+	"$resume_phase" "$cycle"
+printf 'Run harness-start %s to regenerate the goal and continue with a fresh Luna thread.\n' \
+	"$HARNESS_ENV_FILE"

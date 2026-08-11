@@ -1,0 +1,9 @@
+classification=success
+provider_code=
+http_status=
+exit_status=0
+idle_timeout=0
+partial_edits=0
+jsonl=/var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/state/projects/benchmark-bnfc-terra-vs-harness-20260727b/logs/manager-review-bnfc-01-foundation-revision-01-20260728T033724Z-attempt-001.jsonl
+stderr=/var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/state/projects/benchmark-bnfc-terra-vs-harness-20260727b/logs/manager-review-bnfc-01-foundation-revision-01-20260728T033724Z-attempt-001.stderr.log
+last_message=/var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/state/projects/benchmark-bnfc-terra-vs-harness-20260727b/logs/manager-review-bnfc-01-foundation-revision-01-20260728T033724Z-attempt-001.md

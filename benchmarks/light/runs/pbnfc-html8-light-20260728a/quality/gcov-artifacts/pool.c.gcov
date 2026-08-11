@@ -1,0 +1,209 @@
+        -:    0:Source:src/pool.c
+        -:    1:#include "pool.h"
+        -:    2:
+        -:    3:#include <stdlib.h>
+        -:    4:
+function worker_main called 48 returned 100% blocks executed 100%
+       48:    5:static void *worker_main(void *arg)
+        -:    6:{
+       48:    7:    PoolWorkerArg *worker = (PoolWorkerArg *)arg;
+       48:    8:    WorkerPool *pool = worker->pool;
+       48:    9:    size_t index = worker->index;
+       48:   10:    unsigned long seen = 0;
+        -:   11:
+        -:   12:    for (;;) {
+     1000:   13:        pthread_mutex_lock(&pool->mutex);
+call    0 returned 1000
+     1990:   14:        while (!pool->stopping && seen == pool->generation)
+branch  0 taken 1942 (fallthrough)
+branch  1 taken 48
+branch  2 taken 990
+branch  3 taken 952 (fallthrough)
+      990:   15:            pthread_cond_wait(&pool->work_ready, &pool->mutex);
+call    0 returned 990
+     1000:   16:        if (pool->stopping) {
+branch  0 taken 48 (fallthrough)
+branch  1 taken 952
+       48:   17:            pthread_mutex_unlock(&pool->mutex);
+call    0 returned 48
+       48:   18:            return NULL;
+        -:   19:        }
+      952:   20:        seen = pool->generation;
+      952:   21:        pthread_mutex_unlock(&pool->mutex);
+call    0 returned 952
+        -:   22:
+      952:   23:        if (pool->task != NULL && pool->ends[index] > pool->begins[index])
+branch  0 taken 952 (fallthrough)
+branch  1 taken 0
+branch  2 taken 200 (fallthrough)
+branch  3 taken 752
+      200:   24:            pool->task(pool->context, index, pool->begins[index], pool->ends[index]);
+call    0 returned 200
+        -:   25:
+      952:   26:        pthread_mutex_lock(&pool->mutex);
+call    0 returned 952
+      952:   27:        pool->completed++;
+      952:   28:        if (pool->completed == 8)
+branch  0 taken 119 (fallthrough)
+branch  1 taken 833
+      119:   29:            pthread_cond_signal(&pool->done);
+call    0 returned 119
+      952:   30:        pthread_mutex_unlock(&pool->mutex);
+call    0 returned 952
+        -:   31:    }
+        -:   32:}
+        -:   33:
+function pool_start called 6 returned 100% blocks executed 45%
+        6:   34:int pool_start(WorkerPool *pool)
+        -:   35:{
+        -:   36:    size_t i;
+        6:   37:    pool->generation = 0;
+        6:   38:    pool->stopping = 0;
+        6:   39:    pool->task_count = 0;
+        6:   40:    pool->completed = 0;
+        6:   41:    pool->task = NULL;
+        6:   42:    pool->context = NULL;
+        6:   43:    pool->begins = (size_t *)calloc(8, sizeof(*pool->begins));
+        6:   44:    pool->ends = (size_t *)calloc(8, sizeof(*pool->ends));
+        6:   45:    if (pool->begins == NULL || pool->ends == NULL) {
+branch  0 taken 6 (fallthrough)
+branch  1 taken 0
+branch  2 taken 0 (fallthrough)
+branch  3 taken 6
+    #####:   46:        free(pool->begins);
+    #####:   47:        free(pool->ends);
+    #####:   48:        return -1;
+        -:   49:    }
+        6:   50:    if (pthread_mutex_init(&pool->mutex, NULL) != 0)
+call    0 returned 6
+branch  1 taken 0 (fallthrough)
+branch  2 taken 6
+    #####:   51:        goto fail_arrays;
+        6:   52:    if (pthread_cond_init(&pool->work_ready, NULL) != 0)
+call    0 returned 6
+branch  1 taken 0 (fallthrough)
+branch  2 taken 6
+    #####:   53:        goto fail_mutex;
+        6:   54:    if (pthread_cond_init(&pool->done, NULL) != 0)
+call    0 returned 6
+branch  1 taken 0 (fallthrough)
+branch  2 taken 6
+    #####:   55:        goto fail_work;
+        6:   56:    pool->initialized = 1;
+       54:   57:    for (i = 0; i < 8; i++) {
+branch  0 taken 48
+branch  1 taken 6 (fallthrough)
+       48:   58:        pool->worker_args[i].pool = pool;
+       48:   59:        pool->worker_args[i].index = i;
+       48:   60:        if (pthread_create(&pool->threads[i], NULL, worker_main, &pool->worker_args[i]) != 0) {
+call    0 returned 48
+branch  1 taken 0 (fallthrough)
+branch  2 taken 48
+        -:   61:            size_t j;
+    #####:   62:            pthread_mutex_lock(&pool->mutex);
+call    0 never executed
+    #####:   63:            pool->stopping = 1;
+    #####:   64:            pthread_cond_broadcast(&pool->work_ready);
+call    0 never executed
+    #####:   65:            pthread_mutex_unlock(&pool->mutex);
+call    0 never executed
+    #####:   66:            for (j = 0; j < i; j++)
+branch  0 never executed
+branch  1 never executed (fallthrough)
+    #####:   67:                pthread_join(pool->threads[j], NULL);
+call    0 never executed
+    #####:   68:            pthread_cond_destroy(&pool->done);
+call    0 never executed
+    #####:   69:            pthread_cond_destroy(&pool->work_ready);
+call    0 never executed
+    #####:   70:            pthread_mutex_destroy(&pool->mutex);
+call    0 never executed
+    #####:   71:            pool->initialized = 0;
+    #####:   72:            goto fail_arrays;
+        -:   73:        }
+        -:   74:    }
+        6:   75:    return 0;
+        -:   76:
+    #####:   77:fail_work:
+    #####:   78:    pthread_cond_destroy(&pool->work_ready);
+call    0 never executed
+    #####:   79:fail_mutex:
+    #####:   80:    pthread_mutex_destroy(&pool->mutex);
+call    0 never executed
+    #####:   81:fail_arrays:
+    #####:   82:    free(pool->begins);
+    #####:   83:    free(pool->ends);
+    #####:   84:    pool->begins = NULL;
+    #####:   85:    pool->ends = NULL;
+    #####:   86:    return -1;
+        -:   87:}
+        -:   88:
+function pool_run called 0 returned 0% blocks executed 0%
+    #####:   89:int pool_run(WorkerPool *pool, size_t count, PoolTask task, void *context)
+        -:   90:{
+    #####:   91:    return pool_run_range(pool, 0, count, task, context);
+call    0 never executed
+        -:   92:}
+        -:   93:
+function pool_run_range called 119 returned 100% blocks executed 100%
+      119:   94:int pool_run_range(WorkerPool *pool, size_t begin, size_t end, PoolTask task, void *context)
+        -:   95:{
+        -:   96:    size_t i;
+      119:   97:    size_t span = end - begin;
+      119:   98:    pthread_mutex_lock(&pool->mutex);
+call    0 returned 119
+      119:   99:    pool->task_count = span;
+      119:  100:    pool->task = task;
+      119:  101:    pool->context = context;
+      119:  102:    pool->completed = 0;
+     1071:  103:    for (i = 0; i < 8; i++) {
+branch  0 taken 952
+branch  1 taken 119 (fallthrough)
+      952:  104:        pool->begins[i] = begin + (span * i) / 8;
+      952:  105:        pool->ends[i] = begin + (span * (i + 1)) / 8;
+        -:  106:    }
+      119:  107:    pool->generation++;
+      119:  108:    pthread_cond_broadcast(&pool->work_ready);
+call    0 returned 119
+      238:  109:    while (pool->completed != 8)
+branch  0 taken 119
+branch  1 taken 119 (fallthrough)
+      119:  110:        pthread_cond_wait(&pool->done, &pool->mutex);
+call    0 returned 119
+      119:  111:    pthread_mutex_unlock(&pool->mutex);
+call    0 returned 119
+      119:  112:    return 0;
+        -:  113:}
+        -:  114:
+function pool_stop called 6 returned 100% blocks executed 93%
+        6:  115:void pool_stop(WorkerPool *pool)
+        -:  116:{
+        -:  117:    size_t i;
+        6:  118:    if (!pool->initialized)
+branch  0 taken 0 (fallthrough)
+branch  1 taken 6
+    #####:  119:        return;
+        6:  120:    pthread_mutex_lock(&pool->mutex);
+call    0 returned 6
+        6:  121:    pool->stopping = 1;
+        6:  122:    pthread_cond_broadcast(&pool->work_ready);
+call    0 returned 6
+        6:  123:    pthread_mutex_unlock(&pool->mutex);
+call    0 returned 6
+       54:  124:    for (i = 0; i < 8; i++)
+branch  0 taken 48
+branch  1 taken 6 (fallthrough)
+       48:  125:        pthread_join(pool->threads[i], NULL);
+call    0 returned 48
+        6:  126:    pthread_cond_destroy(&pool->done);
+call    0 returned 6
+        6:  127:    pthread_cond_destroy(&pool->work_ready);
+call    0 returned 6
+        6:  128:    pthread_mutex_destroy(&pool->mutex);
+call    0 returned 6
+        6:  129:    free(pool->begins);
+        6:  130:    free(pool->ends);
+        6:  131:    pool->begins = NULL;
+        6:  132:    pool->ends = NULL;
+        6:  133:    pool->initialized = 0;
+        -:  134:}

@@ -1,0 +1,1 @@
+Checkpointed generation coordination at 66%; the final worker-pool shutdown leaf is next.

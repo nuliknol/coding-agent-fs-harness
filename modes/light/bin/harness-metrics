@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 1 ]] || die "Usage: ${0##*/} ENV_FILE"
+load_harness_env "$1"
+ensure_project
+[[ "$HARNESS_METRICS_ENABLED" == 1 ]] || die 'code metrics are disabled for this harness'
+
+report="$(metrics_generate_report)"
+printf 'Metrics report: %s\n' "$report"
+printf 'Per-cycle CSV: %s/cycles.csv\n' "$(metrics_dir)"
+printf 'Source provenance CSV: %s/provenance.csv\n' "$(metrics_dir)"
+printf 'Source retention CSV: %s/survival.csv\n' "$(metrics_dir)"

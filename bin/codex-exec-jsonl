@@ -2,6 +2,8 @@
 # Run one Codex CLI turn with isolated JSONL/stderr logs and optional watchdogs.
 set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-mode.sh"
+harness_dispatch_mode "$SCRIPT_DIR/.." "${0##*/}" "$@"
 source "$SCRIPT_DIR/../lib/harness-common.sh"
 
 usage() { printf 'Usage: %s ENV_FILE ROLE MODEL PROMPT JSONL STDERR LAST_MESSAGE [resume THREAD_ID]\n' "${0##*/}" >&2; exit 2; }
@@ -17,6 +19,8 @@ mkdir -p "$(dirname "$json_log")" "$(dirname "$stderr_log")"
 case "$role" in
 	 manager_bootstrap|manager_review|manager_plan|manager_replan|manager_remediation) bin="$MANAGER_CODEX_BIN"; home="$MANAGER_CODEX_HOME"; sandbox="$MANAGER_SANDBOX"; effort="$MANAGER_REASONING_EFFORT"; extras=("${MANAGER_CODEX_EXTRA_ARGS[@]}") ;;
 	 worker) bin="$WORKER_CODEX_BIN"; home="$WORKER_CODEX_HOME"; sandbox="$WORKER_SANDBOX"; effort="$WORKER_REASONING_EFFORT"; extras=("${WORKER_CODEX_EXTRA_ARGS[@]}") ;;
+	 worker_luna) bin="$WORKER_CODEX_BIN"; home="$WORKER_CODEX_HOME"; sandbox="$WORKER_SANDBOX"; effort="$LUNA_WORKER_REASONING_EFFORT"; extras=("${WORKER_CODEX_EXTRA_ARGS[@]}") ;;
+	 worker_terra) bin="$WORKER_CODEX_BIN"; home="$WORKER_CODEX_HOME"; sandbox="$WORKER_SANDBOX"; effort="$TERRA_WORKER_REASONING_EFFORT"; extras=("${WORKER_CODEX_EXTRA_ARGS[@]}") ;;
 	oracle) bin="$ORACLE_CODEX_BIN"; home="$ORACLE_CODEX_HOME"; sandbox="$ORACLE_SANDBOX"; effort="$ORACLE_REASONING_EFFORT"; extras=("${ORACLE_CODEX_EXTRA_ARGS[@]}") ;;
 	 *) die "invalid Codex role: $role" ;;
 esac

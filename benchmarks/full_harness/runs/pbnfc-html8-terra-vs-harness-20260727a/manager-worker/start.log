@@ -1,0 +1,27 @@
+Initialized project benchmark-pbnfc-html8-terra-vs-harness-20260727a
+Environment file: /var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/harness.env
+Harness root: /var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state
+Project tmp dir: /tmp/benchmark-pbnfc-html8-terra-vs-harness-20260727a
+Repository: /var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/repository
+Specification: /var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/repository/SPECIFICATION.md
+Manager model: gpt-5.6-terra (high)
+Worker model: gpt-5.6-luna (high)
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-bootstrap-20260728T034629Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-bootstrap-20260728T034629Z-attempt-001.classification
+Manager bootstrap completed and exited.
+Thread ID: 019fa6d4-c399-7032-9ede-1a1281ebda94
+Supervisor started with PID 701016.
+Environment file: /var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/harness.env
+Log: /var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/supervisor.log
+Worker supervisor started with PID 701218.
+Environment file: /var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/harness.env
+Log: /var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/worker-supervisor.log
+
+Harness is active.
+Manager watcher: /var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/supervisor.log
+Worker watcher: /var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/worker-supervisor.log
+Events: /var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/events.log
+Worker supervisor is not running.
+Supervisor stopped.
+Harness supervisors stopped. Active Codex child processes, if any, are not forcibly killed.

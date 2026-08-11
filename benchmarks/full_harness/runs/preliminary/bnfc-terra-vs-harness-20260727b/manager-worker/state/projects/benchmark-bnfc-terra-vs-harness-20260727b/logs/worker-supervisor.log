@@ -1,0 +1,13 @@
+Worker supervisor started for benchmark-bnfc-terra-vs-harness-20260727b with PID 629246. No worker LLM is running while idle.
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/state/projects/benchmark-bnfc-terra-vs-harness-20260727b/logs/worker-task-bnfc-01-foundation-20260728T033104Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/state/projects/benchmark-bnfc-terra-vs-harness-20260727b/logs/worker-task-bnfc-01-foundation-20260728T033104Z-attempt-001.classification
+Worker completed task bnfc-01-foundation and published its result.
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/state/projects/benchmark-bnfc-terra-vs-harness-20260727b/logs/worker-task-bnfc-01-foundation-revision-01-20260728T033452Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/state/projects/benchmark-bnfc-terra-vs-harness-20260727b/logs/worker-task-bnfc-01-foundation-revision-01-20260728T033452Z-attempt-001.classification
+Worker completed task bnfc-01-foundation-revision-01 and published its result.
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/state/projects/benchmark-bnfc-terra-vs-harness-20260727b/logs/worker-task-bnfc-01-foundation-revision-02-20260728T033926Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/state/projects/benchmark-bnfc-terra-vs-harness-20260727b/logs/worker-task-bnfc-01-foundation-revision-02-20260728T033926Z-attempt-001.classification
+Worker completed task bnfc-01-foundation-revision-02 and published its result.

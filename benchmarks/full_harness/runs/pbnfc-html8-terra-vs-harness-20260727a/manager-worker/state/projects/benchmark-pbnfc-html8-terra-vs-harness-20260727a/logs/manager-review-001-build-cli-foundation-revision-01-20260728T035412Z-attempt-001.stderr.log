@@ -1,0 +1,20 @@
+2026-07-28T03:55:07.045756Z ERROR codex_core::tools::router: error=exec_command failed for `/bin/bash -lc "git status --short
+sed -n '1,300p' src/main.c
+sed -n '1,220p' Makefile
+make clean all
+check_cli() {
+    validation_output=\""'$(mktemp)"
+    set +e
+    ./bin/pbnfc "$@" >"$validation_output" 2>&1
+    validation_status=$?
+    set -e
+    test "$validation_status" -eq 2
+    test "$(wc -l < "$validation_output")" -eq 1
+    grep -Eq '"'"'^GRAMMAR_ERROR .+'"' \""'$validation_output"
+    rm -f "$validation_output"
+}
+check_cli
+check_cli --unknown
+check_cli --grammar
+check_cli --grammar first --grammar second --input input
+check_cli --grammar grammar --input input --stats --start Document'`: CreateProcess { message: "Rejected(\"`/bin/bash -lc \\\"git status --short\\nsed -n '1,300p' src/main.c\\nsed -n '1,220p' Makefile\\nmake clean all\\ncheck_cli() {\\n    validation_output=\\\\\\\"\\\"'$(mktemp)\\\"\\n    set +e\\n    ./bin/pbnfc \\\"$@\\\" >\\\"$validation_output\\\" 2>&1\\n    validation_status=$?\\n    set -e\\n    test \\\"$validation_status\\\" -eq 2\\n    test \\\"$(wc -l < \\\"$validation_output\\\")\\\" -eq 1\\n    grep -Eq '\\\"'\\\"'^GRAMMAR_ERROR .+'\\\"' \\\\\\\"\\\"'$validation_output\\\"\\n    rm -f \\\"$validation_output\\\"\\n}\\ncheck_cli\\ncheck_cli --unknown\\ncheck_cli --grammar\\ncheck_cli --grammar first --grammar second --input input\\ncheck_cli --grammar grammar --input input --stats --start Document'` rejected: rm -f style commands are not permitted. Use a safer approach\")" }

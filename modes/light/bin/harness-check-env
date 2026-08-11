@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 1 ]] || die "Usage: ${0##*/} ENV_FILE"
+load_harness_env "$1"
+require_dependencies
+
+printf 'Environment: %s\n' "$HARNESS_ENV_FILE"
+printf 'Project: %s\n' "$PROJECT"
+printf 'Repository: %s\n' "$REPOSITORY"
+printf 'Specification: %s\n' "$SPECIFICATION"
+printf 'Development policy: %s\n' "$DEVELOPMENT_POLICY"
+printf 'Harness root: %s\n' "$HARNESS_ROOT"
+printf 'Manager: %s (%s), sandbox=%s\n' \
+	"$MANAGER_MODEL" "$MANAGER_REASONING_EFFORT" "$MANAGER_SANDBOX"
+printf 'Convergence auditor: %s (%s), sandbox=%s\n' \
+	"$CONVERGENCE_MODEL" "$CONVERGENCE_REASONING_EFFORT" "$CONVERGENCE_SANDBOX"
+printf 'Worker: %s (%s), sandbox=%s\n' \
+	"$WORKER_MODEL" "$WORKER_REASONING_EFFORT" "$WORKER_SANDBOX"
+if oracle_enabled; then
+	printf 'Oracle: %s (%s), sandbox=%s, maximum runs=%s\n' \
+		"$ORACLE_MODEL" "$ORACLE_REASONING_EFFORT" "$ORACLE_SANDBOX" \
+		"$MAX_ORACLE_RUNS"
+else
+	printf 'Oracle: disabled (MAX_ORACLE_RUNS=0)\n'
+fi
+printf 'Post-Oracle manager-review limit: %s\n' \
+	"$HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE"
+printf 'Process containment: %s\n' \
+	"$(systemd_user_available && printf 'systemd user cgroup' || printf 'tagged process group fallback')"
+printf 'Environment reload: before every manager review and Oracle audit (soft parameters only)\n'
+printf 'Manager first-review checklist: %s\n' \
+	"$HARNESS_MANAGER_REVIEW_CHECKLIST"
+printf 'Codex goal tools: disabled by harness\n'
+printf 'Codex diagnostic profile: %s\n' \
+	"$([[ "$HARNESS_CODEX_DIAGNOSTIC_PROFILE" == 1 ]] && printf enabled || printf disabled)"
+printf 'Codex Rust diagnostics: %s\n' \
+	"${HARNESS_CODEX_RUST_LOG:-disabled}"
+printf 'Codex strace: %s\n' \
+	"$([[ "$HARNESS_CODEX_STRACE" == 1 ]] && printf enabled || printf disabled)"
+if (( HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS == 0 )); then
+	printf 'Codex stall snapshots: disabled\n'
+else
+	printf 'Codex stall snapshots: after %s seconds without output' \
+		"$HARNESS_CODEX_STALL_DIAGNOSTIC_SECONDS"
+	if (( HARNESS_CODEX_STALL_DIAGNOSTIC_REPEAT_SECONDS > 0 )); then
+		printf ', repeated every %s seconds\n' \
+			"$HARNESS_CODEX_STALL_DIAGNOSTIC_REPEAT_SECONDS"
+	else
+		printf ', one snapshot per quiet interval\n'
+	fi
+fi
+if (( HARNESS_MAX_MANAGER_REVIEWS == 0 )); then
+	printf 'Manager review limit: unlimited\n'
+else
+	printf 'Manager review limit: %s\n' "$HARNESS_MAX_MANAGER_REVIEWS"
+fi
+printf 'Protocol repair attempts: %s\n' \
+	"$HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS"
+if (( HARNESS_MAX_REPEATED_FINDING_REVIEWS == 0 )); then
+	printf 'Repeated-finding convergence audit: disabled\n'
+else
+	printf 'Repeated-finding convergence audit: after %s consecutive reviews\n' \
+		"$HARNESS_MAX_REPEATED_FINDING_REVIEWS"
+fi
+if (( HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS == 0 )); then
+	printf 'No-source-progress pause: disabled\n'
+else
+	printf 'No-source-progress pause: after %s unchanged worker deliveries\n' \
+		"$HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS"
+fi
+if (( HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS == 0 )); then
+	printf 'Repeated-convergence pause: disabled\n'
+else
+	printf 'Repeated-convergence pause: after %s audits retain a finding\n' \
+		"$HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS"
+fi
+printf 'Low-yield progress audit threshold: %s\n' "$HARNESS_MAX_LOW_YIELD_REVIEWS"
+printf 'Worktree-oscillation audit threshold: %s\n' "$HARNESS_MAX_WORKTREE_OSCILLATIONS"
+printf 'Finding-reappearance audit threshold: %s\n' "$HARNESS_MAX_FINDING_REAPPEARANCES"
+printf 'Completion-stagnation audit threshold: %s\n' \
+	"$HARNESS_MAX_COMPLETION_STAGNANT_AUDITS"
+if (( HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS == 0 )); then
+	printf 'Completion-progress audit: disabled\n'
+else
+	printf 'Completion-progress audit: every %s completed manager reviews\n' \
+		"$HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS"
+fi
+if [[ "$HARNESS_METRICS_ENABLED" == 1 ]]; then
+	printf 'Code metrics: enabled (sidecar Git snapshots; graph size=%sx%s)\n' \
+		"$HARNESS_METRICS_IMAGE_WIDTH" "$HARNESS_METRICS_IMAGE_HEIGHT"
+else
+	printf 'Code metrics: disabled\n'
+fi
+printf 'Configuration is valid.\n'

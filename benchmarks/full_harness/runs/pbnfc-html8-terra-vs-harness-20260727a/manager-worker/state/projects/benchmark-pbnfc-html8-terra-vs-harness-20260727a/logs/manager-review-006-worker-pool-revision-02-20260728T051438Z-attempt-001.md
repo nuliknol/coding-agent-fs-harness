@@ -1,0 +1,1 @@
+Final worker-pool review is pending: validate clean shutdown, then accept item 006 if all three pool criteria pass.

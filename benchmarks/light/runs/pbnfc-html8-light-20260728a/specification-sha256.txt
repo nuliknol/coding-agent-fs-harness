@@ -1,0 +1,2 @@
+86d2588cb2631957e68cc2629e64d4f31e5a55e398e90d71fbef50679af8c6ae  /var/home/mf/coding-agent-fs-harness/benchmark/light/runs/pbnfc-html8-light-20260728a/repository/SPECIFICATION.md
+86d2588cb2631957e68cc2629e64d4f31e5a55e398e90d71fbef50679af8c6ae  /var/home/mf/coding-agent-fs-harness/benchmark/full_harness/shared/SPECIFICATION.md

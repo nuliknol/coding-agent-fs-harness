@@ -1,0 +1,20 @@
+metric	full-harness	light-harness	notes
+external_grader_score	12/12	12/12	Same deterministic grader
+c_header_files	15	11	src and include
+c_header_physical_lines	3851	1710	src and include
+project_test_files	12	10	tests directory
+project_test_physical_lines	1999	100	Test sources, script, and fixtures
+readme_physical_lines	159	83	README.md
+maximum_c_header_line_length	88	114	Characters
+coverage_executable_lines	1836	1063	GCC gcov after project tests and external grader
+coverage_line_percent	83.99	74.04	GCC gcov
+coverage_executed_lines_approx	1542	787	Percentage multiplied by executable lines
+coverage_branch_outcomes_taken_percent_approx	70	69.76	Weighted across source files
+optimized_asan_ubsan_werror	pass	runtime_failure	Light build passes; test reports null qsort base
+asan_ubsan_runtime	pass	null_qsort_base	src/recognizer.c:215 with zero candidates
+valgrind_smoke	n/a	pass	0 errors, 0 bytes in use at exit
+ambiguous_epsilon_recognition	accept	accept	Exact same 13-level diamond grammar
+ambiguous_epsilon_rounds	28	28	Reported recognition rounds
+ambiguous_epsilon_worker_tasks	96	99	Sum of reported per-worker task counts
+architecture	modular	modular_compact	Qualitative source-structure classification
+quality_classification	maintainable_implementation	maintainable_prototype	Light retains one sanitizer-visible UB defect

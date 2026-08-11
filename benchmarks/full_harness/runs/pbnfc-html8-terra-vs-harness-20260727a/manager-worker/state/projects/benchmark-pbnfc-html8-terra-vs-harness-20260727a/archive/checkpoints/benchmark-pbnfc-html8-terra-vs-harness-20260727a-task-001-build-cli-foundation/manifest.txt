@@ -1,0 +1,13 @@
+project=benchmark-pbnfc-html8-terra-vs-harness-20260727a
+task_id=001-build-cli-foundation
+task_root=001-build-cli-foundation
+captured_at=2026-07-28T03:50:07Z
+repository=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/repository
+git_head=a9e4d7df2194326a8233729e9abadeb199cd1658
+result_sha256=1741f3803e66d6ace2fee11d9cabcf2eaa8ff44a76782798f07aa96869f23570
+review_sha256=fe92b66aa8c901de994a2a9f255cd54105e4156993ab62df606a477b1db02338
+progress_percent=33
+improvement_percent=33
+verified_criterion=p001.strict-build-skeleton
+path=Makefile	type=file	mode=600	sha256=8054f1bfa961cd742888b5d23e23247483db374ee9efdab492a597f01dc9fd9c
+path=src/main.c	type=file	mode=600	sha256=c50b2530239e1ea3c74793ea4aae4f8d58edd0e3a57ec1fe1123dcff1098d703

@@ -1,0 +1,4 @@
+item_id	state	verified_by	evidence_sha256	updated_at
+p005.chart-item-storage-dedup	PASSED	005-sequential-chart	01257a80c55b2430eaacf2a5bd714260c190b9915c185cd1170954686cc57a87	2026-07-28T04:52:12Z
+p005.sequential-earley-recognition	PASSED	005-sequential-chart-revision-01	280628a03f1c8977272d697cd7290a45d03794c2463040f40c1b50b9b59170b9	2026-07-28T04:56:52Z
+p005.sequential-rejection-diagnostics	PASSED	005-sequential-chart-revision-02	65742666a7c72278130d1ab6f1f50d4eaf04ea0445b1b197037a59dbf2174539	2026-07-28T05:01:57Z

@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+new_only=0
+if [[ "${1:-}" == --new-only ]]; then
+	new_only=1
+	shift
+fi
+[[ $# -eq 1 ]] || die "Usage: ${0##*/} [--new-only] ENV_FILE"
+load_harness_env "$1"
+ensure_project
+dir="$(project_dir)"
+declare -A seen
+event_seen=0
+if (( new_only )); then
+	event_seen="$(wc -l < "$(events_file)")"
+	while IFS= read -r -d '' file; do
+		seen["$file"]="$(wc -l < "$file")"
+	done < <(find "$dir/logs" -maxdepth 1 -name '*.jsonl' -type f -print0)
+fi
+
+while true; do
+	event_total="$(wc -l < "$(events_file)")"
+	if (( event_total > event_seen )); then
+		sed -n "$((event_seen + 1)),${event_total}p" "$(events_file)"
+		event_seen="$event_total"
+	fi
+	while IFS= read -r -d '' file; do
+		start="${seen[$file]:-0}"
+		total="$(wc -l < "$file")"
+		if (( total > start )); then
+			role="${file##*/}"
+			role="${role%%-*}"
+			sed -n "$((start + 1)),${total}p" "$file" |
+				jq -r --arg role "$role" '
+					select(.type == "item.completed" and
+						.item.type == "agent_message")
+					| "[" + ($role | ascii_upcase) + "] " + .item.text
+				' 2>/dev/null || true
+			seen["$file"]="$total"
+		fi
+	done < <(find "$dir/logs" -maxdepth 1 -name '*.jsonl' -type f -print0)
+
+	status="$(state_value status)"
+	if [[ "$status" != ACTIVE ]] && ! supervisor_running; then
+		break
+	fi
+	sleep 1
+done

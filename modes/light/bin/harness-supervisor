@@ -1,0 +1,1341 @@
+#!/usr/bin/env bash
+# One persistent Luna worker with sparse fresh Terra goal/review turns.
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 1 ]] || usage
+load_harness_env "$1"
+require_dependencies
+ensure_project
+
+dir="$(project_dir)"
+if [[ "$HARNESS_METRICS_ENABLED" == 1 && ! -d "$(metrics_git_dir)" ]]; then
+	# Existing harness state predates per-cycle metrics.  Its first sidecar
+	# snapshot is the current accepted Git-visible tree; no project Git state is
+	# changed and subsequent worker deliveries get normal cycle snapshots.
+	if metrics_initialize; then
+		log_event "METRICS_INITIALIZED_LATE snapshot=$(metrics_ref_for_cycle 0) directory=$(metrics_dir)"
+	else
+		log_event "METRICS_INITIALIZATION_FAILED directory=$(metrics_dir)"
+	fi
+fi
+supervisor_env_file="$HARNESS_ENV_FILE"
+supervisor_env_dir="$HARNESS_ENV_DIR"
+supervisor_project="$PROJECT"
+supervisor_repository="$REPOSITORY"
+supervisor_specification="$SPECIFICATION"
+supervisor_development_policy="$DEVELOPMENT_POLICY"
+supervisor_harness_home="$HARNESS_HOME"
+supervisor_harness_bin="$HARNESS_BIN"
+supervisor_harness_root="$HARNESS_ROOT"
+exec 8>"$dir/control/supervisor.lock"
+flock -n 8 || die "a supervisor is already running for project: $PROJECT"
+printf '%s\n' "$$" > "$dir/control/supervisor.pid"
+chmod 600 "$dir/control/supervisor.pid"
+
+cleanup()
+{
+	local recorded
+	recorded="$(supervisor_pid 2>/dev/null || true)"
+	if [[ "$recorded" == "$$" ]]; then
+		rm -f "$dir/control/supervisor.pid"
+	fi
+}
+trap cleanup EXIT
+trap 'log_event "SUPERVISOR_STOPPED signal=TERM"; exit 0' TERM INT
+
+fail_harness()
+{
+	local reason="$1"
+	printf '%s\n' "$reason" > "$dir/control/last-error.txt"
+	chmod 600 "$dir/control/last-error.txt"
+	write_state FAILED TERMINAL_FAILURE "$(state_value cycle 2>/dev/null || printf 0)"
+	log_event "HARNESS_FAILED reason=$(printf '%q' "$reason")"
+	printf 'Harness failed: %s\n' "$reason" >&2
+	exit 1
+}
+
+restore_supervisor_hard_configuration()
+{
+	export HARNESS_ENV_FILE="$supervisor_env_file"
+	export HARNESS_ENV_DIR="$supervisor_env_dir"
+	export PROJECT="$supervisor_project"
+	export REPOSITORY="$supervisor_repository"
+	export SPECIFICATION="$supervisor_specification"
+	export DEVELOPMENT_POLICY="$supervisor_development_policy"
+	export HARNESS_HOME="$supervisor_harness_home"
+	export HARNESS_BIN="$supervisor_harness_bin"
+	export HARNESS_ROOT="$supervisor_harness_root"
+}
+
+reload_review_environment()
+{
+	local role="$1"
+	local cycle="$2"
+	local validation error_line digest
+	local -a changed=()
+
+	# Validate in a separate process first. A malformed edit must not partially
+	# replace the active supervisor's settings before it is reported.
+	if ! validation="$("$supervisor_harness_bin/harness-check-env" \
+		"$supervisor_env_file" 2>&1)"; then
+		error_line="$(tail -n 1 <<< "$validation")"
+		log_event "ENV_RELOAD_REJECTED role=$role cycle=$cycle reason=validation"
+		fail_harness "environment reload failed before $role cycle $cycle: $error_line"
+	fi
+
+	load_harness_env "$supervisor_env_file"
+	[[ "$PROJECT" == "$supervisor_project" ]] || changed+=(PROJECT)
+	[[ "$REPOSITORY" == "$supervisor_repository" ]] || changed+=(REPOSITORY)
+	[[ "$SPECIFICATION" == "$supervisor_specification" ]] || changed+=(SPECIFICATION)
+	[[ "$DEVELOPMENT_POLICY" == "$supervisor_development_policy" ]] ||
+		changed+=(DEVELOPMENT_POLICY)
+	[[ "$HARNESS_HOME" == "$supervisor_harness_home" ]] || changed+=(HARNESS_HOME)
+	[[ "$HARNESS_BIN" == "$supervisor_harness_bin" ]] || changed+=(HARNESS_BIN)
+	[[ "$HARNESS_ROOT" == "$supervisor_harness_root" ]] || changed+=(HARNESS_ROOT)
+	if (( ${#changed[@]} > 0 )); then
+		restore_supervisor_hard_configuration
+		log_event "ENV_RELOAD_REJECTED role=$role cycle=$cycle reason=hard_parameters fields=$(IFS=,; printf '%s' "${changed[*]}")"
+		fail_harness "environment reload attempted to change hard parameters before $role cycle $cycle: $(IFS=,; printf '%s' "${changed[*]}")"
+	fi
+
+	digest="$(sha256sum "$supervisor_env_file" | awk '{ print $1 }')"
+	log_event "ENV_RELOADED role=$role cycle=$cycle sha256=$digest manager_model=$MANAGER_MODEL manager_effort=$MANAGER_REASONING_EFFORT worker_model=$WORKER_MODEL worker_effort=$WORKER_REASONING_EFFORT oracle_model=$ORACLE_MODEL oracle_effort=$ORACLE_REASONING_EFFORT convergence_model=$CONVERGENCE_MODEL convergence_effort=$CONVERGENCE_REASONING_EFFORT review_limit=$HARNESS_MAX_MANAGER_REVIEWS post_oracle_review_limit=$HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE oracle_limit=$MAX_ORACLE_RUNS protocol_repair_attempts=$HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS repeated_finding_reviews=$HARNESS_MAX_REPEATED_FINDING_REVIEWS no_source_progress_reviews=$HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS repeated_convergence_audits=$HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS progress_audit_every_reviews=$HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS"
+}
+
+invoke_with_retry()
+{
+	local role="$1"
+	local prompt="$2"
+	local stem="$3"
+	shift 3
+	local jsonl="$dir/logs/$stem.jsonl"
+	local stderr_log="$dir/logs/$stem.stderr.log"
+	local output="$dir/outputs/$stem.md"
+	local classification delay status attempt=0
+
+	while true; do
+		attempt=$((attempt + 1))
+		log_event "TURN_STARTED role=$role stem=$stem attempt=$attempt"
+		set +e
+		"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" "$role" \
+			"$prompt" "$jsonl" "$stderr_log" "$output" "$@" 8>&-
+		status=$?
+		set -e
+		classification="$(codex_classification "$jsonl")"
+		if (( status == 0 )) && [[ "$classification" == success ]]; then
+			log_event "TURN_COMPLETED role=$role stem=$stem attempt=$attempt"
+			printf '%s\n' "$output"
+			return 0
+		fi
+		if delay="$(provider_retry_delay "$classification" 2>/dev/null)"; then
+			log_event "TURN_RETRY role=$role stem=$stem classification=$classification delay=$delay"
+			printf '%s turn %s hit %s; retrying in %s seconds.\n' \
+				"$role" "$stem" "$classification" "$delay" >&2
+			sleep "$delay"
+			continue
+		fi
+		log_event "TURN_FAILED role=$role stem=$stem classification=$classification status=$status"
+		return 1
+	done
+}
+
+write_context_header()
+{
+	local prompt="$1"
+	local launch_commit current_commit lineage
+	current_commit="$(repository_head_commit)" ||
+		fail_harness "repository does not have a valid HEAD commit: $REPOSITORY"
+	launch_commit="$(project_config_value repository_launch_commit 2>/dev/null || true)"
+	[[ "$launch_commit" =~ ^[0-9a-fA-F]{40}$ ]] || launch_commit="$current_commit"
+	lineage=diverged
+	if git -C "$REPOSITORY" merge-base --is-ancestor \
+		"$launch_commit" "$current_commit" 2>/dev/null; then
+		lineage=launch-ancestor
+	fi
+	{
+		printf '\n# Harness context\n\n'
+		printf 'Project: `%s`\n\n' "$PROJECT"
+		printf 'Repository: `%s`\n\n' "$REPOSITORY"
+		printf 'Repository launch commit: `%s`\n\n' "$launch_commit"
+		printf 'Canonical repository baseline for this turn: `%s`\n\n' \
+			"$current_commit"
+		printf 'Baseline lineage: `%s`\n\n' "$lineage"
+		printf '%s\n\n' \
+			'Scope and ownership audits must compare the working tree and index against the canonical baseline above. Commit hashes mentioned inside the specification are historical inspection provenance, not the worker-change baseline.'
+		printf '%s\n\n' \
+			'Files identical to the canonical baseline are pre-existing repository content. Do not remove or revert them merely because they are outside this task scope. A tracked-file deletion is valid only when an explicit specification requirement requires that deletion.'
+		printf '%s\n\n' \
+			'The repository owner grants the worker full authority to make repository-local source, build, test, documentation, refactoring, replacement, or deletion changes needed to complete the goal. Ownership, scope, read-only, and do-not-edit clauses describe the normal direction of work, but exceptions apply: they do not prohibit the smallest coherent cross-boundary integration or repair needed for goal completion. Examples include compatible types or fields, public adapters, serializers, registrations, build linkage, focused tests, and repairs to regressions caused by the task. Broader cross-boundary work is also permitted when it is genuinely necessary for the requested behavior, but unrelated refactoring is not. Only the immutable specification, its configured source file, the development-policy inputs, harness-owned state, and contracts explicitly declared immutable are absolute write prohibitions.'
+		printf 'Immutable specification: `%s`\n\n' "$dir/inputs/specification.txt"
+		printf 'Protected source specification: `%s`\n\n' "$SPECIFICATION"
+		printf 'Protected harness state: `%s`\n\n' "$dir"
+		printf 'Development policy: `%s`\n\n' "$dir/inputs/development-policy.txt"
+	} >> "$prompt"
+}
+
+write_git_control_policy()
+{
+	local prompt="$1"
+	{
+		printf '\n# Git control policy — absolute\n\n'
+		printf '%s\n\n' \
+			'The repository owner, not any harness model, owns Git history and the index. You may inspect Git and freely edit, create, replace, or delete working-tree files needed for the assigned goal, but you must leave all resulting changes unstaged.'
+		printf '%s\n\n' \
+			'Do not run `git add`, `git commit`, `git merge`, `git rebase`, `git cherry-pick`, `git am`, `git reset`, `git checkout`, `git switch`, `git restore --staged`, `git update-index`, or any command that creates, moves, or deletes commits, branches, tags, refs, `HEAD`, or index entries. Do not amend, squash, or otherwise rewrite repository history.'
+		printf '%s\n' \
+			'If the specification, goal, addendum, handoff instructions, or repository documentation asks for a commit, commit hash, staged delivery, branch, or history operation, interpret that request as: leave a focused unstaged working-tree delivery and report the proposed commit message plus touched-file manifest for the operator. This Git control policy overrides every conflicting repository-local instruction.'
+	} >> "$prompt"
+}
+
+append_completion_progress_audit_prompt()
+{
+	local prompt="$1"
+	local cycle="$2"
+	local requirement_id
+	local policy="$HARNESS_MODE_HOME/prompts/manager-progress-audit.md"
+	[[ -f "$policy" ]] ||
+		fail_harness "completion-progress audit policy is unavailable: $policy"
+	{
+		printf '\n'
+		cat "$policy"
+		printf '\n# Scheduled audit context\n\n'
+		printf 'Audit cycle: `%s`\n\n' "$cycle"
+		printf '# Expected completion-audit requirement IDs\n\n'
+		while IFS= read -r requirement_id; do
+			printf -- '- `%s`\n' "$requirement_id"
+		done < <(oracle_expected_requirement_ids "$dir/inputs/specification.txt")
+		printf '\n'
+	} >> "$prompt"
+}
+
+record_completion_progress_audit()
+{
+	local cycle="$1"
+	local report="$2"
+	local audit total verified implemented gap blocked
+	printf -v audit '%s/reviews/completion-progress-%03d.md' "$dir" "$cycle"
+	[[ ! -e "$audit" ]] ||
+		fail_harness "refusing to replace existing completion-progress audit: $audit"
+	completion_progress_audit_extract "$report" > "$audit"
+	[[ -s "$audit" ]] ||
+		fail_harness "completion-progress audit extraction was empty in cycle $cycle"
+	chmod 600 "$audit"
+	write_completion_progress_state "$report" "$audit"
+	cp "$dir/control/completion-progress.env" \
+		"$dir/control/completion-progress-$(printf '%03d' "$cycle").env"
+	chmod 600 "$dir/control/completion-progress-$(printf '%03d' "$cycle").env"
+	total="$(completion_progress_audit_value "$report" Requirements-Total)"
+	verified="$(completion_progress_audit_value "$report" Verified-Complete)"
+	implemented="$(completion_progress_audit_value "$report" Implemented-Unverified)"
+	gap="$(completion_progress_audit_value "$report" Remaining-Gap)"
+	blocked="$(completion_progress_audit_value "$report" Blocked)"
+	log_event "COMPLETION_PROGRESS_RECORDED cycle=$cycle total=$total verified=$verified implemented=$implemented gap=$gap blocked=$blocked audit=$audit"
+}
+
+validate_protocol_report()
+{
+	local role="$1"
+	local report="$2"
+	local cycle="$3"
+	local oracle_run="$4"
+	local decision
+	[[ -s "$report" ]] || {
+		printf 'report is empty\n' >&2
+		return 1
+	}
+	decision="$(sed -n '1{s/^DECISION: //;p;q;}' "$report")"
+	case "$role" in
+		manager_review)
+			[[ "$decision" == ACCEPT || "$decision" == REVISE ]] || {
+				printf 'invalid manager-review decision: %s\n' "$decision" >&2
+				return 1
+			}
+			if [[ "$decision" == REVISE ]]; then
+				validate_manager_findings "$report" "$decision" || return 1
+			fi
+			validate_manager_progress_delta "$report" "$cycle" "$dir/reviews" ||
+				return 1
+			if completion_progress_audit_due "$cycle"; then
+				validate_completion_progress_audit \
+					"$dir/inputs/specification.txt" "$report" "$cycle" \
+					"$decision" || return 1
+			fi
+			;;
+		manager_convergence)
+			[[ "$decision" == ACCEPT || "$decision" == CONTINUE || \
+				"$decision" == ACTIONABLE || "$decision" == DEAD_END || \
+				"$decision" == NEEDS_OPERATOR ]] || {
+				printf 'invalid convergence-audit decision: %s\n' "$decision" >&2
+				return 1
+			}
+			if [[ "$decision" == ACTIONABLE || "$decision" == CONTINUE ]]; then
+				validate_manager_findings "$report" "$decision" || return 1
+			elif [[ "$decision" == DEAD_END ]]; then
+				validate_dead_end_report "$report" || return 1
+			fi
+			;;
+		oracle_audit)
+			[[ "$decision" == PASS || "$decision" == REVISE || \
+				"$decision" == DEAD_END || "$decision" == NEEDS_OPERATOR ]] || {
+				printf 'invalid Oracle decision: %s\n' "$decision" >&2
+				return 1
+			}
+			[[ "$(tail -n 1 "$report")" == ORACLE_AUDIT_COMPLETE ]] || {
+				printf 'Oracle report does not end with ORACLE_AUDIT_COMPLETE\n' >&2
+				return 1
+			}
+			if [[ "$decision" == PASS ]]; then
+				grep -Fqx "Oracle-Run: $oracle_run" "$report" &&
+					grep -Fqx "Manager-Cycle: $cycle" "$report" || {
+						printf 'Oracle PASS metadata does not match run %s and cycle %s\n' \
+							"$oracle_run" "$cycle" >&2
+						return 1
+					}
+				validate_oracle_pass "$dir/inputs/specification.txt" "$report" ||
+					return 1
+			elif [[ "$decision" == REVISE ]]; then
+				validate_manager_findings "$report" "$decision" || return 1
+				grep -Fqx 'Addendum-Source: ORACLE' "$report" &&
+					grep -Fqx "Oracle-Run: $oracle_run" "$report" &&
+					grep -Fqx "Manager-Cycle: $cycle" "$report" || {
+						printf 'Oracle REVISE metadata does not match run %s and cycle %s\n' \
+							"$oracle_run" "$cycle" >&2
+						return 1
+					}
+			elif [[ "$decision" == DEAD_END ]]; then
+				validate_dead_end_report "$report" || return 1
+			fi
+			;;
+		*)
+			printf 'unsupported protocol-validation role: %s\n' "$role" >&2
+			return 1
+			;;
+	esac
+}
+
+prepare_protocol_repair_prompt()
+{
+	local role="$1"
+	local cycle="$2"
+	local oracle_run="$3"
+	local stem="$4"
+	local attempt="$5"
+	local validation_error="$6"
+	local rejected="$7"
+	local requirement_id
+	local prompt="$dir/prompts/$stem-protocol-repair-$(printf '%03d' "$attempt").md"
+	cp "$HARNESS_MODE_HOME/prompts/protocol-repair.md" "$prompt"
+	{
+		printf '# Repair context\n\n'
+		printf 'Role: `%s`\n\n' "$role"
+		printf 'Manager cycle: `%s`\n\n' "$cycle"
+		[[ "$role" != oracle_audit ]] ||
+			printf 'Oracle run: `%s`\n\n' "$oracle_run"
+		printf 'Validator error:\n\n%s\n\n' "$validation_error"
+		printf '# Required response contract\n\n'
+		case "$role" in
+			manager_review)
+				printf '%s\n' \
+					'The first line must be exactly `DECISION: ACCEPT` or `DECISION: REVISE`.' \
+					'For REVISE, retain every substantive finding as an `ADD-NNN` record with exactly one unique `Finding-Key:`, plus non-empty `Specification:`, `Evidence:`, `Required correction:`, and `Verification:` fields.' \
+					'For either decision, include the mandatory PROGRESS-DELTA block and preserve its substantive claims while repairing its structure.'
+				;;
+			manager_convergence)
+				printf '%s\n' \
+					'The first line must be exactly `DECISION: ACCEPT`, `DECISION: CONTINUE`, `DECISION: DEAD_END`, or `DECISION: NEEDS_OPERATOR`.' \
+					'For CONTINUE, retain every substantive finding as an `ADD-NNN` record with exactly one unique `Finding-Key:`, plus non-empty `Specification:`, `Evidence:`, `Required correction:`, and `Verification:` fields.' \
+					'For DEAD_END, include exactly one non-empty Dead-End-Category, Evidence, and Why-Local-Remediation-Cannot-Work field.'
+				;;
+			oracle_audit)
+				printf '%s\n' \
+					'The first line must be exactly `DECISION: PASS`, `DECISION: REVISE`, `DECISION: DEAD_END`, or `DECISION: NEEDS_OPERATOR`.' \
+					'The last line must be exactly `ORACLE_AUDIT_COMPLETE`.' \
+					"For PASS, include exact lines \`Oracle-Run: $oracle_run\` and \`Manager-Cycle: $cycle\`, followed by one non-empty Evidence/Verification record for each expected requirement ID listed below." \
+					"For REVISE, include exact lines \`Addendum-Source: ORACLE\`, \`Oracle-Run: $oracle_run\`, and \`Manager-Cycle: $cycle\`, followed by valid ADD-NNN findings."
+				printf '\nExpected PASS requirement IDs:\n\n'
+				while IFS= read -r requirement_id; do
+					printf -- '- `%s`\n' "$requirement_id"
+				done < <(oracle_expected_requirement_ids \
+					"$dir/inputs/specification.txt")
+				;;
+		esac
+		printf '\n# Rejected report — reproduce in corrected form\n\n'
+		printf '%s\n' '<BEGIN_REJECTED_REPORT>'
+		cat "$rejected"
+		printf '%s\n' '<END_REJECTED_REPORT>'
+	} >> "$prompt"
+	if [[ "$role" == manager_review ]] && completion_progress_audit_due "$cycle"; then
+		append_completion_progress_audit_prompt "$prompt" "$cycle"
+	fi
+	write_git_control_policy "$prompt"
+	chmod 600 "$prompt"
+	printf '%s\n' "$prompt"
+}
+
+pause_for_protocol_repair()
+{
+	local role="$1"
+	local cycle="$2"
+	local stem="$3"
+	local validation_error="$4"
+	local report="$dir/control/operator-required.md"
+	{
+		printf '# Operator required: reviewer protocol repair exhausted\n\n'
+		printf 'The harness preserved repository work but could not obtain a valid `%s` report after %s repair attempts.\n\n' \
+			"$role" "$HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS"
+		printf 'Cycle: `%s`\n\n' "$cycle"
+		printf 'Last validator error:\n\n```text\n%s\n```\n\n' \
+			"$validation_error"
+		printf 'Rejected reports: `%s/reviews/rejected/%s-invalid-*.md`\n' \
+			"$dir" "$stem"
+	} > "$report"
+	chmod 600 "$report"
+	write_state PAUSED NEEDS_OPERATOR "$cycle"
+	log_event "PROTOCOL_REPAIR_EXHAUSTED role=$role cycle=$cycle stem=$stem attempts=$HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS report=$report"
+	log_event "OPERATOR_REQUIRED cycle=$cycle source=protocol-repair role=$role report=$report"
+}
+
+repair_protocol_report()
+{
+	local role="$1"
+	local cycle="$2"
+	local oracle_run="$3"
+	local stem="$4"
+	local result_name="$5"
+	local -n result_ref="$result_name"
+	local validation_error rejected prompt repair_stem repaired repair_role
+	local expected_decision repaired_decision
+	local attempt=0
+	expected_decision="$(sed -n '1{s/^DECISION: //;p;q;}' "$result_ref")"
+	case "$role:$expected_decision" in
+		manager_review:ACCEPT|manager_review:REVISE|\
+		manager_convergence:ACCEPT|manager_convergence:CONTINUE|\
+		manager_convergence:ACTIONABLE|manager_convergence:DEAD_END|\
+		manager_convergence:NEEDS_OPERATOR|oracle_audit:PASS|\
+		oracle_audit:REVISE|oracle_audit:DEAD_END|oracle_audit:NEEDS_OPERATOR)
+			;;
+		*) expected_decision="" ;;
+	esac
+	mkdir -p "$dir/reviews/rejected"
+	while true; do
+		if validation_error="$(validate_protocol_report "$role" \
+			"$result_ref" "$cycle" "$oracle_run" 2>&1)"; then
+			repaired_decision="$(sed -n '1{s/^DECISION: //;p;q;}' "$result_ref")"
+			if [[ -z "$expected_decision" ||
+				"$repaired_decision" == "$expected_decision" ]]; then
+				break
+			fi
+			validation_error="protocol repair changed decision from $expected_decision to $repaired_decision"
+		fi
+		# A manager review can be substantively valid while its mandatory progress
+		# bookkeeping is not.  The finding-key portions are deterministic set
+		# differences, so repair them locally instead of spending another Terra
+		# turn asking it to preserve contradictory bookkeeping.  Do not normalize
+		# missing blocks, malformed findings, decisions, or completion audits.
+		if [[ "$role" == manager_review &&
+			"$validation_error" =~ (progress|Resolved-Findings|New-Findings|Verification-Gained|Verification-Lost|Net-Progress) ]] &&
+			normalize_manager_progress_delta "$result_ref" "$cycle" "$dir/reviews" &&
+			validation_error="$(validate_protocol_report "$role" \
+				"$result_ref" "$cycle" "$oracle_run" 2>&1)"; then
+			repaired_decision="$(sed -n '1{s/^DECISION: //;p;q;}' "$result_ref")"
+			if [[ -n "$expected_decision" &&
+				"$repaired_decision" != "$expected_decision" ]]; then
+				validation_error="protocol normalization changed decision from $expected_decision to $repaired_decision"
+			else
+				log_event "MANAGER_PROGRESS_DELTA_NORMALIZED cycle=$cycle stem=$stem output=$result_ref"
+				break
+			fi
+		fi
+		rejected="$dir/reviews/rejected/$stem-invalid-$(printf '%03d' "$attempt").md"
+		cp "$result_ref" "$rejected"
+		chmod 600 "$rejected"
+		log_event "PROTOCOL_VALIDATION_FAILED role=$role cycle=$cycle stem=$stem attempt=$attempt reason=$(printf '%q' "$validation_error") rejected=$rejected"
+		if (( attempt >= HARNESS_MAX_PROTOCOL_REPAIR_ATTEMPTS )); then
+			pause_for_protocol_repair "$role" "$cycle" "$stem" \
+				"$validation_error"
+			return 1
+		fi
+		attempt=$((attempt + 1))
+		prompt="$(prepare_protocol_repair_prompt "$role" "$cycle" \
+			"$oracle_run" "$stem" "$attempt" "$validation_error" "$rejected")"
+		repair_stem="$stem-protocol-repair-$(printf '%03d' "$attempt")"
+		case "$role" in
+			oracle_audit) repair_role=oracle_protocol_repair ;;
+			manager_convergence) repair_role=convergence_protocol_repair ;;
+			*) repair_role=manager_protocol_repair ;;
+		esac
+		log_event "PROTOCOL_REPAIR_STARTED role=$role cycle=$cycle stem=$stem attempt=$attempt model=$([[ "$role" == oracle_audit ]] && printf '%s' "$ORACLE_MODEL" || printf '%s' "$MANAGER_MODEL")"
+		repaired="$(invoke_with_retry "$repair_role" "$prompt" "$repair_stem")" ||
+			fail_harness "protocol repair turn failed for $role cycle $cycle attempt $attempt"
+		result_ref="$repaired"
+	done
+	if (( attempt > 0 )); then
+		log_event "PROTOCOL_REPAIR_COMPLETED role=$role cycle=$cycle stem=$stem attempts=$attempt output=$result_ref"
+	fi
+}
+
+worker_context_reset_value()
+{
+	local key="$1"
+	local marker="$dir/control/worker-context-reset.env"
+	[[ -f "$marker" ]] || return 1
+	awk -F= -v key="$key" '$1 == key { print substr($0, length($1) + 2); exit }' \
+		"$marker"
+}
+
+complete_goal_refresh()
+{
+	local reset_id recovery_kind resume_phase reset_cycle archive resolution completed_at
+	local event_prefix metadata_file
+	reset_id="$(worker_context_reset_value reset_id)"
+	recovery_kind="$(worker_context_reset_value recovery_kind || true)"
+	[[ -n "$recovery_kind" ]] || recovery_kind=worker_context_reset
+	resume_phase="$(worker_context_reset_value resume_phase)"
+	reset_cycle="$(worker_context_reset_value source_cycle)"
+	archive="$(worker_context_reset_value archive)"
+	[[ "$reset_id" =~ ^[0-9][0-9][0-9]+$ ]] ||
+		fail_harness 'worker-context reset has an invalid reset ID'
+	[[ "$reset_cycle" =~ ^[0-9]+$ ]] ||
+		fail_harness 'worker-context reset has an invalid cycle'
+	case "$resume_phase" in
+		WORKER_REQUIRED|WORKER_RETRY|REVIEW_REQUIRED|CONVERGENCE_REQUIRED) ;;
+		*) fail_harness "worker-context reset has an invalid resume phase: $resume_phase" ;;
+	esac
+	case "$recovery_kind" in
+		worker_context_reset)
+			[[ "$archive" == "$dir/reviews/worker-context-reset-"* ]] ||
+				fail_harness 'worker-context reset has an invalid archive path'
+			event_prefix=WORKER_CONTEXT_RESET
+			metadata_file="$archive/reset.env"
+			;;
+		operator_resolution)
+			resolution="$(worker_context_reset_value resolution)"
+			[[ "$archive" == "$dir/reviews/operator-resolution-"* ]] ||
+				fail_harness 'operator resolution has an invalid archive path'
+			[[ "$resolution" == "$dir/inputs/operator-resolution.md" && -s "$resolution" ]] ||
+				fail_harness 'operator resolution snapshot is missing or invalid'
+			event_prefix=OPERATOR_RESOLUTION
+			metadata_file="$archive/resolution.env"
+			;;
+		*) fail_harness "worker-context recovery has an invalid kind: $recovery_kind" ;;
+	esac
+	[[ -d "$archive" ]] ||
+		fail_harness "worker-context reset archive is missing: $archive"
+	[[ -s "$dir/control/worker-goal.md" ]] ||
+		fail_harness 'refreshed persistent worker goal is missing or empty'
+	if [[ ! -f "$archive/worker-goal-after.md" ]]; then
+		cp -p "$dir/control/worker-goal.md" "$archive/worker-goal-after.md"
+	fi
+	completed_at="$(timestamp_utc)"
+	if ! grep -q '^completed_at=' "$metadata_file"; then
+		{
+			printf 'completed_at=%s\n' "$completed_at"
+			printf 'new_goal_sha256=%s\n' \
+				"$(sha256sum "$dir/control/worker-goal.md" | awk '{ print $1 }')"
+		} >> "$metadata_file"
+	fi
+	write_state ACTIVE "$resume_phase" "$reset_cycle"
+	log_event "${event_prefix}_COMPLETED reset=$reset_id cycle=$reset_cycle resume_phase=$resume_phase archive=$archive"
+	rm -f "$dir/control/worker-context-reset.env"
+}
+
+generate_goal()
+{
+	local mode="${1:-initial}"
+	local prompt stem output cycle reset_id recovery_kind archive resolution event_prefix
+	cycle="$(state_value cycle)"
+	if [[ "$mode" == refresh ]]; then
+		reset_id="$(worker_context_reset_value reset_id)"
+		recovery_kind="$(worker_context_reset_value recovery_kind || true)"
+		[[ -n "$recovery_kind" ]] || recovery_kind=worker_context_reset
+		archive="$(worker_context_reset_value archive)"
+		[[ "$reset_id" =~ ^[0-9][0-9][0-9]+$ ]] ||
+			fail_harness 'worker-context reset marker is invalid'
+		case "$recovery_kind" in
+			worker_context_reset)
+				prompt="$dir/prompts/manager-goal-reset-$reset_id.md"
+				stem="manager-goal-reset-$reset_id"
+				event_prefix=GOAL_REFRESH
+				;;
+			operator_resolution)
+				resolution="$(worker_context_reset_value resolution)"
+				[[ "$resolution" == "$dir/inputs/operator-resolution.md" && -s "$resolution" ]] ||
+					fail_harness 'operator resolution snapshot is missing or invalid'
+				prompt="$dir/prompts/manager-goal-operator-resolution-$reset_id.md"
+				stem="manager-goal-operator-resolution-$reset_id"
+				event_prefix=OPERATOR_RESOLUTION_GOAL_REFRESH
+				;;
+			*) fail_harness "worker-context recovery has an invalid kind: $recovery_kind" ;;
+		esac
+	else
+		prompt="$dir/prompts/manager-goal.md"
+		stem=manager-goal
+	fi
+	cp "$HARNESS_MODE_HOME/prompts/manager-goal.md" "$prompt"
+	write_context_header "$prompt"
+	if [[ "$mode" == refresh ]]; then
+		{
+			if [[ "$recovery_kind" == operator_resolution ]]; then
+				printf '# Operator resolution\n\n'
+				printf 'An operator resolved the external blocker at cycle `%s`. The prior report and worker context are archived at `%s`. Treat the following immutable resolution as current environment evidence; direct Luna to perform the previously blocked repository work and verification.\n\n' \
+					"$cycle" "$archive"
+				cat "$resolution"
+				printf '\n\n'
+			else
+				printf '# Worker-context refresh\n\n'
+				printf 'This is operator-requested worker-context reset `%s` at cycle `%s`.\n\n' \
+					"$reset_id" "$cycle"
+				printf 'The previous goal is archived at `%s/worker-goal.md` for audit only. Do not inherit its narrower ownership prohibitions. Author a complete replacement under the current owner-authority and exceptions policy above.\n\n' \
+					"$archive"
+			fi
+		} >> "$prompt"
+		write_state ACTIVE GOAL_REFRESH_RUNNING "$cycle"
+		log_event "${event_prefix}_STARTED reset=$reset_id cycle=$cycle model=$MANAGER_MODEL effort=$MANAGER_REASONING_EFFORT"
+	else
+		write_state ACTIVE GOAL_RUNNING 0
+		log_event "GOAL_AUTHORING_STARTED model=$MANAGER_MODEL effort=$MANAGER_REASONING_EFFORT"
+	fi
+	write_git_control_policy "$prompt"
+	output="$(invoke_with_retry manager_goal "$prompt" "$stem")" ||
+		fail_harness 'Terra goal-authoring turn failed'
+	[[ -s "$output" ]] || fail_harness 'Terra returned an empty worker goal'
+	[[ "$(tail -n 1 "$output")" == GOAL_READY ]] ||
+		fail_harness 'Terra worker goal did not end with GOAL_READY'
+	cp "$output" "$dir/control/worker-goal.md"
+	chmod 600 "$dir/control/worker-goal.md"
+	if [[ "$mode" == refresh ]]; then
+		complete_goal_refresh
+	else
+		write_state ACTIVE WORKER_REQUIRED 0
+		log_event "GOAL_READY file=$dir/control/worker-goal.md"
+	fi
+}
+
+prepare_worker_prompt()
+{
+	local cycle="$1"
+	local prompt="$dir/prompts/worker-$(printf '%03d' "$cycle").md"
+	local addendum
+	if (( cycle == 1 )); then
+		cp "$HARNESS_MODE_HOME/prompts/worker-goal.md" "$prompt"
+		write_context_header "$prompt"
+		{
+			printf '\n# Complete immutable specification\n\n'
+			cat "$dir/inputs/specification.txt"
+			printf '\n# Manager-authored goal\n\n'
+			cat "$dir/control/worker-goal.md"
+		} >> "$prompt"
+	else
+		addendum="$dir/addenda/addendum-$(printf '%03d' "$((cycle - 1))").md"
+		[[ -f "$addendum" ]] || fail_harness "missing remediation addendum: $addendum"
+		cp "$HARNESS_MODE_HOME/prompts/worker-remediation.md" "$prompt"
+		write_context_header "$prompt"
+		{
+			printf '\nManager-authored persistent goal: `%s`\n\n' "$dir/control/worker-goal.md"
+			printf '# Completion addendum to resolve\n\n'
+			cat "$addendum"
+		} >> "$prompt"
+	fi
+	if [[ -s "$dir/inputs/operator-resolution.md" ]]; then
+		{
+			printf '\n# Current operator resolution\n\n'
+			cat "$dir/inputs/operator-resolution.md"
+			printf '\n'
+		} >> "$prompt"
+	fi
+	write_git_control_policy "$prompt"
+	printf '%s\n' "$prompt"
+}
+
+last_convergence_audit_cycle()
+{
+	local marker="$dir/control/last-convergence-audit-cycle"
+	local value=0
+	[[ ! -f "$marker" ]] || value="$(awk 'NR == 1 { print; exit }' "$marker")"
+	[[ "$value" =~ ^[0-9]+$ ]] || value=0
+	printf '%s\n' "$value"
+}
+
+prepare_convergence_prompt()
+{
+	local cycle="$1"
+	local trigger="$2"
+	local prompt="$dir/prompts/manager-convergence-$(printf '%03d' "$cycle").md"
+	local addendum audit
+	cp "$HARNESS_MODE_HOME/prompts/manager-convergence.md" "$prompt"
+	write_context_header "$prompt"
+	{
+		printf 'Manager-authored persistent goal: `%s`\n\n' "$dir/control/worker-goal.md"
+		printf 'Latest worker report: `%s`\n\n' \
+			"$dir/outputs/worker-$(printf '%03d' "$cycle").md"
+		printf 'Latest regular review: `%s`\n\n' \
+			"$dir/reviews/review-$(printf '%03d' "$cycle").md"
+		printf 'Convergence trigger keys: `%s`\n\n' "$trigger"
+		printf 'This is convergence audit cycle %s.\n\n' "$cycle"
+		printf '# Earlier addenda\n\n'
+	} >> "$prompt"
+	shopt -s nullglob
+	for addendum in "$dir/addenda/"addendum-*.md; do
+		printf -- '- `%s`\n' "$addendum" >> "$prompt"
+	done
+	shopt -u nullglob
+	{
+		printf '\n'
+		printf '# Earlier convergence audits\n\n'
+	} >> "$prompt"
+	shopt -s nullglob
+	for audit in "$dir/reviews/"convergence-audit-*.md; do
+		printf -- '- `%s`\n' "$audit" >> "$prompt"
+	done
+	shopt -u nullglob
+	write_git_control_policy "$prompt"
+	printf '%s\n' "$prompt"
+}
+
+mark_dead_end()
+{
+	local report="$1"
+	local cycle="$2"
+	local source="$3"
+	cp "$report" "$dir/control/dead-end.md"
+	chmod 600 "$dir/control/dead-end.md"
+	rm -f "$dir/control/provisional-acceptance.md"
+	write_state DEAD_END DEAD_END "$cycle"
+	log_event "DEAD_END cycle=$cycle source=$source report=$dir/control/dead-end.md"
+}
+
+begin_post_oracle_remediation()
+{
+	local cycle="$1"
+	local run="$2"
+	local marker="$dir/control/post-oracle-remediation.env"
+	{
+		printf 'oracle_run=%s\n' "$run"
+		printf 'oracle_cycle=%s\n' "$cycle"
+		printf 'started_manager_cycle=%s\n' "$cycle"
+		printf 'reviews_completed=0\n'
+		printf 'max_reviews=%s\n' "$HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE"
+		printf 'started_at=%s\n' "$(timestamp_utc)"
+	} > "$marker"
+	chmod 600 "$marker"
+	log_event "POST_ORACLE_REMEDIATION_STARTED cycle=$cycle run=$run limit=$HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE marker=$marker"
+}
+
+finish_post_oracle_remediation()
+{
+	local cycle="$1"
+	local outcome="$2"
+	local marker="$dir/control/post-oracle-remediation.env"
+	local archive="$dir/reviews/post-oracle-remediation-$(printf '%03d' "$cycle")-$outcome.env"
+	[[ ! -f "$marker" ]] || mv "$marker" "$archive"
+}
+
+complete_or_queue_oracle()
+{
+	local acceptance="$1"
+	local cycle="$2"
+	local source="$3"
+	if post_oracle_remediation_active; then
+		cp "$acceptance" "$dir/control/final-acceptance.md"
+		chmod 600 "$dir/control/final-acceptance.md"
+		finish_post_oracle_remediation "$cycle" accepted
+		write_state COMPLETE ACCEPTED "$cycle"
+		log_event "PROJECT_COMPLETED cycle=$cycle acceptance=$dir/control/final-acceptance.md source=post-oracle-remediation"
+		return
+	fi
+	if ! oracle_enabled; then
+		cp "$acceptance" "$dir/control/final-acceptance.md"
+		chmod 600 "$dir/control/final-acceptance.md"
+		write_state COMPLETE ACCEPTED "$cycle"
+		log_event "PROJECT_COMPLETED cycle=$cycle acceptance=$dir/control/final-acceptance.md source=$source oracle=disabled"
+		return
+	fi
+	cp "$acceptance" "$dir/control/provisional-acceptance.md"
+	chmod 600 "$dir/control/provisional-acceptance.md"
+	write_state ACTIVE ORACLE_REQUIRED "$cycle"
+	log_event "ORACLE_REQUIRED cycle=$cycle provisional=$dir/control/provisional-acceptance.md source=$source completed_runs=$(oracle_audit_run_count) max_runs=$MAX_ORACLE_RUNS"
+}
+
+prepare_oracle_prompt()
+{
+	local cycle="$1"
+	local run="$2"
+	local requirement_id
+	local prompt="$dir/prompts/oracle-audit-$(printf '%03d' "$run").md"
+	cp "$HARNESS_MODE_HOME/prompts/oracle-audit.md" "$prompt"
+	write_context_header "$prompt"
+	{
+		printf 'Manager cycle: `%s`\n\n' "$cycle"
+		printf 'Oracle run: `%s` of at most `%s`\n\n' "$run" "$MAX_ORACLE_RUNS"
+		printf '%s\n\n' \
+			'Terra acceptance is only the trigger for this audit. Manager/worker traffic is not governing evidence and need not be reviewed.'
+		printf '# Expected Oracle PASS requirement IDs\n\n'
+		while IFS= read -r requirement_id; do
+			printf -- '- `%s`\n' "$requirement_id"
+		done < <(oracle_expected_requirement_ids "$dir/inputs/specification.txt")
+		printf '\n'
+		printf '# Complete immutable specification\n\n'
+		cat "$dir/inputs/specification.txt"
+		printf '\n'
+	} >> "$prompt"
+	write_git_control_policy "$prompt"
+	printf '%s\n' "$prompt"
+}
+
+run_oracle_audit()
+{
+	local cycle="$1"
+	local completed run prompt stem output decision audit addendum
+	reload_review_environment oracle_audit "$cycle"
+	if ! oracle_enabled; then
+		[[ -s "$dir/control/provisional-acceptance.md" ]] ||
+			fail_harness 'missing provisional acceptance while bypassing a disabled Oracle'
+		complete_or_queue_oracle "$dir/control/provisional-acceptance.md" "$cycle" oracle-disabled-after-reload
+		rm -f "$dir/control/provisional-acceptance.md"
+		return
+	fi
+	completed="$(oracle_audit_run_count)"
+	if (( completed >= MAX_ORACLE_RUNS )); then
+		write_state PAUSED ORACLE_LIMIT_REACHED "$cycle"
+		log_event "ORACLE_LIMIT_REACHED cycle=$cycle completed_runs=$completed max_runs=$MAX_ORACLE_RUNS"
+		return
+	fi
+	run=$((completed + 1))
+	prompt="$(prepare_oracle_prompt "$cycle" "$run")"
+	stem="oracle-audit-$(printf '%03d' "$run")"
+	write_state ACTIVE ORACLE_RUNNING "$cycle"
+	log_event "ORACLE_AUDIT_STARTED cycle=$cycle run=$run model=$ORACLE_MODEL effort=$ORACLE_REASONING_EFFORT"
+	output="$(invoke_with_retry oracle_audit "$prompt" "$stem")" ||
+		fail_harness "Oracle audit failed in run $run"
+	if ! repair_protocol_report oracle_audit "$cycle" "$run" "$stem" output; then
+		return
+	fi
+	decision="$(sed -n '1{s/^DECISION: //;p;q;}' "$output")"
+	audit="$dir/reviews/oracle-audit-$(printf '%03d' "$run").md"
+	cp "$output" "$audit"
+	chmod 600 "$audit"
+	log_event "ORACLE_AUDIT_FINISHED cycle=$cycle run=$run decision=$decision audit=$audit"
+	case "$decision" in
+		PASS)
+			cp "$audit" "$dir/control/final-acceptance.md"
+			chmod 600 "$dir/control/final-acceptance.md"
+			rm -f "$dir/control/provisional-acceptance.md"
+			write_state COMPLETE ORACLE_ACCEPTED "$cycle"
+			log_event "PROJECT_COMPLETED cycle=$cycle oracle_run=$run acceptance=$dir/control/final-acceptance.md source=oracle"
+			;;
+		REVISE)
+			addendum="$dir/addenda/addendum-$(printf '%03d' "$cycle").md"
+			[[ ! -e "$addendum" ]] ||
+				fail_harness "refusing to replace existing remediation addendum: $addendum"
+			cp "$audit" "$addendum"
+			chmod 600 "$addendum"
+			rm -f "$dir/control/provisional-acceptance.md"
+			begin_post_oracle_remediation "$cycle" "$run"
+			write_state ACTIVE WORKER_REQUIRED "$cycle"
+			log_event "ORACLE_ADDENDUM_PUBLISHED cycle=$cycle run=$run addendum=$addendum"
+			;;
+		NEEDS_OPERATOR)
+			cp "$audit" "$dir/control/operator-required.md"
+			chmod 600 "$dir/control/operator-required.md"
+			write_state PAUSED NEEDS_OPERATOR "$cycle"
+			log_event "OPERATOR_REQUIRED cycle=$cycle source=oracle run=$run report=$dir/control/operator-required.md"
+			;;
+		DEAD_END)
+			mark_dead_end "$audit" "$cycle" oracle
+			;;
+	esac
+}
+
+run_convergence_audit()
+{
+	local cycle="$1"
+	local trigger_file="$dir/control/convergence-trigger-$(printf '%03d' "$cycle").txt"
+	local trigger prompt output stem audit decision addendum repeated reset_cycle
+	local fingerprint report
+	[[ -s "$trigger_file" ]] || fail_harness "missing convergence trigger: $trigger_file"
+	reload_review_environment manager_convergence "$cycle"
+	trigger="$(paste -sd, "$trigger_file")"
+	prompt="$(prepare_convergence_prompt "$cycle" "$trigger")"
+	stem="manager-convergence-$(printf '%03d' "$cycle")"
+	write_state ACTIVE CONVERGENCE_RUNNING "$cycle"
+	log_event "CONVERGENCE_AUDIT_STARTED cycle=$cycle keys=$trigger model=$CONVERGENCE_MODEL effort=$CONVERGENCE_REASONING_EFFORT"
+	output="$(invoke_with_retry manager_convergence "$prompt" "$stem")" ||
+		fail_harness "Terra convergence audit failed in cycle $cycle"
+	if ! repair_protocol_report manager_convergence "$cycle" 0 "$stem" output; then
+		return
+	fi
+	decision="$(sed -n '1{s/^DECISION: //;p;q;}' "$output")"
+	audit="$dir/reviews/convergence-audit-$(printf '%03d' "$cycle").md"
+	cp "$output" "$audit"
+	chmod 600 "$audit"
+	printf '%s\n' "$cycle" > "$dir/control/last-convergence-audit-cycle"
+	chmod 600 "$dir/control/last-convergence-audit-cycle"
+	log_event "CONVERGENCE_AUDIT_FINISHED cycle=$cycle decision=$decision audit=$audit"
+	case "$decision" in
+		ACCEPT)
+			complete_or_queue_oracle "$audit" "$cycle" convergence-audit
+			;;
+		ACTIONABLE|CONTINUE)
+			reset_cycle=0
+			if [[ -f "$dir/control/convergence-circuit-reset-cycle" ]]; then
+				reset_cycle="$(awk 'NR == 1 { print; exit }' \
+					"$dir/control/convergence-circuit-reset-cycle")"
+				[[ "$reset_cycle" =~ ^[0-9]+$ ]] || reset_cycle=0
+			fi
+			repeated="$(repeated_convergence_finding_keys "$dir/reviews" \
+				"$HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS" "$reset_cycle")"
+			if [[ -n "$repeated" ]]; then
+				fingerprint="$(repository_worktree_fingerprint)"
+				report="$dir/control/operator-required.md"
+				addendum="$dir/addenda/addendum-$(printf '%03d' "$cycle").md"
+				cp "$audit" "$addendum"
+				chmod 600 "$addendum"
+				{
+					printf '# Repeated convergence audit limit reached\n\n'
+					printf 'The harness paused after %s consecutive convergence audits retained the same findings.\n\n' \
+						"$HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS"
+					printf 'Cycle: `%s`\n\n' "$cycle"
+					printf 'Repository fingerprint: `%s`\n\n' "$fingerprint"
+					printf 'Repeated finding keys:\n\n'
+					while IFS= read -r key; do
+						printf -- '- `%s`\n' "$key"
+					done <<< "$repeated"
+					printf '\nLatest convergence audit: `%s`\n' "$audit"
+				} > "$report"
+				chmod 600 "$report"
+				printf '%s\n' repeated-convergence > \
+					"$dir/control/operator-pause-kind"
+				printf '%s\n' "$fingerprint" > \
+					"$dir/control/operator-pause-fingerprint"
+				printf '%s\n' "$HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS" > \
+					"$dir/control/operator-pause-count"
+				chmod 600 "$dir/control/operator-pause-kind" \
+					"$dir/control/operator-pause-fingerprint" \
+					"$dir/control/operator-pause-count"
+				write_state PAUSED CONVERGENCE_LIMIT_REACHED "$cycle"
+				log_event "CONVERGENCE_LIMIT_REACHED cycle=$cycle max=$HARNESS_MAX_REPEATED_CONVERGENCE_AUDITS keys=$(paste -sd, <<< "$repeated") report=$report"
+				return
+			fi
+			addendum="$dir/addenda/addendum-$(printf '%03d' "$cycle").md"
+			cp "$audit" "$addendum"
+			chmod 600 "$addendum"
+			write_state ACTIVE WORKER_REQUIRED "$cycle"
+			log_event "CONVERGENCE_ADDENDUM_PUBLISHED cycle=$cycle addendum=$addendum"
+			;;
+		NEEDS_OPERATOR)
+			cp "$audit" "$dir/control/operator-required.md"
+			chmod 600 "$dir/control/operator-required.md"
+			write_state PAUSED NEEDS_OPERATOR "$cycle"
+			log_event "OPERATOR_REQUIRED cycle=$cycle report=$dir/control/operator-required.md"
+			;;
+		DEAD_END)
+			mark_dead_end "$audit" "$cycle" convergence-audit
+			;;
+	esac
+}
+
+run_worker()
+{
+	local cycle="$1"
+	local retry_same_cycle="$2"
+	local prompt output stem thread before_fingerprint after_fingerprint
+	local progress_file no_progress report changed
+	prompt="$(prepare_worker_prompt "$cycle")"
+	stem="worker-$(printf '%03d' "$cycle")"
+	progress_file="$dir/control/worker-progress-$(printf '%03d' "$cycle").env"
+	if [[ -f "$progress_file" ]] &&
+		before_fingerprint="$(awk -F= '$1 == "before" { print $2; exit }' \
+			"$progress_file")" &&
+		[[ "$before_fingerprint" =~ ^[0-9a-f]{64}$ ]]; then
+		:
+	else
+		before_fingerprint="$(repository_worktree_fingerprint)"
+		{
+			printf 'before=%s\n' "$before_fingerprint"
+			printf 'after=\n'
+			printf 'changed=pending\n'
+		} > "$progress_file"
+		chmod 600 "$progress_file"
+	fi
+	thread=""
+	[[ ! -f "$dir/control/worker.thread" ]] ||
+		thread="$(awk 'NR == 1 { print; exit }' "$dir/control/worker.thread")"
+	write_state ACTIVE WORKER_RUNNING "$cycle"
+	log_event "WORKER_STARTED cycle=$cycle mode=$([[ -n "$thread" ]] && printf resume || printf fresh) model=$WORKER_MODEL effort=$WORKER_REASONING_EFFORT retry=$retry_same_cycle"
+	if [[ -n "$thread" ]]; then
+		output="$(invoke_with_retry worker "$prompt" "$stem" resume "$thread")" ||
+			fail_harness "Luna worker turn failed in cycle $cycle"
+	else
+		output="$(invoke_with_retry worker "$prompt" "$stem")" ||
+			fail_harness "Luna worker turn failed in cycle $cycle"
+		thread="$(codex_thread_id_from_jsonl "$dir/logs/$stem.jsonl")"
+		[[ "$thread" =~ ^[A-Za-z0-9._:-]+$ ]] ||
+			fail_harness 'Luna worker thread ID was not recorded'
+		printf '%s\n' "$thread" > "$dir/control/worker.thread"
+		chmod 600 "$dir/control/worker.thread"
+	fi
+	[[ -s "$output" ]] || fail_harness "Luna worker returned an empty report in cycle $cycle"
+	after_fingerprint="$(repository_worktree_fingerprint)"
+	no_progress="$(no_source_progress_count)"
+	if [[ "$before_fingerprint" == "$after_fingerprint" ]]; then
+		no_progress=$((no_progress + 1))
+		changed=0
+	else
+		no_progress=0
+		changed=1
+	fi
+	{
+		printf 'before=%s\n' "$before_fingerprint"
+		printf 'after=%s\n' "$after_fingerprint"
+		printf 'changed=%s\n' "$changed"
+	} > "$progress_file"
+	printf '%s\n' "$no_progress" > "$dir/control/no-source-progress-count"
+	chmod 600 "$progress_file" "$dir/control/no-source-progress-count"
+	log_event "WORKTREE_PROGRESS cycle=$cycle changed=$changed no_source_progress_reviews=$no_progress before=$before_fingerprint after=$after_fingerprint"
+	log_event "WORKER_DELIVERED cycle=$cycle thread=$thread report=$output"
+	if [[ "$HARNESS_METRICS_ENABLED" == 1 ]]; then
+		if [[ ! -d "$(metrics_git_dir)" ]]; then
+			if metrics_initialize; then
+				log_event "METRICS_INITIALIZED_LATE snapshot=$(metrics_ref_for_cycle 0) directory=$(metrics_dir)"
+			else
+				log_event "METRICS_INITIALIZATION_FAILED directory=$(metrics_dir)"
+			fi
+		fi
+		if metrics_snapshot "$cycle" worker; then
+			log_event "METRICS_SNAPSHOT_RECORDED cycle=$cycle snapshot=$(metrics_ref_for_cycle "$cycle")"
+		else
+			# Metrics are observational.  A storage or Git-sidecar issue must be visible,
+			# but it must not discard a successful Luna delivery or stop development.
+			log_event "METRICS_SNAPSHOT_FAILED cycle=$cycle directory=$(metrics_dir)"
+		fi
+	fi
+	if (( HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS > 0 &&
+		no_progress >= HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS )); then
+		report="$dir/control/operator-required.md"
+		{
+			printf '# No source progress limit reached\n\n'
+			printf 'The harness paused because %s consecutive Luna deliveries left the Git-visible implementation tree unchanged.\n\n' \
+				"$no_progress"
+			printf 'Cycle: `%s`\n\n' "$cycle"
+			printf 'Repository fingerprint: `%s`\n\n' "$after_fingerprint"
+			printf 'Latest worker report: `%s`\n\n' "$output"
+			if [[ -f "$dir/reviews/review-$(printf '%03d' "$((cycle - 1))").md" ]]; then
+				printf 'Latest completed manager review: `%s`\n' \
+					"$dir/reviews/review-$(printf '%03d' "$((cycle - 1))").md"
+			fi
+		} > "$report"
+		chmod 600 "$report"
+		printf '%s\n' no-source-progress > "$dir/control/operator-pause-kind"
+		printf '%s\n' "$after_fingerprint" > \
+			"$dir/control/operator-pause-fingerprint"
+		printf '%s\n' "$no_progress" > "$dir/control/operator-pause-count"
+		chmod 600 "$dir/control/operator-pause-kind" \
+			"$dir/control/operator-pause-fingerprint" \
+			"$dir/control/operator-pause-count"
+		write_state PAUSED NO_SOURCE_PROGRESS "$cycle"
+		log_event "NO_SOURCE_PROGRESS_LIMIT_REACHED cycle=$cycle count=$no_progress max=$HARNESS_MAX_NO_SOURCE_PROGRESS_REVIEWS fingerprint=$after_fingerprint report=$report"
+		return
+	fi
+	write_state ACTIVE REVIEW_REQUIRED "$cycle"
+}
+
+prepare_review_prompt()
+{
+	local cycle="$1"
+	local prompt="$dir/prompts/manager-review-$(printf '%03d' "$cycle").md"
+	local addendum checklist
+	cp "$HARNESS_MODE_HOME/prompts/manager-review.md" "$prompt"
+	write_context_header "$prompt"
+	if (( cycle == 1 )) &&
+		[[ "$HARNESS_MANAGER_REVIEW_CHECKLIST" != none ]]; then
+		checklist="$HARNESS_MODE_HOME/prompts/manager-review-checklist-$HARNESS_MANAGER_REVIEW_CHECKLIST.md"
+		[[ -f "$checklist" ]] ||
+			fail_harness "manager review checklist is unavailable: $checklist"
+		{
+			printf '\n# Operator-selected first-review checklist\n\n'
+			cat "$checklist"
+			printf '\n'
+		} >> "$prompt"
+		log_event "MANAGER_REVIEW_CHECKLIST_ATTACHED cycle=$cycle profile=$HARNESS_MANAGER_REVIEW_CHECKLIST"
+	fi
+	{
+		printf 'Manager-authored persistent goal: `%s`\n\n' "$dir/control/worker-goal.md"
+		printf 'Latest worker report: `%s`\n\n' \
+			"$dir/outputs/worker-$(printf '%03d' "$cycle").md"
+		printf 'This is review cycle %s.\n\n' "$cycle"
+		printf '# Earlier addenda\n\n'
+	} >> "$prompt"
+	shopt -s nullglob
+	for addendum in "$dir/addenda/"*.md; do
+		printf -- '- `%s`\n' "$addendum" >> "$prompt"
+	done
+	shopt -u nullglob
+	if completion_progress_audit_due "$cycle"; then
+		append_completion_progress_audit_prompt "$prompt" "$cycle"
+		log_event "COMPLETION_PROGRESS_AUDIT_SCHEDULED cycle=$cycle every=$HARNESS_PROGRESS_AUDIT_EVERY_REVIEWS"
+	fi
+	write_git_control_policy "$prompt"
+	printf '%s\n' "$prompt"
+}
+
+progress_counter_update()
+{
+	local name="$1"
+	local increment="$2"
+	local file="$dir/control/progress-counter-$name"
+	local value=0
+	[[ ! -f "$file" ]] || value="$(awk 'NR == 1 { print; exit }' "$file")"
+	[[ "$value" =~ ^[0-9]+$ ]] || value=0
+	if (( increment )); then
+		value=$((value + 1))
+	else
+		value=0
+	fi
+	printf '%s\n' "$value" > "$file"
+	chmod 600 "$file"
+	printf '%s\n' "$value"
+}
+
+manager_progress_suspicion_keys()
+{
+	local cycle="$1"
+	local report="$2"
+	local progress_file="$dir/control/worker-progress-$(printf '%03d' "$cycle").env"
+	local changed resolved gained lost low_count fingerprint old_file oscillated=0
+	local oscillation_count reappeared=0 reappearance_count key previous_review
+	local stagnant=0 stagnant_count current_completion previous_completion
+	changed="$(awk -F= '$1 == "changed" { print $2; exit }' "$progress_file" 2>/dev/null || true)"
+	resolved="$(manager_progress_value "$report" Resolved-Findings)"
+	gained="$(manager_progress_value "$report" Verification-Gained)"
+	lost="$(manager_progress_value "$report" Verification-Lost)"
+
+	low_count="$(progress_counter_update low-yield \
+		"$([[ "$changed" == 1 && "$resolved" == none && "$gained" == none ]] && printf 1 || printf 0)")"
+	if (( HARNESS_MAX_LOW_YIELD_REVIEWS > 0 &&
+		low_count >= HARNESS_MAX_LOW_YIELD_REVIEWS )); then
+		printf '%s\n' progress.low-yield
+	fi
+	[[ "$lost" == none ]] || printf '%s\n' progress.verification-regression
+
+	fingerprint="$(awk -F= '$1 == "after" { print $2; exit }' "$progress_file" 2>/dev/null || true)"
+	if [[ "$changed" == 1 && "$fingerprint" =~ ^[0-9a-f]{64}$ ]]; then
+		for old_file in "$dir/control/worker-progress-"*.env; do
+			[[ -f "$old_file" && "$old_file" != "$progress_file" ]] || continue
+			old_cycle="${old_file##*-}"
+			old_cycle="${old_cycle%.env}"
+			[[ "$old_cycle" =~ ^[0-9]+$ ]] || continue
+			(( 10#$old_cycle < cycle - 1 )) || continue
+			if [[ "$(awk -F= '$1 == "after" { print $2; exit }' "$old_file")" == "$fingerprint" ]]; then
+				oscillated=1
+				break
+			fi
+		done
+	fi
+	oscillation_count="$(progress_counter_update worktree-oscillation "$oscillated")"
+	if (( HARNESS_MAX_WORKTREE_OSCILLATIONS > 0 &&
+		oscillation_count >= HARNESS_MAX_WORKTREE_OSCILLATIONS )); then
+		printf '%s\n' progress.worktree-oscillation
+	fi
+
+	previous_review="$dir/addenda/addendum-$(printf '%03d' "$((cycle - 1))").md"
+	[[ -f "$previous_review" ]] ||
+		previous_review="$dir/reviews/review-$(printf '%03d' "$((cycle - 1))").md"
+	while IFS= read -r key; do
+		manager_finding_keys "$previous_review" 2>/dev/null | grep -Fqx -- "$key" && continue
+		for ((old_cycle = 1; old_cycle <= cycle - 2; old_cycle++)); do
+			if manager_finding_keys "$dir/reviews/review-$(printf '%03d' "$old_cycle").md" \
+				2>/dev/null | grep -Fqx -- "$key"; then
+				reappeared=1
+				break 2
+			fi
+		done
+	done < <(manager_finding_keys "$report")
+	reappearance_count="$(progress_counter_update finding-reappearance "$reappeared")"
+	if (( HARNESS_MAX_FINDING_REAPPEARANCES > 0 &&
+		reappearance_count >= HARNESS_MAX_FINDING_REAPPEARANCES )); then
+		printf '%s\n' progress.finding-reappearance
+	fi
+
+	if completion_progress_audit_due "$cycle"; then
+		current_completion="$dir/control/completion-progress-$(printf '%03d' "$cycle").env"
+		previous_completion="$(find "$dir/control" -maxdepth 1 -type f \
+			-name 'completion-progress-[0-9][0-9][0-9]*.env' ! -path "$current_completion" \
+			| sort | tail -n 1)"
+		if [[ -f "$previous_completion" && -f "$current_completion" ]] &&
+			[[ "$(awk -F= '$1 == "verified_complete" || $1 == "implemented_unverified" || $1 == "remaining_gap" || $1 == "blocked" { print }' "$previous_completion")" == \
+			"$(awk -F= '$1 == "verified_complete" || $1 == "implemented_unverified" || $1 == "remaining_gap" || $1 == "blocked" { print }' "$current_completion")" ]]; then
+			stagnant=1
+		fi
+		stagnant_count="$(progress_counter_update completion-stagnation "$stagnant")"
+		if (( HARNESS_MAX_COMPLETION_STAGNANT_AUDITS > 0 &&
+			stagnant_count >= HARNESS_MAX_COMPLETION_STAGNANT_AUDITS )); then
+			printf '%s\n' progress.completion-stagnation
+		fi
+	fi
+}
+
+review_worker()
+{
+	local cycle="$1"
+	local prompt output stem review decision addendum last_audit repeated trigger_file
+	local suspicious post_reviews post_marker
+	reload_review_environment manager_review "$cycle"
+	prompt="$(prepare_review_prompt "$cycle")"
+	stem="manager-review-$(printf '%03d' "$cycle")"
+	write_state ACTIVE REVIEW_RUNNING "$cycle"
+	log_event "MANAGER_REVIEW_STARTED cycle=$cycle model=$MANAGER_MODEL effort=$MANAGER_REASONING_EFFORT"
+	output="$(invoke_with_retry manager_review "$prompt" "$stem")" ||
+		fail_harness "Terra manager review failed in cycle $cycle"
+	if ! repair_protocol_report manager_review "$cycle" 0 "$stem" output; then
+		return
+	fi
+	decision="$(sed -n '1{s/^DECISION: //;p;q;}' "$output")"
+	review="$dir/reviews/review-$(printf '%03d' "$cycle").md"
+	cp "$output" "$review"
+	chmod 600 "$review"
+	record_manager_progress_delta "$cycle" "$review"
+	log_event "MANAGER_REVIEW_FINISHED cycle=$cycle decision=$decision review=$review"
+	if completion_progress_audit_due "$cycle"; then
+		record_completion_progress_audit "$cycle" "$review"
+	fi
+
+	if [[ "$decision" == ACCEPT ]]; then
+		complete_or_queue_oracle "$review" "$cycle" manager-review
+		return
+	fi
+
+	addendum="$dir/addenda/addendum-$(printf '%03d' "$cycle").md"
+	cp "$review" "$addendum"
+	chmod 600 "$addendum"
+	if post_oracle_remediation_active; then
+		post_marker="$dir/control/post-oracle-remediation.env"
+		post_reviews="$(post_oracle_remediation_value reviews_completed 2>/dev/null || printf 0)"
+		[[ "$post_reviews" =~ ^[0-9]+$ ]] || post_reviews=0
+		post_reviews=$((post_reviews + 1))
+		sed -i "s/^reviews_completed=.*/reviews_completed=$post_reviews/" "$post_marker"
+		log_event "POST_ORACLE_REVIEW cycle=$cycle completed=$post_reviews limit=$HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE"
+		if (( HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE == 0 ||
+			post_reviews >= HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE )); then
+			write_state PAUSED POST_ORACLE_REVIEW_LIMIT_REACHED "$cycle"
+			log_event "POST_ORACLE_REVIEW_LIMIT_REACHED cycle=$cycle completed=$post_reviews max=$HARNESS_MAX_MANAGER_REVIEWS_AFTER_ORACLE addendum=$addendum"
+			return
+		fi
+	elif (( HARNESS_MAX_MANAGER_REVIEWS > 0 &&
+		cycle >= HARNESS_MAX_MANAGER_REVIEWS )); then
+		write_state PAUSED REVIEW_LIMIT_REACHED "$cycle"
+		log_event "REVIEW_LIMIT_REACHED cycle=$cycle max=$HARNESS_MAX_MANAGER_REVIEWS addendum=$addendum"
+		return
+	fi
+	suspicious="$(manager_progress_suspicion_keys "$cycle" "$review")"
+	if [[ -n "$suspicious" ]]; then
+		trigger_file="$dir/control/convergence-trigger-$(printf '%03d' "$cycle").txt"
+		printf '%s\n' "$suspicious" > "$trigger_file"
+		chmod 600 "$trigger_file"
+		write_state ACTIVE CONVERGENCE_REQUIRED "$cycle"
+		log_event "PROGRESS_SUSPICION_TRIGGERED cycle=$cycle keys=$(paste -sd, "$trigger_file")"
+		return
+	fi
+	last_audit="$(last_convergence_audit_cycle)"
+	repeated="$(repeated_manager_finding_keys "$dir/reviews" "$cycle" \
+		"$HARNESS_MAX_REPEATED_FINDING_REVIEWS" "$last_audit")"
+	if [[ -n "$repeated" ]]; then
+		trigger_file="$dir/control/convergence-trigger-$(printf '%03d' "$cycle").txt"
+		printf '%s\n' "$repeated" > "$trigger_file"
+		chmod 600 "$trigger_file"
+		write_state ACTIVE CONVERGENCE_REQUIRED "$cycle"
+		log_event "CONVERGENCE_TRIGGERED cycle=$cycle threshold=$HARNESS_MAX_REPEATED_FINDING_REVIEWS keys=$(paste -sd, "$trigger_file")"
+		return
+	fi
+	write_state ACTIVE WORKER_REQUIRED "$cycle"
+	log_event "ADDENDUM_PUBLISHED cycle=$cycle addendum=$addendum"
+}
+
+log_event "SUPERVISOR_STARTED pid=$$ env_file=$HARNESS_ENV_FILE"
+
+phase="$(state_value phase)"
+cycle="$(state_value cycle)"
+case "$phase" in
+	GOAL_RUNNING)
+		[[ -f "$dir/control/worker-goal.md" ]] &&
+			write_state ACTIVE WORKER_REQUIRED 0 ||
+			write_state ACTIVE GOAL_REQUIRED 0
+		;;
+	GOAL_REFRESH_RUNNING)
+		if [[ -s "$dir/control/worker-goal.md" &&
+			-f "$dir/control/worker-context-reset.env" ]]; then
+			complete_goal_refresh
+		else
+			write_state ACTIVE GOAL_REFRESH_REQUIRED "$cycle"
+		fi
+		;;
+	WORKER_RUNNING)
+		if [[ ! -f "$dir/control/worker.thread" ]]; then
+			thread="$(codex_thread_id_from_jsonl "$dir/logs/worker-$(printf '%03d' "$cycle").jsonl" 2>/dev/null || true)"
+			if [[ "$thread" =~ ^[A-Za-z0-9._:-]+$ ]]; then
+				printf '%s\n' "$thread" > "$dir/control/worker.thread"
+			fi
+		fi
+		write_state ACTIVE WORKER_RETRY "$cycle"
+		;;
+	REVIEW_RUNNING)
+		write_state ACTIVE REVIEW_REQUIRED "$cycle"
+		;;
+	CONVERGENCE_RUNNING)
+		write_state ACTIVE CONVERGENCE_REQUIRED "$cycle"
+		;;
+	ORACLE_RUNNING)
+		write_state ACTIVE ORACLE_REQUIRED "$cycle"
+		;;
+esac
+
+while true; do
+	status="$(state_value status)"
+	phase="$(state_value phase)"
+	cycle="$(state_value cycle)"
+	case "$status:$phase" in
+		COMPLETE:ACCEPTED|COMPLETE:ORACLE_ACCEPTED|DEAD_END:DEAD_END|\
+		PAUSED:REVIEW_LIMIT_REACHED|PAUSED:POST_ORACLE_REVIEW_LIMIT_REACHED|\
+		PAUSED:ORACLE_LIMIT_REACHED|PAUSED:NEEDS_OPERATOR|\
+		PAUSED:NO_SOURCE_PROGRESS|PAUSED:CONVERGENCE_LIMIT_REACHED)
+			break
+			;;
+		FAILED:*)
+			exit 1
+			;;
+		ACTIVE:GOAL_REQUIRED)
+			generate_goal
+			;;
+		ACTIVE:GOAL_REFRESH_REQUIRED)
+			generate_goal refresh
+			;;
+		ACTIVE:WORKER_REQUIRED)
+			run_worker "$((cycle + 1))" 0
+			;;
+		ACTIVE:WORKER_RETRY)
+			run_worker "$cycle" 1
+			;;
+		ACTIVE:REVIEW_REQUIRED)
+			review_worker "$cycle"
+			;;
+		ACTIVE:CONVERGENCE_REQUIRED)
+			run_convergence_audit "$cycle"
+			;;
+		ACTIVE:ORACLE_REQUIRED)
+			run_oracle_audit "$cycle"
+			;;
+		*)
+			fail_harness "unsupported state status=$status phase=$phase cycle=$cycle"
+			;;
+	esac
+done
+
+log_event "SUPERVISOR_EXIT status=$(state_value status) phase=$(state_value phase)"

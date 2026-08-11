@@ -1,0 +1,1 @@
+Accepted plan item 004 at 100% and published `005-sequential-chart`, targeting deterministic chart-item storage and deduplication.

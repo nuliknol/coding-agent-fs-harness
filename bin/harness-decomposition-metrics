@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 1 ]] || { printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+project_plan_uses_dag || die 'decomposition metrics require a v2 decomposition DAG'
+
+dir="$(project_dir)"
+report="$dir/control/decomposition-metrics.tsv"
+nodes_total="$(project_plan_total_count)"
+nodes_complete="$(project_plan_complete_count)"
+luna_assignments=0
+terra_assignments=0
+luna_complete=0
+luna_failed=0
+terra_complete=0
+terra_failed=0
+terminal_goals=0
+identical_iterations=0
+total_iterations=0
+verified_items=0
+replans=0
+worker_input=0
+worker_output=0
+
+shopt -s nullglob
+for assignment in "$dir"/archive/"$PROJECT-task-"*.assignment.md; do
+	route="$(metadata_value "$assignment" Worker-Route)"
+	[[ "$route" =~ ^(LUNA|TERRA)$ ]] || continue
+	[[ "$route" == LUNA ]] && luna_assignments=$((luna_assignments + 1)) || terra_assignments=$((terra_assignments + 1))
+	task_id="${assignment##*/}"
+	task_id="${task_id#${PROJECT}-task-}"
+	task_id="${task_id%.assignment.md}"
+	result="$dir/archive/$(task_base "$task_id").result.md"
+	[[ -f "$result" ]] || result="$dir/archive/$(task_base "$task_id").checkpoint-result.md"
+	[[ -f "$result" ]] || continue
+	outcome="$(metadata_value "$result" Goal-Outcome)"
+	[[ -n "$outcome" ]] || continue
+	terminal_goals=$((terminal_goals + 1))
+	if [[ "$route" == LUNA && "$outcome" == COMPLETE ]]; then
+		luna_complete=$((luna_complete + 1))
+	elif [[ "$route" == LUNA ]]; then
+		luna_failed=$((luna_failed + 1))
+	elif [[ "$outcome" == COMPLETE ]]; then
+		terra_complete=$((terra_complete + 1))
+	else
+		terra_failed=$((terra_failed + 1))
+	fi
+done
+
+for ledger in "$dir"/control/goals/*.iterations.tsv; do
+	[[ -f "$ledger" ]] || continue
+	total_iterations=$((total_iterations + $(awk -F '\t' 'NR > 1 {count++} END {print count + 0}' "$ledger")))
+	identical_iterations=$((identical_iterations + $(awk -F '\t' 'NR > 1 && $9 == "identical" {count++} END {print count + 0}' "$ledger")))
+done
+for ledger in "$dir"/control/progress/*.criteria.tsv; do
+	[[ -f "$ledger" ]] || continue
+	verified_items=$((verified_items + $(awk 'NR > 1 {count++} END {print count + 0}' "$ledger")))
+done
+for ledger in "$dir"/control/progress/*.replans.tsv; do
+	[[ -f "$ledger" ]] || continue
+	replans=$((replans + $(awk 'NR > 1 {count++} END {print count + 0}' "$ledger")))
+done
+for json in "$dir"/logs/worker-task-*.jsonl; do
+	worker_input=$((worker_input + $(codex_usage_value_from_jsonl "$json" input_tokens)))
+	worker_output=$((worker_output + $(codex_usage_value_from_jsonl "$json" output_tokens)))
+done
+
+rate()
+{
+	local numerator="$1" denominator="$2"
+	if (( denominator == 0 )); then printf 'N/A\n'; else awk -v n="$numerator" -v d="$denominator" 'BEGIN {printf "%.2f", n * 100 / d}'; fi
+}
+per_item()
+{
+	local value="$1"
+	if (( verified_items == 0 )); then printf 'N/A\n'; else awk -v n="$value" -v d="$verified_items" 'BEGIN {printf "%.2f", n / d}'; fi
+}
+
+{
+	printf 'metric\tvalue\n'
+	printf 'nodes_total\t%s\n' "$nodes_total"
+	printf 'nodes_complete\t%s\n' "$nodes_complete"
+	printf 'luna_assignments\t%s\n' "$luna_assignments"
+	printf 'terra_assignments\t%s\n' "$terra_assignments"
+	printf 'luna_terminal_complete\t%s\n' "$luna_complete"
+	printf 'luna_terminal_failed\t%s\n' "$luna_failed"
+	printf 'terra_terminal_complete\t%s\n' "$terra_complete"
+	printf 'terra_terminal_failed\t%s\n' "$terra_failed"
+	printf 'luna_terminal_success_percent\t%s\n' "$(rate "$luna_complete" "$((luna_complete + luna_failed))")"
+	printf 'terra_escalation_share_percent\t%s\n' "$(rate "$terra_assignments" "$((luna_assignments + terra_assignments))")"
+	printf 'goal_iterations\t%s\n' "$total_iterations"
+	printf 'identical_zero_gain_iterations\t%s\n' "$identical_iterations"
+	printf 'zero_gain_iteration_percent\t%s\n' "$(rate "$identical_iterations" "$total_iterations")"
+	printf 'automatic_replans\t%s\n' "$replans"
+	printf 'verified_items\t%s\n' "$verified_items"
+	printf 'worker_input_tokens\t%s\n' "$worker_input"
+	printf 'worker_output_tokens\t%s\n' "$worker_output"
+	printf 'worker_input_tokens_per_verified_item\t%s\n' "$(per_item "$worker_input")"
+	printf 'worker_output_tokens_per_verified_item\t%s\n' "$(per_item "$worker_output")"
+} > "$report.tmp.$$"
+chmod 600 "$report.tmp.$$"
+mv "$report.tmp.$$" "$report"
+cat "$report"

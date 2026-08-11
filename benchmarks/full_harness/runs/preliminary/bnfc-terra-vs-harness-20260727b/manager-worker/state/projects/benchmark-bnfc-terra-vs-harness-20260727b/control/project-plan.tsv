@@ -1,0 +1,11 @@
+# coding-harness-project-plan-v1
+# project=benchmark-bnfc-terra-vs-harness-20260727b
+# specification=/var/home/mf/coding-agent-fs-harness/benchmark/runs/bnfc-terra-vs-harness-20260727b/manager-worker/repository/SPECIFICATION.md
+# specification_sha256=7fccf11fc0b3801e672ecaf30f39e904bec6d7b5dfdcfe3885339b9d2e9ec5f4
+# created_at=2026-07-28T03:30:57Z
+01	Build skeleton, CLI argument validation, and grammar lexer
+02	Grammar AST parser and ownership-safe storage
+03	Grammar validation: start symbol, duplicate and undefined names, and left recursion
+04	Token-stream recognition with alternatives, epsilon, and full consumption
+05	User-facing acceptance, rejection, and grammar-error diagnostics with exit statuses
+06	Strict build flags, regression tests, README, and full integration validation

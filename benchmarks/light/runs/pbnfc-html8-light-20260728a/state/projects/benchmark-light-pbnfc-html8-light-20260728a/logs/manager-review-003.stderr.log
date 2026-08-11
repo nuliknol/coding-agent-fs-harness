@@ -1,0 +1,12 @@
+2026-07-28T14:21:57.350103Z ERROR codex_core::tools::router: error=exec_command failed for `/bin/bash -lc 'tmp_dir=$(mktemp -d) && trap '"'rm -rf \""'$tmp_dir"'"' EXIT
+cat >\""'$tmp_dir/epsilon.grammar" <<'"'EOF'
+%start S
+S ::= X B A ;
+X ::= A C ;
+A ::= ;
+B ::= ;
+C ::= ;
+EOF
+: >\""'$tmp_dir/empty.input"
+bin/pbnfc --grammar "$tmp_dir/epsilon.grammar" --input "$tmp_dir/empty.input" --stats
+'`: CreateProcess { message: "Rejected(\"`/bin/bash -lc 'tmp_dir=$(mktemp -d) && trap '\\\"'rm -rf \\\\\\\"\\\"'$tmp_dir\\\"'\\\"' EXIT\\ncat >\\\\\\\"\\\"'$tmp_dir/epsilon.grammar\\\" <<'\\\"'EOF'\\n%start S\\nS ::= X B A ;\\nX ::= A C ;\\nA ::= ;\\nB ::= ;\\nC ::= ;\\nEOF\\n: >\\\\\\\"\\\"'$tmp_dir/empty.input\\\"\\nbin/pbnfc --grammar \\\"$tmp_dir/epsilon.grammar\\\" --input \\\"$tmp_dir/empty.input\\\" --stats\\n'` rejected: rm -f style commands are not permitted. Use a safer approach\")" }

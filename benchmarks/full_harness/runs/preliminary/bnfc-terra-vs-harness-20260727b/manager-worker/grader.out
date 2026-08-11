@@ -1,0 +1,9 @@
+PASS strict-build
+FAIL arithmetic-precedence status=0 expected=0 output=''
+FAIL arithmetic-parentheses status=0 expected=0 output=''
+FAIL syntax-rejection status=0 expected=1 output=''
+FAIL epsilon-empty status=0 expected=0 output=''
+FAIL epsilon-repetition status=0 expected=0 output=''
+FAIL undefined-name status=0 expected=2 output=''
+FAIL indirect-left-recursion status=0 expected=2 output=''
+SCORE 1/8

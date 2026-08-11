@@ -1,0 +1,782 @@
+Supervisor started for benchmark-pbnfc-html8-terra-vs-harness-20260727a with PID 701016. No LLM is running while idle.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-001-build-cli-foundation-20260728T034905Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-001-build-cli-foundation-20260728T034905Z-attempt-001.classification
+Manager review turn completed and exited for task 001-build-cli-foundation.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-001-build-cli-foundation-revision-01-20260728T035412Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-001-build-cli-foundation-revision-01-20260728T035412Z-attempt-001.classification
+Manager review turn completed and exited for task 001-build-cli-foundation-revision-01.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-001-build-cli-foundation-revision-02-20260728T035854Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-001-build-cli-foundation-revision-02-20260728T035854Z-attempt-001.classification
+Manager review turn completed and exited for task 001-build-cli-foundation-revision-02.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-002-grammar-lexer-20260728T040408Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-002-grammar-lexer-20260728T040408Z-attempt-001.classification
+Manager review turn completed and exited for task 002-grammar-lexer.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-002-grammar-lexer-revision-01-20260728T040820Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-002-grammar-lexer-revision-01-20260728T040820Z-attempt-001.classification
+Manager review turn completed and exited for task 002-grammar-lexer-revision-01.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-002-grammar-lexer-revision-02-20260728T041236Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-002-grammar-lexer-revision-02-20260728T041236Z-attempt-001.classification
+Manager review turn completed and exited for task 002-grammar-lexer-revision-02.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-003-grammar-ast-20260728T041802Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-003-grammar-ast-20260728T041802Z-attempt-001.classification
+Manager review turn completed and exited for task 003-grammar-ast.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-003-grammar-ast-revision-01-20260728T042501Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-003-grammar-ast-revision-01-20260728T042501Z-attempt-001.classification
+Manager review turn completed and exited for task 003-grammar-ast-revision-01.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-003-grammar-ast-revision-02-20260728T043037Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-003-grammar-ast-revision-02-20260728T043037Z-attempt-001.classification
+Manager review turn completed and exited for task 003-grammar-ast-revision-02.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-004-markup-lexer-20260728T043532Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-004-markup-lexer-20260728T043532Z-attempt-001.classification
+Manager review turn completed and exited for task 004-markup-lexer.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-004-markup-lexer-revision-01-20260728T044058Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-004-markup-lexer-revision-01-20260728T044058Z-attempt-001.classification
+Manager review turn completed and exited for task 004-markup-lexer-revision-01.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-004-markup-lexer-revision-02-20260728T044751Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-004-markup-lexer-revision-02-20260728T044751Z-attempt-001.classification
+Manager review turn completed and exited for task 004-markup-lexer-revision-02.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-005-sequential-chart-20260728T045136Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-005-sequential-chart-20260728T045136Z-attempt-001.classification
+Manager review turn completed and exited for task 005-sequential-chart.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-005-sequential-chart-revision-01-20260728T045627Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-005-sequential-chart-revision-01-20260728T045627Z-attempt-001.classification
+Manager review turn completed and exited for task 005-sequential-chart-revision-01.
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-plan-20260728T045655Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-plan-20260728T045655Z-attempt-001.classification
+Manager published the next project task and exited.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-005-sequential-chart-revision-02-20260728T050123Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-005-sequential-chart-revision-02-20260728T050123Z-attempt-001.classification
+Manager review exited without accepting, checkpointing, or rejecting task 005-sequential-chart-revision-02.
+Supervisor fatal error for benchmark-pbnfc-html8-terra-vs-harness-20260727a: status=3 line=107 command="$manager_invoker" "$HARNESS_ENV_FILE" "$task_id" 8>&-
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-005-sequential-chart-revision-02-20260728T050141Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-005-sequential-chart-revision-02-20260728T050141Z-attempt-001.classification
+Manager review turn completed and exited for task 005-sequential-chart-revision-02.
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-plan-20260728T050200Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-plan-20260728T050200Z-attempt-001.classification
+Manager published the next project task and exited.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-006-worker-pool-20260728T050651Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-006-worker-pool-20260728T050651Z-attempt-001.classification
+Manager review exited without accepting, checkpointing, or rejecting task 006-worker-pool.
+Supervisor fatal error for benchmark-pbnfc-html8-terra-vs-harness-20260727a: status=3 line=107 command="$manager_invoker" "$HARNESS_ENV_FILE" "$task_id" 8>&-
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-006-worker-pool-20260728T050704Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-006-worker-pool-20260728T050704Z-attempt-001.classification
+Manager review exited without accepting, checkpointing, or rejecting task 006-worker-pool.
+Supervisor fatal error for benchmark-pbnfc-html8-terra-vs-harness-20260727a: status=3 line=107 command="$manager_invoker" "$HARNESS_ENV_FILE" "$task_id" 8>&-
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-006-worker-pool-20260728T050717Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-006-worker-pool-20260728T050717Z-attempt-001.classification
+Manager review exited without accepting, checkpointing, or rejecting task 006-worker-pool.
+Supervisor fatal error for benchmark-pbnfc-html8-terra-vs-harness-20260727a: status=3 line=107 command="$manager_invoker" "$HARNESS_ENV_FILE" "$task_id" 8>&-
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-006-worker-pool-20260728T050726Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-006-worker-pool-20260728T050726Z-attempt-001.classification
+Manager review turn completed and exited for task 006-worker-pool.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-006-worker-pool-revision-01-20260728T051025Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-006-worker-pool-revision-01-20260728T051025Z-attempt-001.classification
+Manager review exited without accepting, checkpointing, or rejecting task 006-worker-pool-revision-01.
+Supervisor fatal error for benchmark-pbnfc-html8-terra-vs-harness-20260727a: status=3 line=107 command="$manager_invoker" "$HARNESS_ENV_FILE" "$task_id" 8>&-
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-006-worker-pool-revision-01-20260728T051033Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-006-worker-pool-revision-01-20260728T051033Z-attempt-001.classification
+Manager review exited without accepting, checkpointing, or rejecting task 006-worker-pool-revision-01.
+Supervisor fatal error for benchmark-pbnfc-html8-terra-vs-harness-20260727a: status=3 line=107 command="$manager_invoker" "$HARNESS_ENV_FILE" "$task_id" 8>&-
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-006-worker-pool-revision-01-20260728T051042Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-006-worker-pool-revision-01-20260728T051042Z-attempt-001.classification
+Manager review exited without accepting, checkpointing, or rejecting task 006-worker-pool-revision-01.
+Supervisor fatal error for benchmark-pbnfc-html8-terra-vs-harness-20260727a: status=3 line=107 command="$manager_invoker" "$HARNESS_ENV_FILE" "$task_id" 8>&-
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-006-worker-pool-revision-01-20260728T051054Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-006-worker-pool-revision-01-20260728T051054Z-attempt-001.classification
+Manager review turn completed and exited for task 006-worker-pool-revision-01.
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-plan-20260728T051112Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-plan-20260728T051112Z-attempt-001.classification
+Manager published the next project task and exited.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-006-worker-pool-revision-02-20260728T051438Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-006-worker-pool-revision-02-20260728T051438Z-attempt-001.classification
+Manager review exited without accepting, checkpointing, or rejecting task 006-worker-pool-revision-02.
+Supervisor fatal error for benchmark-pbnfc-html8-terra-vs-harness-20260727a: status=3 line=107 command="$manager_invoker" "$HARNESS_ENV_FILE" "$task_id" 8>&-
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-006-worker-pool-revision-02-20260728T051448Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-006-worker-pool-revision-02-20260728T051448Z-attempt-001.classification
+Manager review exited without accepting, checkpointing, or rejecting task 006-worker-pool-revision-02.
+Supervisor fatal error for benchmark-pbnfc-html8-terra-vs-harness-20260727a: status=3 line=107 command="$manager_invoker" "$HARNESS_ENV_FILE" "$task_id" 8>&-
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-006-worker-pool-revision-02-20260728T051503Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-006-worker-pool-revision-02-20260728T051503Z-attempt-001.classification
+Manager review turn completed and exited for task 006-worker-pool-revision-02.
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-plan-20260728T051523Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-plan-20260728T051523Z-attempt-001.classification
+Manager published the next project task and exited.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-007-parallel-closure-20260728T052018Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-007-parallel-closure-20260728T052018Z-attempt-001.classification
+Manager review exited without accepting, checkpointing, or rejecting task 007-parallel-closure.
+Supervisor fatal error for benchmark-pbnfc-html8-terra-vs-harness-20260727a: status=3 line=107 command="$manager_invoker" "$HARNESS_ENV_FILE" "$task_id" 8>&-
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-007-parallel-closure-20260728T052027Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-007-parallel-closure-20260728T052027Z-attempt-001.classification
+Manager review exited without accepting, checkpointing, or rejecting task 007-parallel-closure.
+Supervisor fatal error for benchmark-pbnfc-html8-terra-vs-harness-20260727a: status=3 line=107 command="$manager_invoker" "$HARNESS_ENV_FILE" "$task_id" 8>&-
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-007-parallel-closure-20260728T052040Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-007-parallel-closure-20260728T052040Z-attempt-001.classification
+Manager review exited without accepting, checkpointing, or rejecting task 007-parallel-closure.
+Supervisor fatal error for benchmark-pbnfc-html8-terra-vs-harness-20260727a: status=3 line=107 command="$manager_invoker" "$HARNESS_ENV_FILE" "$task_id" 8>&-
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-007-parallel-closure-20260728T052048Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-007-parallel-closure-20260728T052048Z-attempt-001.classification
+Manager review turn completed and exited for task 007-parallel-closure.
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-plan-20260728T052107Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-plan-20260728T052107Z-attempt-001.classification
+Manager published the next project task and exited.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-007-parallel-closure-revision-01-20260728T052324Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-007-parallel-closure-revision-01-20260728T052324Z-attempt-001.classification
+Manager review exited without accepting, checkpointing, or rejecting task 007-parallel-closure-revision-01.
+Supervisor fatal error for benchmark-pbnfc-html8-terra-vs-harness-20260727a: status=3 line=107 command="$manager_invoker" "$HARNESS_ENV_FILE" "$task_id" 8>&-
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-007-parallel-closure-revision-01-20260728T052331Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-007-parallel-closure-revision-01-20260728T052331Z-attempt-001.classification
+Manager review turn completed and exited for task 007-parallel-closure-revision-01.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-007-parallel-closure-revision-02-20260728T052718Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-007-parallel-closure-revision-02-20260728T052718Z-attempt-001.classification
+Manager review turn completed and exited for task 007-parallel-closure-revision-02.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-008-parallel-scanning-20260728T053109Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-008-parallel-scanning-20260728T053109Z-attempt-001.classification
+Manager review turn completed and exited for task 008-parallel-scanning.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-008-parallel-scanning-revision-01-20260728T053448Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-008-parallel-scanning-revision-01-20260728T053448Z-attempt-001.classification
+Manager review turn completed and exited for task 008-parallel-scanning-revision-01.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-008-parallel-scanning-revision-02-20260728T053942Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-008-parallel-scanning-revision-02-20260728T053942Z-attempt-001.classification
+Manager review turn completed and exited for task 008-parallel-scanning-revision-02.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-009-hierarchical-markup-20260728T054248Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-009-hierarchical-markup-20260728T054248Z-attempt-001.classification
+Manager review turn completed and exited for task 009-hierarchical-markup.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-009-hierarchical-markup-revision-01-20260728T054621Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-009-hierarchical-markup-revision-01-20260728T054621Z-attempt-001.classification
+Manager review turn completed and exited for task 009-hierarchical-markup-revision-01.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-009-hierarchical-markup-revision-02-20260728T055039Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-009-hierarchical-markup-revision-02-20260728T055039Z-attempt-001.classification
+Manager review turn completed and exited for task 009-hierarchical-markup-revision-02.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-010-final-validation-20260728T055329Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-010-final-validation-20260728T055329Z-attempt-001.classification
+Manager review turn completed and exited for task 010-final-validation.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-010-final-validation-revision-01-20260728T055550Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-010-final-validation-revision-01-20260728T055550Z-attempt-001.classification
+Manager review turn completed and exited for task 010-final-validation-revision-01.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-010-final-validation-revision-02-20260728T055810Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-010-final-validation-revision-02-20260728T055810Z-attempt-001.classification
+Manager review turn completed and exited for task 010-final-validation-revision-02.
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Blocker-Class:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_CODE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_BUILD_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_INTEGRATION_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: LOCAL_SCOPE_PREREQUISITE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Remediation-Scope:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_AUTHORIZATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_SECRET: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_EXTERNAL_STATE: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Human-Dependency-Evidence:: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: HUMAN_PRODUCT_SPECIFICATION: command not found
+/var/home/mf/coding-agent-fs-harness/bin/manager-invoke-result: line 110: Product-Decision-Evidence:: command not found
+CODEX_CLASSIFICATION=success
+CODEX_STDERR_LOG=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-010-final-validation-revision-03-20260728T060000Z-attempt-001.stderr.log
+CODEX_CLASSIFICATION_FILE=/var/home/mf/coding-agent-fs-harness/benchmark/runs/pbnfc-html8-terra-vs-harness-20260727a/manager-worker/state/projects/benchmark-pbnfc-html8-terra-vs-harness-20260727a/logs/manager-review-010-final-validation-revision-03-20260728T060000Z-attempt-001.classification
+Manager review turn completed and exited for task 010-final-validation-revision-03.

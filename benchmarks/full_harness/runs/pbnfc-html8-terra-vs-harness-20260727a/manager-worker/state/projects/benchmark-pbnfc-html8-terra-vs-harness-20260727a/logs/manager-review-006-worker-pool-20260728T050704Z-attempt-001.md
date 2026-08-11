@@ -1,0 +1,1 @@
+The eight-worker lifecycle smoke passed independently.
