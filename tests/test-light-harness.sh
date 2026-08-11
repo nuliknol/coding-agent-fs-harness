@@ -764,10 +764,11 @@ EOF
 chmod 600 "$watch_many_dir/"*.env
 watch_many_output="$(COLUMNS=80 LINES=24 \
 	"$ROOT/bin/harness-watch-many" --once "$watch_many_dir")"
-grep -q '^PROJECT .*| CYCLE | STATUS .*| COMPLETION .*| PROGRESS / BLOCKER$' \
+grep -q '^PROJECT .*| CYC | STATUS .*| COMPLETION .*| PROGRESS / BLOCKER$' \
 	<<< "$watch_many_output"
 grep -q '^light-smoke .*| *2 | complete/stopped' <<< "$watch_many_output"
-grep -q 'pending @10' <<< "$watch_many_output"
+grep -q 'pending' <<< "$watch_many_output"
+grep -q '@10' <<< "$watch_many_output"
 grep -q 'Completed normally' <<< "$watch_many_output"
 grep -q 'without an enabled' <<< "$watch_many_output"
 grep -q 'Oracle gate; no' <<< "$watch_many_output"
@@ -822,7 +823,14 @@ EOF
 chmod 600 "$percentage_watch_dir/percentage.env"
 percentage_watch_output="$(COLUMNS=130 LINES=24 \
 	"$ROOT/bin/harness-watch-many" --once "$percentage_watch_dir")"
-grep -q 'V50% 2/4; C75% @10' <<< "$percentage_watch_output"
+grep -q 'V50% 2/4' <<< "$percentage_watch_output"
+grep -q 'C75% @10' <<< "$percentage_watch_output"
+grep -q '^percentage-watch .*| *12 | w/stopped' <<< "$percentage_watch_output"
+sed -i 's/^phase=WORKER_REQUIRED$/phase=REVIEW_REQUIRED/' \
+	"$percentage_watch_project/control/state.env"
+percentage_watch_output="$(COLUMNS=130 LINES=24 \
+	"$ROOT/bin/harness-watch-many" --once "$percentage_watch_dir")"
+grep -q '^percentage-watch .*| *12 | m/stopped' <<< "$percentage_watch_output"
 
 repair_repo="$TEST_DIR/protocol-repair-repository"
 repair_state="$TEST_DIR/protocol-repair-state"
@@ -1066,7 +1074,8 @@ mkdir -p "$repeat_watch_dir"
 cp "$TEST_DIR/repeat-project.env" "$repeat_watch_dir/repeat.env"
 repeat_watch_output="$(COLUMNS=130 LINES=24 \
 	"$ROOT/bin/harness-watch-many" --once "$repeat_watch_dir")"
-grep -q 'whole-spec N/A @3' <<< "$repeat_watch_output"
+grep -q 'whole-spec' <<< "$repeat_watch_output"
+grep -q 'N/A @3' <<< "$repeat_watch_output"
 test -f "$repeat_project/control/operator-required.md"
 grep -qx 'DECISION: NEEDS_OPERATOR' \
 	"$repeat_project/control/operator-required.md"
@@ -1099,13 +1108,13 @@ cmp -s "$TEST_DIR/repeat-resolution.md" \
 	"$repeat_resolution_archive/operator-resolution.md"
 grep -qx 'recovery_kind=operator_resolution' \
 	"$repeat_project/control/worker-context-reset.env"
-grep -qx 'resume_phase=WORKER_REQUIRED' \
+grep -qx 'resume_phase=WORKER_RETRY' \
 	"$repeat_project/control/worker-context-reset.env"
 grep -q 'OPERATOR_RESOLUTION_REQUESTED resolution=001 .*cycle=3' \
 	"$repeat_project/logs/events.log"
 repeat_resolution_status="$($ROOT/bin/harness-status "$TEST_DIR/repeat-project.env")"
 grep -q 'Operator resolutions: 1' <<< "$repeat_resolution_status"
-grep -q 'Operator resolution pending: 001 (resume at WORKER_REQUIRED)' \
+grep -q 'Operator resolution pending: 001 (resume at WORKER_RETRY)' \
 	<<< "$repeat_resolution_status"
 printf 'export FAKE_REPEAT_FINDINGS="0"\n' >> "$TEST_DIR/repeat-project.env"
 "$ROOT/bin/harness-start" "$TEST_DIR/repeat-project.env" >/dev/null
@@ -1114,17 +1123,17 @@ for _ in {1..30}; do
 	sleep 1
 done
 grep -qx 'status=COMPLETE' "$repeat_project/control/state.env"
-grep -qx 'cycle=5' "$repeat_project/control/state.env"
+grep -qx 'cycle=4' "$repeat_project/control/state.env"
 test -f "$repeat_resolution_archive/worker-goal-after.md"
 grep -q '^completed_at=' "$repeat_resolution_archive/resolution.env"
 test ! -f "$repeat_project/control/worker-context-reset.env"
 grep -q 'Operator resolution: the external dependency is now available.' \
 	"$repeat_project/prompts/manager-goal-operator-resolution-001.md"
 grep -q 'Operator resolution: the external dependency is now available.' \
-	"$repeat_project/prompts/worker-004.md"
+	"$repeat_project/prompts/worker-003.md"
 grep -q 'OPERATOR_RESOLUTION_GOAL_REFRESH_STARTED reset=001 cycle=3' \
 	"$repeat_project/logs/events.log"
-grep -q 'OPERATOR_RESOLUTION_COMPLETED reset=001 cycle=3 resume_phase=WORKER_REQUIRED' \
+grep -q 'OPERATOR_RESOLUTION_COMPLETED reset=001 cycle=3 resume_phase=WORKER_RETRY' \
 	"$repeat_project/logs/events.log"
 
 action_repo="$TEST_DIR/action-repository"

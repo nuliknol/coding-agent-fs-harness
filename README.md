@@ -450,8 +450,10 @@ bin/harness-start ~/configs/my-project-light.env
 a stopped `PAUSED/NEEDS_OPERATOR` harness, archives the prior report, goal, and
 thread under `reviews/operator-resolution-NNN/`, snapshots the resolution as a
 protected input, and clears only the old Luna context. The next start asks
-Terra for a fresh goal containing that resolution, then resumes the interrupted
-work with a fresh Luna thread. It never starts a supervisor itself.
+Terra for a fresh goal containing that resolution, then replays the interrupted
+worker cycle with a fresh Luna thread. This deliberately retries the same
+cycle instead of advancing to a potentially unpublished next addendum. It
+never starts a supervisor itself.
 
 Inspect status or follow agent messages:
 

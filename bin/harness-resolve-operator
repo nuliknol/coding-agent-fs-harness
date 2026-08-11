@@ -68,7 +68,12 @@ requested_at="$(timestamp_utc)"
 	printf 'source_status=%s\n' "$status"
 	printf 'source_phase=%s\n' "$phase"
 	printf 'source_cycle=%s\n' "$cycle"
-	printf 'resume_phase=WORKER_REQUIRED\n'
+	# NEEDS_OPERATOR is reached after a worker delivery but before that cycle has
+	# necessarily produced a manager addendum (for example, an interrupted
+	# convergence audit or a rejected manager report). Retrying the same cycle
+	# uses the preceding addendum and avoids advancing into a nonexistent
+	# addendum-NNN file.
+	printf 'resume_phase=WORKER_RETRY\n'
 	printf 'archive=%s\n' "$archive"
 	printf 'resolution=%s\n' "$dir/inputs/operator-resolution.md"
 } > "$archive/resolution.env"

@@ -251,6 +251,16 @@ phase_role()
 	esac
 }
 
+status_role()
+{
+	case "$1" in
+		WORKER_*) printf 'w' ;;
+		REVIEW_*|CONVERGENCE_*|GOAL_*) printf 'm' ;;
+		ORACLE_*) printf 'oracle' ;;
+		*) printf 'harness' ;;
+	esac
+}
+
 completion_summary()
 {
 	local project_dir="$1"
@@ -264,7 +274,7 @@ completion_summary()
 	fi
 	state="$project_dir/control/completion-progress.env"
 	if [[ ! -f "$state" ]]; then
-		printf 'pending @%s\n' "$every_reviews"
+		printf 'pending\n@%s\n' "$every_reviews"
 		return
 	fi
 	audit_cycle="$(state_value_from "$state" audit_cycle)"
@@ -276,16 +286,16 @@ completion_summary()
 	claimed_percent="$(state_value_from "$state" claimed_percent)"
 	percentage_available="$(state_value_from "$state" percentage_available)"
 	if [[ "$basis" == SPECIFICATION-WHOLE || "$percentage_available" == 0 ]]; then
-		printf 'whole-spec N/A @%s\n' "${audit_cycle:-?}"
+		printf 'whole-spec\nN/A @%s\n' "${audit_cycle:-?}"
 		return
 	fi
 	if [[ "$audit_cycle" =~ ^[0-9]+$ && "$total" =~ ^[1-9][0-9]*$ &&
 		"$verified" =~ ^[0-9]+$ && "$implemented" =~ ^[0-9]+$ &&
 		"$verified_percent" =~ ^[0-9]+$ && "$claimed_percent" =~ ^[0-9]+$ ]]; then
-		printf 'V%s%% %s/%s; C%s%% @%s\n' \
+		printf 'V%s%% %s/%s\nC%s%% @%s\n' \
 			"$verified_percent" "$verified" "$total" "$claimed_percent" "$audit_cycle"
 	else
-		printf 'invalid audit state\n'
+		printf 'invalid\naudit state\n'
 	fi
 }
 
@@ -458,31 +468,38 @@ print_row()
 	local display_status="$3"
 	local completion="$4"
 	local description="$5"
-	local first=1 line last_index
-	local -a lines=()
-	mapfile -t lines < <(wrap_description "$description" "$description_width")
-	(( ${#lines[@]} > 0 )) || lines=('')
-	if (( ${#lines[@]} > row_line_limit )); then
-		lines=("${lines[@]:0:row_line_limit}")
-		last_index=$((${#lines[@]} - 1))
-		line="${lines[$last_index]}"
+	local line last_index line_count index
+	local -a description_lines=() completion_lines=()
+	mapfile -t description_lines < <(wrap_description "$description" "$description_width")
+	mapfile -t completion_lines <<< "$completion"
+	(( ${#description_lines[@]} > 0 )) || description_lines=('')
+	(( ${#completion_lines[@]} > 0 )) || completion_lines=('')
+	if (( ${#description_lines[@]} > row_line_limit )); then
+		description_lines=("${description_lines[@]:0:row_line_limit}")
+		last_index=$((${#description_lines[@]} - 1))
+		line="${description_lines[$last_index]}"
 		if (( ${#line} > description_width - 3 )); then
 			line="${line:0:description_width-3}"
 		fi
-		lines[$last_index]="${line% }..."
+		description_lines[$last_index]="${line% }..."
 	fi
-	for line in "${lines[@]}"; do
-		if (( first )); then
+	line_count=${#description_lines[@]}
+	if (( ${#completion_lines[@]} > line_count )); then
+		line_count=${#completion_lines[@]}
+	fi
+	for ((index = 0; index < line_count; index++)); do
+		if (( index == 0 )); then
 			printf '%-*.*s | %*.*s | %-*.*s | %-*.*s | %s\n' \
 				"$project_width" "$project_width" "$project" \
 				"$cycle_width" "$cycle_width" "$cycle" \
 				"$status_width" "$status_width" "$display_status" \
-				"$completion_width" "$completion_width" "$completion" "$line"
-			first=0
+				"$completion_width" "$completion_width" "${completion_lines[$index]:-}" \
+				"${description_lines[$index]:-}"
 		else
 			printf '%*s | %*s | %*s | %*s | %s\n' \
 				"$project_width" '' "$cycle_width" '' "$status_width" '' \
-				"$completion_width" '' "$line"
+				"$completion_width" "${completion_lines[$index]:-}" \
+				"${description_lines[$index]:-}"
 		fi
 	done
 }
@@ -493,25 +510,21 @@ screen_lines="$(terminal_lines)"
 if (( columns >= 170 )); then
 	project_width=24
 	status_width=22
-	completion_width=26
 elif (( columns >= 130 )); then
 	project_width=18
 	status_width=19
-	completion_width=23
 elif (( columns >= 96 )); then
 	project_width=13
 	status_width=16
-	completion_width=21
 elif (( columns >= 80 )); then
 	project_width=11
 	status_width=16
-	completion_width=14
 else
 	project_width=10
 	status_width=14
-	completion_width=12
 fi
-cycle_width=5
+cycle_width=3
+completion_width=10
 description_width=$((columns - project_width - cycle_width - status_width - completion_width - 12))
 (( description_width >= 18 )) || description_width=18
 environment_file_count="$(find "$config_dir" -maxdepth 1 -type f \
@@ -522,7 +535,7 @@ row_line_limit=$(((screen_lines - 4) / environment_file_count))
 (( row_line_limit <= 8 )) || row_line_limit=8
 
 printf '%-*s | %*s | %-*s | %-*s | %s\n' \
-	"$project_width" PROJECT "$cycle_width" CYCLE \
+	"$project_width" PROJECT "$cycle_width" CYC \
 	"$status_width" STATUS "$completion_width" COMPLETION 'PROGRESS / BLOCKER'
 printf '%*s\n' "$columns" '' | tr ' ' '-'
 
@@ -580,6 +593,7 @@ while IFS= read -r -d '' env_file; do
 	running=0
 	supervisor_is_running "$project_dir" "$canonical_env" && running=1
 	role="$(phase_role "$phase")"
+	status_display_role="$(status_role "$phase")"
 	case "$status" in
 		COMPLETE) display_status='complete/stopped' ;;
 		PAUSED) display_status='paused/stopped' ;;
@@ -587,9 +601,9 @@ while IFS= read -r -d '' env_file; do
 		DEAD_END) display_status='dead-end/stopped' ;;
 		ACTIVE)
 			if (( running )); then
-				display_status="$role/running"
+				display_status="$status_display_role/running"
 			else
-				display_status="$role/stopped"
+				display_status="$status_display_role/stopped"
 			fi
 			;;
 		*) display_status="${status:-unknown}" ;;
