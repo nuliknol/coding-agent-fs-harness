@@ -108,6 +108,32 @@ terminal_lines()
 	printf '%s\n' "$lines"
 }
 
+widest_project_name()
+{
+	local env_file owner mode_octal mode probe project specification widest=7
+	while IFS= read -r -d '' env_file; do
+		owner="$(stat -c %u "$env_file")"
+		mode_octal="$(stat -c %a "$env_file")"
+		mode=$((8#$mode_octal))
+		if (( (owner != UID && owner != 0) || (mode & 8#022) != 0 )); then
+			continue
+		fi
+		probe="$(bash -c '
+			set -Eeuo pipefail
+			unset PROJECT SPECIFICATION
+			{ source "$1"; } >/dev/null
+			printf "HARNESS_WATCH_PROBE\\t%s\\t%s\\n" \
+				"${PROJECT:-}" "${SPECIFICATION:-}"
+		' _ "$env_file" 2>/dev/null || true)"
+		probe="$(awk -F '\t' '$1 == "HARNESS_WATCH_PROBE" { print; exit }' <<< "$probe")"
+		[[ -n "$probe" ]] || continue
+		IFS=$'\t' read -r _ project specification <<< "$probe"
+		[[ -n "$specification" ]] || continue
+		(( ${#project} > widest )) && widest=${#project}
+	done < <(find "$config_dir" -maxdepth 1 -type f -name '*.env' -print0 | sort -z)
+	printf '%s\n' "$widest"
+}
+
 human_duration()
 {
 	local seconds="$1"
@@ -518,11 +544,14 @@ elif (( columns >= 80 )); then
 else
 	project_width=10
 fi
+widest_project="$(widest_project_name)"
+[[ "$widest_project" =~ ^[0-9]+$ ]] || widest_project=7
+(( widest_project > project_width )) && project_width=$widest_project
 cycle_width=3
 status_width=9
 completion_width=10
 description_width=$((columns - project_width - cycle_width - status_width - completion_width - 10))
-(( description_width >= 18 )) || description_width=18
+(( description_width >= 1 )) || description_width=1
 environment_file_count="$(find "$config_dir" -maxdepth 1 -type f \
 	-name '*.env' | wc -l | tr -d ' ')"
 (( environment_file_count > 0 )) || environment_file_count=1

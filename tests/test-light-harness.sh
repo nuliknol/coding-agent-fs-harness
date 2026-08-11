@@ -772,7 +772,7 @@ grep -q '@10' <<< "$watch_many_output"
 grep -q 'Completed normally' <<< "$watch_many_output"
 grep -q 'without an enabled' <<< "$watch_many_output"
 grep -q 'Oracle gate; no' <<< "$watch_many_output"
-grep -q '^broken-watc.*| *-| config' <<< "$watch_many_output"
+grep -q '^broken-watch-project | *-| config' <<< "$watch_many_output"
 grep -q 'CONFIGURATION ERROR:' <<< "$watch_many_output"
 if grep -q 'excluded-template' <<< "$watch_many_output"; then
 	printf 'watch-many included an environment with an empty specification\n' >&2
