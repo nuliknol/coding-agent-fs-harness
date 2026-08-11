@@ -147,4 +147,20 @@ grep -Fq 'Harness mode: light' <<< "$light_init"
 light_status="$("$HARNESS_BIN/harness-status" "$TEST_ROOT/light.env")"
 grep -Fq 'Harness mode: light' <<< "$light_status"
 
+# The shared watcher must dispatch every environment independently. A Full
+# project in the same directory must not force the Light status loader (or vice
+# versa), and the project name must remain untruncated.
+mkdir -p "$TEST_ROOT/watch-mixed" "$TEST_ROOT/watch-light"
+cp "$TEST_ROOT/harness.env" "$TEST_ROOT/watch-mixed/full.env"
+cp "$TEST_ROOT/light.env" "$TEST_ROOT/watch-mixed/light.env"
+cp "$TEST_ROOT/light.env" "$TEST_ROOT/watch-light/light.env"
+mixed_watch="$(COLUMNS=100 LINES=24 "$HARNESS_BIN/harness-watch-many" --once "$TEST_ROOT/watch-mixed")"
+grep -Eq '^decompv2 +\| *0\| w/stopped +\| 0/2' <<< "$mixed_watch"
+grep -Eq '^dispatchlight +\| *0\| m/stopped' <<< "$mixed_watch"
+! grep -q 'CONFIGURATION ERROR' <<< "$mixed_watch"
+! awk 'length($0) > 100 {bad=1} END {exit bad}' <<< "$mixed_watch"
+light_watch="$(COLUMNS=100 LINES=24 "$HARNESS_BIN/harness-watch-many" --once "$TEST_ROOT/watch-light")"
+grep -q '^dispatchlight ' <<< "$light_watch"
+! grep -q 'CONFIGURATION ERROR' <<< "$light_watch"
+
 printf 'decomposition v2 tests passed\n'

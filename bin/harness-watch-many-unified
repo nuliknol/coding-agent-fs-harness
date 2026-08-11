@@ -1,0 +1,248 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+interval=300
+render_once=0
+
+usage()
+{
+	cat <<EOF
+Usage: harness-watch-many [-n SECONDS] DIRECTORY
+       harness-watch-many --once DIRECTORY
+
+Watch every Full or Light harness environment with a non-empty SPECIFICATION.
+EOF
+}
+
+while (( $# > 0 )); do
+	case "$1" in
+		-n|--interval)
+			[[ $# -ge 2 ]] || { usage >&2; exit 2; }
+			interval="$2"; shift 2
+			;;
+		--once) render_once=1; shift ;;
+		-h|--help) usage; exit 0 ;;
+		--) shift; break ;;
+		-*) printf 'Unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
+		*) break ;;
+	esac
+done
+[[ $# -eq 1 ]] || { usage >&2; exit 2; }
+[[ "$interval" =~ ^[0-9]+([.][0-9]+)?$ ]] || { printf 'Invalid refresh interval: %s\n' "$interval" >&2; exit 2; }
+awk -v value="$interval" 'BEGIN {exit !(value > 0)}' || { printf 'Refresh interval must be greater than zero.\n' >&2; exit 2; }
+[[ -d "$1" ]] || { printf 'Harness environment directory does not exist: %s\n' "$1" >&2; exit 1; }
+config_dir="$(realpath "$1")"
+
+if (( ! render_once )); then
+	command -v watch >/dev/null 2>&1 || { printf 'The watch command is required.\n' >&2; exit 1; }
+	exec watch --interval "$interval" --exec \
+		"${HARNESS_WATCH_ENTRYPOINT:-$SCRIPT_DIR/harness-watch-many}" --once "$config_dir"
+fi
+
+terminal_columns()
+{
+	local size columns
+	if [[ -r /dev/tty ]]; then
+		size="$( (stty size < /dev/tty) 2>/dev/null || true)"; columns="${size##* }"
+		[[ "$columns" =~ ^[1-9][0-9]*$ ]] && { printf '%s\n' "$columns"; return; }
+	fi
+	[[ "${COLUMNS:-}" =~ ^[1-9][0-9]*$ ]] && { printf '%s\n' "$COLUMNS"; return; }
+	columns="$(tput cols 2>/dev/null || true)"
+	[[ "$columns" =~ ^[1-9][0-9]*$ ]] || columns=120
+	printf '%s\n' "$columns"
+}
+
+terminal_lines()
+{
+	local size lines
+	if [[ -r /dev/tty ]]; then
+		size="$( (stty size < /dev/tty) 2>/dev/null || true)"; lines="${size%% *}"
+		[[ "$lines" =~ ^[1-9][0-9]*$ ]] && { printf '%s\n' "$lines"; return; }
+	fi
+	[[ "${LINES:-}" =~ ^[1-9][0-9]*$ ]] && { printf '%s\n' "$LINES"; return; }
+	lines="$(tput lines 2>/dev/null || true)"
+	[[ "$lines" =~ ^[1-9][0-9]*$ ]] || lines=40
+	printf '%s\n' "$lines"
+}
+
+human_duration()
+{
+	local seconds="$1"
+	(( seconds >= 0 )) || seconds=0
+	if (( seconds < 60 )); then printf '%ss' "$seconds"
+	elif (( seconds < 3600 )); then printf '%sm' "$((seconds / 60))"
+	else printf '%sh %sm' "$((seconds / 3600))" "$(((seconds % 3600) / 60))"
+	fi
+}
+
+markdown_summary()
+{
+	local file="$1"
+	[[ -s "$file" ]] || return 0
+	awk '
+		/^#[[:space:]]/ {next}
+		/^[[:space:]]*$/ {if (started) exit; next}
+		{started=1; gsub(/`/, "", $0); printf "%s%s", separator, $0; separator=" "}
+		END {if (started) printf "\n"}
+	' "$file"
+}
+
+latest_trace_action()
+{
+	local file="$1"
+	[[ -s "$file" ]] || return 0
+	tail -n 120 "$file" 2>/dev/null | jq -rs '
+		def clean: gsub("[\\r\\n\\t ]+"; " ") | sub("^ "; "") | sub(" $"; "");
+		[.[] | select(.type == "item.started" or .type == "item.completed")] | last // empty |
+		if .item.type == "command_execution" then
+			(if .type == "item.started" then "Running command: " else "Last command finished: " end) + (.item.command | clean)
+		elif .item.type == "file_change" then "Editing: " + ([.item.changes[]?.path] | join(", ") | clean)
+		elif .item.type == "agent_message" then "Latest agent report: " + (.item.text | clean)
+		else empty end
+	' 2>/dev/null | cut -c1-1600
+}
+
+probe_env()
+{
+	local env_file="$1"
+	bash -c '
+		set -Eeuo pipefail
+		unset PROJECT SPECIFICATION HARNESS_MODE harness_mode DEVELOPMENT_POLICY
+		{ source "$1"; } >/dev/null
+		mode="${HARNESS_MODE:-${harness_mode:-}}"
+		if [[ -z "$mode" ]]; then
+			[[ -z "${DEVELOPMENT_POLICY:-}" ]] && mode=full || mode=light
+		fi
+		printf "WATCH_PROBE|%s|%s|%s|%s\n" \
+			"${PROJECT:-}" "${SPECIFICATION:-}" "$mode" "${HARNESS_BIN:-}"
+	' _ "$env_file" 2>/dev/null
+}
+
+full_plan_count()
+{
+	local file="$1" wanted="${2:-}"
+	awk -F '\t' -v wanted="$wanted" '$0 !~ /^#/ && NF >= 4 && (wanted == "" || $2 == wanted) {n++} END {print n+0}' "$file" 2>/dev/null
+}
+
+full_active_file()
+{
+	local dir="$1" project="$2" subdir suffix file
+	for entry in 'results:result.md' 'running:running.md' 'tasks:ready.md'; do
+		subdir="${entry%%:*}"; suffix="${entry#*:}"
+		file="$(find "$dir/$subdir" -maxdepth 1 -type f -name "$project-task-*.$suffix" \
+			-printf '%T@\t%p\n' 2>/dev/null | sort -nr | awk -F '\t' 'NR == 1 {print $2; exit}')"
+		[[ -z "$file" ]] || { printf '%s\n' "$file"; return; }
+	done
+}
+
+latest_trace()
+{
+	local dir="$1"
+	find "$dir/logs" -maxdepth 1 -type f -name '*.jsonl' -printf '%T@\t%p\n' 2>/dev/null |
+		sort -nr | awk -F '\t' 'NR == 1 {print $2; exit}'
+}
+
+wrap_description() { printf '%s\n' "$1" | fold -s -w "$2"; }
+
+print_row()
+{
+	local project="$1" cycle="$2" status="$3" completion="$4" description="$5"
+	local line last line_count index
+	local -a descriptions=() completions=()
+	mapfile -t descriptions < <(wrap_description "$description" "$description_width")
+	mapfile -t completions <<< "$completion"
+	(( ${#descriptions[@]} > 0 )) || descriptions=('')
+	(( ${#completions[@]} > 0 )) || completions=('')
+	if (( ${#descriptions[@]} > row_line_limit )); then
+		descriptions=("${descriptions[@]:0:row_line_limit}")
+		last=$((${#descriptions[@]} - 1)); line="${descriptions[$last]}"
+		(( ${#line} <= description_width - 3 )) || line="${line:0:description_width-3}"
+		descriptions[$last]="${line% }..."
+	fi
+	line_count=${#descriptions[@]}; (( ${#completions[@]} <= line_count )) || line_count=${#completions[@]}
+	for ((index=0; index<line_count; index++)); do
+		if (( index == 0 )); then
+			printf '%-*.*s |%*.*s| %-*.*s | %-*.*s | %s\n' \
+				"$project_width" "$project_width" "$project" "$cycle_width" "$cycle_width" "$cycle" \
+				"$status_width" "$status_width" "$status" "$completion_width" "$completion_width" "${completions[$index]:-}" "${descriptions[$index]:-}"
+		else
+			printf '%*s |%*s| %*s | %*s | %s\n' "$project_width" '' "$cycle_width" '' \
+				"$status_width" '' "$completion_width" "${completions[$index]:-}" "${descriptions[$index]:-}"
+		fi
+	done
+}
+
+columns="$(terminal_columns)"; screen_lines="$(terminal_lines)"; (( columns >= 72 )) || columns=72
+project_width=7; eligible_count=0
+while IFS= read -r -d '' env_file; do
+	owner="$(stat -c %u "$env_file")"; permission=$((8#$(stat -c %a "$env_file")))
+	(( (owner == UID || owner == 0) && (permission & 8#022) == 0 )) || continue
+	probe="$(probe_env "$env_file" || true)"; probe="$(awk -F '|' '$1=="WATCH_PROBE" {print; exit}' <<< "$probe")"
+	[[ -n "$probe" ]] || continue
+	IFS='|' read -r _ project specification selected_mode probe_bin <<< "$probe"
+	[[ -n "$specification" ]] || continue
+	((eligible_count+=1)); (( ${#project} <= project_width )) || project_width=${#project}
+done < <(find "$config_dir" -maxdepth 1 -type f -name '*.env' -print0 | sort -z)
+
+cycle_width=3; status_width=9; completion_width=10
+description_width=$((columns - project_width - cycle_width - status_width - completion_width - 10)); (( description_width >= 1 )) || description_width=1
+(( eligible_count > 0 )) || eligible_count=1
+row_line_limit=$(((screen_lines - 4) / eligible_count)); (( row_line_limit >= 2 )) || row_line_limit=2; (( row_line_limit <= 8 )) || row_line_limit=8
+printf '%-*s |%*s| %-*s | %-*s | %s\n' "$project_width" PROJECT "$cycle_width" CYC "$status_width" STATUS "$completion_width" COMPLETION 'PROGRESS / BLOCKER'
+printf '%*s\n' "$columns" '' | tr ' ' '-'
+
+found=0
+while IFS= read -r -d '' env_file; do
+	owner="$(stat -c %u "$env_file")"; permission=$((8#$(stat -c %a "$env_file")))
+	(( (owner == UID || owner == 0) && (permission & 8#022) == 0 )) || continue
+	probe="$(probe_env "$env_file" || true)"; probe="$(awk -F '|' '$1=="WATCH_PROBE" {print; exit}' <<< "$probe")"
+	[[ -n "$probe" ]] || continue
+	IFS='|' read -r _ project specification selected_mode probe_bin <<< "$probe"
+	[[ -n "$specification" ]] || continue
+	found=1
+	status_command="${probe_bin:-$SCRIPT_DIR}/harness-status"
+	status_output="$("$status_command" "$env_file" 2>&1)" || {
+		error="$(tail -n 2 <<< "$status_output" | tr '\n' ' ')"
+		print_row "${project:-${env_file##*/}}" '-' 'config err' '-' "CONFIGURATION ERROR: ${error:-status unavailable}."
+		continue
+	}
+	if [[ "$selected_mode" == light ]]; then
+		state="$(awk -F': ' '$1=="Status" {print $2; exit}' <<< "$status_output")"
+		phase="$(awk -F': ' '$1=="Phase" {print $2; exit}' <<< "$status_output")"
+		cycle="$(awk -F': ' '$1=="Worker/review cycle" {print $2; exit}' <<< "$status_output")"; [[ "$cycle" =~ ^[0-9]+$ ]] || cycle='-'
+		supervisor="$(awk -F': ' '$1=="Supervisor" {print $2; exit}' <<< "$status_output")"
+		case "$state" in
+			COMPLETE) display_status=done; completion=done; description='Completed normally; no blocker remains.' ;;
+			PAUSED) display_status=paused; completion=pending; description="Light harness paused in $phase. Inspect its operator report." ;;
+			FAILED|DEAD_END) display_status=failed; completion='-'; description="Light harness entered $state in $phase." ;;
+			*) role=h; [[ "$phase" == WORKER_* ]] && role=w; [[ "$phase" == REVIEW_* || "$phase" == CONVERGENCE_* || "$phase" == GOAL_* ]] && role=m; [[ "$phase" == ORACLE_* ]] && role=o
+				[[ "$supervisor" == running* ]] && display_status="$role/running" || display_status="$role/stopped"
+				completion=pending; description="Light harness is active in $phase." ;;
+		esac
+		print_row "$project" "$cycle" "$display_status" "$completion" "$description"
+		continue
+	fi
+	harness_root="$(awk -F': ' '$1=="Harness root" {print $2; exit}' <<< "$status_output")"
+	dir="$harness_root/projects/$project"; plan="$dir/control/project-plan-state.tsv"
+	total="$(full_plan_count "$plan")"; complete="$(full_plan_count "$plan" COMPLETE)"
+	if (( total > 0 )); then percent=$((complete * 100 / total)); completion="${complete}/${total}"$'\n'"${percent}%"; else completion=$'pending\nplan'; fi
+	cycle="$(find "$dir/archive" -maxdepth 1 -type f \( -name '*.accepted.md' -o -name '*.checkpointed.md' -o -name '*.rejected.md' \) -printf '.\n' 2>/dev/null | wc -l | tr -d ' ')"
+	manager="$(awk -F': ' '$1=="Manager supervisor" {print $2; exit}' <<< "$status_output")"; worker="$(awk -F': ' '$1=="Worker supervisor" {print $2; exit}' <<< "$status_output")"
+	active="$(full_active_file "$dir" "$project")"
+	if [[ -f "$dir/control/project.complete" ]]; then display_status=done; description='Completed normally. Every dependency-DAG node is accepted.'
+	elif [[ -f "$dir/control/project.blocked.md" ]]; then display_status=paused; description="NEEDS HUMAN: $(markdown_summary "$dir/control/project.blocked.md")"
+	elif [[ -n "$active" && "$active" == */results/* ]]; then [[ "$manager" == running* ]] && display_status='m/running' || display_status='m/stopped'; description='Manager is reviewing a completed leaf.'
+	elif [[ -n "$active" ]]; then
+		[[ "$worker" == running* ]] && display_status='w/running' || display_status='w/stopped'
+		task="${active##*/}"; task="${task#${project}-task-}"; task="${task%.ready.md}"; task="${task%.running.md}"
+		route="$(awk -F': ' '$1=="Worker-Route" {print $2; exit}' "$active" 2>/dev/null || true)"
+		description="Worker leaf $task is active${route:+ via $route}."
+	else [[ "$manager" == running* ]] && display_status='m/running' || display_status='m/stopped'; description="Manager is planning the next dependency-ready leaf. Plan progress: $complete/$total."
+	fi
+	trace="$(latest_trace "$dir")"
+	if [[ -n "$trace" && -f "$trace" ]]; then age=$(( $(date +%s) - $(stat -c %Y "$trace") )); (( age >= 0 )) || age=0; action="$(latest_trace_action "$trace")"; description+=$'\n'"Latest activity was updated $(human_duration "$age") ago."; [[ -z "$action" ]] || description+=$'\n'"$action"; fi
+	print_row "$project" "$cycle" "$display_status" "$completion" "$description"
+done < <(find "$config_dir" -maxdepth 1 -type f -name '*.env' -print0 | sort -z)
+
+(( found )) || printf 'No environment files with a non-empty SPECIFICATION were found in %s.\n' "$config_dir"

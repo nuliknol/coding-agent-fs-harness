@@ -1,4 +1,38 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+config_dir=""
+if (( $# > 0 )); then
+	last_arg="${!#}"
+	[[ -d "$last_arg" ]] && config_dir="$(realpath "$last_arg")"
+fi
+
+# Preserve the richer legacy display for directories containing only Light
+# projects. Any Full or mixed directory uses the unified per-environment
+# renderer so one project cannot force another project's mode.
+has_full=0
+if [[ -n "$config_dir" ]]; then
+	while IFS= read -r -d '' env_file; do
+		selected_mode="$(bash -c '
+			set -Eeuo pipefail
+			unset HARNESS_MODE harness_mode DEVELOPMENT_POLICY
+			{ source "$1"; } >/dev/null
+			mode="${HARNESS_MODE:-${harness_mode:-}}"
+			if [[ -z "$mode" ]]; then
+				[[ -z "${DEVELOPMENT_POLICY:-}" ]] && mode=full || mode=light
+			fi
+			printf "%s\n" "$mode"
+		' _ "$env_file" 2>/dev/null || true)"
+		if [[ "$selected_mode" == full ]]; then
+			has_full=1
+			break
+		fi
+	done < <(find "$config_dir" -maxdepth 1 -type f -name '*.env' -print0 | sort -z)
+fi
+
+if (( has_full )); then
+	exec "$SCRIPT_DIR/harness-watch-many-unified" "$@"
+fi
+export HARNESS_WATCH_ENTRYPOINT="$SCRIPT_DIR/${0##*/}"
 exec "$SCRIPT_DIR/../modes/light/bin/${0##*/}" "$@"
