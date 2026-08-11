@@ -1,0 +1,188 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-mode.sh"
+harness_dispatch_mode "$SCRIPT_DIR/.." "${0##*/}" "$@"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+detail_level=1
+ascii=0
+usage()
+{
+	printf 'Usage: %s [--compact|--details] [--ascii] ENV_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+while (( $# > 0 )); do
+	case "$1" in
+		--compact) detail_level=0; shift ;;
+		--details) detail_level=2; shift ;;
+		--ascii) ascii=1; shift ;;
+		--) shift; break ;;
+		-*) usage ;;
+		*) break ;;
+	esac
+done
+[[ $# -eq 1 ]] || usage
+load_harness_env "$1"
+ensure_project
+project_plan_uses_dag || die 'decomposition tree requires a v2 decomposition DAG'
+
+dir="$(project_dir)"
+dag="$(project_decomposition_plan_file)"
+state_file="$(project_plan_state_file)"
+columns="${COLUMNS:-}"
+[[ "$columns" =~ ^[1-9][0-9]*$ ]] || columns="$(tput cols 2>/dev/null || true)"
+[[ "$columns" =~ ^[1-9][0-9]*$ ]] || columns=120
+(( columns >= 60 )) || columns=60
+
+declare -a nodes=()
+declare -A parent=() depends=() deliverable=() evidence=() validation=()
+declare -A paths=() symbols=() complexity=() route=() node_state=() task_root=()
+while IFS=$'\t' read -r node_id parent_id depends_on node_deliverable node_evidence \
+	node_validation node_paths node_symbols node_complexity node_route extra; do
+	[[ "$node_id" != node_id ]] || continue
+	[[ -n "$node_id" ]] || continue
+	nodes+=("$node_id")
+	parent[$node_id]="$parent_id"
+	depends[$node_id]="$depends_on"
+	deliverable[$node_id]="$node_deliverable"
+	evidence[$node_id]="$node_evidence"
+	validation[$node_id]="$node_validation"
+	paths[$node_id]="$node_paths"
+	symbols[$node_id]="$node_symbols"
+	complexity[$node_id]="$node_complexity"
+	route[$node_id]="$node_route"
+done < "$dag"
+while IFS=$'\t' read -r item status root updated; do
+	[[ -n "$item" && "$item" != \#* ]] || continue
+	node_state[$item]="$status"
+	task_root[$item]="$root"
+done < "$state_file"
+
+luna=0; terra=0; complete=0; active=0; pending=0
+for node in "${nodes[@]}"; do
+	[[ "${route[$node]}" == LUNA ]] && luna=$((luna + 1)) || terra=$((terra + 1))
+	case "${node_state[$node]:-UNKNOWN}" in
+		COMPLETE) complete=$((complete + 1)) ;;
+		ACTIVE) active=$((active + 1)) ;;
+		PENDING) pending=$((pending + 1)) ;;
+	esac
+done
+total=${#nodes[@]}
+luna_percent=0
+(( total == 0 )) || luna_percent=$((luna * 100 / total))
+
+if (( ascii )); then
+	branch='|-- '; last_branch='`-- '; vertical='|   '; space='    '
+else
+	branch='├── '; last_branch='└── '; vertical='│   '; space='    '
+fi
+
+print_wrapped()
+{
+	local prefix="$1" label="$2" value="$3" first=1 width
+	width=$((columns - ${#prefix} - 2)); (( width >= 20 )) || width=20
+	while IFS= read -r line; do
+		if (( first )); then
+			printf '%s%s: %s\n' "$prefix" "$label" "$line"
+			first=0
+		else
+			printf '%s%*s  %s\n' "$prefix" "${#label}" '' "$line"
+		fi
+	done < <(printf '%s\n' "$value" | fold -s -w "$width")
+}
+
+current_task_for_root()
+{
+	local root="$1" subdir file candidate_root
+	[[ -n "$root" && "$root" != - ]] || return 0
+	for subdir in results running tasks; do
+		shopt -s nullglob
+		for file in "$dir/$subdir/$PROJECT-task-"*; do
+			[[ -f "$file" ]] || continue
+			candidate_root="$(metadata_value "$file" Task-Root)"
+			[[ -n "$candidate_root" ]] || candidate_root="$(task_root_id "$(task_id_from_filename "$file")")"
+			[[ "$candidate_root" == "$root" ]] || continue
+			printf '%s\n' "$file"
+			return
+		done
+	done
+}
+
+print_criterion_tree()
+{
+	local root="$1" criterion="$2" prefix="$3" is_last="$4" connector child_prefix status child i
+	local -a children=()
+	(( is_last )) && connector="$last_branch" || connector="$branch"
+	(( is_last )) && child_prefix="$prefix$space" || child_prefix="$prefix$vertical"
+	task_criterion_is_passed "$root" "$criterion" && status=PASSED || status=PENDING
+	printf '%s%s%s [%s]\n' "$prefix" "$connector" "$criterion" "$status"
+	mapfile -t children < <(task_criterion_children "$root" "$criterion")
+	for ((i=0; i<${#children[@]}; i++)); do
+		child="${children[$i]}"
+		print_criterion_tree "$root" "$child" "$child_prefix" "$((i == ${#children[@]} - 1))"
+	done
+}
+
+print_node()
+{
+	local node="$1" prefix="$2" is_last="$3" connector child_prefix active_file task task_status task_route root criterion
+	local candidate i
+	local -a children=() criteria=()
+	(( is_last )) && connector="$last_branch" || connector="$branch"
+	(( is_last )) && child_prefix="$prefix$space" || child_prefix="$prefix$vertical"
+	printf '%s%s%s [%s] complexity=%s route=%s\n' "$prefix" "$connector" "$node" \
+		"${node_state[$node]:-UNKNOWN}" "${complexity[$node]}" "${route[$node]}"
+	if (( detail_level >= 1 )); then
+		print_wrapped "$child_prefix" deliverable "${deliverable[$node]}"
+		print_wrapped "$child_prefix" depends "${depends[$node]}"
+		root="${task_root[$node]:--}"
+		active_file="$(current_task_for_root "$root")"
+		if [[ -n "$active_file" ]]; then
+			task="$(task_id_from_filename "$active_file")"
+			case "$active_file" in */tasks/*) task_status=READY ;; */running/*) task_status=RUNNING ;; *) task_status=REVIEW ;; esac
+			task_route="$(metadata_value "$active_file" Worker-Route)"
+			[[ -n "$task_route" ]] || task_route="$(metadata_value "$dir/archive/$(task_base "$task").assignment.md" Worker-Route)"
+			print_wrapped "$child_prefix" task "$task [$task_status] route=${task_route:-unknown}"
+		fi
+	fi
+	if (( detail_level >= 2 )); then
+		print_wrapped "$child_prefix" evidence "${evidence[$node]}"
+		print_wrapped "$child_prefix" validation "${validation[$node]}"
+		print_wrapped "$child_prefix" scope "${paths[$node]}"
+		print_wrapped "$child_prefix" symbols "${symbols[$node]}"
+		root="${task_root[$node]:--}"
+		if [[ "$root" != - && -f "$(task_root_assignment_file "$root")" ]]; then
+			mapfile -t criteria < <(task_root_declared_criteria "$root")
+			if (( ${#criteria[@]} > 0 )); then
+				printf '%scriteria:\n' "$child_prefix"
+				for ((i=0; i<${#criteria[@]}; i++)); do
+					criterion="${criteria[$i]}"
+					print_criterion_tree "$root" "$criterion" "$child_prefix$space" "$((i == ${#criteria[@]} - 1))"
+				done
+			fi
+		fi
+	fi
+	for candidate in "${nodes[@]}"; do
+		[[ "${parent[$candidate]}" == "$node" ]] && children+=("$candidate")
+	done
+	for ((i=0; i<${#children[@]}; i++)); do
+		print_node "${children[$i]}" "$child_prefix" "$((i == ${#children[@]} - 1))"
+	done
+}
+
+printf 'Project: %s\n' "$PROJECT"
+printf 'DAG: %s\n' "$dag"
+printf 'Nodes: %s  COMPLETE: %s  ACTIVE: %s  PENDING: %s\n' "$total" "$complete" "$active" "$pending"
+printf 'Routes: LUNA=%s (%s%%)  TERRA=%s (%s%%)  configured Luna minimum=%s%%\n\n' \
+	"$luna" "$luna_percent" "$terra" "$((100 - luna_percent))" "$HARNESS_MIN_LUNA_NODE_PERCENT"
+if (( luna_percent < HARNESS_MIN_LUNA_NODE_PERCENT )); then
+	printf 'WARNING: this existing immutable DAG is below the minimum enforced for newly registered plans.\n\n'
+fi
+
+roots=()
+for node in "${nodes[@]}"; do [[ "${parent[$node]}" == - ]] && roots+=("$node"); done
+for ((i=0; i<${#roots[@]}; i++)); do
+	print_node "${roots[$i]}" '' "$((i == ${#roots[@]} - 1))"
+done

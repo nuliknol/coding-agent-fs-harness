@@ -153,7 +153,7 @@ load_harness_env()
 	unset HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS HARNESS_GOAL_PROCESS_MAX_FIXES
 	unset HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS
 	unset HARNESS_DECOMPOSITION_V2 HARNESS_DECOMPOSITION_CRITIC_ENABLED
-	unset HARNESS_MAX_LUNA_STRATEGY_FAILURES
+	unset HARNESS_MAX_LUNA_STRATEGY_FAILURES HARNESS_MIN_LUNA_NODE_PERCENT
 	unset HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
 	unset HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
 	unset HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_KILL_GRACE_SECONDS
@@ -253,6 +253,9 @@ load_harness_env()
 	HARNESS_DECOMPOSITION_V2="${HARNESS_DECOMPOSITION_V2:-0}"
 	HARNESS_DECOMPOSITION_CRITIC_ENABLED="${HARNESS_DECOMPOSITION_CRITIC_ENABLED:-$HARNESS_DECOMPOSITION_V2}"
 	HARNESS_MAX_LUNA_STRATEGY_FAILURES="${HARNESS_MAX_LUNA_STRATEGY_FAILURES:-2}"
+	# Fresh v2 plans must put most independently executable nodes on the cheap
+	# worker route. Existing immutable DAGs are not rewritten by this setting.
+	HARNESS_MIN_LUNA_NODE_PERCENT="${HARNESS_MIN_LUNA_NODE_PERCENT:-60}"
 	# Provider-side failures retry forever. Short transient failures use a
 	# one-minute cadence; account usage-window exhaustion reports and probes every
 	# five minutes until Codex confirms quota is available again.
@@ -392,6 +395,10 @@ load_harness_env()
 		die 'HARNESS_DECOMPOSITION_CRITIC_ENABLED=1 requires HARNESS_DECOMPOSITION_V2=1'
 	[[ "$HARNESS_MAX_LUNA_STRATEGY_FAILURES" =~ ^[1-9][0-9]*$ ]] ||
 		die 'HARNESS_MAX_LUNA_STRATEGY_FAILURES must be a positive integer'
+	[[ "$HARNESS_MIN_LUNA_NODE_PERCENT" =~ ^(0|[1-9][0-9]*)$ ]] ||
+		die 'HARNESS_MIN_LUNA_NODE_PERCENT must be an integer from 0 through 100'
+	(( HARNESS_MIN_LUNA_NODE_PERCENT <= 100 )) ||
+		die 'HARNESS_MIN_LUNA_NODE_PERCENT must be an integer from 0 through 100'
 	[[ "$HARNESS_PROVIDER_RETRY_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_PROVIDER_RETRY_SECONDS must be an integer'
 	(( HARNESS_PROVIDER_RETRY_SECONDS > 0 )) || die 'HARNESS_PROVIDER_RETRY_SECONDS must be greater than zero'
 	[[ "$HARNESS_QUOTA_RETRY_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_QUOTA_RETRY_SECONDS must be an integer'
@@ -445,6 +452,7 @@ load_harness_env()
 	export HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS HARNESS_GOAL_PROCESS_MAX_FIXES
 	export HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS
 	export HARNESS_DECOMPOSITION_V2 HARNESS_DECOMPOSITION_CRITIC_ENABLED HARNESS_MAX_LUNA_STRATEGY_FAILURES
+	export HARNESS_MIN_LUNA_NODE_PERCENT
 	export HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
 	export HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_KILL_GRACE_SECONDS
 	export WORKER_HEARTBEAT_SECONDS
@@ -2352,6 +2360,7 @@ initialize_project_plan_v2()
 	local definition_tmp state_tmp dag_tmp seen_file
 	local node_id parent_id depends_on deliverable acceptance_evidence focused_validation
 	local allowed_paths required_symbols complexity_class worker_route extra dependency
+	local node_count luna_count luna_percent
 	expected_header=$'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tcomplexity_class\tworker_route'
 	IFS= read -r header < "$source_file" || die 'decomposition DAG is empty'
 	[[ "$header" == "$expected_header" ]] ||
@@ -2413,7 +2422,12 @@ initialize_project_plan_v2()
 			"$focused_validation" "$allowed_paths" "$required_symbols" "$complexity_class" "$worker_route" >> "$dag_tmp"
 	done < <(tail -n +2 "$source_file")
 	rm -f "$seen_file"
-	(( $(wc -l < "$dag_tmp") > 1 )) || die 'decomposition DAG must contain at least one node'
+	node_count="$(awk -F '\t' 'NR > 1 && NF == 10 {count++} END {print count + 0}' "$dag_tmp")"
+	(( node_count > 0 )) || die 'decomposition DAG must contain at least one node'
+	luna_count="$(awk -F '\t' 'NR > 1 && $10 == "LUNA" {count++} END {print count + 0}' "$dag_tmp")"
+	luna_percent=$((luna_count * 100 / node_count))
+	(( luna_percent >= HARNESS_MIN_LUNA_NODE_PERCENT )) ||
+		die "decomposition DAG routes only $luna_count/$node_count nodes ($luna_percent%) to Luna; minimum is $HARNESS_MIN_LUNA_NODE_PERCENT%. Split resolved implementation into bounded LOW/LUNA nodes"
 	chmod 600 "$definition_tmp" "$state_tmp" "$dag_tmp"
 	mv "$definition_tmp" "$definition"
 	mv "$state_tmp" "$state"
@@ -2604,6 +2618,7 @@ write_worker_snapshot()
 		printf 'decomposition_v2=%s\n' "$HARNESS_DECOMPOSITION_V2"
 		printf 'decomposition_critic_enabled=%s\n' "$HARNESS_DECOMPOSITION_CRITIC_ENABLED"
 		printf 'max_luna_strategy_failures=%s\n' "$HARNESS_MAX_LUNA_STRATEGY_FAILURES"
+		printf 'min_luna_node_percent=%s\n' "$HARNESS_MIN_LUNA_NODE_PERCENT"
 		printf 'luna_model=%s\n' "$LUNA_WORKER_MODEL"
 		printf 'luna_reasoning_effort=%s\n' "$LUNA_WORKER_REASONING_EFFORT"
 		printf 'terra_model=%s\n' "$TERRA_WORKER_MODEL"

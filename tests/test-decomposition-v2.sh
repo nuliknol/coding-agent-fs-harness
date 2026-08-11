@@ -33,6 +33,7 @@ export TERRA_WORKER_MODEL="gpt-5.6-terra"
 export HARNESS_WORKER_GOAL_MODE="1"
 export HARNESS_DECOMPOSITION_V2="1"
 export HARNESS_DECOMPOSITION_CRITIC_ENABLED="0"
+export HARNESS_MIN_LUNA_NODE_PERCENT="50"
 export MAX_ORACLE_RUNS="0"
 ENV
 chmod 600 "$TEST_ROOT/harness.env"
@@ -98,6 +99,15 @@ capsule="$project_dir/control/context-capsules/decompv2-task-001.md"
 grep -Fqx 'Worker-Route: LUNA' "$capsule"
 grep -Fqx 'Context-Paths: src/a.c' "$capsule"
 grep -Fqx 'Architecture-Decisions: NONE' "$capsule"
+tree_output="$("$HARNESS_BIN/harness-decomposition-tree" --ascii "$TEST_ROOT/harness.env")"
+grep -Fqx 'Routes: LUNA=1 (50%)  TERRA=1 (50%)  configured Luna minimum=50%' <<< "$tree_output"
+grep -Fq '|-- n1 [ACTIVE] complexity=LOW route=LUNA' <<< "$tree_output"
+grep -Fq 'task: 001 [READY] route=LUNA' <<< "$tree_output"
+grep -Fq '`-- n2 [PENDING] complexity=MEDIUM route=TERRA' <<< "$tree_output"
+tree_details="$("$HARNESS_BIN/harness-decomposition-tree" --details --ascii "$TEST_ROOT/harness.env")"
+grep -Fq 'evidence: target_symbol returns one' <<< "$tree_details"
+grep -Fq 'validation: test "$(./focused-smoke)" = 1' <<< "$tree_details"
+grep -Fq 'n1.done [PENDING]' <<< "$tree_details"
 metrics_output="$("$HARNESS_BIN/harness-decomposition-metrics" "$TEST_ROOT/harness.env")"
 grep -Fqx $'nodes_total\t2' <<< "$metrics_output"
 grep -Fqx $'luna_assignments\t0' <<< "$metrics_output"
@@ -118,6 +128,46 @@ chmod 600 "$TEST_ROOT/bad-harness.env"
 if "$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/bad-harness.env" \
 	"$TEST_ROOT/bad-plan.tsv" >/dev/null 2>&1; then
 	printf 'invalid medium-complexity Luna node was accepted\n' >&2
+	exit 1
+fi
+
+cat > "$TEST_ROOT/terra-heavy-plan.tsv" <<'PLAN'
+node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	complexity_class	worker_route
+terra-only	-	-	Resolved local implementation	evidence	focused-test	src/a.c	target_symbol	LOW	TERRA
+PLAN
+sed \
+	-e 's/export PROJECT="decompv2"/export PROJECT="decompv2terraheavy"/' \
+	-e "s|export HARNESS_ROOT=\"$TEST_ROOT/state\"|export HARNESS_ROOT=\"$TEST_ROOT/terra-heavy-state\"|" \
+	"$TEST_ROOT/harness.env" > "$TEST_ROOT/terra-heavy-harness.env"
+chmod 600 "$TEST_ROOT/terra-heavy-harness.env"
+"$HARNESS_BIN/harness-init" "$TEST_ROOT/terra-heavy-harness.env" >/dev/null
+if "$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/terra-heavy-harness.env" \
+	"$TEST_ROOT/terra-heavy-plan.tsv" >/dev/null 2>&1; then
+	printf 'DAG below the configured Luna minimum was accepted\n' >&2
+	exit 1
+fi
+
+cat > "$TEST_ROOT/low-terra-plan.tsv" <<'PLAN'
+node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	complexity_class	worker_route
+t1	-	-	Implement target_symbol locally	target_symbol returns one	test "$(./focused-smoke)" = 1	src/a.c	target_symbol	LOW	TERRA
+t2	-	-	Add focused target_symbol fixture	fixture passes	./fixture-smoke	src/fixture.c	target_fixture	LOW	LUNA
+PLAN
+sed \
+	-e 's/export PROJECT="decompv2"/export PROJECT="decompv2lowterra"/' \
+	-e "s|export HARNESS_ROOT=\"$TEST_ROOT/state\"|export HARNESS_ROOT=\"$TEST_ROOT/low-terra-state\"|" \
+	"$TEST_ROOT/harness.env" > "$TEST_ROOT/low-terra-harness.env"
+chmod 600 "$TEST_ROOT/low-terra-harness.env"
+"$HARNESS_BIN/harness-init" "$TEST_ROOT/low-terra-harness.env" >/dev/null
+"$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/low-terra-harness.env" \
+	"$TEST_ROOT/low-terra-plan.tsv" >/dev/null
+sed \
+	-e 's/Project: decompv2/Project: decompv2lowterra/' \
+	-e 's/Goal-ID: n1.goal/Goal-ID: t1.goal/' \
+	-e 's/Worker-Route: LUNA/Worker-Route: TERRA/' \
+	"$TEST_ROOT/task.md" > "$TEST_ROOT/low-terra-task.md"
+if "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/low-terra-harness.env" 001 \
+	"$TEST_ROOT/low-terra-task.md" t1 >/dev/null 2>&1; then
+	printf 'resolved LOW local implementation was allowed to bypass Luna\n' >&2
 	exit 1
 fi
 

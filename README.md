@@ -107,6 +107,7 @@ export HARNESS_WORKER_GOAL_MODE="1"
 export HARNESS_DECOMPOSITION_V2="1"
 export HARNESS_DECOMPOSITION_CRITIC_ENABLED="1"
 export HARNESS_MAX_LUNA_STRATEGY_FAILURES="2"
+export HARNESS_MIN_LUNA_NODE_PERCENT="60"
 export LUNA_WORKER_MODEL="gpt-5.6-luna"
 export TERRA_WORKER_MODEL="gpt-5.6-terra"
 ```
@@ -116,6 +117,13 @@ export TERRA_WORKER_MODEL="gpt-5.6-terra"
 Run `bin/harness-decomposition-metrics ENV_FILE` to write and display cost and
 quality signals such as route counts, terminal leaf success, zero-gain turns,
 replans, verified items, and worker tokens per verified item.
+Run `bin/harness-decomposition-tree ENV_FILE` to display the immutable DAG as a
+terminal tree with node state, complexity, configured worker route,
+dependencies, deliverable, and active task route. `--compact` shows one line
+per node; `--details` also shows evidence, validation, scope, symbols, and the
+current criterion tree. New v2 plans must meet
+`HARNESS_MIN_LUNA_NODE_PERCENT` (60 by default); set it lower only for an
+exceptional plan dominated by unresolved architecture or integration work.
 
 The interactive Codex TUI is not used for automated workers. A root task starts
 a fresh non-interactive worker thread. If the manager rejects it, the harness
@@ -417,6 +425,7 @@ export HARNESS_WORKER_GOAL_MODE="1"
 export HARNESS_DECOMPOSITION_V2="1"
 export HARNESS_DECOMPOSITION_CRITIC_ENABLED="1"
 export HARNESS_MAX_LUNA_STRATEGY_FAILURES="2"
+export HARNESS_MIN_LUNA_NODE_PERCENT="60"
 
 export HARNESS_POLL_SECONDS="2"
 export HARNESS_WAIT_SECONDS="300"

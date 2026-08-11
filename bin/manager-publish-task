@@ -319,6 +319,11 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 			[[ "$leaf_worker_route" == "$(project_plan_node_value "$plan_item_id" worker_route)" ]] || die 'leaf Worker-Route does not match its DAG node'
 		fi
 		luna_failures="$(root_luna_strategy_failure_count "$root")"
+		if (( manager_remediation == 0 )) && [[ "$leaf_worker_route" == TERRA && "$leaf_complexity" == LOW &&
+			"$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ &&
+			"$leaf_architecture_decisions" == NONE ]] && (( luna_failures < HARNESS_MAX_LUNA_STRATEGY_FAILURES )); then
+			die "resolved LOW $leaf_type leaf must use Worker-Route: LUNA; Terra is allowed after $HARNESS_MAX_LUNA_STRATEGY_FAILURES failed Luna strategies or for unresolved architecture/integration"
+		fi
 		if [[ "$leaf_worker_route" == LUNA ]] && (( luna_failures >= HARNESS_MAX_LUNA_STRATEGY_FAILURES )); then
 			die "root $root has $luna_failures failed Luna strategies; publish a fresh Terra leaf or decompose it further"
 		fi

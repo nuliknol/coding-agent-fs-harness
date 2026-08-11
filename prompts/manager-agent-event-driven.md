@@ -131,6 +131,13 @@ unexplained regressions to Terra. After the configured Luna strategy-failure
 limit, split the leaf further or use a fresh Terra route; do not repeat the same
 Luna strategy.
 
+Optimize the execution DAG for Luna, not merely for correctness. A Terra
+contract or architecture node is a decision checkpoint; its resolved local
+implementation descendants normally become `LOW` Luna leaves. Do not inherit a
+Terra route from a parent or from the overall specification's size. Split broad
+implementation, mechanical propagation, fixtures, focused tests and fixes, and
+post-behavior documentation until each has one deterministic completion test.
+
 The generated context capsule is the worker's initial discovery boundary. Keep
 `Context-Paths`, `Allowed-Scope`, and `Required-Symbols` concise and sufficient;
 do not use the whole repository as a context placeholder.
@@ -414,6 +421,13 @@ Every continuation or repair assignment must state:
 - `Target-Criterion: ID` naming the first unmet leaf criterion;
 - the affected build and focused smoke, including closure budgets when enabled;
 - unrelated failures that must not be repaired.
+
+Reclassify every continuation independently. Once its architecture and contract
+questions are resolved, a bounded local implementation continuation must use
+Luna unless the configured number of genuinely different Luna strategies has
+already failed. If it is still too broad for Luna, append smaller ordered child
+criteria and route those children separately; do not preserve Terra simply
+because the root assignment or prior decision step used Terra.
 
 Write review notes and any next or revision task files in `PROJECT_TMP_DIR`.
 New root tasks must pass their `PROJECT_PLAN_ITEM_ID` as the fourth argument to
