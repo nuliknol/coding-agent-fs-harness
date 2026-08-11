@@ -436,6 +436,25 @@ repair_protocol_report()
 			fi
 			validation_error="protocol repair changed decision from $expected_decision to $repaired_decision"
 		fi
+		# A manager review can be substantively valid while its mandatory progress
+		# bookkeeping is not.  The finding-key portions are deterministic set
+		# differences, so repair them locally instead of spending another Terra
+		# turn asking it to preserve contradictory bookkeeping.  Do not normalize
+		# missing blocks, malformed findings, decisions, or completion audits.
+		if [[ "$role" == manager_review &&
+			"$validation_error" =~ (progress|Resolved-Findings|New-Findings|Verification-Gained|Verification-Lost|Net-Progress) ]] &&
+			normalize_manager_progress_delta "$result_ref" "$cycle" "$dir/reviews" &&
+			validation_error="$(validate_protocol_report "$role" \
+				"$result_ref" "$cycle" "$oracle_run" 2>&1)"; then
+			repaired_decision="$(sed -n '1{s/^DECISION: //;p;q;}' "$result_ref")"
+			if [[ -n "$expected_decision" &&
+				"$repaired_decision" != "$expected_decision" ]]; then
+				validation_error="protocol normalization changed decision from $expected_decision to $repaired_decision"
+			else
+				log_event "MANAGER_PROGRESS_DELTA_NORMALIZED cycle=$cycle stem=$stem output=$result_ref"
+				break
+			fi
+		fi
 		rejected="$dir/reviews/rejected/$stem-invalid-$(printf '%03d' "$attempt").md"
 		cp "$result_ref" "$rejected"
 		chmod 600 "$rejected"

@@ -1033,6 +1033,80 @@ validate_manager_progress_delta()
 	fi
 }
 
+# The manager's ADD records are substantive reviewer output and must remain
+# model-authored and strictly validated.  The PROGRESS-DELTA block, however,
+# contains mechanical bookkeeping: its finding-key sets are fully determined
+# by the current report and the preceding effective review.  Normalize that
+# block only when it exists as a single delimited block but fails validation.
+# This prevents a valid review from being stranded solely because the model put
+# prose (rather than an identifier) in Verification-Gained or miscomputed a
+# set difference.  Missing/multiple delimiters remain protocol errors and are
+# still sent through the ordinary repair path.
+normalize_manager_progress_delta()
+{
+	local report="$1"
+	local cycle="$2"
+	local review_dir="$3"
+	local previous tmp_root normalized
+	local resolved new gained lost net
+	[[ "$(grep -Fxc 'PROGRESS-DELTA: BEGIN' "$report" || true)" == 1 &&
+		"$(grep -Fxc 'PROGRESS-DELTA-COMPLETE' "$report" || true)" == 1 ]] || {
+		printf 'manager report does not have one normalizable progress-delta block\n' >&2
+		return 1
+	}
+
+	tmp_root="$(mktemp -d)"
+	previous="$review_dir/../addenda/addendum-$(printf '%03d' "$((cycle - 1))").md"
+	[[ -f "$previous" ]] ||
+		previous="$review_dir/review-$(printf '%03d' "$((cycle - 1))").md"
+	if [[ -f "$previous" ]]; then
+		manager_finding_keys "$previous" | sort -u > "$tmp_root/previous"
+	else
+		: > "$tmp_root/previous"
+	fi
+	manager_finding_keys "$report" | sort -u > "$tmp_root/current"
+	comm -23 "$tmp_root/previous" "$tmp_root/current" > "$tmp_root/resolved"
+	comm -13 "$tmp_root/previous" "$tmp_root/current" > "$tmp_root/new"
+	resolved="$(paste -sd, "$tmp_root/resolved")"
+	new="$(paste -sd, "$tmp_root/new")"
+	[[ -n "$resolved" ]] || resolved=none
+	[[ -n "$new" ]] || new=none
+
+	# Evidence IDs are not inferable from a report.  Retain them only when they
+	# already satisfy the machine-readable contract; prose belongs in Evidence,
+	# not in this identifier list.
+	gained="$(manager_progress_value "$report" Verification-Gained)"
+	lost="$(manager_progress_value "$report" Verification-Lost)"
+	validate_progress_identifier_list Verification-Gained "$gained" \
+		2>/dev/null || gained=none
+	validate_progress_identifier_list Verification-Lost "$lost" \
+		2>/dev/null || lost=none
+	[[ -n "$gained" ]] || gained=none
+	[[ -n "$lost" ]] || lost=none
+	net=NO
+	[[ "$resolved" == none && "$gained" == none ]] || net=YES
+
+	normalized="$tmp_root/report.md"
+	awk -v resolved="$resolved" -v new="$new" -v gained="$gained" \
+		-v lost="$lost" -v net="$net" '
+		$0 == "PROGRESS-DELTA: BEGIN" {
+			print "PROGRESS-DELTA: BEGIN"
+			print "Resolved-Findings: " resolved
+			print "New-Findings: " new
+			print "Verification-Gained: " gained
+			print "Verification-Lost: " lost
+			print "Net-Progress: " net
+			print "PROGRESS-DELTA-COMPLETE"
+			in_progress = 1
+			next
+		}
+		$0 == "PROGRESS-DELTA-COMPLETE" { in_progress = 0; next }
+		!in_progress { print }
+	' "$report" > "$normalized"
+	cat "$normalized" > "$report"
+	rm -rf -- "$tmp_root"
+}
+
 record_manager_progress_delta()
 {
 	local cycle="$1"

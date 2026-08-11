@@ -150,6 +150,12 @@ if [[ "$model" == gpt-5.6-terra ]]; then
 			"$resolved" "$new" "$net"
 		message+="$progress_delta"
 	fi
+	if [[ "${FAKE_INVALID_MANAGER_PROGRESS_DELTA:-0}" == 1 &&
+		! -f "$FAKE_CODEX_STATE/invalid-manager-progress-emitted" &&
+		"$message" == *'PROGRESS-DELTA: BEGIN'* ]]; then
+		touch "$FAKE_CODEX_STATE/invalid-manager-progress-emitted"
+		message="${message/Verification-Gained: none/Verification-Gained: focused verification passed for feature.txt}"
+	fi
 	if [[ "$prompt" == *'# Mandatory completion-progress audit'* ]]; then
 		audit_cycle="$(sed -n 's/^Audit cycle: `\([0-9][0-9]*\)`.*/\1/p' <<< "$prompt" | tail -n 1)"
 		if [[ "$message" == 'DECISION: ACCEPT'* ]]; then
@@ -873,6 +879,42 @@ grep -q 'PROTOCOL_REPAIR_COMPLETED role=manager_review cycle=1 .*attempts=1' \
 grep -F -- '--model gpt-5.6-terra --sandbox read-only' \
 	"$repair_fake_state/codex-argv.log" >/dev/null
 test ! -e "$repair_project/control/operator-required.md"
+
+progress_repair_repo="$TEST_DIR/progress-repair-repository"
+progress_repair_state="$TEST_DIR/progress-repair-state"
+progress_repair_fake_state="$TEST_DIR/progress-repair-fake-state"
+progress_repair_env="$TEST_DIR/progress-repair-project.env"
+mkdir -p "$progress_repair_repo" "$progress_repair_fake_state"
+git -C "$progress_repair_repo" init -q
+git -C "$progress_repair_repo" config user.name 'Harness Test'
+git -C "$progress_repair_repo" config user.email 'harness-test@example.invalid'
+printf 'baseline\n' > "$progress_repair_repo/baseline.txt"
+git -C "$progress_repair_repo" add baseline.txt
+git -C "$progress_repair_repo" commit -q -m baseline
+sed -e 's/PROJECT="protocol-repair"/PROJECT="progress-repair"/' \
+	-e "s|REPOSITORY=\"$repair_repo\"|REPOSITORY=\"$progress_repair_repo\"|" \
+	-e "s|HARNESS_ROOT=\"$repair_state\"|HARNESS_ROOT=\"$progress_repair_state\"|" \
+	-e "s|FAKE_CODEX_STATE=\"$repair_fake_state\"|FAKE_CODEX_STATE=\"$progress_repair_fake_state\"|" \
+	-e "s|FAKE_REPOSITORY=\"$repair_repo\"|FAKE_REPOSITORY=\"$progress_repair_repo\"|" \
+	-e '/^export FAKE_INVALID_MANAGER_REVIEW=/d' \
+	"$repair_env" > "$progress_repair_env"
+printf 'export FAKE_INVALID_MANAGER_PROGRESS_DELTA="1"\n' >> "$progress_repair_env"
+chmod 600 "$progress_repair_env"
+"$ROOT/bin/harness-init" "$progress_repair_env" >/dev/null
+"$ROOT/bin/harness-start" "$progress_repair_env" >/dev/null
+progress_repair_project="$progress_repair_state/projects/progress-repair"
+for _ in {1..30}; do
+	grep -qx 'status=COMPLETE' "$progress_repair_project/control/state.env" 2>/dev/null &&
+		break
+	sleep 1
+done
+grep -qx 'status=COMPLETE' "$progress_repair_project/control/state.env"
+grep -qx 'verification_gained=none' \
+	"$progress_repair_project/control/manager-progress-001.env"
+grep -q 'MANAGER_PROGRESS_DELTA_NORMALIZED cycle=1 stem=manager-review-001' \
+	"$progress_repair_project/logs/events.log"
+test ! -e "$progress_repair_fake_state/protocol-repair-ran"
+test ! -e "$progress_repair_project/control/operator-required.md"
 
 repair_fail_repo="$TEST_DIR/protocol-repair-fail-repository"
 repair_fail_state="$TEST_DIR/protocol-repair-fail-state"
