@@ -111,6 +111,8 @@ cycle. Never use it for ordinary in-scope code, build, or test work.
   budgets. They never authorize broader root scope or weaker acceptance.
 - `WORKER_GOAL_MODE`: 1 only for an assignment stamped `Execution-Mode:
   LEAF_GOAL`.
+- `ARCHITECTURE_GUARDS`: 1 when the task carries a machine-enforced
+  architecture binding and requires a structured impact manifest.
 - `GOAL_ID`, `GOAL_TARGET_CRITERION`, `GOAL_STATE_FILE`,
   `GOAL_SUMMARY_FILE`, and `GOAL_ITERATION_LEDGER_FILE`: the durable logical
   goal and its current boundary.
@@ -179,6 +181,13 @@ Task-ID: TASK_ID
 Status: COMPLETED
 Goal-ID: GOAL_ID
 Goal-Outcome: COMPLETE|NEEDS_DECOMPOSITION|HARD_BLOCKED
+Changed-Public-Symbols: comma-separated symbols or -
+Changed-Representations: comma-separated types/formats or -
+Changed-Ownership: comma-separated ownership/lifetime contracts or -
+Changed-Serialization: comma-separated formats/codecs or -
+Changed-Dependencies: comma-separated modules/packages or -
+Affected-Invariants: copy assignment value exactly
+Affected-Edges: copy assignment Edge-Contracts value exactly
 
 ## Summary
 
@@ -203,6 +212,14 @@ condition in the assignment; test failures, complexity, and token pressure are
 not hard blocks. `HARD_BLOCKED` describes the current leaf boundary only; the
 manager separately determines whether the underlying dependency is
 repository-local remediation or genuinely requires a person.
+
+When `ARCHITECTURE_GUARDS=1`, all seven architecture impact lines are
+mandatory. Declare the observable impact of the actual source diff, using `-`
+only when that impact category is empty. Copy `Affected-Invariants` and
+`Affected-Edges` exactly from the assignment; do not silently omit a bound
+contract. If the implementation reveals an undeclared invariant, edge,
+decision, or architecture debt, report it under `## Remaining concerns` and
+use `NEEDS_DECOMPOSITION` rather than broadening the registered contract.
 
 Under those headings include the implementation summary, modified files,
 implemented behavior, validation commands and outcomes, starting progress,

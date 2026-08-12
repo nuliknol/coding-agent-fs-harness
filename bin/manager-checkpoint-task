@@ -145,6 +145,7 @@ fi
 goal_outcome="$(metadata_value "$result" Goal-Outcome)"
 validate_worker_result "$result"
 validate_checkpoint_review "$note_file"
+architecture_validate_manager_review "$note_file" "$assignment_archive"
 initialize_task_progress "$task_id" "$assignment_archive"
 
 current_progress="$(task_progress_percent "$root")"

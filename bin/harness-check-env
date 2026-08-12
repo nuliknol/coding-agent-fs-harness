@@ -45,6 +45,8 @@ if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 	printf 'Terra leaf route: %s (%s)\n' "$TERRA_WORKER_MODEL" "$TERRA_WORKER_REASONING_EFFORT"
 	printf 'Preferred worker route: %s\n' "$HARNESS_PREFERRED_WORKER_ROUTE"
 	printf 'Minimum Luna DAG nodes: %s%%\n' "$HARNESS_MIN_LUNA_NODE_PERCENT"
+	printf 'Minimum Luna coding nodes: %s%%\n' "$HARNESS_MIN_LUNA_CODING_NODE_PERCENT"
+	printf 'Architecture guards: %s\n' "$([[ "$HARNESS_ARCHITECTURE_GUARDS" == 1 ]] && printf enabled || printf disabled)"
 	printf 'Luna strategy failures before escalation: %s\n' "$HARNESS_MAX_LUNA_STRATEGY_FAILURES"
 else
 	printf 'Complexity decomposition: legacy v1\n'

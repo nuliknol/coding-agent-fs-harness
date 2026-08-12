@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 2 ]] || { printf 'Usage: %s ENV_FILE DEBT_ROW_TSV\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+row_file="$2"
+ensure_project
+architecture_require_registered
+[[ -f "$row_file" ]] || die "debt row file does not exist: $row_file"
+IFS=$'\t' read -r debt task commit category invariants consequence remediation severity expires status waiver extra < "$row_file"
+[[ -n "$debt" && -z "${extra:-}" ]] || die 'debt row must contain exactly eleven tab-separated fields'
+architecture_validate_id "$debt"
+validate_task_id "$task"
+[[ -f "$(project_dir)/archive/$(task_base "$task").assignment.md" ]] || die "debt task has no archived assignment: $task"
+[[ "$category" =~ ^(OWNERSHIP|CANONICAL_REPRESENTATION|LAYERING|SERIALIZATION|CONCURRENCY|ERROR_MODEL|DEVICE_AUTHORITY|PUBLIC_API|DEPENDENCY_CYCLE|SECURITY|PERFORMANCE|DEPENDENCY|OTHER)$ ]] || die 'invalid debt category'
+[[ "$severity" =~ ^(INFO|WARNING|CRITICAL)$ ]] || die 'invalid debt severity'
+[[ "$status" =~ ^(OPEN|WAIVED)$ ]] || die 'new debt must have OPEN or WAIVED status'
+[[ "$remediation" != - && -n "$(project_plan_node_value "$remediation" deliverable)" ]] || die 'accepted temporary debt requires a valid remediation plan node'
+[[ "$waiver" != - ]] || die 'accepted temporary debt requires a waiver authority'
+[[ "$expires" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] &&
+	[[ "$expires" > "$(date -u +%Y-%m-%d)" ]] ||
+	die 'accepted temporary debt requires a future YYYY-MM-DD expiration'
+[[ "$commit" != - ]] || die 'architecture debt must identify its introducing source commit'
+git -C "$REPOSITORY" cat-file -e "$commit^{commit}" 2>/dev/null || die "debt introducing commit does not exist: $commit"
+awk -F '\t' -v commit="$commit" -v task="$task" 'NR>1 && $1==commit && $2==task {ok=1} END {exit !ok}' \
+	"$(project_dir)/control/agent-commits.tsv" 2>/dev/null || die 'architecture debt commit was not delivered by the controlled source transaction for this task'
+architecture_require_id_list "debt $debt affected_invariants" "$invariants" "$(architecture_invariants_file)"
+acquire_project_lock
+! architecture_registry_has_id "$(architecture_debt_file)" "$debt" || die "debt ID already exists: $debt"
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+	"$debt" "$task" "$commit" "$category" "$invariants" "$consequence" "$remediation" "$severity" "$expires" "$status" "$waiver" >> "$(architecture_debt_file)"
+printf '%s\tRECORDED\t%s\t-\t%s\n' "$debt" "$task" "$(timestamp_utc)" >> "$(architecture_debt_ledger_file)"
+log_event "ARCHITECTURE_DEBT_RECORDED debt=$debt task=$task severity=$severity status=$status remediation=$remediation"
+printf 'DEBT_RECORDED=%s\n' "$debt"

@@ -332,6 +332,7 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 				fi
 			fi
 		fi
+		architecture_validate_assignment_metadata "$task_file" "$plan_item_id"
 		luna_failures="$(root_luna_strategy_failure_count "$root")"
 		if (( manager_remediation == 0 )) && [[ "$HARNESS_PREFERRED_WORKER_ROUTE" == LUNA && "$leaf_worker_route" == TERRA &&
 			"$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]] &&
@@ -596,6 +597,13 @@ if (( goal_mode == 1 )); then
 			printf 'Required-Symbols: %s\n' "$leaf_required_symbols"
 			printf 'Context-Paths: %s\n' "$leaf_context_paths"
 			printf 'Architecture-Decisions: %s\n' "$leaf_architecture_decisions"
+			if (( HARNESS_ARCHITECTURE_GUARDS == 1 )); then
+				printf 'Affected-Invariants: %s\n' "$(architecture_node_value "$plan_item_id" invariant_ids)"
+				printf 'Consumed-Decisions: %s\n' "$(architecture_node_value "$plan_item_id" consumes_decisions)"
+				printf 'Produced-Decisions: %s\n' "$(architecture_node_value "$plan_item_id" produces_decisions)"
+				printf 'Edge-Contracts: %s\n' "$(architecture_node_value "$plan_item_id" edge_contracts)"
+				printf 'Health-Gates: %s\n' "$(architecture_node_value "$plan_item_id" health_gates)"
+			fi
 			printf 'Expected-Max-Implementation-Files: %s\n' "$leaf_expected_files"
 			printf 'Expected-Max-Worker-Turns: %s\n' "$leaf_expected_turns"
 		fi
@@ -656,6 +664,13 @@ if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 		printf 'Required-Symbols: %s\n' "$leaf_required_symbols"
 		printf 'Context-Paths: %s\n' "$leaf_context_paths"
 		printf 'Architecture-Decisions: %s\n' "$leaf_architecture_decisions"
+		if (( HARNESS_ARCHITECTURE_GUARDS == 1 )); then
+			printf 'Affected-Invariants: %s\n' "$(architecture_node_value "$plan_item_id" invariant_ids)"
+			printf 'Consumed-Decisions: %s\n' "$(architecture_node_value "$plan_item_id" consumes_decisions)"
+			printf 'Produced-Decisions: %s\n' "$(architecture_node_value "$plan_item_id" produces_decisions)"
+			printf 'Edge-Contracts: %s\n' "$(architecture_node_value "$plan_item_id" edge_contracts)"
+			printf 'Health-Gates: %s\n' "$(architecture_node_value "$plan_item_id" health_gates)"
+		fi
 		printf 'Baseline-Boundary: %s\n' "$goal_baseline_boundary"
 		printf 'Expected-Max-Implementation-Files: %s\n' "$leaf_expected_files"
 		printf 'Expected-Max-Worker-Turns: %s\n' "$leaf_expected_turns"

@@ -1,0 +1,2 @@
+decision_id	status	producer_node	problem	chosen_contract	affected_interfaces	supersedes	evidence
+ADR-widget-ownership	PROPOSED	widget-contract	Choose the unique owner and lifetime boundary for widget state.	The widget store owns state; callers borrow immutable views.	widget_store,widget_view	-	design/adr/widget-ownership.md

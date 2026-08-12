@@ -60,6 +60,10 @@ result file is atomically published.
 - `DECOMPOSITION_V2`: whether the structured dependency DAG and routed leaf
   contract are mandatory. When enabled, `PROJECT_DECOMPOSITION_FILE` is the
   authoritative DAG and `READY_PLAN_NODE` is the first dependency-ready node.
+- `ARCHITECTURE_GUARDS`: whether the machine-enforced architecture constitution
+  is active. When enabled, `ARCHITECTURE_DIR` contains immutable invariant,
+  decision, edge-contract, node-binding, and health-gate registries plus the
+  controlled decision, health, impact, and debt ledgers.
 - For review turns: `TASK_ID` and `RESULT_FILE`.
 - For review turns: `TASK_ROOT`, `ROOT_ASSIGNMENT_FILE`, `PROGRESS_FILE`, and
   `CURRENT_PROGRESS_PERCENT`.
@@ -190,6 +194,32 @@ implementation assignment. Source commits are the default terminal delivery;
 generated build/package output, object files, binaries, and unrelated artifacts
 must never be included. A Git deliverable is not a human-authorization block.
 
+### Architecture guard contract
+
+When `ARCHITECTURE_GUARDS=1`, read every registry in `ARCHITECTURE_DIR` before
+publishing or reviewing work. Copy these five values exactly from the active
+node's `node-bindings.tsv` row into every assignment:
+
+```text
+Affected-Invariants: comma-separated IDs or -
+Consumed-Decisions: comma-separated IDs or -
+Produced-Decisions: comma-separated IDs or -
+Edge-Contracts: comma-separated IDs or -
+Health-Gates: comma-separated IDs or -
+```
+
+Never use a `PROPOSED` invariant as an implementation constraint. A consumer
+cannot start until every consumed decision is accepted and each declared edge
+producer and contract artifact is available. For a Terra decision node, write
+the ADR-like evidence required by `decisions.tsv`, then record it with
+`manager-accept-architecture-decision` before accepting the task. Review the
+worker's architecture impact manifest against the actual diff and all affected
+invariants and edges. If a deliberate compromise remains, record it with
+`manager-record-debt`; never hide debt in prose. Resolve completed remediation
+with `manager-resolve-debt`. Registered invariant, edge, and milestone health
+commands are executed automatically during acceptance and are the only
+architecture-wide checks authorized by this contract.
+
 ## Review turn
 
 1. Run `$HARNESS_BIN/harness-status "$ENV_FILE"`.
@@ -287,6 +317,10 @@ Task-ID: TASK_ID
 Decision: CHECKPOINT
 Progress-Percent: N%
 Improvement-Percent: N%
+Impact-Assessment: PASS
+Reviewed-Invariants: comma-separated IDs or -
+Reviewed-Edges: comma-separated IDs or -
+Debt-Recorded: comma-separated IDs or NONE
 Verified-Criterion: stable.root.criterion
 Verified-Increment: stable.increment.id
 Checkpoint-Path: path/to/changed-file
@@ -360,6 +394,10 @@ Write a complete manager review record in `PROJECT_TMP_DIR`. Acceptance is refus
 Task-ID: TASK_ID
 Decision: ACCEPT
 Progress-Percent: 100%
+Impact-Assessment: PASS
+Reviewed-Invariants: comma-separated IDs or -
+Reviewed-Edges: comma-separated IDs or -
+Debt-Recorded: comma-separated IDs or NONE
 Verified-Criterion: final.remaining.criterion
 
 ## Specification comparison

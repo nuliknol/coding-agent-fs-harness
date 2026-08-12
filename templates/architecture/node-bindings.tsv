@@ -1,0 +1,4 @@
+node_id	invariant_ids	consumes_decisions	produces_decisions	edge_contracts	health_gates
+widget-contract	INV-canonical-widget	-	ADR-widget-ownership	EDGE-widget-api	-
+widget-implementation	INV-canonical-widget	ADR-widget-ownership	-	EDGE-widget-api	-
+widget-integration	INV-canonical-widget	ADR-widget-ownership	-	-	GATE-widget-integration

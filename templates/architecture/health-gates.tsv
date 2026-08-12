@@ -1,0 +1,2 @@
+gate_id	trigger_node	depends_on	validation	severity	invariant_ids	edge_ids
+GATE-widget-integration	widget-integration	widget-contract,widget-implementation	make test-widget-integration	CRITICAL	INV-canonical-widget	EDGE-widget-api

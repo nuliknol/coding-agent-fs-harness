@@ -24,6 +24,11 @@ Deliverable: State the one independently useful artifact or behavior.
 Required-Symbols: exact_symbol,other_symbol
 Context-Paths: path/to/file.c,path/to/focused_test.c
 Architecture-Decisions: NONE
+Affected-Invariants: INV-example
+Consumed-Decisions: ADR-example
+Produced-Decisions: -
+Edge-Contracts: EDGE-example
+Health-Gates: -
 Expected-Max-Implementation-Files: 3
 Expected-Max-Worker-Turns: 2
 

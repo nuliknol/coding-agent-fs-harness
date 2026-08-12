@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 3 ]] || { printf 'Usage: %s ENV_FILE DEBT_ID EVIDENCE_FILE\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+debt="$2" evidence="$3"
+ensure_project
+architecture_require_registered
+architecture_registry_has_id "$(architecture_debt_file)" "$debt" || die "unknown debt ID: $debt"
+[[ -f "$evidence" && -s "$evidence" ]] || die 'debt resolution evidence is missing or empty'
+acquire_project_lock
+[[ "$(awk -F '\t' -v id="$debt" 'NR>1 && $1==id {print $10; exit}' "$(architecture_debt_file)")" != RESOLVED ]] || die "debt is already resolved: $debt"
+file="$(architecture_debt_file)"; tmp="$file.tmp.$$"
+awk -F '\t' -v OFS='\t' -v id="$debt" '$1==id {$10="RESOLVED"} {print}' "$file" > "$tmp"
+chmod 600 "$tmp"; mv "$tmp" "$file"
+sha="$(sha256sum "$evidence" | awk '{print $1}')"
+printf '%s\tRESOLVED\tmanager\t%s\t%s\n' "$debt" "$sha" "$(timestamp_utc)" >> "$(architecture_debt_ledger_file)"
+log_event "ARCHITECTURE_DEBT_RESOLVED debt=$debt evidence_sha256=$sha"
+printf 'DEBT_RESOLVED=%s\n' "$debt"

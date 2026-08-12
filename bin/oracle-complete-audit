@@ -29,6 +29,10 @@ decision="$(awk -F': ' '$1 == "Decision" {print $2; exit}' "$verdict")"
 grep -Fqx '# Oracle Audit Verdict' "$verdict" || die 'Oracle verdict must begin with # Oracle Audit Verdict'
 grep -Fqx '## Traceability verification' "$verdict" || die 'Oracle verdict lacks traceability verification'
 grep -Fqx '## Acceptance verification' "$verdict" || die 'Oracle verdict lacks acceptance verification'
+if (( HARNESS_ARCHITECTURE_GUARDS == 1 )); then
+	grep -Fqx '## Architecture verification' "$verdict" || die 'Oracle verdict lacks architecture verification'
+	grep -Fqx '## Debt verification' "$verdict" || die 'Oracle verdict lacks debt verification'
+fi
 grep -Fqx '## Findings' "$verdict" || die 'Oracle verdict lacks findings'
 grep -Fqx '## Conclusion' "$verdict" || die 'Oracle verdict lacks conclusion'
 
@@ -40,6 +44,11 @@ install -m 600 "$verdict" "$archive"
 if [[ "$decision" == PASS ]]; then
 	[[ -z "$addendum" ]] || die 'a PASS Oracle verdict must not include an addendum'
 	project_plan_all_complete || die 'Oracle PASS is only valid when every plan item is complete'
+	if (( HARNESS_ARCHITECTURE_GUARDS == 1 )); then
+		awk '$0=="## Architecture verification" {inside=1; next} inside && /^## / {exit} inside && /^- \[PASS\] .+ — .+/ {ok=1} END {exit !ok}' "$verdict" || die 'Oracle PASS lacks concrete architecture PASS evidence'
+		awk '$0=="## Debt verification" {inside=1; next} inside && /^## / {exit} inside && /^- \[PASS\] .+ — .+/ {ok=1} END {exit !ok}' "$verdict" || die 'Oracle PASS lacks concrete debt PASS evidence'
+		architecture_require_completion_ready
+	fi
 	rm -f "$pending"
 	mark_project_complete "oracle-audit-$audit_id" "$archive"
 	log_event "ORACLE_AUDIT_PASSED audit_id=$audit_id verdict=$archive"

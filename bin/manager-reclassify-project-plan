@@ -29,7 +29,7 @@ install_candidate()
 	local candidate="$1" header original_header timestamp backup_dir backup report tmp
 	local node_id parent_id depends_on deliverable evidence validation paths symbols
 	local leaf_type complexity route extra status original_complexity original_route original_leaf_type
-	local pending=0 pending_luna=0 pending_terra=0 luna_percent=0 index=0
+	local pending=0 pending_luna=0 pending_terra=0 luna_percent=0 pending_coding=0 pending_luna_coding=0 luna_coding_percent=100 index=0
 	local -a original_ids=()
 	local -A original_core=() original_complexity_by_id=() original_route_by_id=() original_type_by_id=()
 
@@ -81,6 +81,10 @@ install_candidate()
 		if [[ "$status" == PENDING ]]; then
 			pending=$((pending + 1))
 			[[ "$route" == LUNA ]] && pending_luna=$((pending_luna + 1)) || pending_terra=$((pending_terra + 1))
+			if [[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]]; then
+				pending_coding=$((pending_coding + 1))
+				[[ "$route" == LUNA ]] && pending_luna_coding=$((pending_luna_coding + 1))
+			fi
 		else
 			[[ "$complexity" == "${original_complexity_by_id[$node_id]}" ]] ||
 				die "candidate changed complexity for non-pending node: $node_id"
@@ -95,8 +99,9 @@ install_candidate()
 	(( index == ${#original_ids[@]} )) || die 'candidate omitted one or more existing nodes'
 	(( pending > 0 )) || die 'project has no pending nodes to reclassify'
 	luna_percent=$((pending_luna * 100 / pending))
-	(( luna_percent >= HARNESS_MIN_LUNA_NODE_PERCENT )) ||
-		die "candidate routes only $pending_luna/$pending pending nodes ($luna_percent%) to Luna; minimum is $HARNESS_MIN_LUNA_NODE_PERCENT%"
+	(( pending_coding == 0 )) || luna_coding_percent=$((pending_luna_coding * 100 / pending_coding))
+	(( luna_coding_percent >= HARNESS_MIN_LUNA_CODING_NODE_PERCENT )) ||
+		die "candidate routes only $pending_luna_coding/$pending_coding pending coding nodes ($luna_coding_percent%) to Luna; minimum is $HARNESS_MIN_LUNA_CODING_NODE_PERCENT%"
 
 	acquire_project_lock
 	env_has_running_processes && die 'a harness process appeared while acquiring the reclassification lock'
@@ -118,6 +123,9 @@ install_candidate()
 		printf 'pending_luna=%s\n' "$pending_luna"
 		printf 'pending_terra=%s\n' "$pending_terra"
 		printf 'pending_luna_percent=%s\n' "$luna_percent"
+		printf 'pending_coding_nodes=%s\n' "$pending_coding"
+		printf 'pending_luna_coding_nodes=%s\n' "$pending_luna_coding"
+		printf 'pending_luna_coding_percent=%s\n' "$luna_coding_percent"
 		printf 'preferred_worker_route=%s\n' "$HARNESS_PREFERRED_WORKER_ROUTE"
 		printf 'manager_model=%s\n' "$MANAGER_MODEL"
 	} > "$report"
@@ -154,7 +162,7 @@ INSTALLED_DAG=$dag
 PLAN_STATE=$state
 CANDIDATE_DAG=$candidate
 PREFERRED_WORKER_ROUTE=$HARNESS_PREFERRED_WORKER_ROUTE
-MINIMUM_PENDING_LUNA_PERCENT=$HARNESS_MIN_LUNA_NODE_PERCENT
+MINIMUM_PENDING_LUNA_CODING_PERCENT=$HARNESS_MIN_LUNA_CODING_NODE_PERCENT
 
 Read the complete specification, repository development policy when present, installed DAG, plan state, current repository structure, and active assignment when one exists. Write exactly one candidate TSV to CANDIDATE_DAG with this header:
 
@@ -162,7 +170,7 @@ $typed_header
 
 Preserve every existing row, node ID, row order, parent, dependencies, deliverable, acceptance evidence, focused validation, allowed paths, and required symbols byte-for-byte. Do not add, remove, reorder, or rename nodes. For COMPLETE and ACTIVE rows, also preserve complexity_class and worker_route exactly; assign a truthful leaf_type compatible with that preserved route. Reclassify only PENDING rows.
 
-For PENDING rows, use LUNA with LOW complexity and LOCAL_IMPLEMENTATION, MECHANICAL_API, FOCUSED_BUG, or DOCUMENTATION whenever contracts and architecture are resolved and the node can be executed as one cohesive bounded coding concern. Use TERRA only for CONTRACT_DESIGN, CROSS_COMPONENT_ARCHITECTURE, CONCURRENCY_PROTOCOL, AMBIGUOUS_SPECIFICATION, or an unexplained INTEGRATION boundary requiring fresh judgment. A large specification, cross-file implementation, tests, fixtures, mechanical integration, or an inherited HIGH label is not a reason for Terra. At least MINIMUM_PENDING_LUNA_PERCENT percent of pending rows must route to LUNA.
+For PENDING rows, use LUNA with LOW complexity and LOCAL_IMPLEMENTATION, MECHANICAL_API, FOCUSED_BUG, or DOCUMENTATION whenever contracts and architecture are resolved and the node can be executed as one cohesive bounded coding concern. Use TERRA only for CONTRACT_DESIGN, CROSS_COMPONENT_ARCHITECTURE, CONCURRENCY_PROTOCOL, AMBIGUOUS_SPECIFICATION, or an unexplained INTEGRATION boundary requiring fresh judgment. A large specification, cross-file implementation, tests, fixtures, mechanical integration, or an inherited HIGH label is not a reason for Terra. At least MINIMUM_PENDING_LUNA_CODING_PERCENT percent of coding-eligible pending rows must route to LUNA; Terra-only decision and integration rows are excluded from that denominator.
 
 This pass classifies existing nodes; later manager turns may split a broad node's Root-Criteria further. Prefer the largest cohesive deterministic Luna-ready concern, not microscopic handoffs. Write only CANDIDATE_DAG, then terminate without running harness commands.
 PROMPT

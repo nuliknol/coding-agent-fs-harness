@@ -18,6 +18,7 @@ require_manager_configuration
 require_oracle_codex
 oracle_enabled || exit 0
 project_plan_all_complete || die 'Oracle audit requires a complete project plan'
+architecture_require_completion_ready
 project_is_blocked && exit 0
 pending="$(project_oracle_pending_file)"
 [[ -f "$pending" ]] || exit 0
@@ -42,8 +43,10 @@ PROJECT_ARCHIVE_DIR=$dir/archive
 ORACLE_PENDING_FILE=$pending
 HARNESS_BIN=$HARNESS_BIN
 AUDIT_ID=$audit_id
+ARCHITECTURE_GUARDS=$HARNESS_ARCHITECTURE_GUARDS
+ARCHITECTURE_DIR=$(architecture_dir)
 
-Read the complete original specification, every referenced mandatory task/specification document, the durable plan and its state, accepted task review records, and the implemented repository. Also read every applicable \`*.manager-remediations.tsv\` and \`*.hard-blocks.tsv\` ledger under PROJECT_PROGRESS_DIR plus the corresponding manager-remediation assignments and final accepted reviews under PROJECT_ARCHIVE_DIR. Independently reproduce only the focused acceptance/build/smoke evidence needed to establish compliance. Do not trust manager or worker claims without evidence.
+Read the complete original specification, every referenced mandatory task/specification document, the durable plan and its state, accepted task review records, and the implemented repository. Also read every applicable \`*.manager-remediations.tsv\` and \`*.hard-blocks.tsv\` ledger under PROJECT_PROGRESS_DIR plus the corresponding manager-remediation assignments and final accepted reviews under PROJECT_ARCHIVE_DIR. When ARCHITECTURE_GUARDS=1, read every registry, decision and health ledger, impact manifest, and debt row under ARCHITECTURE_DIR. Independently reproduce only the focused acceptance/build/smoke and registered architecture-health evidence needed to establish compliance. Do not trust manager or worker claims without evidence.
 
 Treat independently verified manager-remediation paths as separately attributed baseline-prerequisite provenance, not as feature-owned implementation changes. A repository-local code, build, testability, integration, file-ownership, exclusive-file, forbidden-file, or frozen-baseline conflict is resolvable engineering work. It is \`AUTOMATIC\` when still unmet; it is not a human product/specification decision. If the manager-remediation evidence is bounded, causally required by an existing acceptance command, preserves the specification's observable behavior, and the repaired acceptance command passes, do not fail merely because the prerequisite path lies outside the original worker feature scope. Prior Oracle addenda and legacy hard-block classifications are evidence only and do not override this policy.
 
@@ -63,8 +66,14 @@ Decision: PASS or FAIL
 ## Acceptance verification
 - [PASS] or - [FAIL] focused command/code evidence
 
+## Architecture verification
+- [PASS] or - [FAIL] invariant, decision, edge-contract, impact-manifest, and cumulative health-gate evidence
+
+## Debt verification
+- [PASS] or - [FAIL] every open or waived debt item has truthful consequence, remediation ownership, waiver authority, and unexpired disposition
+
 ## Findings
-Each finding must state the original requirement ID/path, expected behavior, observed evidence, and a reproducible command or source location.
+Each finding must state the original requirement ID/path, expected behavior, observed evidence, and a reproducible command or source location. Architecture findings must also name the affected invariant, decision, edge, or debt ID.
 
 ## Conclusion
 State why the project passes or fails.

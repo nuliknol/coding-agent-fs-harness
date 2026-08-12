@@ -1,0 +1,2 @@
+edge_id	producer_node	consumer_node	contract_artifact	public_symbols	ownership_model	representation	versioning_rule	compatibility_validation	decision_ids	invariant_ids
+EDGE-widget-api	widget-contract	widget-implementation	include/widget.h	widget_store,widget_view	store-owned; borrowed immutable views	canonical widget record	additive ABI changes only	make test-widget-contract	ADR-widget-ownership	INV-canonical-widget

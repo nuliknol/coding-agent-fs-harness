@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 2 ]] || { printf 'Usage: %s ENV_FILE ARCHITECTURE_SOURCE_DIR\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+source_dir="$2"
+ensure_project
+(( HARNESS_ARCHITECTURE_GUARDS == 1 )) || die 'architecture initialization requires HARNESS_ARCHITECTURE_GUARDS=1'
+acquire_project_lock
+architecture_initialize "$source_dir"
+printf '%s\n' "$(architecture_dir)"

@@ -6,6 +6,13 @@ Worker-Session: SESSION_ID
 Status: COMPLETED
 Task-Root: ROOT_TASK_ID
 Starting-Progress: N%
+Changed-Public-Symbols: -
+Changed-Representations: -
+Changed-Ownership: -
+Changed-Serialization: -
+Changed-Dependencies: -
+Affected-Invariants: -
+Affected-Edges: -
 
 <!-- For Execution-Mode: LEAF_GOAL, also add exactly one Goal-ID line and one
 Goal-Outcome: COMPLETE|NEEDS_DECOMPOSITION|HARD_BLOCKED line above. -->

@@ -2,6 +2,8 @@
 
 set -Eeuo pipefail
 
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/harness-architecture.sh"
+
 die()
 {
 	printf 'ERROR: %s\n' "$*" >&2
@@ -155,6 +157,7 @@ load_harness_env()
 	unset HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS
 	unset HARNESS_DECOMPOSITION_V2 HARNESS_DECOMPOSITION_CRITIC_ENABLED
 	unset HARNESS_MAX_LUNA_STRATEGY_FAILURES HARNESS_MIN_LUNA_NODE_PERCENT
+	unset HARNESS_MIN_LUNA_CODING_NODE_PERCENT HARNESS_ARCHITECTURE_GUARDS
 	unset HARNESS_PREFERRED_WORKER_ROUTE HARNESS_AGENT_COMMITS_ENABLED
 	unset HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
 	unset HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
@@ -259,6 +262,20 @@ load_harness_env()
 	# Fresh v2 plans must put most independently executable nodes on the cheap
 	# worker route. Existing immutable DAGs are not rewritten by this setting.
 	HARNESS_MIN_LUNA_NODE_PERCENT="${HARNESS_MIN_LUNA_NODE_PERCENT:-80}"
+	HARNESS_MIN_LUNA_CODING_NODE_PERCENT="${HARNESS_MIN_LUNA_CODING_NODE_PERCENT:-$HARNESS_MIN_LUNA_NODE_PERCENT}"
+	# New Full-v2 projects use architecture guards by default. Existing plans
+	# created before the sidecars existed remain compatible and default off;
+	# setting the variable explicitly always wins.
+	if [[ -z "${HARNESS_ARCHITECTURE_GUARDS+x}" ]]; then
+		if (( HARNESS_DECOMPOSITION_V2 == 1 )) && {
+			[[ ! -f "$HARNESS_ROOT/projects/$PROJECT/control/project-plan.tsv" ]] ||
+			[[ -f "$HARNESS_ROOT/projects/$PROJECT/control/architecture/invariants.tsv" ]]
+		}; then
+			HARNESS_ARCHITECTURE_GUARDS=1
+		else
+			HARNESS_ARCHITECTURE_GUARDS=0
+		fi
+	fi
 	# V2 uses Terra for unresolved decisions and Luna for bounded coding.  This
 	# preference also lets old immutable Terra-heavy DAG nodes be reclassified at
 	# publication time when the manager can prove a Luna-ready execution leaf.
@@ -409,6 +426,15 @@ load_harness_env()
 		die 'HARNESS_MIN_LUNA_NODE_PERCENT must be an integer from 0 through 100'
 	(( HARNESS_MIN_LUNA_NODE_PERCENT <= 100 )) ||
 		die 'HARNESS_MIN_LUNA_NODE_PERCENT must be an integer from 0 through 100'
+	[[ "$HARNESS_MIN_LUNA_CODING_NODE_PERCENT" =~ ^(0|[1-9][0-9]*)$ ]] ||
+		die 'HARNESS_MIN_LUNA_CODING_NODE_PERCENT must be an integer from 0 through 100'
+	(( HARNESS_MIN_LUNA_CODING_NODE_PERCENT <= 100 )) ||
+		die 'HARNESS_MIN_LUNA_CODING_NODE_PERCENT must be an integer from 0 through 100'
+	[[ "$HARNESS_ARCHITECTURE_GUARDS" =~ ^[01]$ ]] || die 'HARNESS_ARCHITECTURE_GUARDS must be 0 or 1'
+	(( HARNESS_ARCHITECTURE_GUARDS == 0 || HARNESS_DECOMPOSITION_V2 == 1 )) ||
+		die 'HARNESS_ARCHITECTURE_GUARDS=1 requires HARNESS_DECOMPOSITION_V2=1'
+	(( HARNESS_ARCHITECTURE_GUARDS == 0 || HARNESS_WORKER_GOAL_MODE == 1 )) ||
+		die 'HARNESS_ARCHITECTURE_GUARDS=1 requires HARNESS_WORKER_GOAL_MODE=1'
 	[[ "$HARNESS_PREFERRED_WORKER_ROUTE" =~ ^(LUNA|TERRA)$ ]] ||
 		die 'HARNESS_PREFERRED_WORKER_ROUTE must be LUNA or TERRA'
 	[[ "$HARNESS_AGENT_COMMITS_ENABLED" =~ ^[01]$ ]] ||
@@ -466,7 +492,8 @@ load_harness_env()
 	export HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS HARNESS_GOAL_PROCESS_MAX_FIXES
 	export HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS
 	export HARNESS_DECOMPOSITION_V2 HARNESS_DECOMPOSITION_CRITIC_ENABLED HARNESS_MAX_LUNA_STRATEGY_FAILURES
-	export HARNESS_MIN_LUNA_NODE_PERCENT HARNESS_PREFERRED_WORKER_ROUTE HARNESS_AGENT_COMMITS_ENABLED
+	export HARNESS_MIN_LUNA_NODE_PERCENT HARNESS_MIN_LUNA_CODING_NODE_PERCENT HARNESS_ARCHITECTURE_GUARDS
+	export HARNESS_PREFERRED_WORKER_ROUTE HARNESS_AGENT_COMMITS_ENABLED
 	export HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
 	export HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_KILL_GRACE_SECONDS
 	export WORKER_HEARTBEAT_SECONDS
@@ -2631,8 +2658,9 @@ initialize_project_plan_v2()
 	local definition_tmp state_tmp dag_tmp seen_file
 	local node_id parent_id depends_on deliverable acceptance_evidence focused_validation
 	local allowed_paths required_symbols leaf_type complexity_class worker_route dependency
-	local node_count luna_count luna_percent has_leaf_type=0 route_column=11
+	local node_count luna_count luna_percent coding_count luna_coding_count luna_coding_percent has_leaf_type=0 route_column=11 type_column=9
 	local -a fields=()
+	architecture_require_registered
 	expected_header=$'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tleaf_type\tcomplexity_class\tworker_route'
 	legacy_header=$'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tcomplexity_class\tworker_route'
 	IFS= read -r header < "$source_file" || die 'decomposition DAG is empty'
@@ -2735,12 +2763,24 @@ initialize_project_plan_v2()
 	(( node_count > 0 )) || die 'decomposition DAG must contain at least one node'
 	luna_count="$(awk -F '\t' -v route="$route_column" 'NR > 1 && $route == "LUNA" {count++} END {print count + 0}' "$dag_tmp")"
 	luna_percent=$((luna_count * 100 / node_count))
-	(( luna_percent >= HARNESS_MIN_LUNA_NODE_PERCENT )) ||
-		die "decomposition DAG routes only $luna_count/$node_count nodes ($luna_percent%) to Luna; minimum is $HARNESS_MIN_LUNA_NODE_PERCENT%. Split resolved implementation into bounded LOW/LUNA nodes"
+	if (( has_leaf_type == 1 )); then
+		coding_count="$(awk -F '\t' -v type="$type_column" 'NR > 1 && $type ~ /^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$/ {count++} END {print count + 0}' "$dag_tmp")"
+		luna_coding_count="$(awk -F '\t' -v type="$type_column" -v route="$route_column" 'NR > 1 && $type ~ /^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$/ && $route == "LUNA" {count++} END {print count + 0}' "$dag_tmp")"
+		if (( coding_count == 0 )); then luna_coding_percent=100; else luna_coding_percent=$((luna_coding_count * 100 / coding_count)); fi
+		(( luna_coding_percent >= HARNESS_MIN_LUNA_CODING_NODE_PERCENT )) ||
+			die "decomposition DAG routes only $luna_coding_count/$coding_count coding-eligible nodes ($luna_coding_percent%) to Luna; minimum is $HARNESS_MIN_LUNA_CODING_NODE_PERCENT%"
+	else
+		(( luna_percent >= HARNESS_MIN_LUNA_NODE_PERCENT )) ||
+			die "legacy decomposition DAG routes only $luna_count/$node_count nodes ($luna_percent%) to Luna; minimum is $HARNESS_MIN_LUNA_NODE_PERCENT%"
+	fi
 	chmod 600 "$definition_tmp" "$state_tmp" "$dag_tmp"
 	mv "$definition_tmp" "$definition"
 	mv "$state_tmp" "$state"
 	mv "$dag_tmp" "$dag"
+	if ! ( architecture_validate_against_plan ); then
+		rm -f -- "$definition" "$state" "$dag"
+		die 'decomposition DAG conflicts with architecture registries; incomplete plan registration was rolled back'
+	fi
 	log_event "PROJECT_DECOMPOSITION_V2_INITIALIZED nodes=$(project_plan_total_count) file=$dag"
 	trace_event PROJECT_DECOMPOSITION_V2_INITIALIZED "nodes=$(project_plan_total_count)" "dag_file=$dag"
 }
@@ -2807,6 +2847,7 @@ mark_project_complete()
 	local file tmp
 	project_plan_exists || die 'refusing project completion without a persistent project plan'
 	project_plan_all_complete || die "refusing project completion with $(project_plan_pending_count) unfinished project plan item(s)"
+	architecture_require_completion_ready
 	file="$(project_complete_file)"
 	tmp="$file.tmp.$$"
 	{
@@ -2863,6 +2904,7 @@ write_project_snapshot()
 		printf 'repository=%s\n' "$REPOSITORY"
 		printf 'harness_mode=%s\n' "$HARNESS_MODE"
 		printf 'decomposition_v2=%s\n' "$HARNESS_DECOMPOSITION_V2"
+		printf 'architecture_guards=%s\n' "$HARNESS_ARCHITECTURE_GUARDS"
 		printf 'harness_home=%s\n' "$HARNESS_HOME"
 		printf 'harness_bin=%s\n' "$HARNESS_BIN"
 		printf 'project_tmp_dir=%s\n' "$(project_tmp_dir)"
@@ -2892,6 +2934,8 @@ write_manager_snapshot()
 		printf 'preferred_worker_route=%s\n' "$HARNESS_PREFERRED_WORKER_ROUTE"
 		printf 'agent_commits_enabled=%s\n' "$HARNESS_AGENT_COMMITS_ENABLED"
 		printf 'min_luna_node_percent=%s\n' "$HARNESS_MIN_LUNA_NODE_PERCENT"
+		printf 'min_luna_coding_node_percent=%s\n' "$HARNESS_MIN_LUNA_CODING_NODE_PERCENT"
+		printf 'architecture_guards=%s\n' "$HARNESS_ARCHITECTURE_GUARDS"
 		printf 'env_file=%s\n' "$HARNESS_ENV_FILE"
 		printf 'env_sha256=%s\n' "$(env_sha256)"
 		printf 'updated_at=%s\n' "$(timestamp_utc)"
@@ -2931,6 +2975,8 @@ write_worker_snapshot()
 		printf 'decomposition_critic_enabled=%s\n' "$HARNESS_DECOMPOSITION_CRITIC_ENABLED"
 		printf 'max_luna_strategy_failures=%s\n' "$HARNESS_MAX_LUNA_STRATEGY_FAILURES"
 		printf 'min_luna_node_percent=%s\n' "$HARNESS_MIN_LUNA_NODE_PERCENT"
+		printf 'min_luna_coding_node_percent=%s\n' "$HARNESS_MIN_LUNA_CODING_NODE_PERCENT"
+		printf 'architecture_guards=%s\n' "$HARNESS_ARCHITECTURE_GUARDS"
 		printf 'preferred_worker_route=%s\n' "$HARNESS_PREFERRED_WORKER_ROUTE"
 		printf 'agent_commits_enabled=%s\n' "$HARNESS_AGENT_COMMITS_ENABLED"
 		printf 'luna_model=%s\n' "$LUNA_WORKER_MODEL"

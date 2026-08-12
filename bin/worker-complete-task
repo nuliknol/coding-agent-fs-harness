@@ -45,6 +45,7 @@ goal_state=""
 
 owner="$(lease_value "$lease" owner)"
 [[ "$owner" == "$session" ]] || die "task is owned by $owner, not $session"
+architecture_validate_impact_result "$result_file" "$running"
 if assignment_uses_goal_mode "$running"; then
 	goal_mode=1
 	goal_state="$(goal_state_file "$task_id")"
@@ -128,6 +129,7 @@ fi
 mv "$running" "$assignment_archive"
 rm -f "$lease"
 mv "$tmp" "$result"
+architecture_record_impact "$task_id" "$result"
 if (( goal_mode == 1 )); then
 	goal_state_set "$goal_state" state REVIEW
 	goal_state_set "$goal_state" terminal_outcome "$reported_goal_outcome"

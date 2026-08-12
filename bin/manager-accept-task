@@ -130,6 +130,7 @@ fi
 [[ ! -e "$lease" ]] || die "worker lease still exists: $task_id"
 validate_worker_result "$result"
 validate_acceptance_evidence "$note_file"
+architecture_validate_manager_review "$note_file" "$assignment_archive"
 initialize_task_progress "$task_id" "$assignment_archive"
 current_progress="$(task_progress_percent "$task_id")"
 accept_improvement=$((100 - current_progress))
@@ -173,8 +174,14 @@ fi
 project_plan_exists || die 'cannot accept a task without a persistent project plan'
 plan_item_id="$(project_plan_item_for_root "$(task_root_id "$task_id")")"
 [[ -n "$plan_item_id" ]] || die "task is not assigned to the project plan: $task_id"
+architecture_run_acceptance_gates "$plan_item_id" "$task_id"
+unfinished_other_items="$(awk -F '\t' -v item="$plan_item_id" '!/^#/ && $1 != item && $2 != "COMPLETE" {count++} END {print count + 0}' "$(project_plan_state_file)")"
+if (( unfinished_other_items == 0 )); then
+	# Validate final architecture closure before mutating the final plan item.
+	# The current item is still ACTIVE, but its acceptance gates have passed.
+	architecture_require_completion_ready
+fi
 if [[ "$complete_flag" == '--complete-project' ]]; then
-	unfinished_other_items="$(awk -F '\t' -v item="$plan_item_id" '!/^#/ && $1 != item && $2 != "COMPLETE" {count++} END {print count + 0}' "$(project_plan_state_file)")"
 	(( unfinished_other_items == 0 )) || die "refusing --complete-project; $unfinished_other_items other project plan item(s) remain unfinished"
 fi
 mv "$result" "$result_archive"

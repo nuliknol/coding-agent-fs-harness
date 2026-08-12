@@ -109,7 +109,9 @@ export HARNESS_DECOMPOSITION_V2="1"
 export HARNESS_DECOMPOSITION_CRITIC_ENABLED="1"
 export HARNESS_MAX_LUNA_STRATEGY_FAILURES="3"
 export HARNESS_MIN_LUNA_NODE_PERCENT="80"
+export HARNESS_MIN_LUNA_CODING_NODE_PERCENT="80"
 export HARNESS_PREFERRED_WORKER_ROUTE="LUNA"
+export HARNESS_ARCHITECTURE_GUARDS="1"
 export LUNA_WORKER_MODEL="gpt-5.6-luna"
 export TERRA_WORKER_MODEL="gpt-5.6-terra"
 ```
@@ -125,15 +127,16 @@ Run `bin/harness-decomposition-tree ENV_FILE` to display the immutable DAG as a
 terminal tree with node state, complexity, configured worker route,
 dependencies, deliverable, and active task route. `--compact` shows one line
 per node; `--details` also shows evidence, validation, scope, symbols, and the
-current criterion tree. New v2 plans must meet
-`HARNESS_MIN_LUNA_NODE_PERCENT` (80 by default); set it lower only for an
-exceptional plan dominated by unresolved architecture or integration work.
+current criterion tree. New typed v2 plans must meet
+`HARNESS_MIN_LUNA_CODING_NODE_PERCENT` (80 by default). Its denominator is
+only coding-eligible nodes; Terra contract, architecture, concurrency,
+ambiguity, and integration nodes do not dilute the Luna target.
 For a stopped, incomplete Full-v2 project, run
 `bin/manager-reclassify-project-plan ENV_FILE` to have a fresh Terra critic
 reclassify only its `PENDING` nodes under the current Luna-first policy. The
 command refuses to run while harness processes are alive, preserves all DAG
 structure and every `ACTIVE` or `COMPLETE` route, validates the configured
-minimum pending-Luna percentage, and stores the previous DAG plus an audit
+minimum pending Luna coding percentage, and stores the previous DAG plus an audit
 report under `control/reclassifications/` before installing the candidate.
 With `HARNESS_PREFERRED_WORKER_ROUTE=LUNA`, typed new DAGs must classify every
 node with `leaf_type`; routine coding types cannot route to Terra. Existing
@@ -141,6 +144,44 @@ immutable ten-column DAGs remain readable, but a manager may override an
 inherited HIGH/TERRA route with LOW/LUNA when the executable leaf satisfies the
 bounded Luna contract. Terra remains available for decision work and after the
 configured number of genuinely different Luna strategies fails.
+
+### Architecture constitution and health guards
+
+New Full-v2 projects use `HARNESS_ARCHITECTURE_GUARDS=1` by default. This requires
+leaf-goal mode and adds an immutable architecture registry above the execution
+DAG. Start from `templates/architecture/` and initialize the six sidecars before
+registering the DAG:
+
+```bash
+bin/manager-init-architecture ENV_FILE ARCHITECTURE_SOURCE_DIR
+bin/manager-init-project-plan ENV_FILE DAG_FILE
+```
+
+The registry records global invariants, explicit architecture decisions,
+producer/consumer edge contracts, per-node bindings, cumulative health gates,
+and accepted debt. Every plan node must have exactly one binding. Consumers
+cannot start before their decisions are accepted and edge producers complete;
+workers publish structured impact manifests; managers verify the affected
+invariants and edges; registered checks run during acceptance. Unresolved
+critical debt, expired debt, or a missing health gate blocks final completion.
+Every cumulative health gate is rerun at the final boundary so a later leaf
+cannot rely on stale earlier system-health evidence.
+
+Use these controlled commands during execution:
+
+```bash
+bin/manager-accept-architecture-decision ENV_FILE DECISION_ID TASK_ID EVIDENCE_FILE
+bin/manager-record-debt ENV_FILE DEBT_ROW_TSV
+bin/manager-resolve-debt ENV_FILE DEBT_ID EVIDENCE_FILE
+bin/harness-architecture-status --details ENV_FILE
+```
+
+`harness-decomposition-tree --details` includes each node's invariant,
+decision, edge, and health bindings. `harness-decomposition-metrics` reports
+planned and observed Luna coding share, gate completion, impact manifests, and
+open/critical/expired debt. New Full-v2 projects default to guarded mode.
+Existing plans without architecture sidecars detect that legacy state and
+remain unguarded; the environment may explicitly set `0` or `1`.
 
 The interactive Codex TUI is not used for automated workers. A root task starts
 a fresh non-interactive worker thread. If the manager rejects it, the harness
@@ -443,7 +484,9 @@ export HARNESS_DECOMPOSITION_V2="1"
 export HARNESS_DECOMPOSITION_CRITIC_ENABLED="1"
 export HARNESS_MAX_LUNA_STRATEGY_FAILURES="3"
 export HARNESS_MIN_LUNA_NODE_PERCENT="80"
+export HARNESS_MIN_LUNA_CODING_NODE_PERCENT="80"
 export HARNESS_PREFERRED_WORKER_ROUTE="LUNA"
+export HARNESS_ARCHITECTURE_GUARDS="1"
 
 export HARNESS_POLL_SECONDS="2"
 export HARNESS_WAIT_SECONDS="300"
@@ -918,12 +961,19 @@ leaf-goal regression suite:
 ```bash
 bash tests/test-harness.sh
 bash tests/test-leaf-goal.sh
+bash tests/test-decomposition-v2.sh
+bash tests/test-architecture-guards.sh
 ```
 
 The leaf-goal test covers assignment validation, code-only continuation,
 same-thread resume, one terminal manager result, idempotent receipts, repeated
 identical-iteration rotation, archived goal state, and boundary-safe
 enable/disable refusal.
+
+The architecture-guard test covers registry/DAG cross-validation, controlled
+decision evidence, edge readiness, worker impact manifests, manager review,
+critical-debt blocking and resolution, milestone and final health gates,
+tree/status visibility, and decomposition-quality metrics.
 
 ## Heartbeats and long tasks
 

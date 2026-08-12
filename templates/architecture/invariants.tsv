@@ -1,0 +1,2 @@
+invariant_id	category	authority	severity	statement	scope	source_requirement	validation_kind	validation_ref	affected_nodes
+INV-canonical-widget	CANONICAL_REPRESENTATION	SPECIFIED	CRITICAL	Widget state has exactly one canonical source representation.	src/widget,include/widget.h	SPECIFICATION.md#widget-state	COMMAND	make test-widget-contract	widget-contract,widget-implementation,widget-integration

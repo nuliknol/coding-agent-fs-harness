@@ -13,6 +13,8 @@ dir="$(project_dir)"
 report="$dir/control/decomposition-metrics.tsv"
 nodes_total="$(project_plan_total_count)"
 nodes_complete="$(project_plan_complete_count)"
+planned_coding_nodes="$(awk -F '\t' 'NR>1 && $9 ~ /^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$/ {n++} END {print n+0}' "$(project_decomposition_plan_file)")"
+planned_luna_coding_nodes="$(awk -F '\t' 'NR>1 && $9 ~ /^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$/ && $11=="LUNA" {n++} END {print n+0}' "$(project_decomposition_plan_file)")"
 luna_assignments=0
 terra_assignments=0
 luna_complete=0
@@ -31,6 +33,15 @@ worker_input=0
 worker_output=0
 manager_input=0
 manager_output=0
+architecture_invariants=0
+architecture_edges=0
+architecture_health_gates=0
+architecture_health_gates_passed=0
+architecture_impacts=0
+architecture_debt_total=0
+architecture_debt_open=0
+architecture_debt_critical=0
+architecture_debt_expired=0
 declare -A worker_thread_input=() worker_thread_output=()
 declare -A manager_thread_input=() manager_thread_output=()
 
@@ -99,6 +110,19 @@ done
 for thread in "${!manager_thread_input[@]}"; do manager_input=$((manager_input + manager_thread_input[$thread])); done
 for thread in "${!manager_thread_output[@]}"; do manager_output=$((manager_output + manager_thread_output[$thread])); done
 
+if (( HARNESS_ARCHITECTURE_GUARDS == 1 )); then
+	architecture_require_registered
+	architecture_invariants="$(awk 'NR>1 {n++} END {print n+0}' "$(architecture_invariants_file)")"
+	architecture_edges="$(awk 'NR>1 {n++} END {print n+0}' "$(architecture_edges_file)")"
+	architecture_health_gates="$(awk 'NR>1 {n++} END {print n+0}' "$(architecture_health_gates_file)")"
+	architecture_health_gates_passed="$(awk -F '\t' 'NR>1 && $2 ~ /PASSED$/ {seen[$1]=1} END {for(i in seen)n++; print n+0}' "$(architecture_health_ledger_file)")"
+	architecture_impacts="$(find "$(architecture_impact_dir)" -maxdepth 1 -type f -name '*.impact.md' -printf '.' | wc -c)"
+	architecture_debt_total="$(awk 'NR>1 {n++} END {print n+0}' "$(architecture_debt_file)")"
+	architecture_debt_open="$(awk -F '\t' 'NR>1 && $10!="RESOLVED" {n++} END {print n+0}' "$(architecture_debt_file)")"
+	architecture_debt_critical="$(architecture_open_critical_debt_count)"
+	architecture_debt_expired="$(architecture_expired_debt_count)"
+fi
+
 rate()
 {
 	local numerator="$1" denominator="$2"
@@ -114,6 +138,9 @@ per_item()
 	printf 'metric\tvalue\n'
 	printf 'nodes_total\t%s\n' "$nodes_total"
 	printf 'nodes_complete\t%s\n' "$nodes_complete"
+	printf 'planned_coding_nodes\t%s\n' "$planned_coding_nodes"
+	printf 'planned_luna_coding_nodes\t%s\n' "$planned_luna_coding_nodes"
+	printf 'planned_luna_coding_share_percent\t%s\n' "$(rate "$planned_luna_coding_nodes" "$planned_coding_nodes")"
 	printf 'luna_assignments\t%s\n' "$luna_assignments"
 	printf 'terra_assignments\t%s\n' "$terra_assignments"
 	printf 'luna_assignment_share_percent\t%s\n' "$(rate "$luna_assignments" "$((luna_assignments + terra_assignments))")"
@@ -140,6 +167,17 @@ per_item()
 	printf 'worker_output_tokens_per_verified_item\t%s\n' "$(per_item "$worker_output")"
 	printf 'manager_input_tokens_per_verified_item\t%s\n' "$(per_item "$manager_input")"
 	printf 'manager_output_tokens_per_verified_item\t%s\n' "$(per_item "$manager_output")"
+	printf 'architecture_guards_enabled\t%s\n' "$HARNESS_ARCHITECTURE_GUARDS"
+	printf 'architecture_invariants\t%s\n' "$architecture_invariants"
+	printf 'architecture_edges\t%s\n' "$architecture_edges"
+	printf 'architecture_health_gates\t%s\n' "$architecture_health_gates"
+	printf 'architecture_health_gates_passed\t%s\n' "$architecture_health_gates_passed"
+	printf 'architecture_health_gate_pass_percent\t%s\n' "$(rate "$architecture_health_gates_passed" "$architecture_health_gates")"
+	printf 'architecture_impact_manifests\t%s\n' "$architecture_impacts"
+	printf 'architecture_debt_total\t%s\n' "$architecture_debt_total"
+	printf 'architecture_debt_open\t%s\n' "$architecture_debt_open"
+	printf 'architecture_debt_open_critical\t%s\n' "$architecture_debt_critical"
+	printf 'architecture_debt_expired\t%s\n' "$architecture_debt_expired"
 } > "$report.tmp.$$"
 chmod 600 "$report.tmp.$$"
 mv "$report.tmp.$$" "$report"

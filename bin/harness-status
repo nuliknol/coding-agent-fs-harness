@@ -66,6 +66,14 @@ fi
 printf 'Manager supervisor: %s\n' "$manager_supervisor"
 printf 'Worker supervisor: %s\n' "$worker_supervisor"
 printf 'Worker leaf-goal mode: %s\n' "$([[ "$HARNESS_WORKER_GOAL_MODE" == 1 ]] && printf enabled || printf disabled)"
+if (( HARNESS_ARCHITECTURE_GUARDS == 1 )); then
+	architecture_require_registered
+	printf 'Architecture guards: enabled (%s)\n' "$(architecture_dir)"
+	printf 'Architecture health: critical-debt=%s expired-debt=%s missing-gates=%s\n' \
+		"$(architecture_open_critical_debt_count)" "$(architecture_expired_debt_count)" "$(architecture_missing_health_gate_count)"
+else
+	printf 'Architecture guards: disabled\n'
+fi
 if oracle_enabled; then
 	if [[ -f "$(project_block_file)" ]]; then
 		printf 'Oracle audit: BLOCKED (%s)\n' "$(project_block_file)"
@@ -303,6 +311,9 @@ elif (( aborted_count > 0 )); then
 elif project_plan_exists && project_plan_all_complete && oracle_enabled &&
 	[[ -f "$(project_oracle_pending_file)" ]]; then
 	project_status_line='Project status: ORACLE_AUDIT. Every plan item is complete and the final independent audit is pending.'
+elif project_plan_exists && project_plan_all_complete && (( HARNESS_ARCHITECTURE_GUARDS == 1 )) &&
+	(( $(architecture_open_critical_debt_count) > 0 || $(architecture_expired_debt_count) > 0 || $(architecture_missing_health_gate_count) > 0 )); then
+	project_status_line='Project status: ARCHITECTURE_BLOCKED. Plan work is complete, but critical/expired debt or a required architecture health gate prevents completion.'
 elif project_plan_exists && (( active_count == 0 && aborted_count == 0 )) && ! project_plan_all_complete; then
 	project_status_line='Project status: INCOMPLETE. No task is active; manager planning is required for the next plan item.'
 elif project_completion_recorded; then
