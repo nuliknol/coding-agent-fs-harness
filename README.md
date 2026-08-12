@@ -599,7 +599,7 @@ verified evidence, and root-assignment paths. Consequently, stopping/restarting
 the supervisors or rebooting does not restart implementation from zero.
 
 State durability alone does not recreate processes after the machine boots.
-Set `HARNESS_BOOT_RECOVERY=1` to make each successful `harness-start` register
+Set `HARNESS_BOOT_RECOVERY=1` to make each explicit `harness-start` register
 that environment with the user service manager; an intentional `harness-stop`
 unregisters it. The generated `coding-agent-fs-harness-autostart.service`
 starts only registered environments. Full mode first requeues any assignment
