@@ -80,6 +80,19 @@ if "$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/harness.env" "$TEST_ROOT
 	printf 'guarded plan initialized without an architecture registry\n' >&2
 	exit 1
 fi
+self_architecture="$TEST_ROOT/self-architecture"
+cp -a "$TEST_ROOT/architecture" "$self_architecture"
+awk -F '\t' 'BEGIN {OFS=FS} $1 == "GATE-widget" {$3="contract,coding"} {print}' \
+	"$self_architecture/health-gates.tsv" > "$self_architecture/health-gates.tsv.tmp"
+mv "$self_architecture/health-gates.tsv.tmp" "$self_architecture/health-gates.tsv"
+if "$HARNESS_BIN/manager-init-architecture" "$TEST_ROOT/harness.env" "$self_architecture" \
+	> "$TEST_ROOT/self-gate.out" 2>&1; then
+	printf 'self-dependent architecture health gate was accepted\n' >&2
+	exit 1
+fi
+grep -Fq 'health gate GATE-widget cannot depend on its own trigger node: coding' \
+	"$TEST_ROOT/self-gate.out"
+test ! -e "$TEST_ROOT/state/projects/archguard/control/architecture"
 "$HARNESS_BIN/manager-init-architecture" "$TEST_ROOT/harness.env" "$TEST_ROOT/architecture" >/dev/null
 "$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/harness.env" "$TEST_ROOT/plan.tsv" >/dev/null
 

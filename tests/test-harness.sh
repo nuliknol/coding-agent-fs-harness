@@ -64,6 +64,9 @@ if printf '%s' "$prompt" | grep -q 'This is the bootstrap turn'; then
 elif printf '%s' "$prompt" | grep -q 'A worker result is ready for review'; then
 	kind="review"
 	key="review-$(value TASK_ID)"
+	if [[ "$(value REVIEW_STATE_CHANGED)" == 1 ]]; then
+		printf '%s\n' "$prompt" | grep -q 'perform a fresh review; do not dismiss the event as a duplicate'
+	fi
 elif printf '%s' "$prompt" | grep -q 'The root hit a convergence guard'; then
 	kind="replan"
 	key="replan-$(value TASK_ROOT)"
@@ -368,6 +371,26 @@ grep -q 'Quota retry seconds: 1 (retries unlimited)' "$TEST_ROOT/check-env.out"
 [[ -d "/tmp/testproj" ]]
 "$HARNESS_BIN/harness-start" "$TEST_ROOT/harness.env" >/dev/null
 
+# A manager review that returns without a durable action must be invoked once
+# for an unchanged result and stable control state. A later control-state
+# change wakes exactly one new review, which then completes the task.
+pending_review_marker="$TEST_ROOT/state/projects/testproj/control/testproj-task-002.reviewed-event"
+for _ in $(seq 1 300); do
+	if [[ -f "$pending_review_marker" ]] &&
+		[[ "$(awk -F= '$1=="manager_exit_status" {print $2}' "$pending_review_marker")" == 3 ]]; then
+		break
+	fi
+	sleep 0.1
+done
+[[ -f "$pending_review_marker" ]]
+[[ "$(cat "$TEST_ROOT/state/mock-counts/review-002")" == 1 ]]
+sleep 0.8
+[[ "$(cat "$TEST_ROOT/state/mock-counts/review-002")" == 1 ]]
+plan_state="$TEST_ROOT/state/projects/testproj/control/project-plan-state.tsv"
+awk -F '\t' 'BEGIN {OFS=FS} $1 == "phase-2" {$4="2026-08-12T20:00:00Z"} {print}' \
+	"$plan_state" > "$plan_state.tmp"
+mv "$plan_state.tmp" "$plan_state"
+
 for _ in $(seq 1 300); do
 	if [[ -f "$TEST_ROOT/state/projects/testproj/archive/testproj-task-002.accepted.md" &&
 		-f "$TEST_ROOT/state/projects/testproj/control/project.complete" ]]; then
@@ -395,7 +418,7 @@ grep -q 'MANAGER_PLAN_PROVIDER_RETRY_STARTED kind=quota' "$EVENTS"
 grep -q 'WORKER_PROVIDER_WAIT task=002.*kind=quota' "$EVENTS"
 grep -q 'WORKER_PROVIDER_RETRY_STARTED task=002.*kind=quota' "$EVENTS"
 grep -q 'MANAGER_REVIEW_LEFT_PENDING task=002' "$EVENTS"
-grep -q 'SUPERVISOR_REVIEW_LEFT_UNCOMMITTED task=002' "$EVENTS"
+grep -q 'SUPERVISOR_REVIEW_LEFT_UNCOMMITTED task=002.*retry=suppressed_until_state_change' "$EVENTS"
 grep -q 'WORKER_SUPERVISOR_TRIGGER task=001' "$EVENTS"
 grep -q 'WORKER_DIRECT_RESULT_NORMALIZED task=001' "$EVENTS"
 grep -q 'WORKER_LAST_MESSAGE_RESULT_NORMALIZED task=002' "$EVENTS"
@@ -433,7 +456,7 @@ first_review_line="$(grep -n 'MANAGER_REVIEW_STARTED task=001' "$EVENTS" | head 
 [[ -n "$first_complete_line" && -n "$first_review_line" ]]
 (( first_complete_line < first_review_line ))
 review_002_count="$(grep -c 'MANAGER_REVIEW_STARTED task=002' "$EVENTS")"
-[[ "$review_002_count" -ge 2 ]]
+[[ "$review_002_count" == 2 ]]
 [[ ! -e "$TEST_ROOT/state/projects/testproj/control/testproj-task-002.manager-failed.md" ]]
 
 for _ in $(seq 1 100); do

@@ -252,6 +252,8 @@ architecture_validate_registries()
 		[[ "$gate" != gate_id ]] || continue
 		[[ -z "${seen[$gate]:-}" ]] || die "duplicate health gate: $gate"; seen[$gate]=1
 		[[ "$severity" =~ ^(WARNING|CRITICAL)$ && -n "$node" && -n "$depends" && -n "$validation" ]] || die "invalid health gate: $gate"
+		! architecture_list_contains "$depends" "$node" ||
+			die "health gate $gate cannot depend on its own trigger node: $node"
 		[[ "$severity" != CRITICAL ]] || critical_gate_count=$((critical_gate_count + 1))
 		architecture_require_id_list "health gate $gate invariant_ids" "$invariants" "$(architecture_invariants_file)"
 		architecture_require_id_list "health gate $gate edge_ids" "$edges" "$(architecture_edges_file)"

@@ -74,6 +74,42 @@ fingerprint()
 	stat -c '%i:%s:%Y' "$file"
 }
 
+review_state_fingerprint()
+{
+	local result="$1" candidate architecture dependency_dir
+	architecture="$(architecture_dir)"
+	dependency_dir="$(dependency_request_dir)"
+	{
+		for candidate in \
+			"$result" \
+			"$(project_plan_definition_file)" \
+			"$(project_plan_state_file)" \
+			"$(project_decomposition_plan_file)" \
+			"$dir/control/agent-commits.tsv"; do
+			if [[ -f "$candidate" ]]; then
+				sha256sum "$candidate"
+			else
+				printf 'missing  %s\n' "$candidate"
+			fi
+		done
+		if [[ -d "$architecture" ]]; then
+			find "$architecture" -maxdepth 1 -type f \
+				\( -name '*.tsv' -o -name 'profile.env' \) -print0 |
+				LC_ALL=C sort -z | xargs -0 -r sha256sum
+		else
+			printf 'missing  %s\n' "$architecture"
+		fi
+		if [[ -d "$dependency_dir" ]]; then
+			find "$dependency_dir" -maxdepth 1 -type f \
+				\( -name '*.waiting.md' -o -name '*.requirements.tsv' -o -name '*.resolved.md' \) -print0 |
+				LC_ALL=C sort -z | xargs -0 -r sha256sum
+		else
+			printf 'missing  %s\n' "$dependency_dir"
+		fi
+		git -C "$REPOSITORY" rev-parse HEAD 2>/dev/null || printf 'UNBORN\n'
+	} | sha256sum | awk '{print "sha256:" $1}'
+}
+
 planning_gap_state_fingerprint()
 {
 	local file
@@ -92,7 +128,7 @@ planning_gap_state_fingerprint()
 
 process_results()
 {
-	local file task_id base marker current previous status alert tmp running lease assignment_archive accepted checkpointed rejected blocked
+	local file task_id base marker current previous review_state_changed status alert tmp running lease assignment_archive accepted checkpointed rejected blocked
 	shopt -s nullglob
 	for file in "$dir/results/$PROJECT-task-"*.result.md; do
 		task_id="$(task_id_from_filename "$file")"
@@ -114,20 +150,25 @@ process_results()
 		fi
 
 		marker="$dir/control/$base.reviewed-event"
-		current="$(fingerprint "$file")"
+		current="$(review_state_fingerprint "$file")"
 		previous=""
 		[[ ! -f "$marker" ]] || previous="$(kv_file_value "$marker" fingerprint)"
 		[[ "$current" != "$previous" ]] || continue
+		review_state_changed=0
+		[[ -z "$previous" ]] || review_state_changed=1
 
 		log_event "SUPERVISOR_TRIGGER task=$task_id fingerprint=$current"
 		trace_event SUPERVISOR_INVOKE_MANAGER "task_id=$task_id" "fingerprint=$current" "manager_invoker=$manager_invoker"
-		set +e
-		"$manager_invoker" "$HARNESS_ENV_FILE" "$task_id" 8>&-
-		status=$?
-		set -e
+		if HARNESS_REVIEW_STATE_CHANGED="$review_state_changed" \
+			"$manager_invoker" "$HARNESS_ENV_FILE" "$task_id" 8>&-; then
+			status=0
+		else
+			status=$?
+		fi
 		trace_event SUPERVISOR_MANAGER_EXIT "task_id=$task_id" "status=$status"
 		if (( status == 0 )); then
 			if [[ -f "$file" ]]; then
+				current="$(review_state_fingerprint "$file")"
 				log_event "SUPERVISOR_RESULT_STILL_PRESENT task=$task_id accepted=$([[ -f "$accepted" ]] && printf 1 || printf 0) checkpointed=$([[ -f "$checkpointed" ]] && printf 1 || printf 0) rejected=$([[ -f "$rejected" ]] && printf 1 || printf 0) blocked=$([[ -f "$blocked" ]] && printf 1 || printf 0)"
 				tmp="$marker.tmp.$$"
 				{
@@ -140,7 +181,16 @@ process_results()
 				log_event "SUPERVISOR_RESULT_LEFT_PENDING task=$task_id"
 			fi
 		elif (( status == manager_pending_exit_status )); then
-			log_event "SUPERVISOR_REVIEW_LEFT_UNCOMMITTED task=$task_id"
+			current="$(review_state_fingerprint "$file")"
+			tmp="$marker.tmp.$$"
+			{
+				printf 'fingerprint=%s\n' "$current"
+				printf 'handled_at=%s\n' "$(timestamp_utc)"
+				printf 'manager_exit_status=%s\n' "$status"
+			} > "$tmp"
+			chmod 600 "$tmp"
+			mv "$tmp" "$marker"
+			log_event "SUPERVISOR_REVIEW_LEFT_UNCOMMITTED task=$task_id fingerprint=$current retry=suppressed_until_state_change"
 		else
 			alert="$dir/control/$base.manager-failed.md"
 			tmp="$alert.tmp.$$"
