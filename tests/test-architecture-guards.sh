@@ -105,6 +105,19 @@ if "$HARNESS_BIN/manager-init-architecture" "$TEST_ROOT/harness.env" "$broad_arc
 fi
 grep -Fq 'uses a broad aggregate as a mandatory success condition' "$TEST_ROOT/broad-gate.out"
 test ! -e "$TEST_ROOT/state/projects/archguard/control/architecture"
+broad_edge_architecture="$TEST_ROOT/broad-edge-architecture"
+cp -a "$TEST_ROOT/architecture" "$broad_edge_architecture"
+awk -F '\t' 'BEGIN {OFS=FS} $1 == "EDGE-widget" {$9="./widget-smoke --computing-all"} {print}' \
+	"$broad_edge_architecture/edges.tsv" > "$broad_edge_architecture/edges.tsv.tmp"
+mv "$broad_edge_architecture/edges.tsv.tmp" "$broad_edge_architecture/edges.tsv"
+if "$HARNESS_BIN/manager-init-architecture" "$TEST_ROOT/harness.env" "$broad_edge_architecture" \
+	> "$TEST_ROOT/broad-edge.out" 2>&1; then
+	printf 'mandatory unrelated aggregate edge check was accepted\n' >&2
+	exit 1
+fi
+grep -Fq 'edge EDGE-widget uses a broad aggregate as a mandatory success condition' \
+	"$TEST_ROOT/broad-edge.out"
+test ! -e "$TEST_ROOT/state/projects/archguard/control/architecture"
 "$HARNESS_BIN/manager-init-architecture" "$TEST_ROOT/harness.env" "$TEST_ROOT/architecture" >/dev/null
 "$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/harness.env" "$TEST_ROOT/plan.tsv" >/dev/null
 

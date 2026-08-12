@@ -143,6 +143,10 @@ architecture_validate_new_validation_scope()
 		[[ "$id" != invariant_id && "$kind" == COMMAND ]] || continue
 		architecture_require_scoped_validation "invariant $id" "$validation"
 	done < "$source_dir/invariants.tsv"
+	while IFS=$'\t' read -r id _ _ _ _ _ _ _ validation _; do
+		[[ "$id" != edge_id && "$validation" != REVIEW ]] || continue
+		architecture_require_scoped_validation "edge $id" "$validation"
+	done < "$source_dir/edges.tsv"
 	while IFS=$'\t' read -r id _ _ validation _; do
 		[[ "$id" != gate_id ]] || continue
 		architecture_require_scoped_validation "health gate $id" "$validation"

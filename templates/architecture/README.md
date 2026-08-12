@@ -13,12 +13,13 @@ contract. A consumer directly depends on its edge producer.
 
 Every enforceable invariant's `affected_nodes` list may contain only nodes whose
 bindings include that invariant. Do not classify a contract-decision node as
-runtime-affected when enforcement belongs to implementation descendants. Lane
-and component checks use focused selectors. A broad aggregate may be collected
-as baseline evidence only when its nonzero status is explicitly tolerated and
-an owned result is asserted separately. Set `HARNESS_BROAD_GATE_REQUIRED=1` in
-a validation command only when the human-owned specification explicitly makes
-whole-project aggregate success part of acceptance.
+runtime-affected when enforcement belongs to implementation descendants.
+Invariant commands, edge compatibility checks, and lane/component health gates
+use focused selectors. A broad aggregate may be collected as baseline evidence
+only when its nonzero status is explicitly tolerated and an owned result is
+asserted separately. Set `HARNESS_BROAD_GATE_REQUIRED=1` in a validation command
+only when the human-owned specification explicitly makes whole-project
+aggregate success part of acceptance.
 
 At least one enforceable invariant and one `CRITICAL` cumulative health gate are
 required. The gate should trigger after the coherent component group it checks;
