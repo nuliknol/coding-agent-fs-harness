@@ -4,4 +4,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/harness-common.sh"
 [[ $# -eq 1 ]] || die "Usage: ${0##*/} ENV_FILE"
 load_harness_env "$1"
+if (( HARNESS_BOOT_RECOVERY == 1 )); then
+	"$HARNESS_BIN/harness-autostart" disable "$HARNESS_ENV_FILE"
+fi
 "$HARNESS_BIN/harness-supervisor-stop" "$HARNESS_ENV_FILE"

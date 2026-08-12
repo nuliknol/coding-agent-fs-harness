@@ -580,7 +580,23 @@ fi
 printf 'uncommitted recovered work\n' > "$ROTATE_ROOT/repo/recovered-work.txt"
 "$HARNESS_BIN/harness-recover" "$ROTATE_ROOT/harness.env" > "$ROTATE_ROOT/recover.out"
 grep -q 'ACTIVE_GOAL task=001.*workspace-drift=yes' "$ROTATE_ROOT/recover.out"
-"$HARNESS_BIN/harness-reset-task" "$ROTATE_ROOT/harness.env" 001 --force >/dev/null
+"$HARNESS_BIN/harness-recover" "$ROTATE_ROOT/harness.env" --reset-orphaned \
+	> "$ROTATE_ROOT/crash-recover.out"
+grep -q 'ORPHAN_RUNNING task=001 reason=no-live-harness-process' \
+	"$ROTATE_ROOT/crash-recover.out"
+grep -q 'Crash reconciliation complete: recovered=1 detected=1' \
+	"$ROTATE_ROOT/crash-recover.out"
+second_recovery_session="$("$HARNESS_BIN/harness-new-session" "$ROTATE_ROOT/harness.env" worker)"
+"$HARNESS_BIN/worker-claim-task" "$ROTATE_ROOT/harness.env" 001 \
+	"$second_recovery_session" >/dev/null
+mv "$rotation_project/running/goalrotate-task-001.running.md" \
+	"$rotation_project/archive/goalrotate-task-001.assignment.md"
+rm -f "$rotation_project/control/goalrotate-task-001.lease"
+"$HARNESS_BIN/harness-recover" "$ROTATE_ROOT/harness.env" --reset-orphaned \
+	> "$ROTATE_ROOT/transaction-recover.out"
+grep -q 'ORPHAN_ARCHIVED_ASSIGNMENT task=001 reason=incomplete-completion-transaction' \
+	"$ROTATE_ROOT/transaction-recover.out"
+[[ -f "$rotation_project/tasks/goalrotate-task-001.ready.md" ]]
 printf 'export HARNESS_WORKER_GOAL_MODE="0"\n' >> "$ROTATE_ROOT/harness.env"
 if "$HARNESS_BIN/worker-invoke-task" "$ROTATE_ROOT/harness.env" 001 \
 	>"$ROTATE_ROOT/invoke.out" 2>"$ROTATE_ROOT/invoke.err"; then

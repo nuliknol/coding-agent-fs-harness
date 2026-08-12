@@ -6,19 +6,38 @@ source "$SCRIPT_DIR/../lib/harness-common.sh"
 
 usage()
 {
-	printf 'Usage: %s ENV_FILE [--reset-stale]\n' "${0##*/}" >&2
+	printf 'Usage: %s ENV_FILE [--reset-stale|--reset-orphaned]\n' "${0##*/}" >&2
 	exit 2
 }
 
 [[ $# -ge 1 && $# -le 2 ]] || usage
 load_harness_env "$1"
 mode="${2:-}"
-[[ -z "$mode" || "$mode" == '--reset-stale' ]] || usage
+[[ -z "$mode" || "$mode" == '--reset-stale' || "$mode" == '--reset-orphaned' ]] || usage
 ensure_project
 
 dir="$(project_dir)"
 shopt -s nullglob
 problems=0
+recovered=0
+
+if [[ "$mode" == --reset-orphaned ]] && env_has_running_processes; then
+	die 'cannot reset orphaned crash state while harness processes still reference this environment'
+fi
+if [[ "$mode" == --reset-orphaned ]]; then
+	for stale_control in \
+		"$dir/control/supervisor.pid" "$dir/control/supervisor.env-file" \
+		"$dir/control/worker-supervisor.pid" "$dir/control/worker-supervisor.env-file"; do
+		[[ -e "$stale_control" ]] || continue
+		rm -f "$stale_control"
+		printf 'REMOVED_STALE_PROCESS_METADATA file=%s\n' "$stale_control"
+	done
+	command_lock="$(env_command_lock_path)"
+	if [[ -e "$command_lock" && "${HARNESS_ENV_COMMAND_LOCK_FILE:-}" != "$command_lock" ]]; then
+		rm -f "$command_lock"
+		printf 'REMOVED_STALE_PROCESS_METADATA file=%s\n' "$command_lock"
+	fi
+fi
 
 for file in "$dir/running/$PROJECT-task-"*.running.md; do
 	task_id="$(task_id_from_filename "$file")"
@@ -37,7 +56,22 @@ for file in "$dir/running/$PROJECT-task-"*.running.md; do
 			"$goal_drift"
 	fi
 
-	if [[ ! -f "$lease" ]]; then
+	if [[ "$mode" == --reset-orphaned ]]; then
+		result="$dir/results/$base.result.md"
+		if [[ -f "$result" ]]; then
+			recovery_dir="$dir/archive/crash-recovery"
+			mkdir -p "$recovery_dir"
+			chmod 700 "$recovery_dir"
+			preserved="$recovery_dir/$base.uncommitted-result.$(timestamp_compact_utc).md"
+			mv "$result" "$preserved"
+			printf 'PRESERVED_UNCOMMITTED_RESULT task=%s file=%s\n' "$task_id" "$preserved"
+		fi
+		printf 'ORPHAN_RUNNING task=%s reason=no-live-harness-process\n' "$task_id"
+		problems=$((problems + 1))
+		"$HARNESS_BIN/harness-reset-task" "$HARNESS_ENV_FILE" "$task_id" --force >/dev/null
+		recovered=$((recovered + 1))
+		continue
+	elif [[ ! -f "$lease" ]]; then
 		printf 'ORPHAN_RUNNING task=%s reason=missing-lease\n' "$task_id"
 		problems=$((problems + 1))
 		if [[ "$mode" == '--reset-stale' ]]; then
@@ -58,6 +92,33 @@ for file in "$dir/running/$PROJECT-task-"*.running.md; do
 		fi
 	fi
 done
+
+if [[ "$mode" == --reset-orphaned ]]; then
+	for assignment in "$dir/archive/$PROJECT-task-"*.assignment.md; do
+		[[ -f "$assignment" ]] || continue
+		task_id="${assignment##*/}"
+		task_id="${task_id#${PROJECT}-task-}"
+		task_id="${task_id%.assignment.md}"
+		base="$(task_base "$task_id")"
+		if [[ -f "$dir/tasks/$base.ready.md" ||
+			-f "$dir/running/$base.running.md" ||
+			-f "$dir/results/$base.result.md" ||
+			-f "$dir/archive/$base.accepted.md" ||
+			-f "$dir/archive/$base.checkpointed.md" ||
+			-f "$dir/archive/$base.rejected.md" ||
+			-f "$dir/archive/$base.blocked.md" ||
+			-f "$dir/archive/$base.aborted.assignment.md" ]]; then
+			continue
+		fi
+		root="$(task_root_id "$task_id")"
+		item="$(project_plan_item_for_root "$root")"
+		[[ -n "$item" && "$(project_plan_item_status "$item")" == ACTIVE ]] || continue
+		printf 'ORPHAN_ARCHIVED_ASSIGNMENT task=%s reason=incomplete-completion-transaction\n' "$task_id"
+		problems=$((problems + 1))
+		"$HARNESS_BIN/harness-reset-task" "$HARNESS_ENV_FILE" "$task_id" --force >/dev/null
+		recovered=$((recovered + 1))
+	done
+fi
 
 for file in "$(goal_control_dir)"/"$PROJECT-task-"*.goal; do
 	[[ -f "$file" ]] || continue
@@ -84,6 +145,8 @@ for file in "$dir/tasks/"*.tmp.* "$dir/results/"*.tmp.* "$dir/control/"*.tmp.*; 
 	fi
 done
 
-if (( problems == 0 )); then
+if [[ "$mode" == --reset-orphaned ]]; then
+	printf 'Crash reconciliation complete: recovered=%s detected=%s\n' "$recovered" "$problems"
+elif (( problems == 0 )); then
 	printf 'No recoverable problems found.\n'
 fi

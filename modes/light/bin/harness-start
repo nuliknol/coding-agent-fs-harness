@@ -46,5 +46,8 @@ if supervisor_running; then
 	die "supervisor is already running with PID $(supervisor_pid); harness-start requires a stopped supervisor"
 fi
 
+if (( HARNESS_BOOT_RECOVERY == 1 )) && [[ "${HARNESS_AUTOSTART_INTERNAL:-0}" != 1 ]]; then
+	"$HARNESS_BIN/harness-autostart" enable "$HARNESS_ENV_FILE"
+fi
 "$HARNESS_BIN/harness-supervisor-start" "$HARNESS_ENV_FILE"
 printf 'Events: %s\n' "$(events_file)"

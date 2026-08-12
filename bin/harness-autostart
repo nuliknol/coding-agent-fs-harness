@@ -1,0 +1,182 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-mode.sh"
+
+die()
+{
+	printf 'ERROR: %s\n' "$*" >&2
+	exit 1
+}
+
+usage()
+{
+	printf 'Usage: %s enable ENV_FILE...\n' "${0##*/}" >&2
+	printf '       %s disable ENV_FILE...\n' "${0##*/}" >&2
+	printf '       %s run\n' "${0##*/}" >&2
+	printf '       %s status\n' "${0##*/}" >&2
+	exit 2
+}
+
+config_home="${XDG_CONFIG_HOME:-${HOME}/.config}"
+registry_dir="$config_home/coding-agent-fs-harness/autostart.d"
+systemd_dir="$config_home/systemd/user"
+unit_name="coding-agent-fs-harness-autostart.service"
+unit_file="$systemd_dir/$unit_name"
+runtime_dir="${XDG_RUNTIME_DIR:-/run/user/$UID}"
+
+systemctl_user()
+{
+	env XDG_RUNTIME_DIR="$runtime_dir" systemctl --user "$@"
+}
+
+registry_file_for_env()
+{
+	local env_file="$1"
+	printf '%s/%s.env-path\n' "$registry_dir" \
+		"$(printf '%s' "$env_file" | sha256sum | awk '{print $1}')"
+}
+
+install_unit()
+{
+	local tmp
+	[[ "${HARNESS_AUTOSTART_NO_SYSTEMD:-0}" != 1 ]] || return 0
+	command -v systemctl >/dev/null 2>&1 || die 'systemctl is required for boot recovery'
+	[[ -d "$runtime_dir" ]] || die "user runtime directory is unavailable: $runtime_dir"
+	mkdir -p "$systemd_dir"
+	chmod 700 "$systemd_dir" 2>/dev/null || true
+	tmp="$unit_file.tmp.$$"
+	{
+		printf '[Unit]\n'
+		printf 'Description=Recover registered coding-agent filesystem harnesses\n'
+		printf 'After=default.target\n\n'
+		printf '[Service]\n'
+		printf 'Type=oneshot\n'
+		printf 'ExecStart="%s" run\n' "$SCRIPT_DIR/harness-autostart"
+		printf 'RemainAfterExit=yes\n'
+		printf 'TimeoutStartSec=0\n\n'
+		printf '[Install]\n'
+		printf 'WantedBy=default.target\n'
+	} > "$tmp"
+	chmod 600 "$tmp"
+	if [[ -f "$unit_file" ]] && cmp -s "$tmp" "$unit_file"; then
+		rm -f "$tmp"
+	else
+		mv "$tmp" "$unit_file"
+	fi
+	systemctl_user daemon-reload
+	systemctl_user enable "$unit_name" >/dev/null
+}
+
+enable_env()
+{
+	local input="$1" env_file mode file tmp
+	[[ -f "$input" ]] || die "environment file does not exist: $input"
+	env_file="$(realpath "$input")"
+	mode="$(harness_mode_from_env "$env_file")" || exit 1
+	mkdir -p "$registry_dir"
+	chmod 700 "$(dirname "$registry_dir")" "$registry_dir"
+	file="$(registry_file_for_env "$env_file")"
+	tmp="$file.tmp.$$"
+	{
+		printf 'env_file=%s\n' "$env_file"
+		printf 'mode=%s\n' "$mode"
+		printf 'enabled_at=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+	} > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$file"
+	printf 'Boot recovery enabled: %s (%s)\n' "$env_file" "$mode"
+}
+
+disable_env()
+{
+	local input="$1" env_file file
+	env_file="$(realpath -m "$input")"
+	file="$(registry_file_for_env "$env_file")"
+	rm -f "$file"
+	printf 'Boot recovery disabled: %s\n' "$env_file"
+}
+
+run_registered()
+{
+	local lock file env_file mode status=0
+	mkdir -p "$registry_dir"
+	chmod 700 "$(dirname "$registry_dir")" "$registry_dir"
+	exec 9>"$(dirname "$registry_dir")/autostart.lock"
+	flock -n 9 || { printf 'Another boot-recovery pass is already active.\n'; return 0; }
+	shopt -s nullglob
+	for file in "$registry_dir"/*.env-path; do
+		env_file="$(awk -F= '$1 == "env_file" {sub(/^[^=]*=/, ""); print; exit}' "$file")"
+		if [[ ! -f "$env_file" ]]; then
+			printf 'BOOT_RECOVERY_FAILED env=%s reason=missing-environment-file\n' "$env_file" >&2
+			status=1
+			continue
+		fi
+		mode="$(harness_mode_from_env "$env_file" 2>/dev/null || true)"
+		if [[ ! "$mode" =~ ^(full|light)$ ]]; then
+			printf 'BOOT_RECOVERY_FAILED env=%s reason=invalid-mode\n' "$env_file" >&2
+			status=1
+			continue
+		fi
+		printf 'BOOT_RECOVERY_START env=%s mode=%s\n' "$env_file" "$mode"
+		if [[ "$mode" == full ]]; then
+			if ! "$SCRIPT_DIR/harness-recover" "$env_file" --reset-orphaned; then
+				printf 'BOOT_RECOVERY_FAILED env=%s reason=reconciliation-failed\n' "$env_file" >&2
+				status=1
+				continue
+			fi
+		fi
+		if ! HARNESS_AUTOSTART_INTERNAL=1 "$SCRIPT_DIR/harness-start" "$env_file"; then
+			printf 'BOOT_RECOVERY_FAILED env=%s reason=start-failed\n' "$env_file" >&2
+			status=1
+			continue
+		fi
+		printf 'BOOT_RECOVERY_ACTIVE env=%s mode=%s\n' "$env_file" "$mode"
+	done
+	return "$status"
+}
+
+show_status()
+{
+	local file env_file mode count=0 unit_state=unavailable
+	if [[ "${HARNESS_AUTOSTART_NO_SYSTEMD:-0}" == 1 ]]; then
+		unit_state=test-mode
+	elif command -v systemctl >/dev/null 2>&1 && [[ -d "$runtime_dir" ]]; then
+		unit_state="$(systemctl_user is-enabled "$unit_name" 2>/dev/null || printf disabled)"
+	fi
+	printf 'Service: %s (%s)\n' "$unit_name" "$unit_state"
+	printf 'Registry: %s\n' "$registry_dir"
+	shopt -s nullglob
+	for file in "$registry_dir"/*.env-path; do
+		env_file="$(awk -F= '$1 == "env_file" {sub(/^[^=]*=/, ""); print; exit}' "$file")"
+		mode="$(awk -F= '$1 == "mode" {print $2; exit}' "$file")"
+		printf '%s\t%s\n' "$mode" "$env_file"
+		count=$((count + 1))
+	done
+	printf 'Registered: %s\n' "$count"
+}
+
+(( $# >= 1 )) || usage
+command="$1"
+shift
+case "$command" in
+	enable)
+		(( $# > 0 )) || usage
+		install_unit
+		for env_file in "$@"; do enable_env "$env_file"; done
+		;;
+	disable)
+		(( $# > 0 )) || usage
+		for env_file in "$@"; do disable_env "$env_file"; done
+		;;
+	run)
+		(( $# == 0 )) || usage
+		run_registered
+		;;
+	status)
+		(( $# == 0 )) || usage
+		show_status
+		;;
+	*) usage ;;
+esac

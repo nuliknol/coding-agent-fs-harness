@@ -21,6 +21,14 @@ dir="$(project_dir)"
 
 if env_has_running_processes; then
 	printf 'Harness processes already reference this environment; preserving all state and progress.\n'
+else
+	"$HARNESS_BIN/harness-recover" "$HARNESS_ENV_FILE" --reset-orphaned
+fi
+
+# Record the operator's intent before any long planning/bootstrap call. If the
+# machine dies during that first call, boot recovery can safely resume it.
+if (( HARNESS_BOOT_RECOVERY == 1 )) && [[ "${HARNESS_AUTOSTART_INTERNAL:-0}" != 1 ]]; then
+	"$HARNESS_BIN/harness-autostart" enable "$HARNESS_ENV_FILE"
 fi
 
 if (( HARNESS_DECOMPOSITION_V2 == 1 && HARNESS_DECOMPOSITION_CRITIC_ENABLED == 1 )) &&

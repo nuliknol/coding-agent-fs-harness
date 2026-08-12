@@ -15,6 +15,9 @@ usage()
 [[ $# -eq 1 ]] || usage
 load_harness_env "$1"
 ensure_project
+if (( HARNESS_BOOT_RECOVERY == 1 )); then
+	"$HARNESS_BIN/harness-autostart" disable "$HARNESS_ENV_FILE"
+fi
 set +e
 "$HARNESS_BIN/worker-supervisor-stop" "$HARNESS_ENV_FILE"
 worker_status=$?

@@ -598,6 +598,26 @@ declared repository path. Continuations receive the recorded percentage,
 verified evidence, and root-assignment paths. Consequently, stopping/restarting
 the supervisors or rebooting does not restart implementation from zero.
 
+State durability alone does not recreate processes after the machine boots.
+Set `HARNESS_BOOT_RECOVERY=1` to make each successful `harness-start` register
+that environment with the user service manager; an intentional `harness-stop`
+unregisters it. The generated `coding-agent-fs-harness-autostart.service`
+starts only registered environments. Full mode first requeues any assignment
+left in `running/` by the dead process, preserving repository edits, goal
+ledgers, checkpoints, and the retained worker thread. It also repairs an
+assignment archived during an interrupted completion transaction. Light mode's
+existing phase reconciliation converts `*_RUNNING` to its retry-safe durable
+phase before continuing. Inspect the registry with:
+
+```bash
+bin/harness-autostart status
+```
+
+For recovery before login, enable lingering for the harness account once with
+`loginctl enable-linger USER`; otherwise the service starts when that user's
+service manager starts at login. Parked environments are not registered until
+they are actually started.
+
 ### Checkpointed increments
 
 The manager has three ordinary review outcomes:
