@@ -96,6 +96,23 @@ test ! -e "$TEST_ROOT/state/projects/archguard/control/architecture"
 "$HARNESS_BIN/manager-init-architecture" "$TEST_ROOT/harness.env" "$TEST_ROOT/architecture" >/dev/null
 "$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/harness.env" "$TEST_ROOT/plan.tsv" >/dev/null
 
+# Existing architecture state is revalidated before startup. This protects
+# projects initialized by an older harness from launching any agent with a
+# newly forbidden graph cycle.
+stored_health_gates="$TEST_ROOT/state/projects/archguard/control/architecture/health-gates.tsv"
+cp "$stored_health_gates" "$stored_health_gates.valid"
+awk -F '\t' 'BEGIN {OFS=FS} $1 == "GATE-widget" {$3="contract,coding"} {print}' \
+	"$stored_health_gates.valid" > "$stored_health_gates"
+if "$HARNESS_BIN/harness-start" "$TEST_ROOT/harness.env" > "$TEST_ROOT/start-invalid.out" 2>&1; then
+	printf 'harness-start accepted persisted self-dependent architecture\n' >&2
+	exit 1
+fi
+grep -Fq 'health gate GATE-widget cannot depend on its own trigger node: coding' \
+	"$TEST_ROOT/start-invalid.out"
+test ! -e "$TEST_ROOT/state/projects/archguard/control/supervisor.pid"
+test ! -e "$TEST_ROOT/state/projects/archguard/control/worker-supervisor.pid"
+mv "$stored_health_gates.valid" "$stored_health_gates"
+
 write_task()
 {
 	local file="$1" task="$2" goal="$3" criterion="$4" leaf_type="$5" complexity="$6" route="$7"

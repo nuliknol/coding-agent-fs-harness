@@ -36,6 +36,16 @@ if (( HARNESS_DECOMPOSITION_V2 == 1 && HARNESS_DECOMPOSITION_CRITIC_ENABLED == 1
 	"$HARNESS_BIN/manager-decomposition-critic" "$HARNESS_ENV_FILE"
 fi
 
+# Architecture registries are persistent project state. Revalidate them on
+# every start so projects created by an older harness cannot launch agents with
+# a graph that newer invariants reject (for example, a self-dependent health
+# gate). Initialization already validates new registries; this closes the
+# migration/restart gap for existing ones.
+if (( HARNESS_ARCHITECTURE_GUARDS == 1 )) && project_plan_exists; then
+	architecture_validate_against_plan
+	log_event "ARCHITECTURE_STARTUP_VALIDATED directory=$(architecture_dir)"
+fi
+
 # Bootstrap before starting the worker watcher so a newly published first task
 # cannot finish before the manager thread ID has been registered.
 if [[ ! -f "$dir/control/manager.thread" ]]; then
