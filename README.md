@@ -127,6 +127,13 @@ per node; `--details` also shows evidence, validation, scope, symbols, and the
 current criterion tree. New v2 plans must meet
 `HARNESS_MIN_LUNA_NODE_PERCENT` (80 by default); set it lower only for an
 exceptional plan dominated by unresolved architecture or integration work.
+For a stopped, incomplete Full-v2 project, run
+`bin/manager-reclassify-project-plan ENV_FILE` to have a fresh Terra critic
+reclassify only its `PENDING` nodes under the current Luna-first policy. The
+command refuses to run while harness processes are alive, preserves all DAG
+structure and every `ACTIVE` or `COMPLETE` route, validates the configured
+minimum pending-Luna percentage, and stores the previous DAG plus an audit
+report under `control/reclassifications/` before installing the candidate.
 With `HARNESS_PREFERRED_WORKER_ROUTE=LUNA`, typed new DAGs must classify every
 node with `leaf_type`; routine coding types cannot route to Terra. Existing
 immutable ten-column DAGs remain readable, but a manager may override an

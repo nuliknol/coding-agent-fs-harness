@@ -1,0 +1,205 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2
+	printf '       %s ENV_FILE --install CANDIDATE_DAG\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 1 || ( $# -eq 3 && "$2" == --install ) ]] || usage
+load_harness_env "$1"
+ensure_project
+(( HARNESS_DECOMPOSITION_V2 == 1 )) || die 'pending-plan reclassification requires HARNESS_DECOMPOSITION_V2=1'
+project_plan_uses_dag || die 'pending-plan reclassification requires an existing decomposition DAG'
+project_completion_recorded && die 'completed projects do not need pending-plan reclassification'
+env_has_running_processes && die 'stop this harness and wait for active children to exit before reclassifying its plan'
+
+dir="$(project_dir)"
+dag="$(project_decomposition_plan_file)"
+state="$(project_plan_state_file)"
+typed_header=$'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tleaf_type\tcomplexity_class\tworker_route'
+
+install_candidate()
+{
+	local candidate="$1" header original_header timestamp backup_dir backup report tmp
+	local node_id parent_id depends_on deliverable evidence validation paths symbols
+	local leaf_type complexity route extra status original_complexity original_route original_leaf_type
+	local pending=0 pending_luna=0 pending_terra=0 luna_percent=0 index=0
+	local -a original_ids=()
+	local -A original_core=() original_complexity_by_id=() original_route_by_id=() original_type_by_id=()
+
+	[[ -f "$candidate" ]] || die "candidate DAG does not exist: $candidate"
+	IFS= read -r header < "$candidate" || die 'candidate DAG is empty'
+	[[ "$header" == "$typed_header" ]] || die "candidate DAG header must be: $typed_header"
+	IFS= read -r original_header < "$dag" || die 'installed decomposition DAG is empty'
+
+	while IFS=$'\t' read -r node_id parent_id depends_on deliverable evidence validation paths symbols \
+		leaf_type complexity route extra; do
+		[[ "$node_id" != node_id && -n "$node_id" ]] || continue
+		if [[ "$original_header" == "$typed_header" ]]; then
+			[[ -z "$extra" ]] || die "installed typed DAG has too many fields at $node_id"
+		else
+			route="$complexity"
+			complexity="$leaf_type"
+			leaf_type=""
+		fi
+		original_ids+=("$node_id")
+		original_core[$node_id]="$node_id"$'\t'"$parent_id"$'\t'"$depends_on"$'\t'"$deliverable"$'\t'"$evidence"$'\t'"$validation"$'\t'"$paths"$'\t'"$symbols"
+		original_type_by_id[$node_id]="$leaf_type"
+		original_complexity_by_id[$node_id]="$complexity"
+		original_route_by_id[$node_id]="$route"
+	done < "$dag"
+
+	while IFS=$'\t' read -r node_id parent_id depends_on deliverable evidence validation paths symbols \
+		leaf_type complexity route extra; do
+		[[ "$node_id" != node_id && -n "$node_id" ]] || continue
+		[[ -z "$extra" ]] || die "candidate node has more than eleven fields: $node_id"
+		(( index < ${#original_ids[@]} )) || die "candidate has an unexpected extra node: $node_id"
+		[[ "$node_id" == "${original_ids[$index]}" ]] ||
+			die "candidate must preserve node order and IDs: expected ${original_ids[$index]}, found $node_id"
+		core="$node_id"$'\t'"$parent_id"$'\t'"$depends_on"$'\t'"$deliverable"$'\t'"$evidence"$'\t'"$validation"$'\t'"$paths"$'\t'"$symbols"
+		[[ "$core" == "${original_core[$node_id]}" ]] ||
+			die "candidate changed immutable structure or acceptance fields for node: $node_id"
+		[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]] ||
+			die "invalid leaf_type for $node_id: $leaf_type"
+		[[ "$complexity" =~ ^(LOW|MEDIUM|HIGH)$ ]] || die "invalid complexity for $node_id: $complexity"
+		[[ "$route" =~ ^(LUNA|TERRA)$ ]] || die "invalid route for $node_id: $route"
+		if [[ "$route" == LUNA ]]; then
+			[[ "$complexity" == LOW ]] || die "Luna node $node_id must be LOW"
+			[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]] ||
+				die "Luna node $node_id has Terra-only type $leaf_type"
+		else
+			[[ "$leaf_type" =~ ^(CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]] ||
+				die "pending routine-coding node $node_id cannot remain on Terra"
+		fi
+		status="$(project_plan_item_status "$node_id")"
+		if [[ "$status" == PENDING ]]; then
+			pending=$((pending + 1))
+			[[ "$route" == LUNA ]] && pending_luna=$((pending_luna + 1)) || pending_terra=$((pending_terra + 1))
+		else
+			[[ "$complexity" == "${original_complexity_by_id[$node_id]}" ]] ||
+				die "candidate changed complexity for non-pending node: $node_id"
+			[[ "$route" == "${original_route_by_id[$node_id]}" ]] ||
+				die "candidate changed route for non-pending node: $node_id"
+			original_leaf_type="${original_type_by_id[$node_id]}"
+			[[ -z "$original_leaf_type" || "$leaf_type" == "$original_leaf_type" ]] ||
+				die "candidate changed leaf_type for non-pending typed node: $node_id"
+		fi
+		index=$((index + 1))
+	done < "$candidate"
+	(( index == ${#original_ids[@]} )) || die 'candidate omitted one or more existing nodes'
+	(( pending > 0 )) || die 'project has no pending nodes to reclassify'
+	luna_percent=$((pending_luna * 100 / pending))
+	(( luna_percent >= HARNESS_MIN_LUNA_NODE_PERCENT )) ||
+		die "candidate routes only $pending_luna/$pending pending nodes ($luna_percent%) to Luna; minimum is $HARNESS_MIN_LUNA_NODE_PERCENT%"
+
+	acquire_project_lock
+	env_has_running_processes && die 'a harness process appeared while acquiring the reclassification lock'
+	timestamp="$(timestamp_compact_utc)"
+	backup_dir="$dir/control/reclassifications"
+	mkdir -p "$backup_dir"
+	chmod 700 "$backup_dir"
+	backup="$backup_dir/$PROJECT-decomposition-before-$timestamp.tsv"
+	report="$backup_dir/$PROJECT-reclassification-$timestamp.env"
+	install -m 600 "$dag" "$backup"
+	tmp="$dag.tmp.$$"
+	install -m 600 "$candidate" "$tmp"
+	mv "$tmp" "$dag"
+	{
+		printf 'project=%s\n' "$PROJECT"
+		printf 'recorded_at=%s\n' "$(timestamp_utc)"
+		printf 'previous_dag=%s\n' "$backup"
+		printf 'pending_nodes=%s\n' "$pending"
+		printf 'pending_luna=%s\n' "$pending_luna"
+		printf 'pending_terra=%s\n' "$pending_terra"
+		printf 'pending_luna_percent=%s\n' "$luna_percent"
+		printf 'preferred_worker_route=%s\n' "$HARNESS_PREFERRED_WORKER_ROUTE"
+		printf 'manager_model=%s\n' "$MANAGER_MODEL"
+	} > "$report"
+	chmod 600 "$report"
+	log_event "PROJECT_PLAN_RECLASSIFIED pending=$pending luna=$pending_luna terra=$pending_terra luna_percent=$luna_percent backup=$backup report=$report"
+	trace_event PROJECT_PLAN_RECLASSIFIED "pending=$pending" "luna=$pending_luna" "terra=$pending_terra" "luna_percent=$luna_percent" "backup=$backup" "report=$report"
+	printf 'Reclassified %s pending nodes: LUNA=%s, TERRA=%s (%s%% Luna).\n' "$pending" "$pending_luna" "$pending_terra" "$luna_percent"
+	printf 'Previous DAG: %s\n' "$backup"
+	printf 'Report: %s\n' "$report"
+}
+
+if [[ "${2:-}" == --install ]]; then
+	install_candidate "$3"
+	exit 0
+fi
+
+require_manager_configuration
+require_manager_codex
+trace_init manager_reclassify_project_plan
+trace_script_start "$@"
+trap 'trace_script_exit $?' EXIT
+candidate="$PROJECT_TMP_DIR/$PROJECT-pending-reclassification.tsv"
+prompt="$dir/control/manager-pending-reclassification.prompt.md"
+last_message="$dir/logs/manager-pending-reclassification-last-message.md"
+rm -f "$candidate"
+cat > "$prompt.tmp.$$" <<PROMPT
+You are the fresh pending-work decomposition critic for a filesystem-backed coding harness. Do not edit the repository or any harness state.
+
+ENV_FILE=$HARNESS_ENV_FILE
+PROJECT=$PROJECT
+REPOSITORY=$REPOSITORY
+SPECIFICATION=$SPECIFICATION
+INSTALLED_DAG=$dag
+PLAN_STATE=$state
+CANDIDATE_DAG=$candidate
+PREFERRED_WORKER_ROUTE=$HARNESS_PREFERRED_WORKER_ROUTE
+MINIMUM_PENDING_LUNA_PERCENT=$HARNESS_MIN_LUNA_NODE_PERCENT
+
+Read the complete specification, repository development policy when present, installed DAG, plan state, current repository structure, and active assignment when one exists. Write exactly one candidate TSV to CANDIDATE_DAG with this header:
+
+$typed_header
+
+Preserve every existing row, node ID, row order, parent, dependencies, deliverable, acceptance evidence, focused validation, allowed paths, and required symbols byte-for-byte. Do not add, remove, reorder, or rename nodes. For COMPLETE and ACTIVE rows, also preserve complexity_class and worker_route exactly; assign a truthful leaf_type compatible with that preserved route. Reclassify only PENDING rows.
+
+For PENDING rows, use LUNA with LOW complexity and LOCAL_IMPLEMENTATION, MECHANICAL_API, FOCUSED_BUG, or DOCUMENTATION whenever contracts and architecture are resolved and the node can be executed as one cohesive bounded coding concern. Use TERRA only for CONTRACT_DESIGN, CROSS_COMPONENT_ARCHITECTURE, CONCURRENCY_PROTOCOL, AMBIGUOUS_SPECIFICATION, or an unexplained INTEGRATION boundary requiring fresh judgment. A large specification, cross-file implementation, tests, fixtures, mechanical integration, or an inherited HIGH label is not a reason for Terra. At least MINIMUM_PENDING_LUNA_PERCENT percent of pending rows must route to LUNA.
+
+This pass classifies existing nodes; later manager turns may split a broad node's Root-Criteria further. Prefer the largest cohesive deterministic Luna-ready concern, not microscopic handoffs. Write only CANDIDATE_DAG, then terminate without running harness commands.
+PROMPT
+chmod 600 "$prompt.tmp.$$"
+mv "$prompt.tmp.$$" "$prompt"
+
+attempt=1
+resume_thread=""
+while true; do
+	stamp="$(timestamp_compact_utc)"
+	json="$dir/logs/manager-pending-reclassification-$stamp-attempt-$(printf '%03d' "$attempt").jsonl"
+	stderr="$dir/logs/manager-pending-reclassification-$stamp-attempt-$(printf '%03d' "$attempt").stderr.log"
+	message="$dir/logs/manager-pending-reclassification-$stamp-attempt-$(printf '%03d' "$attempt").md"
+	set +e
+	if [[ -n "$resume_thread" ]]; then
+		"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" manager_plan "$MANAGER_MODEL" "$prompt" "$json" "$stderr" "$message" resume "$resume_thread"
+	else
+		"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" manager_plan "$MANAGER_MODEL" "$prompt" "$json" "$stderr" "$message"
+	fi
+	status=$?
+	set -e
+	thread="$(codex_thread_id_from_jsonl "$json" 2>/dev/null || true)"
+	[[ ! "$thread" =~ ^[A-Za-z0-9-]+$ ]] || resume_thread="$thread"
+	if [[ -f "$candidate" ]]; then
+		install_candidate "$candidate"
+		cp -f "$message" "$last_message" 2>/dev/null || true
+		exit 0
+	fi
+	classification="$(kv_file_value "${json%.jsonl}.classification" classification 2>/dev/null || true)"
+	retry_kind="$(codex_provider_retry_kind "$classification" 2>/dev/null || true)"
+	if [[ -n "$retry_kind" ]]; then
+		delay="$(codex_provider_retry_delay "$classification")"
+		printf 'Pending-plan critic provider retry in %s seconds (%s).\n' "$delay" "$retry_kind" >&2
+		sleep "$delay"
+		attempt=$((attempt + 1))
+		continue
+	fi
+	(( status == 0 )) && die 'pending-plan critic exited without writing its candidate DAG'
+	die "pending-plan critic failed with status $status; see $json"
+done

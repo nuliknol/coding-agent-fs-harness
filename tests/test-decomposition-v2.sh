@@ -116,6 +116,24 @@ test -s "$project_dir/control/decomposition-metrics.tsv"
 
 grep -Eq $'^n2\tPENDING\t-' "$project_dir/control/project-plan-state.tsv"
 
+cat > "$TEST_ROOT/reclassified-plan.tsv" <<'PLAN'
+node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route
+n1	-	-	Implement target_symbol locally	target_symbol returns one	test "$(./focused-smoke)" = 1	src/a.c	target_symbol	LOCAL_IMPLEMENTATION	LOW	LUNA
+n2	-	n1	Integrate target_symbol with its caller	focused integration smoke passes	./integration-smoke	src/a.c,src/caller.c	target_symbol,call_target	MECHANICAL_API	LOW	LUNA
+PLAN
+reclass_output="$("$HARNESS_BIN/manager-reclassify-project-plan" "$TEST_ROOT/harness.env" \
+	--install "$TEST_ROOT/reclassified-plan.tsv")"
+grep -Fqx 'Reclassified 1 pending nodes: LUNA=1, TERRA=0 (100% Luna).' <<< "$reclass_output"
+cmp -s "$TEST_ROOT/reclassified-plan.tsv" "$project_dir/control/project-decomposition-v2.tsv"
+grep -Eq $'^n1\tACTIVE\t001\t' "$project_dir/control/project-plan-state.tsv"
+grep -Eq $'^n2\tPENDING\t-' "$project_dir/control/project-plan-state.tsv"
+grep -Fqx $'n1\t-\t-\tImplement target_symbol locally\ttarget_symbol returns one\ttest "$(./focused-smoke)" = 1\tsrc/a.c\ttarget_symbol\tLOCAL_IMPLEMENTATION\tLOW\tLUNA' \
+	"$project_dir/control/project-decomposition-v2.tsv"
+grep -Fqx $'n2\t-\tn1\tIntegrate target_symbol with its caller\tfocused integration smoke passes\t./integration-smoke\tsrc/a.c,src/caller.c\ttarget_symbol,call_target\tMECHANICAL_API\tLOW\tLUNA' \
+	"$project_dir/control/project-decomposition-v2.tsv"
+test "$(find "$project_dir/control/reclassifications" -name '*-decomposition-before-*.tsv' | wc -l)" -eq 1
+grep -R -Fqx 'pending_luna_percent=100' "$project_dir/control/reclassifications"/*-reclassification-*.env
+
 cat > "$TEST_ROOT/bad-plan.tsv" <<'PLAN'
 node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route
 bad	-	-	Bad Luna route	evidence	focused-test	src/a.c	target_symbol	LOCAL_IMPLEMENTATION	MEDIUM	LUNA
