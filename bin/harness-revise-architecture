@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE ARCHITECTURE_SOURCE_DIR REVISION_NOTE_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 3 ]] || usage
+load_harness_env "$1"
+source_dir="$(realpath -m "$2")"
+note_file="$(realpath -m "$3")"
+ensure_project
+(( HARNESS_ARCHITECTURE_GUARDS == 1 )) || die 'architecture revision requires HARNESS_ARCHITECTURE_GUARDS=1'
+env_has_running_processes && die 'stop this harness and wait for active children to exit before revising its architecture registry'
+acquire_project_lock
+env_has_running_processes && die 'a harness process appeared while acquiring the architecture revision lock'
+backup="$(architecture_revise "$source_dir" "$note_file")"
+printf 'Architecture registry revised. Previous registry: %s\n' "$backup"

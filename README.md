@@ -170,6 +170,15 @@ critical debt, expired debt, or a missing health gate blocks final completion.
 Every cumulative health gate is rerun at the final boundary so a later leaf
 cannot rely on stale earlier system-health evidence.
 
+Component and lane gates must use focused selectors. Broad aggregate output may
+be retained as baseline evidence, but unrelated aggregate failures cannot be a
+mandatory success condition. A human-owned specification can explicitly opt a
+gate into whole-project success by including `HARNESS_BROAD_GATE_REQUIRED=1`
+in its registered validation command. Defective installed registries can be
+replaced while stopped with `harness-revise-architecture`; the command validates
+the candidate against the durable DAG, preserves ledgers, and archives the
+previous registry.
+
 Use these controlled commands during execution:
 
 ```bash
@@ -177,6 +186,7 @@ bin/manager-accept-architecture-decision ENV_FILE DECISION_ID TASK_ID EVIDENCE_F
 bin/manager-record-debt ENV_FILE DEBT_ROW_TSV
 bin/manager-resolve-debt ENV_FILE DEBT_ID EVIDENCE_FILE
 bin/harness-architecture-status --details ENV_FILE
+bin/harness-revise-architecture ENV_FILE ARCHITECTURE_SOURCE_DIR REVISION_NOTE_FILE
 ```
 
 `harness-decomposition-tree --details` includes each node's invariant,

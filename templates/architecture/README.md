@@ -11,6 +11,15 @@ approved. Every plan node needs one binding. Every API, representation,
 ownership, serialization, concurrency, or error-model dependency needs an edge
 contract. A consumer directly depends on its edge producer.
 
+Every enforceable invariant's `affected_nodes` list may contain only nodes whose
+bindings include that invariant. Do not classify a contract-decision node as
+runtime-affected when enforcement belongs to implementation descendants. Lane
+and component checks use focused selectors. A broad aggregate may be collected
+as baseline evidence only when its nonzero status is explicitly tolerated and
+an owned result is asserted separately. Set `HARNESS_BROAD_GATE_REQUIRED=1` in
+a validation command only when the human-owned specification explicitly makes
+whole-project aggregate success part of acceptance.
+
 At least one enforceable invariant and one `CRITICAL` cumulative health gate are
 required. The gate should trigger after the coherent component group it checks;
 its `depends_on` field names prerequisite DAG nodes. Validation values are shell
@@ -22,6 +31,15 @@ Initialize the immutable registry before registering the DAG:
 ```text
 manager-init-architecture ENV_FILE ARCHITECTURE_SOURCE_DIR
 manager-init-project-plan ENV_FILE DAG_FILE
+```
+
+If an installed registry itself is defective, stop the project and use the
+operator-controlled revision transaction. It validates the complete candidate
+against the durable DAG, preserves all decision/health/debt ledgers, and saves
+the previous registry under `control/architecture/revisions/`:
+
+```text
+harness-revise-architecture ENV_FILE ARCHITECTURE_SOURCE_DIR REVISION_NOTE_FILE
 ```
 
 Exception: an exact one-node, dependency-free, `LOW`/`LUNA`

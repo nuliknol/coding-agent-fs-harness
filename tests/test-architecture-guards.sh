@@ -93,8 +93,54 @@ fi
 grep -Fq 'health gate GATE-widget cannot depend on its own trigger node: coding' \
 	"$TEST_ROOT/self-gate.out"
 test ! -e "$TEST_ROOT/state/projects/archguard/control/architecture"
+broad_architecture="$TEST_ROOT/broad-architecture"
+cp -a "$TEST_ROOT/architecture" "$broad_architecture"
+awk -F '\t' 'BEGIN {OFS=FS} $1 == "GATE-widget" {$4="./widget-smoke --computing-all"} {print}' \
+	"$broad_architecture/health-gates.tsv" > "$broad_architecture/health-gates.tsv.tmp"
+mv "$broad_architecture/health-gates.tsv.tmp" "$broad_architecture/health-gates.tsv"
+if "$HARNESS_BIN/manager-init-architecture" "$TEST_ROOT/harness.env" "$broad_architecture" \
+	> "$TEST_ROOT/broad-gate.out" 2>&1; then
+	printf 'mandatory unrelated aggregate architecture gate was accepted\n' >&2
+	exit 1
+fi
+grep -Fq 'uses a broad aggregate as a mandatory success condition' "$TEST_ROOT/broad-gate.out"
+test ! -e "$TEST_ROOT/state/projects/archguard/control/architecture"
 "$HARNESS_BIN/manager-init-architecture" "$TEST_ROOT/harness.env" "$TEST_ROOT/architecture" >/dev/null
 "$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/harness.env" "$TEST_ROOT/plan.tsv" >/dev/null
+
+# Operators can replace a defective immutable registry only while stopped. The
+# complete candidate is validated against the durable DAG, ledgers survive,
+# and the prior registry remains recoverable.
+revision_architecture="$TEST_ROOT/revision-architecture"
+cp -a "$TEST_ROOT/architecture" "$revision_architecture"
+sed -i 's/Widget values use one canonical representation\./Widget values retain one canonical representation./' \
+	"$revision_architecture/invariants.tsv"
+printf 'Correct a defective generated registry without resetting verified work.\n' > "$TEST_ROOT/revision-note.md"
+decision_ledger="$TEST_ROOT/state/projects/archguard/control/architecture/decision-ledger.tsv"
+ledger_before="$(sha256sum "$decision_ledger")"
+revision_output="$("$HARNESS_BIN/harness-revise-architecture" "$TEST_ROOT/harness.env" \
+	"$revision_architecture" "$TEST_ROOT/revision-note.md")"
+grep -Fq 'Widget values retain one canonical representation.' \
+	"$TEST_ROOT/state/projects/archguard/control/architecture/invariants.tsv"
+[[ "$(sha256sum "$decision_ledger")" == "$ledger_before" ]]
+revision_backup="${revision_output##*Previous registry: }"
+test -f "$revision_backup/invariants.tsv"
+test -f "$revision_backup/revision-note.md"
+
+invalid_revision="$TEST_ROOT/invalid-revision-architecture"
+cp -a "$revision_architecture" "$invalid_revision"
+awk -F '\t' 'BEGIN {OFS=FS} $1 == "contract" {$2="-"} {print}' \
+	"$invalid_revision/node-bindings.tsv" > "$invalid_revision/node-bindings.tsv.tmp"
+mv "$invalid_revision/node-bindings.tsv.tmp" "$invalid_revision/node-bindings.tsv"
+installed_before="$(sha256sum "$TEST_ROOT/state/projects/archguard/control/architecture/invariants.tsv")"
+if "$HARNESS_BIN/harness-revise-architecture" "$TEST_ROOT/harness.env" \
+	"$invalid_revision" "$TEST_ROOT/revision-note.md" > "$TEST_ROOT/invalid-revision.out" 2>&1; then
+	printf 'inconsistent architecture registry revision was accepted\n' >&2
+	exit 1
+fi
+grep -Fq 'invariant INV-widget is absent from affected node binding contract' \
+	"$TEST_ROOT/invalid-revision.out"
+[[ "$(sha256sum "$TEST_ROOT/state/projects/archguard/control/architecture/invariants.tsv")" == "$installed_before" ]]
 
 # Existing architecture state is revalidated before startup. This protects
 # projects initialized by an older harness from launching any agent with a

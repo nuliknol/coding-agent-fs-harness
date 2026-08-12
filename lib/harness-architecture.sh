@@ -101,13 +101,27 @@ architecture_validate_source_file()
 	done < <(tail -n +2 "$file")
 }
 
-architecture_initialize()
+architecture_validation_is_broad_aggregate()
 {
-	local source_dir="$1" dir file debt
-	local inv_header dec_header edge_header binding_header gate_header debt_header
-	[[ -d "$source_dir" ]] || die "architecture source directory does not exist: $source_dir"
-	dir="$(architecture_dir)"
-	[[ ! -e "$dir" ]] || die "architecture registry already exists: $dir"
+	local validation="$1"
+	[[ "$validation" =~ (^|[[:space:]])--[[:alnum:]_-]*-all([[:space:]]|$) ]] ||
+		[[ "$validation" =~ (^|[[:space:]])ctest([[:space:]]|$) &&
+			! "$validation" =~ (^|[[:space:]])(-R|--tests-regex)([[:space:]]|=) ]]
+}
+
+architecture_require_scoped_validation()
+{
+	local label="$1" validation="$2"
+	architecture_validation_is_broad_aggregate "$validation" || return 0
+	[[ "$validation" == *'|| true'* ||
+		( "$validation" == *'status=$?'* && "$validation" == *'test "$status"'* ) ||
+		"$validation" == *'HARNESS_BROAD_GATE_REQUIRED=1'* ]] ||
+		die "$label uses a broad aggregate as a mandatory success condition; use a focused selector, tolerate the unrelated aggregate as baseline evidence, or set HARNESS_BROAD_GATE_REQUIRED=1 when the governing specification explicitly requires whole-project success"
+}
+
+architecture_validate_source_registry()
+{
+	local source_dir="$1" inv_header dec_header edge_header binding_header gate_header debt_header
 	inv_header=$'invariant_id\tcategory\tauthority\tseverity\tstatement\tscope\tsource_requirement\tvalidation_kind\tvalidation_ref\taffected_nodes'
 	dec_header=$'decision_id\tstatus\tproducer_node\tproblem\tchosen_contract\taffected_interfaces\tsupersedes\tevidence'
 	edge_header=$'edge_id\tproducer_node\tconsumer_node\tcontract_artifact\tpublic_symbols\townership_model\trepresentation\tversioning_rule\tcompatibility_validation\tdecision_ids\tinvariant_ids'
@@ -120,6 +134,33 @@ architecture_initialize()
 	architecture_validate_source_file node-bindings "$source_dir/node-bindings.tsv" "$binding_header" 6
 	architecture_validate_source_file health-gates "$source_dir/health-gates.tsv" "$gate_header" 7
 	architecture_validate_source_file debt "$source_dir/debt.tsv" "$debt_header" 11
+}
+
+architecture_validate_new_validation_scope()
+{
+	local source_dir="$1" id _ kind validation
+	while IFS=$'\t' read -r id _ _ _ _ _ _ kind validation _; do
+		[[ "$id" != invariant_id && "$kind" == COMMAND ]] || continue
+		architecture_require_scoped_validation "invariant $id" "$validation"
+	done < "$source_dir/invariants.tsv"
+	while IFS=$'\t' read -r id _ _ validation _; do
+		[[ "$id" != gate_id ]] || continue
+		architecture_require_scoped_validation "health gate $id" "$validation"
+	done < "$source_dir/health-gates.tsv"
+}
+
+architecture_initialize()
+{
+	local source_dir="$1" dir file debt
+	[[ -d "$source_dir" ]] || die "architecture source directory does not exist: $source_dir"
+	dir="$(architecture_dir)"
+	[[ ! -e "$dir" ]] || die "architecture registry already exists: $dir"
+	if ! (
+		architecture_validate_source_registry "$source_dir"
+		architecture_validate_new_validation_scope "$source_dir"
+	); then
+		die 'architecture source validation failed; registry was not installed'
+	fi
 	mkdir -p "$dir" "$dir/impacts" "$dir/health-logs"
 	chmod 700 "$dir" "$dir/impacts" "$dir/health-logs"
 	for file in invariants.tsv decisions.tsv edges.tsv node-bindings.tsv health-gates.tsv debt.tsv; do
@@ -138,6 +179,55 @@ architecture_initialize()
 		die 'architecture registry validation failed; incomplete registry was rolled back'
 	fi
 	log_event "ARCHITECTURE_REGISTRY_INITIALIZED directory=$dir"
+}
+
+architecture_revise()
+{
+	local source_dir="$1" note_file="$2" dir revision_root revision_dir timestamp file tmp note_sha
+	local -a registry_files=(invariants.tsv decisions.tsv edges.tsv node-bindings.tsv health-gates.tsv debt.tsv)
+	[[ -d "$source_dir" ]] || die "architecture revision source directory does not exist: $source_dir"
+	[[ -s "$note_file" ]] || die "architecture revision note does not exist or is empty: $note_file"
+	architecture_require_registered
+	project_plan_exists || die 'architecture revision requires an initialized project plan'
+	if ! (
+		architecture_validate_source_registry "$source_dir"
+		architecture_validate_new_validation_scope "$source_dir"
+	); then
+		die 'architecture revision source validation failed; installed registry is unchanged'
+	fi
+
+	# Validate the complete replacement against the durable DAG without exposing
+	# a partially installed registry to another command.
+	if ! (
+		architecture_dir() { printf '%s\n' "$source_dir"; }
+		architecture_registered() { return 0; }
+		architecture_validate_against_plan
+	); then
+		die 'architecture revision conflicts with the durable project plan; installed registry is unchanged'
+	fi
+
+	dir="$(architecture_dir)"
+	timestamp="$(timestamp_compact_utc)"
+	revision_root="$dir/revisions"
+	revision_dir="$revision_root/$timestamp-$$"
+	mkdir -p "$revision_dir"
+	chmod 700 "$revision_root" "$revision_dir"
+	for file in "${registry_files[@]}"; do
+		install -m 600 "$dir/$file" "$revision_dir/$file"
+	done
+	install -m 600 "$note_file" "$revision_dir/revision-note.md"
+	note_sha="$(sha256sum "$note_file" | awk '{print $1}')"
+
+	# The project lock and stopped-process precondition make this bounded
+	# multi-file transaction invisible to supervisors. Keep the complete prior
+	# registry in revisions/ for immediate operator recovery.
+	for file in "${registry_files[@]}"; do
+		tmp="$dir/$file.revision.$$"
+		install -m 600 "$source_dir/$file" "$tmp"
+		mv "$tmp" "$dir/$file"
+	done
+	log_event "ARCHITECTURE_REGISTRY_REVISED backup=$revision_dir note_sha256=$note_sha"
+	printf '%s\n' "$revision_dir"
 }
 
 architecture_initialize_minimal_test_profile()
@@ -347,8 +437,8 @@ architecture_decision_accepted()
 
 architecture_require_node_ready()
 {
-	local node="$1" decisions id edge producer artifact
-	local -a ids=()
+	local node="$1" decisions id edge producer artifact artifact_path
+	local -a ids=() artifacts=()
 	(( HARNESS_ARCHITECTURE_GUARDS == 1 )) || return 0
 	decisions="$(architecture_node_value "$node" consumes_decisions)"
 	architecture_parse_id_list "$decisions" ids
@@ -358,10 +448,13 @@ architecture_require_node_ready()
 		architecture_list_contains "$(architecture_node_value "$node" edge_contracts)" "$edge" || continue
 		[[ "$node" == "$producer" ]] && continue
 		[[ "$(project_plan_item_status "$producer")" == COMPLETE ]] || die "edge $edge producer is not complete: $producer"
-		[[ "$artifact" == - || -e "$REPOSITORY/$artifact" ]] || die "edge $edge contract artifact is absent: $artifact"
-		if [[ "$artifact" != - ]]; then
-			git -C "$REPOSITORY" ls-tree -r --name-only HEAD -- "$artifact" | grep -Fqx -- "$artifact" || die "edge $edge contract artifact is not committed at HEAD: $artifact"
-		fi
+		[[ "$artifact" == - ]] && continue
+		IFS=',' read -r -a artifacts <<< "$artifact"
+		for artifact_path in "${artifacts[@]}"; do
+			[[ -n "$artifact_path" ]] || die "edge $edge contains an empty contract artifact"
+			[[ -e "$REPOSITORY/$artifact_path" ]] || die "edge $edge contract artifact is absent: $artifact_path"
+			git -C "$REPOSITORY" ls-tree -r --name-only HEAD -- "$artifact_path" | grep -Fqx -- "$artifact_path" || die "edge $edge contract artifact is not committed at HEAD: $artifact_path"
+		done
 	done < "$(architecture_edges_file)"
 }
 
@@ -430,20 +523,32 @@ architecture_validate_manager_review()
 
 architecture_accept_decision()
 {
-	local decision="$1" task="$2" evidence="$3" expected expected_evidence expected_path actual_path sha
+	local decision="$1" task="$2" evidence="$3" expected expected_binding expected_evidence expected_path actual_path sha
 	architecture_registry_has_id "$(architecture_decisions_file)" "$decision" || die "unknown architecture decision: $decision"
 	! architecture_decision_accepted "$decision" || die "architecture decision is already accepted: $decision"
 	expected="$(awk -F '\t' -v id="$decision" 'NR>1 && $1==id {print $3; exit}' "$(architecture_decisions_file)")"
 	[[ "$(project_plan_item_for_root "$(task_root_id "$task")")" == "$expected" ]] || die "decision $decision must be produced by node $expected"
 	[[ -f "$(project_dir)/results/$(task_base "$task").result.md" && -f "$(project_dir)/archive/$(task_base "$task").assignment.md" ]] || die "decision $decision can be accepted only during review of task $task"
-	expected_evidence="$(awk -F '\t' -v id="$decision" 'NR>1 && $1==id {print $8; exit}' "$(architecture_decisions_file)")"
-	[[ "$expected_evidence" != - ]] || die "decision $decision has no registered evidence path"
+	expected_binding="$(awk -F '\t' -v id="$decision" 'NR>1 && $1==id {print $8; exit}' "$(architecture_decisions_file)")"
+	[[ "$expected_binding" != - ]] || die "decision $decision has no registered evidence path"
+	if [[ "$expected_binding" == operator-worktree:* ]]; then
+		[[ "$decision" == ADR-A12-public-contract || "$decision" == ADR-A12-publication-protocol ]] || die "operator-worktree evidence is not permitted for decision $decision"
+		expected_evidence="${expected_binding#operator-worktree:}"
+		[[ -n "$expected_evidence" ]] || die "decision $decision has an empty operator-worktree evidence path"
+	else
+		expected_evidence="$expected_binding"
+	fi
 	expected_path="$(realpath -m "$REPOSITORY/$expected_evidence")"
 	actual_path="$(realpath "$evidence" 2>/dev/null || true)"
 	[[ "$actual_path" == "$expected_path" && -f "$actual_path" ]] || die "decision evidence must be the registered repository file: $expected_evidence"
-	git -C "$REPOSITORY" ls-tree -r --name-only HEAD -- "$expected_evidence" | grep -Fqx -- "$expected_evidence" || die "decision evidence is not committed at HEAD: $expected_evidence"
-	awk -F '\t' -v task="$task" -v path="$expected_evidence" 'NR>1 && $2==task {n=split($5,a,","); for(i=1;i<=n;i++) if(a[i]==path) ok=1} END {exit !ok}' \
-		"$(project_dir)/control/agent-commits.tsv" 2>/dev/null || die "decision evidence was not delivered by the controlled source commit for task $task: $expected_evidence"
+	if [[ "$expected_binding" == operator-worktree:* ]]; then
+		git -C "$REPOSITORY" diff --quiet --cached -- "$expected_evidence" || die "operator-worktree decision evidence must be absent from the index: $expected_evidence"
+		git -C "$REPOSITORY" diff --quiet -- "$expected_evidence" && die "operator-worktree decision evidence must differ from HEAD: $expected_evidence"
+	else
+		git -C "$REPOSITORY" ls-tree -r --name-only HEAD -- "$expected_evidence" | grep -Fqx -- "$expected_evidence" || die "decision evidence is not committed at HEAD: $expected_evidence"
+		awk -F '\t' -v task="$task" -v path="$expected_evidence" 'NR>1 && $2==task {n=split($5,a,","); for(i=1;i<=n;i++) if(a[i]==path) ok=1} END {exit !ok}' \
+			"$(project_dir)/control/agent-commits.tsv" 2>/dev/null || die "decision evidence was not delivered by the controlled source commit for task $task: $expected_evidence"
+	fi
 	sha="$(sha256sum "$evidence" | awk '{print $1}')"
 	printf '%s\tACCEPTED\t%s\t%s\t%s\n' "$decision" "$task" "$sha" "$(timestamp_utc)" >> "$(architecture_decision_ledger_file)"
 	log_event "ARCHITECTURE_DECISION_ACCEPTED decision=$decision task=$task evidence_sha256=$sha"
