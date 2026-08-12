@@ -118,6 +118,7 @@ else
 fi
 printf 'Transient provider retry seconds: %s (retries unlimited)\n' "$HARNESS_PROVIDER_RETRY_SECONDS"
 printf 'Quota retry seconds: %s (retries unlimited)\n' "$HARNESS_QUOTA_RETRY_SECONDS"
+printf 'Minimum interval between agent launches: %s seconds (project-wide)\n' "$HARNESS_AGENT_MIN_INTERVAL_SECONDS"
 printf 'Codex wall timeout seconds: %s (0 means unlimited)\n' "$HARNESS_CODEX_WALL_TIMEOUT_SECONDS"
 printf 'Codex idle timeout seconds: %s (0 means unlimited)\n' "$HARNESS_CODEX_IDLE_TIMEOUT_SECONDS"
 printf 'Task lifecycle: verified increments are checkpointed; broad criteria may gain append-only children; roots resume by first-unmet leaf; leaf-goal CONTINUE receipts remain worker-internal; verified gain resets bounded automatic-replan escalation\n'

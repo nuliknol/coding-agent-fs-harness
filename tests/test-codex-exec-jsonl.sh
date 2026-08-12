@@ -66,6 +66,7 @@ prompt="$TMP/prompt"; printf 'test\n' > "$prompt"
 "$ROOT/bin/harness-check-env" "$TMP/env" > "$TMP/defaults.out"
 grep -q '^Transient provider retry seconds: 60 (retries unlimited)$' "$TMP/defaults.out"
 grep -q '^Quota retry seconds: 300 (retries unlimited)$' "$TMP/defaults.out"
+grep -q '^Minimum interval between agent launches: 60 seconds (project-wide)$' "$TMP/defaults.out"
 grep -q '^Runtime PATH prefix: (none)$' "$TMP/defaults.out"
 
 # An executable Codex wrapper is not actually runnable when its env shebang
@@ -105,6 +106,10 @@ MOCK_MODE=success PATH=/usr/bin:/bin \
 	"$TMP/runtime-ok.jsonl" "$TMP/runtime-ok.stderr" "$TMP/runtime-ok.last"
 grep -q '^classification=success$' "$TMP/runtime-ok.classification"
 
+# Keep classification cases fast; the rate limiter has a focused cross-role
+# assertion below.
+printf 'export HARNESS_AGENT_MIN_INTERVAL_SECONDS="0"\n' >> "$TMP/env"
+
 run_case() {
  local mode="$1" want="$2" status=0 base
  base="$TMP/$mode"
@@ -138,6 +143,24 @@ grep -q '^http_status=429$' "$TMP/rate_status.classification"
 run_case network_stderr provider_transient_error
 run_case auth_code terminal_authentication_error
 run_case success_warning success
+
+# One project-wide clock covers every role. An immediate manager launch after
+# a worker launch must wait even though the role changed.
+cp "$TMP/env" "$TMP/env-throttle"
+printf 'export HARNESS_AGENT_MIN_INTERVAL_SECONDS="3"\n' >> "$TMP/env-throttle"
+throttle_started="$(date +%s)"
+MOCK_MODE=success "$ROOT/bin/codex-exec-jsonl" "$TMP/env-throttle" worker gpt-5.5 "$prompt" \
+	"$TMP/throttle-worker.jsonl" "$TMP/throttle-worker.stderr" "$TMP/throttle-worker.last"
+MOCK_MODE=success "$ROOT/bin/codex-exec-jsonl" "$TMP/env-throttle" manager_review gpt-5.5 "$prompt" \
+	"$TMP/throttle-manager.jsonl" "$TMP/throttle-manager.stderr" "$TMP/throttle-manager.last"
+throttle_elapsed=$(( $(date +%s) - throttle_started ))
+(( throttle_elapsed >= 3 ))
+grep -Eq 'AGENT_INVOCATION_THROTTLED role=manager_review wait_seconds=[1-3] min_interval_seconds=3' \
+	"$TMP/state/projects/jsonltest/logs/events.log"
+grep -Eq 'WARNING: attempt to launch "manager" process during the protected interval of 3 seconds; delaying [1-3] seconds; possible dead end \(role=manager_review\)\.' \
+	"$TMP/state/projects/jsonltest/logs/agent-invocation-alerts.log"
+grep -q '^role=manager_review$' \
+	"$TMP/state/projects/jsonltest/control/agent-invocation-rate-limit.state"
 
 # A durable harness transition (for example WAITING_DEPENDENCY) must stop the
 # current model process without waiting for it to decide to end its turn.

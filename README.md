@@ -1072,7 +1072,14 @@ Configure it in the environment file:
 ```bash
 export HARNESS_PROVIDER_RETRY_SECONDS="60"
 export HARNESS_QUOTA_RETRY_SECONDS="300"
+export HARNESS_AGENT_MIN_INTERVAL_SECONDS="60"
 ```
+
+`HARNESS_AGENT_MIN_INTERVAL_SECONDS` is a project-wide launch throttle shared
+by managers, workers, and oracles. Its state persists across supervisor
+restarts, so an accidental event loop cannot bypass the interval by restarting
+the harness. Different projects retain independent clocks and can continue to
+run in parallel.
 
 Provider retries are always unlimited. Each probe receives a separate JSONL,
 stderr, classification, and final-message log with an `attempt-NNN` suffix.

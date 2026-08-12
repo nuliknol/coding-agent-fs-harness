@@ -26,6 +26,7 @@ export harness_mode="full"
 export HARNESS_HOME="$HARNESS_HOME"
 export HARNESS_BIN="$HARNESS_BIN"
 export HARNESS_ROOT="$TEST_ROOT/state"
+export HARNESS_AGENT_MIN_INTERVAL_SECONDS="0"
 export MANAGER_CODEX_HOME="$TEST_ROOT/manager-home"
 export MANAGER_CODEX_BIN="/bin/true"
 export WORKER_CODEX_HOME="$TEST_ROOT/worker-home"
@@ -146,6 +147,7 @@ PLAN
 sed \
 	-e 's/export PROJECT="decompv2"/export PROJECT="decompv2bad"/' \
 	-e "s|export HARNESS_ROOT=\"$TEST_ROOT/state\"|export HARNESS_ROOT=\"$TEST_ROOT/bad-state\"|" \
+export HARNESS_AGENT_MIN_INTERVAL_SECONDS="0"
 	"$TEST_ROOT/harness.env" > "$TEST_ROOT/bad-harness.env"
 chmod 600 "$TEST_ROOT/bad-harness.env"
 "$HARNESS_BIN/harness-init" "$TEST_ROOT/bad-harness.env" >/dev/null
@@ -162,6 +164,7 @@ PLAN
 sed \
 	-e 's/export PROJECT="decompv2"/export PROJECT="decompv2terraheavy"/' \
 	-e "s|export HARNESS_ROOT=\"$TEST_ROOT/state\"|export HARNESS_ROOT=\"$TEST_ROOT/terra-heavy-state\"|" \
+export HARNESS_AGENT_MIN_INTERVAL_SECONDS="0"
 	"$TEST_ROOT/harness.env" > "$TEST_ROOT/terra-heavy-harness.env"
 chmod 600 "$TEST_ROOT/terra-heavy-harness.env"
 "$HARNESS_BIN/harness-init" "$TEST_ROOT/terra-heavy-harness.env" >/dev/null
@@ -179,6 +182,7 @@ PLAN
 sed \
 	-e 's/export PROJECT="decompv2"/export PROJECT="decompv2lowterra"/' \
 	-e "s|export HARNESS_ROOT=\"$TEST_ROOT/state\"|export HARNESS_ROOT=\"$TEST_ROOT/low-terra-state\"|" \
+export HARNESS_AGENT_MIN_INTERVAL_SECONDS="0"
 	-e 's/export HARNESS_PREFERRED_WORKER_ROUTE="LUNA"/export HARNESS_PREFERRED_WORKER_ROUTE="TERRA"/' \
 	"$TEST_ROOT/harness.env" > "$TEST_ROOT/low-terra-harness.env"
 chmod 600 "$TEST_ROOT/low-terra-harness.env"
@@ -208,6 +212,7 @@ PLAN
 sed \
 	-e 's/export PROJECT="decompv2"/export PROJECT="decompv2legacyroute"/' \
 	-e "s|export HARNESS_ROOT=\"$TEST_ROOT/state\"|export HARNESS_ROOT=\"$TEST_ROOT/legacy-route-state\"|" \
+export HARNESS_AGENT_MIN_INTERVAL_SECONDS="0"
 	-e 's/export HARNESS_PREFERRED_WORKER_ROUTE="LUNA"/export HARNESS_PREFERRED_WORKER_ROUTE="TERRA"/' \
 	"$TEST_ROOT/harness.env" > "$TEST_ROOT/legacy-route-harness.env"
 chmod 600 "$TEST_ROOT/legacy-route-harness.env"
@@ -236,6 +241,7 @@ export DEVELOPMENT_POLICY="$TEST_ROOT/policy.md"
 export HARNESS_MODE="light"
 export HARNESS_HOME="$HARNESS_HOME"
 export HARNESS_ROOT="$TEST_ROOT/light-state"
+export HARNESS_AGENT_MIN_INTERVAL_SECONDS="0"
 export MANAGER_CODEX_HOME="$TEST_ROOT/manager-home"
 export MANAGER_CODEX_BIN="/bin/true"
 export WORKER_CODEX_HOME="$TEST_ROOT/worker-home"

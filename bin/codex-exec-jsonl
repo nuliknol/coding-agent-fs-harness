@@ -26,6 +26,66 @@ case "$role" in
 esac
 require_executable_runtime "$role" "$bin"
 
+wait_for_agent_invocation_slot()
+{
+	local control_dir logs_dir lock_file state_file alert_file agent_name last_started_ms now_ms interval_ms remaining_ms wait_seconds wait_duration
+	(( HARNESS_AGENT_MIN_INTERVAL_SECONDS > 0 )) || return 0
+	control_dir="$(project_dir)/control"
+	logs_dir="$(project_dir)/logs"
+	lock_file="$control_dir/agent-invocation-rate-limit.lock"
+	state_file="$control_dir/agent-invocation-rate-limit.state"
+	alert_file="$logs_dir/agent-invocation-alerts.log"
+	case "$role" in
+		manager_*) agent_name=manager ;;
+		worker*) agent_name=worker ;;
+		oracle) agent_name=oracle ;;
+		*) agent_name="$role" ;;
+	esac
+	mkdir -p "$control_dir" "$logs_dir"
+	exec {agent_cooldown_fd}> "$lock_file"
+	flock "$agent_cooldown_fd"
+	last_started_ms=""
+	[[ ! -f "$state_file" ]] || last_started_ms="$(kv_file_value "$state_file" started_epoch_ms)"
+	now_ms="$(date +%s%3N)"
+	interval_ms=$(( HARNESS_AGENT_MIN_INTERVAL_SECONDS * 1000 ))
+	if [[ "$last_started_ms" =~ ^[0-9]+$ ]]; then
+		# A future timestamp can occur after a wall-clock correction. Bound it to
+		# one normal interval rather than sleeping for an unbounded duration.
+		(( last_started_ms <= now_ms )) || last_started_ms="$now_ms"
+		remaining_ms=$(( interval_ms - (now_ms - last_started_ms) ))
+		if (( remaining_ms > 0 )); then
+			wait_seconds=$(( (remaining_ms + 999) / 1000 ))
+			printf -v wait_duration '%d.%03d' "$((remaining_ms / 1000))" "$((remaining_ms % 1000))"
+			log_event "AGENT_INVOCATION_THROTTLED role=$role wait_seconds=$wait_seconds min_interval_seconds=$HARNESS_AGENT_MIN_INTERVAL_SECONDS"
+			printf '%s WARNING: attempt to launch "%s" process during the protected interval of %s seconds; delaying %s seconds; possible dead end (role=%s).\n' \
+				"$(timestamp_utc)" "$agent_name" "$HARNESS_AGENT_MIN_INTERVAL_SECONDS" "$wait_seconds" "$role" >> "$alert_file"
+			chmod 600 "$alert_file"
+			sleep "$wait_duration"
+		fi
+	fi
+	# Keep the lock held until the caller has actually spawned the child.
+}
+
+record_agent_invocation_started()
+{
+	local state_file now_ms tmp
+	(( HARNESS_AGENT_MIN_INTERVAL_SECONDS > 0 )) || return 0
+	state_file="$(project_dir)/control/agent-invocation-rate-limit.state"
+	now_ms="$(date +%s%3N)"
+	tmp="$state_file.tmp.$$"
+	{
+		printf 'started_epoch_ms=%s\n' "$now_ms"
+		printf 'started_at=%s\n' "$(timestamp_utc)"
+		printf 'role=%s\n' "$role"
+		printf 'model=%s\n' "$model"
+	} > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$state_file"
+	flock -u "$agent_cooldown_fd"
+	exec {agent_cooldown_fd}>&-
+	log_event "AGENT_INVOCATION_STARTED role=$role min_interval_seconds=$HARNESS_AGENT_MIN_INTERVAL_SECONDS"
+}
+
 cmd=(env "CODEX_HOME=$home" "$bin" exec --json --model "$model" --sandbox "$sandbox" --add-dir "$HARNESS_ROOT" --add-dir "$PROJECT_TMP_DIR" --cd "$REPOSITORY" "${extras[@]}" -c 'approval_policy="never"' -c "model_reasoning_effort=\"$effort\"" --output-last-message "$last_message")
 if [[ $# -eq 2 ]]; then
  [[ "$1" == resume ]] || usage
@@ -77,12 +137,15 @@ terminate_process_tree()
 	kill -KILL "${process_ids[@]}" 2>/dev/null || true
 }
 
+agent_cooldown_fd=""
+wait_for_agent_invocation_slot
 if (( HARNESS_CODEX_WALL_TIMEOUT_SECONDS > 0 )); then
  timeout --signal=TERM --kill-after="${HARNESS_CODEX_KILL_GRACE_SECONDS}s" "${HARNESS_CODEX_WALL_TIMEOUT_SECONDS}s" "${cmd[@]}" < "$prompt" > "$json_log" 2> "$stderr_log" &
 else
  "${cmd[@]}" < "$prompt" > "$json_log" 2> "$stderr_log" &
 fi
 pid=$!
+record_agent_invocation_started
 last_activity="$(date +%s)"
 while kill -0 "$pid" 2>/dev/null; do
  sleep 1
