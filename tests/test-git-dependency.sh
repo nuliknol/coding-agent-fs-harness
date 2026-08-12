@@ -110,7 +110,7 @@ git -C "$TEST_ROOT/producer" commit -qm 'publish component report'
 printf 'dependency_id\ttype\ttarget_ref\tsource_hint\trequired_ancestor\trequired_path\tdescription\n' \
 	> "$TEST_ROOT/requirements.tsv"
 printf 'a10\tGIT_REF\trefs/heads/component/a10\t%s\t%s\tdocs/component.md\tCommitted A10 source and completion report\n' \
-	"$TEST_ROOT/producer" "$seed" >> "$TEST_ROOT/requirements.tsv"
+	"$TEST_ROOT/advisory-producer-path" "$seed" >> "$TEST_ROOT/requirements.tsv"
 cat > "$TEST_ROOT/dependency-note.md" <<'NOTE'
 Produce the bounded A10 implementation, run its focused validation, commit only
 source and its completion report, and publish branch component/a10.

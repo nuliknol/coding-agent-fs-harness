@@ -32,8 +32,12 @@ IFS=$'\t' read -r found_id type target_ref source_hint ancestor required_path de
 [[ "$found_id" == "$dependency_id" ]] || die "dependency ID is not declared by request $request_id: $dependency_id"
 [[ -d "$source_repository" ]] || die "source repository does not exist: $source_repository"
 git -C "$source_repository" rev-parse --is-inside-work-tree >/dev/null 2>&1 || die 'source path is not a Git repository'
-if [[ "$source_hint" != - ]]; then
-	[[ "$source_repository" == "$(realpath -m "$source_hint")" ]] || die "request requires source repository: $source_hint"
+# source_hint helps another harness locate the likely producer, but clones and
+# worktrees are routinely renamed. Identity comes from the requested commit,
+# required ancestry, committed path, and target ref—not from a filesystem path.
+if [[ "$source_hint" != - && "$source_repository" != "$(realpath -m "$source_hint")" ]]; then
+	printf 'NOTE: supplying from %s instead of advisory source hint %s.\n' \
+		"$source_repository" "$source_hint" >&2
 fi
 [[ -n "$source_ref" ]] || source_ref="$target_ref"
 source_commit="$(git -C "$source_repository" rev-parse --verify "$source_ref^{commit}")" || die "source ref does not resolve to a commit: $source_ref"
