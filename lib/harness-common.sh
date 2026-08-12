@@ -1088,6 +1088,36 @@ task_root_leaf_criteria()
 	done < <(task_root_declared_criteria "$root")
 }
 
+task_leaf_criterion_total_count()
+{
+	task_root_leaf_criteria "$1" | awk 'NF {count++} END {print count + 0}'
+}
+
+task_leaf_criterion_passed_count()
+{
+	local root criterion count=0
+	root="$(task_root_id "$1")"
+	while IFS= read -r criterion; do
+		[[ -n "$criterion" ]] || continue
+		if task_criterion_is_passed "$root" "$criterion"; then
+			count=$((count + 1))
+		fi
+	done < <(task_root_leaf_criteria "$root")
+	printf '%s\n' "$count"
+}
+
+task_leaf_progress_percent()
+{
+	local total passed
+	total="$(task_leaf_criterion_total_count "$1")"
+	passed="$(task_leaf_criterion_passed_count "$1")"
+	if (( total == 0 )); then
+		printf '0\n'
+	else
+		printf '%s\n' "$((passed * 100 / total))"
+	fi
+}
+
 task_criterion_has_pass_record()
 {
 	local root criterion ledger

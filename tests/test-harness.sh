@@ -567,14 +567,36 @@ printf '# Task\n\nTarget-Criterion: fixture.remaining\n' > "$revision_task"
 "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" 004-revision-11 "$revision_task" >/dev/null
 grep -q '^Starting-Progress: 0%$' "$TEST_ROOT/state/projects/testproj/tasks/testproj-task-004-revision-11.ready.md"
 watch_output="$TEST_ROOT/watch-agents.out"
+progress_dir="$TEST_ROOT/state/projects/testproj/control/progress"
+cat > "$progress_dir/testproj-task-004.criterion-decomposition.tsv" <<'TSV'
+parent_criterion	child_criterion	title	acceptance_evidence
+fixture.remaining	fixture.first	First bounded fixture	first fixture evidence passes
+fixture.remaining	fixture.second	Second bounded fixture	second fixture evidence passes
+TSV
+cat > "$progress_dir/testproj-task-004.criteria.tsv" <<'TSV'
+item_id	state	verified_by	evidence_sha256	updated_at
+fixture.first	PASSED	004-revision-13	sha256:test	1970-01-01T00:00:00Z
+TSV
 timeout 2 "$HARNESS_BIN/harness-watch-agents" "$TEST_ROOT/harness.env" > "$watch_output" 2>&1 &
 watch_pid=$!
 sleep 0.3
 printf 'Progress-Percent: 0%%\nImprovement-Percent: 0%%\n' > "$TEST_ROOT/state/projects/testproj/archive/testproj-task-004-revision-12.rejected.md"
+cat > "$TEST_ROOT/state/projects/testproj/archive/testproj-task-004-revision-13.checkpointed.md" <<'NOTE'
+Progress-Percent: 0%
+Improvement-Percent: 0%
+Verified-Criterion: fixture.first
+NOTE
 wait "$watch_pid" || true
 grep -q 'MANAGER REJECTED task=004-revision-12' "$watch_output"
 ! grep -q 'MANAGER REJECTED task=004-revision-10' "$watch_output"
 grep -q 'Improvement: 0%' "$watch_output"
+grep -q 'MANAGER CHECKPOINTED task=004-revision-13' "$watch_output"
+grep -q 'Root leaf progress: 1/2 (50% snapshot)' "$watch_output"
+grep -Eq 'Project plan progress: [0-9]+/[0-9]+ \([0-9]+%\)' "$watch_output"
+grep -q 'Legacy root progress: 0%' "$watch_output"
+grep -q 'Durable checkpoint gain: 1 criterion(s), 0 increment(s)' "$watch_output"
+grep -q 'Legacy improvement: 0%' "$watch_output"
+! grep -q 'Cumulative progress:' "$watch_output"
 rm -f "$TEST_ROOT/state/projects/testproj/tasks/testproj-task-004-revision-11.ready.md"
 sed -i 's/^fixture-004\tACTIVE\t004\t/fixture-004\tCOMPLETE\t004\t/' \
 	"$TEST_ROOT/state/projects/testproj/control/project-plan-state.tsv"
