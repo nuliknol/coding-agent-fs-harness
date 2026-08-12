@@ -131,7 +131,7 @@ full_active_file()
 	for entry in 'results:result.md' 'running:running.md' 'tasks:ready.md'; do
 		subdir="${entry%%:*}"; suffix="${entry#*:}"
 		file="$(find "$dir/$subdir" -maxdepth 1 -type f -name "$project-task-*.$suffix" \
-			-printf '%T@\t%p\n' 2>/dev/null | sort -nr | awk -F '\t' 'NR == 1 {print $2; exit}')"
+			-printf '%T@\t%p\n' 2>/dev/null | sort -nr | awk -F '\t' 'NR == 1 {first=$2} END {print first}')"
 		[[ -z "$file" ]] || { printf '%s\n' "$file"; return; }
 	done
 }
@@ -140,7 +140,7 @@ latest_trace()
 {
 	local dir="$1"
 	find "$dir/logs" -maxdepth 1 -type f -name '*.jsonl' -printf '%T@\t%p\n' 2>/dev/null |
-		sort -nr | awk -F '\t' 'NR == 1 {print $2; exit}'
+		sort -nr | awk -F '\t' 'NR == 1 {first=$2} END {print first}'
 }
 
 wrap_description() { printf '%s\n' "$1" | fold -s -w "$2"; }
@@ -232,7 +232,7 @@ while IFS= read -r -d '' env_file; do
 	active="$(full_active_file "$dir" "$project")"
 	waiting_request=""
 	if [[ -d "$dir/control/dependencies" ]]; then
-		waiting_request="$(find "$dir/control/dependencies" -maxdepth 1 -type f -name '*.waiting.md' -print 2>/dev/null | sort | head -n 1)"
+		waiting_request="$(find "$dir/control/dependencies" -maxdepth 1 -type f -name '*.waiting.md' -print 2>/dev/null | sort | awk 'NR == 1 {first=$0} END {print first}')"
 	fi
 	if [[ -f "$dir/control/project.complete" ]]; then display_status=done; description='Completed normally. Every dependency-DAG node is accepted.'
 	elif [[ -f "$dir/control/project.blocked.md" ]]; then display_status=paused; description="NEEDS HUMAN: $(markdown_summary "$dir/control/project.blocked.md")"

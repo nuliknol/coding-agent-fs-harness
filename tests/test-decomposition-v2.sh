@@ -258,6 +258,11 @@ mkdir -p "$TEST_ROOT/watch-mixed" "$TEST_ROOT/watch-light"
 cp "$TEST_ROOT/harness.env" "$TEST_ROOT/watch-mixed/full.env"
 cp "$TEST_ROOT/light.env" "$TEST_ROOT/watch-mixed/light.env"
 cp "$TEST_ROOT/light.env" "$TEST_ROOT/watch-light/light.env"
+# A large trace directory used to make the newest-file pipelines terminate
+# with SIGPIPE under `set -o pipefail`, truncating every later watcher row.
+for index in $(seq -w 1 1200); do
+	printf '{"type":"item.completed"}\n' > "$project_dir/logs/watch-regression-$index.jsonl"
+done
 mixed_watch="$(COLUMNS=100 LINES=24 "$HARNESS_BIN/harness-watch-many" --once "$TEST_ROOT/watch-mixed")"
 grep -Eq '^decompv2 +\| *0\| w/stopped +\| 0/2' <<< "$mixed_watch"
 grep -Eq '^dispatchlight +\| *0\| m/stopped' <<< "$mixed_watch"
