@@ -66,6 +66,7 @@ elif printf '%s' "$prompt" | grep -q 'A worker result is ready for review'; then
 	key="review-$(value TASK_ID)"
 	if [[ "$(value REVIEW_STATE_CHANGED)" == 1 ]]; then
 		printf '%s\n' "$prompt" | grep -q 'perform a fresh review; do not dismiss the event as a duplicate'
+		[[ -z "$resume_thread_id" ]]
 	fi
 elif printf '%s' "$prompt" | grep -q 'The root hit a convergence guard'; then
 	kind="replan"
@@ -111,7 +112,11 @@ if [[ "$key" == oracle-1 && "$count" -le 2 ]]; then
 	exit 1
 fi
 
-printf '{"type":"thread.started","thread_id":"%s"}\n' "${resume_thread_id:-mock-thread-001}"
+started_thread_id="${resume_thread_id:-mock-thread-001}"
+if [[ "$kind" == review && "$(value REVIEW_STATE_CHANGED)" == 1 ]]; then
+	started_thread_id="mock-thread-rotated"
+fi
+printf '{"type":"thread.started","thread_id":"%s"}\n' "$started_thread_id"
 printf '{"type":"turn.started"}\n'
 HARNESS_BIN="$(value HARNESS_BIN)"
 final_message="done"
@@ -393,7 +398,9 @@ mv "$plan_state.tmp" "$plan_state"
 
 for _ in $(seq 1 300); do
 	if [[ -f "$TEST_ROOT/state/projects/testproj/archive/testproj-task-002.accepted.md" &&
-		-f "$TEST_ROOT/state/projects/testproj/control/project.complete" ]]; then
+		-f "$TEST_ROOT/state/projects/testproj/control/project.complete" ]] &&
+		grep -Fqx 'thread_id=mock-thread-rotated' \
+			"$TEST_ROOT/state/projects/testproj/control/manager.thread"; then
 		break
 	fi
 	sleep 0.1
@@ -404,6 +411,8 @@ TRACE="$TEST_ROOT/state/projects/testproj/logs/trace.log"
 [[ -f "$TEST_ROOT/state/projects/testproj/archive/testproj-task-001.accepted.md" ]]
 [[ -f "$TEST_ROOT/state/projects/testproj/archive/testproj-task-002.accepted.md" ]]
 [[ -f "$TEST_ROOT/state/projects/testproj/control/project.complete" ]]
+grep -Fqx 'thread_id=mock-thread-rotated' \
+	"$TEST_ROOT/state/projects/testproj/control/manager.thread"
 [[ ! -e "$TEST_ROOT/state/projects/testproj/tasks/testproj-task-002.ready.md" ]]
 [[ ! -e "$TEST_ROOT/state/projects/testproj/running/testproj-task-002.running.md" ]]
 [[ ! -e "$TEST_ROOT/state/projects/testproj/results/testproj-task-002.result.md" ]]
@@ -419,6 +428,7 @@ grep -q 'WORKER_PROVIDER_WAIT task=002.*kind=quota' "$EVENTS"
 grep -q 'WORKER_PROVIDER_RETRY_STARTED task=002.*kind=quota' "$EVENTS"
 grep -q 'MANAGER_REVIEW_LEFT_PENDING task=002' "$EVENTS"
 grep -q 'SUPERVISOR_REVIEW_LEFT_UNCOMMITTED task=002.*retry=suppressed_until_state_change' "$EVENTS"
+grep -q 'MANAGER_CONTEXT_ROTATED previous=mock-thread-001 current=mock-thread-rotated reason=review_state_changed' "$EVENTS"
 grep -q 'WORKER_SUPERVISOR_TRIGGER task=001' "$EVENTS"
 grep -q 'WORKER_DIRECT_RESULT_NORMALIZED task=001' "$EVENTS"
 grep -q 'WORKER_LAST_MESSAGE_RESULT_NORMALIZED task=002' "$EVENTS"

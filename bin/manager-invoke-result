@@ -26,6 +26,7 @@ project_path="$(project_dir)"
 thread_file="$project_path/control/manager.thread"
 [[ -f "$thread_file" ]] || die 'manager thread is not registered; run manager-bootstrap'
 thread_id="$(kv_file_value "$thread_file" thread_id)"
+original_thread_id="$thread_id"
 base="$(task_base "$task_id")"
 result="$project_path/results/$base.result.md"
 running="$project_path/running/$base.running.md"
@@ -149,6 +150,33 @@ last_message=""
 classification=""
 fallback_stage=0
 current_model="$MANAGER_MODEL"
+review_thread_id="$thread_id"
+fresh_context_pending=0
+if (( review_state_changed == 1 )); then
+	review_thread_id=""
+	fresh_context_pending=1
+fi
+
+extract_thread_id()
+{
+	local log_file="$1"
+	if command -v jq >/dev/null 2>&1; then
+		jq -r 'select(.type == "thread.started") | .thread_id' "$log_file" | head -n 1
+	else
+		sed -n 's/.*"type"[[:space:]]*:[[:space:]]*"thread.started".*"thread_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$log_file" | head -n 1
+	fi
+}
+
+commit_fresh_manager_context()
+{
+	(( fresh_context_pending == 1 )) || return 0
+	[[ -n "$review_thread_id" && "$review_thread_id" != null ]] ||
+		die 'fresh manager review completed without a recoverable thread id'
+	"$HARNESS_BIN/manager-register-thread" "$HARNESS_ENV_FILE" "$review_thread_id" >/dev/null
+	log_event "MANAGER_CONTEXT_ROTATED previous=$original_thread_id current=$review_thread_id reason=review_state_changed"
+	trace_event MANAGER_CONTEXT_ROTATED "previous_thread_id=$original_thread_id" "current_thread_id=$review_thread_id" "reason=review_state_changed"
+	fresh_context_pending=0
+}
 
 manager_action_committed()
 {
@@ -162,17 +190,28 @@ while true; do
 	stderr_log="$project_path/logs/manager-review-$task_id-$stamp-attempt-$attempt_label.stderr.log"
 	last_message="$project_path/logs/manager-review-$task_id-$stamp-attempt-$attempt_label.md"
 
-	log_event "MANAGER_REVIEW_STARTED task=$task_id thread_id=$thread_id attempt=$attempt"
-	trace_event MANAGER_REVIEW_ATTEMPT "task_id=$task_id" "attempt=$attempt" "thread_id=$thread_id" "json_log=$json_log" "last_message=$last_message"
+	context_mode=resumed
+	[[ -n "$review_thread_id" ]] || context_mode=fresh
+	log_event "MANAGER_REVIEW_STARTED task=$task_id thread_id=${review_thread_id:-none} attempt=$attempt context=$context_mode"
+	trace_event MANAGER_REVIEW_ATTEMPT "task_id=$task_id" "attempt=$attempt" "thread_id=${review_thread_id:-}" "context=$context_mode" "json_log=$json_log" "last_message=$last_message"
 	set +e
-	trace_event CODEX_EXEC_START "role=manager_review" "task_id=$task_id" "attempt=$attempt" "thread_id=$thread_id" "json_log=$json_log" "last_message=$last_message" "model=$MANAGER_MODEL"
-	"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" manager_review "$current_model" "$prompt_file" "$json_log" "$stderr_log" "$last_message" resume "$thread_id"
+	trace_event CODEX_EXEC_START "role=manager_review" "task_id=$task_id" "attempt=$attempt" "thread_id=${review_thread_id:-}" "context=$context_mode" "json_log=$json_log" "last_message=$last_message" "model=$MANAGER_MODEL"
+	if [[ -n "$review_thread_id" ]]; then
+		"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" manager_review "$current_model" "$prompt_file" "$json_log" "$stderr_log" "$last_message" resume "$review_thread_id"
+	else
+		"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" manager_review "$current_model" "$prompt_file" "$json_log" "$stderr_log" "$last_message"
+	fi
 	status=$?
 	set -e
+	started_thread_id="$(extract_thread_id "$json_log")"
+	if (( fresh_context_pending == 1 )) && [[ -n "$started_thread_id" && "$started_thread_id" != null ]]; then
+		review_thread_id="$started_thread_id"
+	fi
 	classification="$(kv_file_value "${json_log%.jsonl}.classification" classification 2>/dev/null || true)"
 	trace_event CODEX_EXEC_END "role=manager_review" "task_id=$task_id" "attempt=$attempt" "status=$status" "json_log=$json_log" "last_message=$last_message"
 
 	if (( status == 0 )); then
+		commit_fresh_manager_context
 		if manager_action_committed; then
 			log_event "MANAGER_REVIEW_FINISHED task=$task_id attempt=$attempt"
 			trace_event MANAGER_REVIEW_COMMITTED "task_id=$task_id" "attempt=$attempt" "status=$status"
@@ -189,6 +228,7 @@ while true; do
 	# A manager command may have committed an accept/checkpoint/reject immediately before
 	# the API stream failed. Never repeat a committed manager action.
 	if manager_action_committed; then
+		commit_fresh_manager_context
 		log_event "MANAGER_REVIEW_FINISHED task=$task_id attempt=$attempt outcome=action_committed_before_process_failure status=$status"
 		trace_event MANAGER_REVIEW_COMMITTED_AFTER_FAILURE "task_id=$task_id" "attempt=$attempt" "status=$status"
 		printf 'Manager action for task %s was committed before the Codex process failed.\n' "$task_id"
@@ -200,7 +240,7 @@ while true; do
 		retry_delay="$(codex_provider_retry_delay "$classification")"
 		provider_retries=$((provider_retries + 1))
 		[[ "$retry_kind" != quota ]] || quota_waits=$((quota_waits + 1))
-		log_event "MANAGER_PROVIDER_WAIT task=$task_id thread_id=$thread_id kind=$retry_kind attempt=$attempt retry=$provider_retries delay_seconds=$retry_delay classification=$classification"
+		log_event "MANAGER_PROVIDER_WAIT task=$task_id thread_id=${review_thread_id:-none} kind=$retry_kind attempt=$attempt retry=$provider_retries delay_seconds=$retry_delay classification=$classification"
 		if [[ "$retry_kind" == quota ]]; then
 			printf 'Manager review for task %s has no provider quota; result and thread are preserved. Checking again in %s seconds (quota wait %s).\n' "$task_id" "$retry_delay" "$quota_waits" >&2
 		else
@@ -217,7 +257,7 @@ while true; do
 		[[ ! -e "$lease" ]] || die "cannot retry manager review; worker lease appeared: $lease"
 		[[ -f "$assignment_archive" ]] || die "cannot retry manager review; archived assignment disappeared: $assignment_archive"
 		attempt=$((attempt + 1))
-		log_event "MANAGER_PROVIDER_RETRY_STARTED task=$task_id thread_id=$thread_id kind=$retry_kind attempt=$attempt retry=$provider_retries"
+		log_event "MANAGER_PROVIDER_RETRY_STARTED task=$task_id thread_id=${review_thread_id:-none} kind=$retry_kind attempt=$attempt retry=$provider_retries"
 		trace_event MANAGER_REVIEW_RETRY "task_id=$task_id" "kind=$retry_kind" "attempt=$attempt" "retry=$provider_retries"
 		continue
 	fi
