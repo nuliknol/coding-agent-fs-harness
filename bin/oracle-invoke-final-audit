@@ -38,6 +38,7 @@ REPOSITORY=$REPOSITORY
 SPECIFICATION=$SPECIFICATION
 PROJECT_PLAN_FILE=$(project_plan_definition_file)
 PROJECT_PLAN_STATE_FILE=$(project_plan_state_file)
+PROJECT_DECOMPOSITION_FILE=$(project_decomposition_plan_file)
 PROJECT_PROGRESS_DIR=$dir/control/progress
 PROJECT_ARCHIVE_DIR=$dir/archive
 ORACLE_PENDING_FILE=$pending
@@ -85,6 +86,18 @@ If FAIL, create a versioned additive addendum under PROJECT_TMP_DIR. It must con
 
 ## Harness plan items
 ORACLE-...<TAB>independently acceptance-complete remediation title
+
+When PROJECT_DECOMPOSITION_FILE exists, also include one matching row for every Oracle plan item using the exact column schema already present in PROJECT_DECOMPOSITION_FILE:
+
+## Harness decomposition nodes
+ORACLE-...<TAB>parent_id<TAB>depends_on<TAB>deliverable<TAB>acceptance_evidence<TAB>focused_validation<TAB>allowed_paths<TAB>required_symbols<TAB>leaf_type<TAB>complexity_class<TAB>worker_route
+
+The decomposition deliverable must exactly equal the corresponding Harness plan items title. Preserve the existing dependency DAG, use explicit narrow paths and deterministic validation, and route bounded implementation, test, mechanical API, focused bug, and documentation leaves to LOW/LUNA. Use Terra only for an actual contract, architecture, concurrency, ambiguity, or unexplained integration decision.
+
+When ARCHITECTURE_GUARDS=1, additionally include one exact six-column binding for every Oracle node. Reuse applicable registered invariant, decision, edge, and health-gate IDs; use \`-\` where none apply. Do not invent unregistered architecture IDs:
+
+## Architecture node bindings
+ORACLE-...<TAB>invariant_ids<TAB>consumes_decisions<TAB>produces_decisions<TAB>edge_contracts<TAB>health_gates
 
 A HUMAN_APPROVAL addendum must additionally contain exactly one nonempty line for each of:
 

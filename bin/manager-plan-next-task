@@ -81,6 +81,33 @@ if [[ -n "$active_root_before" && "$active_root_before" != '-' ]]; then
 	done
 fi
 
+structural_error="$project_path/control/manager-plan-structural-error.md"
+structural_reason=""
+if [[ -z "$active_root_before" || "$active_root_before" == - ]]; then
+	if [[ -z "$ready_plan_node" ]]; then
+		structural_reason='No dependency-ready pending plan node exists, although the project is incomplete and has no active root.'
+	elif project_plan_uses_dag && [[ -z "$(project_plan_node_value "$ready_plan_node" deliverable)" ]]; then
+		structural_reason="Pending plan node $ready_plan_node is absent from the decomposition DAG."
+	elif (( HARNESS_ARCHITECTURE_GUARDS == 1 )) &&
+		! architecture_registry_has_id "$(architecture_node_bindings_file)" "$ready_plan_node"; then
+		structural_reason="Pending plan node $ready_plan_node is absent from the architecture node bindings."
+	fi
+fi
+if [[ -n "$structural_reason" ]]; then
+	{
+		printf '# Manager Planning Structural Error\n\n'
+		printf 'Project: %s\n\n' "$PROJECT"
+		printf 'Plan-Node: %s\n\n' "${ready_plan_node:--}"
+		printf 'Detected-At: %s\n\n' "$(timestamp_utc)"
+		printf '%s\n' "$structural_reason"
+	} > "$structural_error.tmp.$$"
+	chmod 600 "$structural_error.tmp.$$"
+	mv "$structural_error.tmp.$$" "$structural_error"
+	log_event "MANAGER_PLAN_STRUCTURAL_ERROR node=${ready_plan_node:--} reason=$(printf '%q' "$structural_reason")"
+	die "$structural_reason"
+fi
+rm -f "$structural_error"
+
 cat > "$prompt_file.tmp.$$" <<PROMPT
 The previous root task is resolved, or an ACTIVE root was explicitly resumed after replanning; the project has no active task process and its specification is not complete.
 

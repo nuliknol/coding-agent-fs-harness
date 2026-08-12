@@ -486,4 +486,85 @@ grep -Eq $'^GATE-tests-test-acceptance\tFINAL_PASSED\tcompletion\t' \
 "$HARNESS_BIN/harness-decomposition-metrics" "$MIN_ROOT/harness.env" > "$MIN_ROOT/decomposition-metrics.tsv"
 grep -Fqx $'architecture_profile\tminimal-single-node-test' "$MIN_ROOT/decomposition-metrics.tsv"
 
+# Oracle remediation extends the legacy plan, typed decomposition DAG, and
+# architecture bindings as one validated transaction. A partial addendum must
+# leave every durable registry unchanged.
+sed -i 's/export MAX_ORACLE_RUNS="0"/export MAX_ORACLE_RUNS="1"/' "$TEST_ROOT/harness.env"
+rm -f "$project_dir/control/project.complete"
+mkdir -p "$project_dir/control/oracle"
+printf '# Oracle Audit Pending\n\nProject: archguard\n\nAudit-ID: 1\n' > \
+	"$project_dir/control/oracle/oracle.pending.md"
+cat > "$TEST_ROOT/oracle-verdict.md" <<'VERDICT'
+# Oracle Audit Verdict
+
+Decision: FAIL
+
+## Traceability verification
+
+- [FAIL] widget remediation is missing
+
+## Acceptance verification
+
+- [FAIL] focused widget regression reproduces the defect
+
+## Architecture verification
+
+- [FAIL] INV-widget is not preserved
+
+## Debt verification
+
+- [PASS] no unresolved debt exists
+
+## Findings
+
+REQ-widget requires a bounded automatic repair.
+
+## Conclusion
+
+Automatic remediation is required.
+VERDICT
+cat > "$TEST_ROOT/oracle-partial-addendum.md" <<'ADDENDUM'
+# Oracle Audit Addendum
+
+Original-Requirement-ID: REQ-widget
+Remediation-Authority: AUTOMATIC
+
+## Harness plan items
+ORACLE-widget-fix	Repair and regress the widget invariant
+
+## Harness decomposition nodes
+ORACLE-widget-fix	-	coding	Repair and regress the widget invariant	Focused regression proves the widget invariant	bash tests/test_widget.sh	src/widget.c,tests/test_widget.sh	widget_value	FOCUSED_BUG	LOW	LUNA
+ADDENDUM
+definition_before="$(sha256sum "$project_dir/control/project-plan.tsv")"
+state_before="$(sha256sum "$project_dir/control/project-plan-state.tsv")"
+dag_before="$(sha256sum "$project_dir/control/project-decomposition-v2.tsv")"
+bindings_before="$(sha256sum "$project_dir/control/architecture/node-bindings.tsv")"
+if "$HARNESS_BIN/oracle-complete-audit" "$TEST_ROOT/harness.env" \
+	"$TEST_ROOT/oracle-verdict.md" "$TEST_ROOT/oracle-partial-addendum.md" \
+	>"$TEST_ROOT/oracle-partial.out" 2>"$TEST_ROOT/oracle-partial.err"; then
+	printf 'Partial architecture-guarded Oracle addendum was accepted.\n' >&2
+	exit 1
+fi
+grep -q 'must include matching rows under ## Architecture node bindings' \
+	"$TEST_ROOT/oracle-partial.err"
+[[ "$(sha256sum "$project_dir/control/project-plan.tsv")" == "$definition_before" ]]
+[[ "$(sha256sum "$project_dir/control/project-plan-state.tsv")" == "$state_before" ]]
+[[ "$(sha256sum "$project_dir/control/project-decomposition-v2.tsv")" == "$dag_before" ]]
+[[ "$(sha256sum "$project_dir/control/architecture/node-bindings.tsv")" == "$bindings_before" ]]
+cat >> "$TEST_ROOT/oracle-partial-addendum.md" <<'ADDENDUM'
+
+## Architecture node bindings
+ORACLE-widget-fix	INV-widget	ADR-widget	-	-	-
+ADDENDUM
+"$HARNESS_BIN/oracle-complete-audit" "$TEST_ROOT/harness.env" \
+	"$TEST_ROOT/oracle-verdict.md" "$TEST_ROOT/oracle-partial-addendum.md" >/dev/null
+grep -Fqx $'ORACLE-widget-fix\tRepair and regress the widget invariant' \
+	"$project_dir/control/project-plan.tsv"
+grep -Eq $'^ORACLE-widget-fix\tPENDING\t-' "$project_dir/control/project-plan-state.tsv"
+grep -Fqx $'ORACLE-widget-fix\t-\tcoding\tRepair and regress the widget invariant\tFocused regression proves the widget invariant\tbash tests/test_widget.sh\tsrc/widget.c,tests/test_widget.sh\twidget_value\tFOCUSED_BUG\tLOW\tLUNA' \
+	"$project_dir/control/project-decomposition-v2.tsv"
+grep -Fqx $'ORACLE-widget-fix\tINV-widget\tADR-widget\t-\t-\t-' \
+	"$project_dir/control/architecture/node-bindings.tsv"
+"$HARNESS_BIN/harness-architecture-status" "$TEST_ROOT/harness.env" >/dev/null
+
 printf 'architecture guard tests passed\n'

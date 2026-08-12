@@ -238,6 +238,12 @@ while IFS= read -r -d '' env_file; do
 	if [[ -f "$dir/control/project.complete" ]]; then display_status=done; description='Completed normally. Every dependency-DAG node is accepted.'
 	elif [[ -f "$dir/control/project.blocked.md" ]]; then display_status=paused; description="NEEDS HUMAN: $(markdown_summary "$dir/control/project.blocked.md")"
 	elif [[ "$project_status" == NEEDS_HUMAN.* ]]; then display_status=paused; description="$project_status"
+	elif [[ "$project_status" == PLANNING_STALLED.* ]]; then
+		display_status=paused
+		planning_alert="$dir/control/manager-plan-structural-error.md"
+		[[ -f "$planning_alert" ]] || planning_alert="$dir/control/manager-plan-stalled.md"
+		[[ -f "$planning_alert" ]] || planning_alert="$dir/control/manager-plan-failed.md"
+		description="PLANNING_STALLED: $(markdown_summary "$planning_alert")"
 	elif [[ -n "$waiting_request" ]]; then
 		display_status=waiting
 		request_id="$(awk -F': ' '$1=="Request-ID" {print $2; exit}' "$waiting_request")"

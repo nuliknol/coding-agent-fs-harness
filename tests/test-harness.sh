@@ -1815,6 +1815,63 @@ fi
 grep -q 'project state already exists at' "$INACTIVE_ROOT/reinit.err"
 grep -q 'rm -rf' "$INACTIVE_ROOT/reinit.err"
 
+# An unchanged manager planning gap may consume at most one model invocation.
+# Changing durable planning state clears the circuit and permits one new try.
+PLAN_GAP_ROOT="$TEST_ROOT/planning-gap"
+mkdir -p "$PLAN_GAP_ROOT/repo" "$PLAN_GAP_ROOT/manager-home" "$PLAN_GAP_ROOT/worker-home"
+printf 'test specification\n' > "$PLAN_GAP_ROOT/repo/spec.md"
+cat > "$PLAN_GAP_ROOT/pending-manager" <<'PENDING_MANAGER'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+source "$1"
+count_file="$HARNESS_ROOT/manager-plan-count"
+count=0
+[[ ! -f "$count_file" ]] || count="$(cat "$count_file")"
+printf '%s\n' "$((count + 1))" > "$count_file"
+exit 3
+PENDING_MANAGER
+chmod +x "$PLAN_GAP_ROOT/pending-manager"
+cat > "$PLAN_GAP_ROOT/harness.env" <<ENV
+export PROJECT="planninggapproj"
+export REPOSITORY="$PLAN_GAP_ROOT/repo"
+export SPECIFICATION="\$REPOSITORY/spec.md"
+export HARNESS_HOME="$HARNESS_HOME"
+export HARNESS_BIN="\$HARNESS_HOME/bin"
+export HARNESS_ROOT="$PLAN_GAP_ROOT/state"
+export MANAGER_CODEX_HOME="$PLAN_GAP_ROOT/manager-home"
+export MANAGER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export WORKER_CODEX_HOME="$PLAN_GAP_ROOT/worker-home"
+export WORKER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export HARNESS_MANAGER_PLAN_INVOKER="$PLAN_GAP_ROOT/pending-manager"
+export HARNESS_POLL_SECONDS="1"
+export MAX_ORACLE_RUNS="0"
+ENV
+chmod 600 "$PLAN_GAP_ROOT/harness.env"
+"$HARNESS_BIN/harness-init" "$PLAN_GAP_ROOT/harness.env" >/dev/null
+printf 'P0\tPlanning circuit-breaker test\n' > "$PLAN_GAP_ROOT/plan.tsv"
+"$HARNESS_BIN/manager-init-project-plan" "$PLAN_GAP_ROOT/harness.env" "$PLAN_GAP_ROOT/plan.tsv" >/dev/null
+"$HARNESS_BIN/harness-supervisor-start" "$PLAN_GAP_ROOT/harness.env" >/dev/null
+for _ in $(seq 1 50); do
+	[[ -f "$PLAN_GAP_ROOT/state/manager-plan-count" ]] && break
+	sleep 0.1
+done
+sleep 2
+"$HARNESS_BIN/harness-supervisor-stop" "$PLAN_GAP_ROOT/harness.env" >/dev/null
+[[ "$(cat "$PLAN_GAP_ROOT/state/manager-plan-count")" == 1 ]]
+plan_gap_project="$PLAN_GAP_ROOT/state/projects/planninggapproj"
+grep -q '^State-Fingerprint: sha256:' "$plan_gap_project/control/manager-plan-stalled.md"
+"$HARNESS_BIN/harness-status" "$PLAN_GAP_ROOT/harness.env" > "$PLAN_GAP_ROOT/status.out"
+grep -Fq 'Project status: PLANNING_STALLED.' "$PLAN_GAP_ROOT/status.out"
+printf '# operator repaired planning metadata\n' >> "$plan_gap_project/control/project-plan.tsv"
+"$HARNESS_BIN/harness-supervisor-start" "$PLAN_GAP_ROOT/harness.env" >/dev/null
+for _ in $(seq 1 50); do
+	[[ "$(cat "$PLAN_GAP_ROOT/state/manager-plan-count")" == 2 ]] && break
+	sleep 0.1
+done
+sleep 2
+"$HARNESS_BIN/harness-supervisor-stop" "$PLAN_GAP_ROOT/harness.env" >/dev/null
+[[ "$(cat "$PLAN_GAP_ROOT/state/manager-plan-count")" == 2 ]]
+
 ORACLE_ROOT="$TEST_ROOT/oracle"
 mkdir -p "$ORACLE_ROOT/repo" "$ORACLE_ROOT/manager-home" "$ORACLE_ROOT/worker-home"
 printf 'test specification\n' > "$ORACLE_ROOT/repo/spec.md"

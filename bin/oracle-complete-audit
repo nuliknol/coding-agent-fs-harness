@@ -101,7 +101,11 @@ fi
 
 definition="$(project_plan_definition_file)"
 state="$(project_plan_state_file)"
+dag="$(project_decomposition_plan_file)"
+binding="$(architecture_node_bindings_file)"
 items_tmp="$oracle_dir/addendum-$audit_id.items.tsv"
+nodes_tmp="$oracle_dir/addendum-$audit_id.nodes.tsv"
+bindings_tmp="$oracle_dir/addendum-$audit_id.bindings.tsv"
 awk '
 	$0 == "## Harness plan items" {inside = 1; next}
 	inside && /^## / {exit}
@@ -111,18 +115,133 @@ awk '
 
 definition_tmp="$definition.tmp.$$"
 state_tmp="$state.tmp.$$"
+dag_tmp="$dag.tmp.$$"
+binding_tmp="$binding.tmp.$$"
+cleanup_candidates()
+{
+	rm -f "$definition_tmp" "$state_tmp" "$dag_tmp" "$binding_tmp"
+}
+trap cleanup_candidates EXIT
 cp "$definition" "$definition_tmp"
 cp "$state" "$state_tmp"
+declare -A oracle_item_titles=()
 while IFS=$'\t' read -r item_id title extra || [[ -n "${item_id:-}${title:-}${extra:-}" ]]; do
 	[[ -n "${item_id:-}" && -n "${title:-}" && -z "${extra:-}" ]] || die 'invalid Oracle addendum plan item'
 	[[ "$item_id" =~ ^ORACLE-[A-Za-z0-9._-]+$ ]] || die 'automatic Oracle item IDs must begin with ORACLE-'
+	[[ -z "${oracle_item_titles[$item_id]:-}" ]] || die "duplicate Oracle addendum plan item: $item_id"
 	! awk -F '\t' -v item="$item_id" '!/^#/ && $1 == item {found=1} END {exit found ? 0 : 1}' "$definition" || die "duplicate Oracle plan item: $item_id"
+	oracle_item_titles[$item_id]="$title"
 	printf '%s\t%s\n' "$item_id" "$title" >> "$definition_tmp"
 	printf '%s\tPENDING\t-\t%s\n' "$item_id" "$(timestamp_utc)" >> "$state_tmp"
 done < "$items_tmp"
+
+if project_plan_uses_dag; then
+	awk '
+		$0 == "## Harness decomposition nodes" {inside = 1; next}
+		inside && /^## / {exit}
+		inside && $0 !~ /^#/ && index($0, "\t") {print}
+	' "$addendum" > "$nodes_tmp"
+	[[ -s "$nodes_tmp" ]] || die 'automatic addendum for a decomposition project must include matching rows under ## Harness decomposition nodes'
+	cp "$dag" "$dag_tmp"
+	dag_header="$(sed -n '1p' "$dag")"
+	typed_header=$'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tleaf_type\tcomplexity_class\tworker_route'
+	legacy_header=$'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tcomplexity_class\tworker_route'
+	if [[ "$dag_header" == "$typed_header" ]]; then
+		expected_fields=11
+	elif [[ "$dag_header" == "$legacy_header" ]]; then
+		expected_fields=10
+	else
+		die 'existing decomposition DAG has an unsupported header'
+	fi
+	declare -A known_nodes=() oracle_nodes=()
+	while IFS=$'\t' read -r existing_node _; do
+		[[ "$existing_node" != node_id && -n "$existing_node" ]] && known_nodes[$existing_node]=1
+	done < "$dag"
+	while IFS=$'\t' read -r -a fields; do
+		(( ${#fields[@]} == expected_fields )) || die "Oracle decomposition row must contain exactly $expected_fields tab-separated fields"
+		node_id="${fields[0]}"; parent_id="${fields[1]}"; depends_on="${fields[2]}"
+		deliverable="${fields[3]}"; acceptance_evidence="${fields[4]}"; focused_validation="${fields[5]}"
+		allowed_paths="${fields[6]}"; required_symbols="${fields[7]}"
+		if (( expected_fields == 11 )); then
+			leaf_type="${fields[8]}"; complexity_class="${fields[9]}"; worker_route="${fields[10]}"
+		else
+			leaf_type=""; complexity_class="${fields[8]}"; worker_route="${fields[9]}"
+		fi
+		[[ -n "${oracle_item_titles[$node_id]:-}" ]] || die "Oracle decomposition node has no matching plan item: $node_id"
+		[[ -z "${oracle_nodes[$node_id]:-}" && -z "${known_nodes[$node_id]:-}" ]] || die "duplicate Oracle decomposition node: $node_id"
+		[[ "$deliverable" == "${oracle_item_titles[$node_id]}" ]] || die "Oracle decomposition deliverable does not match its plan item title: $node_id"
+		[[ "$parent_id" == - || -n "${known_nodes[$parent_id]:-}" ]] || die "Oracle decomposition parent must precede node $node_id: $parent_id"
+		[[ -n "$depends_on" ]] || die "Oracle decomposition node has empty depends_on: $node_id"
+		if [[ "$depends_on" != - ]]; then
+			IFS=',' read -r -a dependencies <<< "$depends_on"
+			for dependency in "${dependencies[@]}"; do
+				[[ -n "${known_nodes[$dependency]:-}" ]] || die "Oracle decomposition dependency must precede node $node_id: $dependency"
+			done
+		fi
+		[[ -n "$acceptance_evidence" && -n "$focused_validation" ]] || die "Oracle decomposition node lacks acceptance evidence or focused validation: $node_id"
+		[[ -n "$allowed_paths" && "$allowed_paths" != - ]] || die "Oracle decomposition node requires explicit allowed paths: $node_id"
+		[[ -n "$required_symbols" ]] || die "Oracle decomposition node requires symbols or '-': $node_id"
+		[[ "$complexity_class" =~ ^(LOW|MEDIUM|HIGH)$ && "$worker_route" =~ ^(LUNA|TERRA)$ ]] || die "invalid Oracle route or complexity: $node_id"
+		if (( expected_fields == 11 )); then
+			[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]] || die "invalid Oracle leaf type: $node_id"
+			if [[ "$worker_route" == LUNA ]]; then
+				[[ "$complexity_class" == LOW && "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]] || die "Oracle Luna node is not Luna-ready: $node_id"
+			elif [[ "$HARNESS_PREFERRED_WORKER_ROUTE" == LUNA && "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]]; then
+				die "Oracle coding remediation must be decomposed for Luna: $node_id"
+			fi
+		else
+			[[ "$worker_route" != LUNA || "$complexity_class" == LOW ]] || die "legacy Oracle Luna node must have LOW complexity: $node_id"
+		fi
+		oracle_nodes[$node_id]=1
+		known_nodes[$node_id]=1
+		(IFS=$'\t'; printf '%s\n' "${fields[*]}") >> "$dag_tmp"
+	done < "$nodes_tmp"
+	for item_id in "${!oracle_item_titles[@]}"; do
+		[[ -n "${oracle_nodes[$item_id]:-}" ]] || die "Oracle plan item lacks a matching decomposition node: $item_id"
+	done
+	(( ${#oracle_nodes[@]} == ${#oracle_item_titles[@]} )) || die 'Oracle plan item and decomposition node counts differ'
+
+	if (( HARNESS_ARCHITECTURE_GUARDS == 1 )); then
+		awk '
+			$0 == "## Architecture node bindings" {inside = 1; next}
+			inside && /^## / {exit}
+			inside && $0 !~ /^#/ && index($0, "\t") {print}
+		' "$addendum" > "$bindings_tmp"
+		[[ -s "$bindings_tmp" ]] || die 'architecture-guarded Oracle addendum must include matching rows under ## Architecture node bindings'
+		cp "$binding" "$binding_tmp"
+		declare -A oracle_bindings=()
+		while IFS=$'\t' read -r -a fields; do
+			(( ${#fields[@]} == 6 )) || die 'Oracle architecture binding must contain exactly six tab-separated fields'
+			node_id="${fields[0]}"
+			[[ -n "${oracle_nodes[$node_id]:-}" ]] || die "Oracle architecture binding has no matching decomposition node: $node_id"
+			[[ -z "${oracle_bindings[$node_id]:-}" ]] || die "duplicate Oracle architecture binding: $node_id"
+			oracle_bindings[$node_id]=1
+			(IFS=$'\t'; printf '%s\n' "${fields[*]}") >> "$binding_tmp"
+		done < "$bindings_tmp"
+		for node_id in "${!oracle_nodes[@]}"; do
+			[[ -n "${oracle_bindings[$node_id]:-}" ]] || die "Oracle decomposition node lacks an architecture binding: $node_id"
+		done
+		architecture_validate_source_file node-bindings "$binding_tmp" \
+			$'node_id\tinvariant_ids\tconsumes_decisions\tproduces_decisions\tedge_contracts\thealth_gates' 6
+		(
+			project_decomposition_plan_file() { printf '%s\n' "$dag_tmp"; }
+			architecture_node_bindings_file() { printf '%s\n' "$binding_tmp"; }
+			architecture_validate_against_plan
+		) || die 'Oracle decomposition and architecture candidates are inconsistent'
+	fi
+fi
+
 chmod 600 "$definition_tmp" "$state_tmp" "$items_tmp"
+[[ ! -f "$nodes_tmp" ]] || chmod 600 "$nodes_tmp"
+[[ ! -f "$bindings_tmp" ]] || chmod 600 "$bindings_tmp"
+[[ ! -f "$dag_tmp" ]] || chmod 600 "$dag_tmp"
+[[ ! -f "$binding_tmp" ]] || chmod 600 "$binding_tmp"
 mv "$definition_tmp" "$definition"
 mv "$state_tmp" "$state"
+[[ ! -f "$dag_tmp" ]] || mv "$dag_tmp" "$dag"
+[[ ! -f "$binding_tmp" ]] || mv "$binding_tmp" "$binding"
+trap - EXIT
+cleanup_candidates
 rm -f "$pending"
 active_spec="$oracle_dir/active-specification-set.md"
 tmp="$active_spec.tmp.$$"
@@ -134,5 +253,5 @@ tmp="$active_spec.tmp.$$"
 } > "$tmp"
 chmod 600 "$tmp"
 mv "$tmp" "$active_spec"
-log_event "ORACLE_AUDIT_REOPENED audit_id=$audit_id verdict=$archive addendum=$addendum_archive items=$items_tmp"
+log_event "ORACLE_AUDIT_REOPENED audit_id=$audit_id verdict=$archive addendum=$addendum_archive items=$items_tmp decomposition=$([[ -s "$nodes_tmp" ]] && printf registered || printf legacy) architecture=$([[ -s "$bindings_tmp" ]] && printf registered || printf disabled)"
 printf '%s\n' "$addendum_archive"

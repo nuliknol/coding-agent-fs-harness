@@ -74,6 +74,22 @@ fingerprint()
 	stat -c '%i:%s:%Y' "$file"
 }
 
+planning_gap_state_fingerprint()
+{
+	local file
+	for file in \
+		"$(project_plan_definition_file)" \
+		"$(project_plan_state_file)" \
+		"$(project_decomposition_plan_file)" \
+		"$(architecture_node_bindings_file)"; do
+		if [[ -f "$file" ]]; then
+			sha256sum "$file"
+		else
+			printf 'missing  %s\n' "$file"
+		fi
+	done | sha256sum | awk '{print "sha256:" $1}'
+}
+
 process_results()
 {
 	local file task_id base marker current previous status alert tmp running lease assignment_archive accepted checkpointed rejected blocked
@@ -295,10 +311,19 @@ process_auto_replans()
 
 process_planning_gap()
 {
-	local status alert tmp
+	local status alert stalled tmp current previous marker
 	project_plan_exists || return 0
 	project_plan_all_complete && return 0
 	project_has_active_task && return 0
+	current="$(planning_gap_state_fingerprint)"
+	stalled="$dir/control/manager-plan-stalled.md"
+	alert="$dir/control/manager-plan-failed.md"
+	for marker in "$stalled" "$alert"; do
+		[[ -f "$marker" ]] || continue
+		previous="$(awk -F': ' '$1 == "State-Fingerprint" {print $2; exit}' "$marker")"
+		[[ "$previous" != "$current" ]] || return 0
+	done
+	rm -f "$stalled" "$alert"
 	log_event "SUPERVISOR_PLANNING_GAP progress=$(project_plan_progress_percent) pending=$(project_plan_pending_count)"
 	trace_event SUPERVISOR_INVOKE_MANAGER_PLAN "manager_plan_invoker=$manager_plan_invoker" "project_progress=$(project_plan_progress_percent)"
 	if "$manager_plan_invoker" "$HARNESS_ENV_FILE" 8>&-; then
@@ -308,21 +333,35 @@ process_planning_gap()
 	fi
 	trace_event SUPERVISOR_MANAGER_PLAN_EXIT "status=$status"
 	if (( status == 0 )); then
-		rm -f "$dir/control/manager-plan-failed.md"
+		rm -f "$stalled" "$alert" "$dir/control/manager-plan-structural-error.md"
 		return 0
 	fi
 	if (( status == manager_pending_exit_status )); then
-		log_event "SUPERVISOR_PLAN_LEFT_UNCOMMITTED"
+		current="$(planning_gap_state_fingerprint)"
+		tmp="$stalled.tmp.$$"
+		{
+			printf '# Manager Planning Stalled\n\n'
+			printf 'Project: %s\n\n' "$PROJECT"
+			printf 'Environment-File: %s\n\n' "$HARNESS_ENV_FILE"
+			printf 'State-Fingerprint: %s\n\n' "$current"
+			printf 'Stalled-At: %s\n\n' "$(timestamp_utc)"
+			printf 'The manager returned without publishing a task or recording a waiting state. The supervisor will not invoke it again until the plan, decomposition DAG, or architecture bindings change.\n'
+		} > "$tmp"
+		chmod 600 "$tmp"
+		mv "$tmp" "$stalled"
+		log_event "SUPERVISOR_PLAN_LEFT_UNCOMMITTED fingerprint=$current retry=suppressed"
 		return 0
 	fi
-	alert="$dir/control/manager-plan-failed.md"
+	current="$(planning_gap_state_fingerprint)"
 	tmp="$alert.tmp.$$"
 	{
 		printf '# Manager Planning Invocation Failed\n\n'
 		printf 'Project: %s\n\n' "$PROJECT"
 		printf 'Environment-File: %s\n\n' "$HARNESS_ENV_FILE"
 		printf 'Failed-At: %s\n\n' "$(timestamp_utc)"
-		printf 'Exit-Status: %s\n' "$status"
+		printf 'Exit-Status: %s\n\n' "$status"
+		printf 'State-Fingerprint: %s\n\n' "$current"
+		printf 'The supervisor will not repeat this unchanged planning failure until the plan, decomposition DAG, or architecture bindings change.\n'
 	} > "$tmp"
 	chmod 600 "$tmp"
 	mv "$tmp" "$alert"
