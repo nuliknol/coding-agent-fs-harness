@@ -284,6 +284,12 @@ completion_committed()
 	[[ -f "$result" && ! -e "$running" && ! -e "$lease" && -f "$assignment_archive" ]]
 }
 
+waiting_dependency_committed()
+{
+	[[ -f "$(task_root_waiting_dependency_file "$task_root")" &&
+		! -e "$running" && ! -e "$lease" && -f "$assignment_archive" ]]
+}
+
 normalize_direct_result()
 {
 	local normalize_status
@@ -371,7 +377,8 @@ while true; do
 	trace_event CODEX_EXEC_START "role=$execution_role" "task_id=$task_id" "session=$session" "attempt=$attempt" "mode=$([[ -n "$worker_resume_thread_id" ]] && printf resume || printf fresh)" "thread_id=${worker_resume_thread_id:-}" "json_log=$json_log" "stderr_log=$stderr_log" "last_message=$last_message" "model=$current_model"
 	resume_args=()
 	[[ -z "$worker_resume_thread_id" ]] || resume_args=(resume "$worker_resume_thread_id")
-	"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" "$execution_role" "$current_model" "$prompt_file" "$json_log" "$stderr_log" "$last_message" "${resume_args[@]}"
+	HARNESS_CODEX_STOP_FILE="$(task_root_waiting_dependency_file "$task_root")" \
+		"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" "$execution_role" "$current_model" "$prompt_file" "$json_log" "$stderr_log" "$last_message" "${resume_args[@]}"
 	status=$?
 	set -e
 	observed_thread_id="$(codex_thread_id_from_jsonl "$json_log" 2>/dev/null || true)"
@@ -401,6 +408,13 @@ while true; do
 		goal_state_set "$goal_state" cumulative_output_tokens "$((goal_output + turn_output))"
 	fi
 	trace_event CODEX_EXEC_END "role=$execution_role" "task_id=$task_id" "session=$session" "attempt=$attempt" "status=$status" "classification=${classification:-unknown}" "json_log=$json_log" "stderr_log=$stderr_log" "last_message=$last_message"
+	if waiting_dependency_committed; then
+		cleanup_heartbeat
+		log_event "WORKER_INVOCATION_WAITING_DEPENDENCY task=$task_id session=$session attempt=$attempt"
+		trace_event WORKER_WAITING_DEPENDENCY "task_id=$task_id" "session=$session" "attempt=$attempt"
+		printf 'Worker task %s entered WAITING_DEPENDENCY and released its agent process.\n' "$task_id"
+		exit 0
+	fi
 
 	normalize_direct_result
 	normalize_last_message_result

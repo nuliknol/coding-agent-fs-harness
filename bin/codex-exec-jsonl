@@ -45,6 +45,38 @@ fi
 # diagnostics cannot corrupt JSON parsing. Nonzero watchdog settings may bound
 # total runtime or stream inactivity; both are unlimited by default.
 idle_timed_out=0
+stop_requested=0
+
+process_tree_pids()
+{
+	local parent="$1" child
+	while IFS= read -r child; do
+		[[ "$child" =~ ^[0-9]+$ ]] || continue
+		process_tree_pids "$child"
+	done < <(pgrep -P "$parent" 2>/dev/null || true)
+	printf '%s\n' "$parent"
+}
+
+terminate_process_tree()
+{
+	local root_pid="$1" deadline candidate
+	local -a process_ids=()
+	mapfile -t process_ids < <(process_tree_pids "$root_pid")
+	((${#process_ids[@]} > 0)) || return 0
+	kill -TERM "${process_ids[@]}" 2>/dev/null || true
+	deadline=$(( $(date +%s) + HARNESS_CODEX_KILL_GRACE_SECONDS ))
+	while (( $(date +%s) < deadline )); do
+		candidate=""
+		for candidate in "${process_ids[@]}"; do
+			kill -0 "$candidate" 2>/dev/null && break
+			candidate=""
+		done
+		[[ -n "$candidate" ]] || return 0
+		sleep 1
+	done
+	kill -KILL "${process_ids[@]}" 2>/dev/null || true
+}
+
 if (( HARNESS_CODEX_WALL_TIMEOUT_SECONDS > 0 )); then
  timeout --signal=TERM --kill-after="${HARNESS_CODEX_KILL_GRACE_SECONDS}s" "${HARNESS_CODEX_WALL_TIMEOUT_SECONDS}s" "${cmd[@]}" < "$prompt" > "$json_log" 2> "$stderr_log" &
 else
@@ -57,6 +89,11 @@ while kill -0 "$pid" 2>/dev/null; do
 	# The child may have exited while the monitor slept but is still waitable.
 	# Do not turn a completed short run into an idle timeout.
 	if ! kill -0 "$pid" 2>/dev/null || [[ "$(ps -o stat= -p "$pid" 2>/dev/null || true)" == Z* ]]; then break; fi
+	if [[ -n "${HARNESS_CODEX_STOP_FILE:-}" && -f "$HARNESS_CODEX_STOP_FILE" ]]; then
+		stop_requested=1
+		terminate_process_tree "$pid"
+		break
+	fi
  now="$(date +%s)"
  newest="$last_activity"
  for file in "$json_log" "$stderr_log"; do
@@ -106,7 +143,8 @@ failure_signal=0
 if (( status != 0 )) || ! jq -e 'select(.type == "turn.completed")' "$json_log" >/dev/null 2>&1; then
 	failure_signal=1
 fi
-if (( idle_timed_out )); then classification="idle_timeout"
+if (( stop_requested )); then classification="harness_stop_requested"
+elif (( idle_timed_out )); then classification="idle_timeout"
 elif (( status == 124 )); then classification="wall_clock_timeout"
 elif (( status != 0 && git_state_changed )); then classification="partial_edit_failure"
 elif (( failure_signal )) && printf '%s\n' "$combined_error_text" | grep -Eqi 'sandbox|ask.for.approval|approval.*denied|permission denied'; then classification="local_sandbox_or_approval_denial"
@@ -124,6 +162,6 @@ elif ! jq -e 'select(.type == "turn.completed")' "$json_log" >/dev/null 2>&1; th
 elif [[ ! -s "$last_message" ]]; then classification="empty_final_output"
 fi
 classification_file="${json_log%.jsonl}.classification"
-printf 'classification=%s\nprovider_code=%s\nhttp_status=%s\nexit_status=%s\nidle_timeout=%s\npartial_edits=%s\njsonl=%s\nstderr=%s\nlast_message=%s\n' "$classification" "$error_code" "$http_status" "$status" "$idle_timed_out" "$git_state_changed" "$json_log" "$stderr_log" "$last_message" > "$classification_file"
+printf 'classification=%s\nprovider_code=%s\nhttp_status=%s\nexit_status=%s\nidle_timeout=%s\nstop_requested=%s\npartial_edits=%s\njsonl=%s\nstderr=%s\nlast_message=%s\n' "$classification" "$error_code" "$http_status" "$status" "$idle_timed_out" "$stop_requested" "$git_state_changed" "$json_log" "$stderr_log" "$last_message" > "$classification_file"
 printf 'CODEX_CLASSIFICATION=%s\nCODEX_STDERR_LOG=%s\nCODEX_CLASSIFICATION_FILE=%s\n' "$classification" "$stderr_log" "$classification_file" >&2
 exit "$status"

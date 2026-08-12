@@ -41,6 +41,7 @@ case "${MOCK_MODE:?}" in
  network_stderr) printf 'stream disconnected: connection reset by peer\n' >&2; exit 1 ;;
  auth_code) printf '{"type":"turn.failed","error":{"code":"invalid_api_key","message":"bad credentials"}}\n'; exit 1 ;;
  success_warning) printf 'network error recovered\n' >&2; printf 'done\n' > "$last"; printf '{"type":"turn.completed"}\n' ;;
+	stop_sentinel) while true; do sleep 1; done ;;
 esac
 MOCK
 chmod +x "$TMP/mock-codex"
@@ -137,5 +138,25 @@ grep -q '^http_status=429$' "$TMP/rate_status.classification"
 run_case network_stderr provider_transient_error
 run_case auth_code terminal_authentication_error
 run_case success_warning success
+
+# A durable harness transition (for example WAITING_DEPENDENCY) must stop the
+# current model process without waiting for it to decide to end its turn.
+stop_file="$TMP/stop-sentinel"
+set +e
+MOCK_MODE=stop_sentinel HARNESS_CODEX_STOP_FILE="$stop_file" \
+	"$ROOT/bin/codex-exec-jsonl" "$TMP/env" worker gpt-5.5 "$prompt" \
+	"$TMP/stop-sentinel.jsonl" "$TMP/stop-sentinel.stderr" "$TMP/stop-sentinel.last" &
+stop_runner_pid=$!
+set -e
+sleep 1
+: > "$stop_file"
+set +e
+wait "$stop_runner_pid"
+stop_status=$?
+set -e
+(( stop_status != 0 ))
+grep -q '^classification=harness_stop_requested$' "$TMP/stop-sentinel.classification"
+grep -q '^stop_requested=1$' "$TMP/stop-sentinel.classification"
+! pgrep -f "$TMP/mock-codex.*stop-sentinel" >/dev/null 2>&1
 ! git -C "$TMP/repo" diff --quiet --
 printf 'Codex JSONL runner tests passed.\n'
