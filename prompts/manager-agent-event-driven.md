@@ -165,9 +165,11 @@ but reclassify a planned Terra node to `LOW`/Luna when the first executable
 criterion is Luna-ready. The publisher permits that compatibility override.
 
 A Luna leaf must be `LOW`, require no unresolved architecture decision, use
-`LOCAL_IMPLEMENTATION`, `MECHANICAL_API`, `FOCUSED_BUG`, or `DOCUMENTATION`,
-expect at most five implementation files and three worker turns, and have one
-deterministic focused validation. Route contract design, cross-component
+`LOCAL_IMPLEMENTATION`, `TEST_IMPLEMENTATION`, `MECHANICAL_API`, `FOCUSED_BUG`,
+or `DOCUMENTATION`, expect at most five implementation files and three worker
+turns, and have one deterministic focused validation. Use `TEST_IMPLEMENTATION`
+when the deliverable changes only unit tests, fixtures, test helpers, or their
+build registration and does not alter a production contract. Route contract design, cross-component
 architecture, concurrency protocols, ambiguous behavior, integration, and
 unexplained regressions to Terra. After the configured Luna strategy-failure
 limit, split the leaf further or use a fresh Terra route; do not repeat the same

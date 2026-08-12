@@ -18,6 +18,15 @@ architecture_decision_ledger_file() { printf '%s/decision-ledger.tsv' "$(archite
 architecture_health_ledger_file() { printf '%s/health-ledger.tsv' "$(architecture_dir)"; }
 architecture_debt_ledger_file() { printf '%s/debt-ledger.tsv' "$(architecture_dir)"; }
 architecture_impact_dir() { printf '%s/impacts' "$(architecture_dir)"; }
+architecture_profile_file() { printf '%s/profile.env' "$(architecture_dir)"; }
+
+architecture_profile()
+{
+	local file
+	file="$(architecture_profile_file)"
+	[[ -f "$file" ]] || { printf 'explicit\n'; return 0; }
+	awk -F= '$1 == "profile" {print substr($0, index($0, "=") + 1); found=1; exit} END {if (!found) print "unknown"}' "$file"
+}
 
 architecture_registered()
 {
@@ -129,6 +138,58 @@ architecture_initialize()
 		die 'architecture registry validation failed; incomplete registry was rolled back'
 	fi
 	log_event "ARCHITECTURE_REGISTRY_INITIALIZED directory=$dir"
+}
+
+architecture_initialize_minimal_test_profile()
+{
+	local plan="$1" expected_header row node parent depends deliverable evidence validation
+	local paths symbols leaf complexity route profile_dir invariant gate profile_file
+	local -a rows=() fields=()
+	expected_header=$'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tleaf_type\tcomplexity_class\tworker_route'
+	[[ -f "$plan" ]] || return 1
+	[[ "$(sed -n '1p' "$plan")" == "$expected_header" ]] || return 1
+	mapfile -t rows < <(tail -n +2 "$plan" | sed '/^[[:space:]]*$/d')
+	(( ${#rows[@]} == 1 )) || return 1
+	row="${rows[0]}"
+	IFS=$'\t' read -r -a fields <<< "$row"
+	(( ${#fields[@]} == 11 )) || return 1
+	node="${fields[0]}"; parent="${fields[1]}"; depends="${fields[2]}"
+	deliverable="${fields[3]}"; evidence="${fields[4]}"; validation="${fields[5]}"
+	paths="${fields[6]}"; symbols="${fields[7]}"; leaf="${fields[8]}"
+	complexity="${fields[9]}"; route="${fields[10]}"
+	[[ "$node" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ && "$parent" == - && "$depends" == - ]] || return 1
+	[[ "$leaf" == TEST_IMPLEMENTATION && "$complexity" == LOW && "$route" == LUNA ]] || return 1
+	[[ -n "$SPECIFICATION" && -f "$SPECIFICATION" ]] || return 1
+	[[ -n "$deliverable" && -n "$evidence" && -n "$validation" && "$validation" != REVIEW ]] || return 1
+	[[ -n "$paths" && "$paths" != - && "$paths" != / && "$paths" != . && "$paths" != *'*'* ]] || return 1
+	(( $(awk -F',' '{print NF}' <<< "$paths") <= 5 )) || return 1
+	[[ -n "$symbols" ]] || return 1
+
+	profile_dir="$(mktemp -d "$PROJECT_TMP_DIR/minimal-test-architecture.XXXXXX")"
+	chmod 700 "$profile_dir"
+	invariant="INV-$node-test-obligation"
+	gate="GATE-$node-test-acceptance"
+	printf 'invariant_id\tcategory\tauthority\tseverity\tstatement\tscope\tsource_requirement\tvalidation_kind\tvalidation_ref\taffected_nodes\n' > "$profile_dir/invariants.tsv"
+	printf '%s\tOTHER\tSPECIFIED\tCRITICAL\t%s\t%s\t%s\tCOMMAND\t%s\t%s\n' \
+		"$invariant" "$deliverable; $evidence" "$paths" "$SPECIFICATION" "$validation" "$node" >> "$profile_dir/invariants.tsv"
+	printf 'decision_id\tstatus\tproducer_node\tproblem\tchosen_contract\taffected_interfaces\tsupersedes\tevidence\n' > "$profile_dir/decisions.tsv"
+	printf 'edge_id\tproducer_node\tconsumer_node\tcontract_artifact\tpublic_symbols\townership_model\trepresentation\tversioning_rule\tcompatibility_validation\tdecision_ids\tinvariant_ids\n' > "$profile_dir/edges.tsv"
+	printf 'node_id\tinvariant_ids\tconsumes_decisions\tproduces_decisions\tedge_contracts\thealth_gates\n' > "$profile_dir/node-bindings.tsv"
+	printf '%s\t%s\t-\t-\t-\t%s\n' "$node" "$invariant" "$gate" >> "$profile_dir/node-bindings.tsv"
+	printf 'gate_id\ttrigger_node\tdepends_on\tvalidation\tseverity\tinvariant_ids\tedge_ids\n' > "$profile_dir/health-gates.tsv"
+	printf '%s\t%s\t-\t%s\tCRITICAL\t%s\t-\n' "$gate" "$node" "$validation" "$invariant" >> "$profile_dir/health-gates.tsv"
+	printf 'debt_id\tintroduced_by_task\tintroduced_by_commit\tcategory\taffected_invariants\tconsequence\tremediation_node\tseverity\texpires_at\tstatus\twaiver_authority\n' > "$profile_dir/debt.tsv"
+	architecture_initialize "$profile_dir"
+	profile_file="$(architecture_profile_file)"
+	{
+		printf 'profile=minimal-single-node-test\n'
+		printf 'node_id=%s\n' "$node"
+		printf 'source_plan_sha256=%s\n' "$(sha256sum "$plan" | awk '{print $1}')"
+		printf 'generated_at=%s\n' "$(timestamp_utc)"
+	} > "$profile_file"
+	chmod 600 "$profile_file"
+	rm -rf -- "$profile_dir"
+	log_event "ARCHITECTURE_MINIMAL_TEST_PROFILE_GENERATED node=$node invariant=$invariant gate=$gate"
 }
 
 architecture_validate_registries()

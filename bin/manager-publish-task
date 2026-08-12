@@ -281,7 +281,7 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 		leaf_architecture_decisions="$(require_single_metadata_value "$task_file" Architecture-Decisions 'v2 leaf assignment')"
 		leaf_expected_files="$(require_single_metadata_value "$task_file" Expected-Max-Implementation-Files 'v2 leaf assignment')"
 		leaf_expected_turns="$(require_single_metadata_value "$task_file" Expected-Max-Worker-Turns 'v2 leaf assignment')"
-		[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]] ||
+		[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]] ||
 			die "invalid Leaf-Type: $leaf_type"
 		[[ "$leaf_complexity" =~ ^(LOW|MEDIUM|HIGH)$ ]] || die "invalid Complexity-Class: $leaf_complexity"
 		[[ "$leaf_worker_route" =~ ^(LUNA|TERRA)$ ]] || die "invalid Worker-Route: $leaf_worker_route"
@@ -291,7 +291,7 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 			die 'Context-Paths must be a bounded path or symbol capsule, not the whole repository'
 		if [[ "$leaf_worker_route" == LUNA ]]; then
 			[[ "$leaf_complexity" == LOW ]] || die 'Luna leaves must have Complexity-Class: LOW'
-			[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]] ||
+			[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]] ||
 				die "Leaf-Type $leaf_type requires Terra"
 			[[ "$leaf_architecture_decisions" == NONE ]] || die 'Luna leaves must set Architecture-Decisions: NONE'
 			(( leaf_expected_files <= 5 )) || die 'Luna leaves may expect at most five implementation files'
@@ -335,7 +335,7 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 		architecture_validate_assignment_metadata "$task_file" "$plan_item_id"
 		luna_failures="$(root_luna_strategy_failure_count "$root")"
 		if (( manager_remediation == 0 )) && [[ "$HARNESS_PREFERRED_WORKER_ROUTE" == LUNA && "$leaf_worker_route" == TERRA &&
-			"$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]] &&
+			"$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]] &&
 			(( luna_failures < HARNESS_MAX_LUNA_STRATEGY_FAILURES )); then
 			die "$leaf_type is coding work and must be decomposed to a LOW/LUNA leaf while HARNESS_PREFERRED_WORKER_ROUTE=LUNA; Terra is allowed after $HARNESS_MAX_LUNA_STRATEGY_FAILURES failed Luna strategies"
 		fi

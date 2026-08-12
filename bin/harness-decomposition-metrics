@@ -13,8 +13,8 @@ dir="$(project_dir)"
 report="$dir/control/decomposition-metrics.tsv"
 nodes_total="$(project_plan_total_count)"
 nodes_complete="$(project_plan_complete_count)"
-planned_coding_nodes="$(awk -F '\t' 'NR>1 && $9 ~ /^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$/ {n++} END {print n+0}' "$(project_decomposition_plan_file)")"
-planned_luna_coding_nodes="$(awk -F '\t' 'NR>1 && $9 ~ /^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$/ && $11=="LUNA" {n++} END {print n+0}' "$(project_decomposition_plan_file)")"
+planned_coding_nodes="$(awk -F '\t' 'NR>1 && $9 ~ /^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$/ {n++} END {print n+0}' "$(project_decomposition_plan_file)")"
+planned_luna_coding_nodes="$(awk -F '\t' 'NR>1 && $9 ~ /^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$/ && $11=="LUNA" {n++} END {print n+0}' "$(project_decomposition_plan_file)")"
 luna_assignments=0
 terra_assignments=0
 luna_complete=0
@@ -42,6 +42,7 @@ architecture_debt_total=0
 architecture_debt_open=0
 architecture_debt_critical=0
 architecture_debt_expired=0
+architecture_profile_name=disabled
 declare -A worker_thread_input=() worker_thread_output=()
 declare -A manager_thread_input=() manager_thread_output=()
 
@@ -51,7 +52,7 @@ for assignment in "$dir"/archive/"$PROJECT-task-"*.assignment.md; do
 	[[ "$route" =~ ^(LUNA|TERRA)$ ]] || continue
 	[[ "$route" == LUNA ]] && luna_assignments=$((luna_assignments + 1)) || terra_assignments=$((terra_assignments + 1))
 	leaf_type="$(metadata_value "$assignment" Leaf-Type)"
-	if [[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]]; then
+	if [[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]]; then
 		[[ "$route" == LUNA ]] && luna_coding_assignments=$((luna_coding_assignments + 1)) || terra_coding_assignments=$((terra_coding_assignments + 1))
 	elif [[ "$route" == TERRA ]]; then
 		terra_decision_assignments=$((terra_decision_assignments + 1))
@@ -112,6 +113,7 @@ for thread in "${!manager_thread_output[@]}"; do manager_output=$((manager_outpu
 
 if (( HARNESS_ARCHITECTURE_GUARDS == 1 )); then
 	architecture_require_registered
+	architecture_profile_name="$(architecture_profile)"
 	architecture_invariants="$(awk 'NR>1 {n++} END {print n+0}' "$(architecture_invariants_file)")"
 	architecture_edges="$(awk 'NR>1 {n++} END {print n+0}' "$(architecture_edges_file)")"
 	architecture_health_gates="$(awk 'NR>1 {n++} END {print n+0}' "$(architecture_health_gates_file)")"
@@ -168,6 +170,7 @@ per_item()
 	printf 'manager_input_tokens_per_verified_item\t%s\n' "$(per_item "$manager_input")"
 	printf 'manager_output_tokens_per_verified_item\t%s\n' "$(per_item "$manager_output")"
 	printf 'architecture_guards_enabled\t%s\n' "$HARNESS_ARCHITECTURE_GUARDS"
+	printf 'architecture_profile\t%s\n' "$architecture_profile_name"
 	printf 'architecture_invariants\t%s\n' "$architecture_invariants"
 	printf 'architecture_edges\t%s\n' "$architecture_edges"
 	printf 'architecture_health_gates\t%s\n' "$architecture_health_gates"

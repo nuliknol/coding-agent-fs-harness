@@ -65,13 +65,13 @@ install_candidate()
 		core="$node_id"$'\t'"$parent_id"$'\t'"$depends_on"$'\t'"$deliverable"$'\t'"$evidence"$'\t'"$validation"$'\t'"$paths"$'\t'"$symbols"
 		[[ "$core" == "${original_core[$node_id]}" ]] ||
 			die "candidate changed immutable structure or acceptance fields for node: $node_id"
-		[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]] ||
+		[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]] ||
 			die "invalid leaf_type for $node_id: $leaf_type"
 		[[ "$complexity" =~ ^(LOW|MEDIUM|HIGH)$ ]] || die "invalid complexity for $node_id: $complexity"
 		[[ "$route" =~ ^(LUNA|TERRA)$ ]] || die "invalid route for $node_id: $route"
 		if [[ "$route" == LUNA ]]; then
 			[[ "$complexity" == LOW ]] || die "Luna node $node_id must be LOW"
-			[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]] ||
+			[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]] ||
 				die "Luna node $node_id has Terra-only type $leaf_type"
 		else
 			[[ "$leaf_type" =~ ^(CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]] ||
@@ -81,7 +81,7 @@ install_candidate()
 		if [[ "$status" == PENDING ]]; then
 			pending=$((pending + 1))
 			[[ "$route" == LUNA ]] && pending_luna=$((pending_luna + 1)) || pending_terra=$((pending_terra + 1))
-			if [[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]]; then
+			if [[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]]; then
 				pending_coding=$((pending_coding + 1))
 				[[ "$route" == LUNA ]] && pending_luna_coding=$((pending_luna_coding + 1))
 			fi
@@ -170,7 +170,7 @@ $typed_header
 
 Preserve every existing row, node ID, row order, parent, dependencies, deliverable, acceptance evidence, focused validation, allowed paths, and required symbols byte-for-byte. Do not add, remove, reorder, or rename nodes. For COMPLETE and ACTIVE rows, also preserve complexity_class and worker_route exactly; assign a truthful leaf_type compatible with that preserved route. Reclassify only PENDING rows.
 
-For PENDING rows, use LUNA with LOW complexity and LOCAL_IMPLEMENTATION, MECHANICAL_API, FOCUSED_BUG, or DOCUMENTATION whenever contracts and architecture are resolved and the node can be executed as one cohesive bounded coding concern. Use TERRA only for CONTRACT_DESIGN, CROSS_COMPONENT_ARCHITECTURE, CONCURRENCY_PROTOCOL, AMBIGUOUS_SPECIFICATION, or an unexplained INTEGRATION boundary requiring fresh judgment. A large specification, cross-file implementation, tests, fixtures, mechanical integration, or an inherited HIGH label is not a reason for Terra. At least MINIMUM_PENDING_LUNA_CODING_PERCENT percent of coding-eligible pending rows must route to LUNA; Terra-only decision and integration rows are excluded from that denominator.
+For PENDING rows, use LUNA with LOW complexity and LOCAL_IMPLEMENTATION, TEST_IMPLEMENTATION, MECHANICAL_API, FOCUSED_BUG, or DOCUMENTATION whenever contracts and architecture are resolved and the node can be executed as one cohesive bounded coding concern. Use TEST_IMPLEMENTATION for test-only source, fixtures, helpers, and build registration. Use TERRA only for CONTRACT_DESIGN, CROSS_COMPONENT_ARCHITECTURE, CONCURRENCY_PROTOCOL, AMBIGUOUS_SPECIFICATION, or an unexplained INTEGRATION boundary requiring fresh judgment. A large specification, cross-file implementation, tests, fixtures, mechanical integration, or an inherited HIGH label is not a reason for Terra. At least MINIMUM_PENDING_LUNA_CODING_PERCENT percent of coding-eligible pending rows must route to LUNA; Terra-only decision and integration rows are excluded from that denominator.
 
 This pass classifies existing nodes; later manager turns may split a broad node's Root-Criteria further. Prefer the largest cohesive deterministic Luna-ready concern, not microscopic handoffs. Write only CANDIDATE_DAG, then terminate without running harness commands.
 PROMPT

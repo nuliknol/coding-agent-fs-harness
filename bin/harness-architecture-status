@@ -17,7 +17,8 @@ architecture_require_registered
 count_rows() { awk 'NR>1 {n++} END {print n+0}' "$1"; }
 passed_decisions="$(awk -F '\t' 'FNR>1 && $2=="ACCEPTED" {seen[$1]=1} END {for(i in seen)n++; print n+0}' "$(architecture_decisions_file)" "$(architecture_decision_ledger_file)")"
 passed_gates="$(awk -F '\t' 'NR>1 && $2 ~ /PASSED$/ {seen[$1]=1} END {for(i in seen)n++; print n+0}' "$(architecture_health_ledger_file)")"
-printf 'Project: %s\nArchitecture guards: enabled\nRegistry: %s\n\n' "$PROJECT" "$(architecture_dir)"
+printf 'Project: %s\nArchitecture guards: enabled\nProfile: %s\nRegistry: %s\n\n' \
+	"$PROJECT" "$(architecture_profile)" "$(architecture_dir)"
 printf 'Invariants: %s\n' "$(count_rows "$(architecture_invariants_file)")"
 printf 'Decisions: %s (%s accepted)\n' "$(count_rows "$(architecture_decisions_file)")" "$passed_decisions"
 printf 'Edge contracts: %s\n' "$(count_rows "$(architecture_edges_file)")"

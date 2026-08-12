@@ -24,5 +24,12 @@ manager-init-architecture ENV_FILE ARCHITECTURE_SOURCE_DIR
 manager-init-project-plan ENV_FILE DAG_FILE
 ```
 
+Exception: an exact one-node, dependency-free, `LOW`/`LUNA`
+`TEST_IMPLEMENTATION` DAG does not need hand-authored sidecars. Registering that
+DAG automatically generates the minimal profile: one specified test obligation,
+no decisions or edges, one binding, one critical focused-validation health gate,
+and no debt. Any production-code, contract, multi-node, dependent, broad-scope,
+or Terra task still requires the explicit architecture registry above.
+
 Accepted decisions, gate results, task impact manifests, and debt state are
 then maintained through controlled harness commands under `control/architecture`.

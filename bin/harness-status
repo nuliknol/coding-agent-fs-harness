@@ -69,6 +69,7 @@ printf 'Worker leaf-goal mode: %s\n' "$([[ "$HARNESS_WORKER_GOAL_MODE" == 1 ]] &
 if (( HARNESS_ARCHITECTURE_GUARDS == 1 )); then
 	architecture_require_registered
 	printf 'Architecture guards: enabled (%s)\n' "$(architecture_dir)"
+	printf 'Architecture profile: %s\n' "$(architecture_profile)"
 	printf 'Architecture health: critical-debt=%s expired-debt=%s missing-gates=%s\n' \
 		"$(architecture_open_critical_debt_count)" "$(architecture_expired_debt_count)" "$(architecture_missing_health_gate_count)"
 else

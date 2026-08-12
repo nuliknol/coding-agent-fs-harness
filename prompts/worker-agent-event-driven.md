@@ -17,6 +17,11 @@ The launcher has already claimed the task. During this turn:
 2. Read `ROOT_ASSIGNMENT_FILE` and `PROGRESS_FILE`. Preserve all verified work
    and continue from `STARTING_PROGRESS_PERCENT`; do not redo the root task.
 3. Inspect the repository and implement only the remaining assigned slice.
+   For a `TEST_IMPLEMENTATION` leaf, modify only focused tests, fixtures, test
+   helpers, and test-only build registration. Do not change production
+   behavior or contracts. If production changes are necessary, preserve the
+   diagnosis and return `NEEDS_DECOMPOSITION` so the manager can create the
+   appropriate implementation leaf.
 4. Run the affected build/compile check and the focused happy-path manual or
    smoke test for the developed feature. Outside closure mode, run it once and
    run one regression test only when this assignment fixes a specific bug.

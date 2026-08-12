@@ -118,6 +118,9 @@ export TERRA_WORKER_MODEL="gpt-5.6-terra"
 
 `templates/project-plan-template.tsv` documents the exact DAG schema and
 `templates/leaf-goal-task-template.md` documents the routed leaf contract.
+`TEST_IMPLEMENTATION` is a first-class `LOW`/Luna leaf for unit tests, fixtures,
+test helpers, and test-only build registration that leaves production contracts
+unchanged.
 Run `bin/harness-decomposition-metrics ENV_FILE` to write and display cost and
 quality signals such as route counts, terminal leaf success, zero-gain turns,
 replans, verified items, Luna's share of coding assignments, Terra decision
@@ -182,6 +185,14 @@ planned and observed Luna coding share, gate completion, impact manifests, and
 open/critical/expired debt. New Full-v2 projects default to guarded mode.
 Existing plans without architecture sidecars detect that legacy state and
 remain unguarded; the environment may explicitly set `0` or `1`.
+
+A standalone test-only request gets a cheaper path. When its typed DAG contains
+exactly one dependency-free `LOW`/`LUNA` `TEST_IMPLEMENTATION` node with bounded
+paths and deterministic focused validation, `manager-init-project-plan`
+generates a minimal architecture profile automatically. The profile contains
+one specified test obligation and one critical validation gate, but no invented
+decisions, edges, or debt. All other guarded DAGs still require explicit
+architecture sidecars.
 
 The interactive Codex TUI is not used for automated workers. A root task starts
 a fresh non-interactive worker thread. If the manager rejects it, the harness

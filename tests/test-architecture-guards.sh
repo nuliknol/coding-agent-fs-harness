@@ -288,4 +288,202 @@ grep -Fqx $'planned_luna_coding_share_percent\t100.00' <<< "$metrics_output"
 grep -Fqx $'architecture_health_gate_pass_percent\t100.00' <<< "$metrics_output"
 grep -Fqx $'architecture_debt_open\t0' <<< "$metrics_output"
 
+# A standalone test-only task receives a deterministic minimal architecture
+# profile. It must not invent graph edges or decisions, and the complete task
+# lifecycle must still pass the architecture review and final health gate.
+MIN_ROOT="$TEST_ROOT/minimal"
+mkdir -p "$MIN_ROOT/repo/src" "$MIN_ROOT/repo/tests" "$MIN_ROOT/manager-home" "$MIN_ROOT/worker-home"
+printf 'Add a focused unit test proving value returns one.\n' > "$MIN_ROOT/repo/spec.md"
+printf 'int value(void) { return 1; }\n' > "$MIN_ROOT/repo/src/value.c"
+git -C "$MIN_ROOT/repo" init -q
+git -C "$MIN_ROOT/repo" config user.name test
+git -C "$MIN_ROOT/repo" config user.email test@example.invalid
+git -C "$MIN_ROOT/repo" add spec.md src/value.c
+git -C "$MIN_ROOT/repo" commit -qm seed
+cat > "$MIN_ROOT/harness.env" <<ENV
+export PROJECT="minimaltest"
+export REPOSITORY="$MIN_ROOT/repo"
+export SPECIFICATION="$MIN_ROOT/repo/spec.md"
+export HARNESS_MODE="full"
+export HARNESS_HOME="$HARNESS_HOME"
+export HARNESS_BIN="$HARNESS_BIN"
+export HARNESS_ROOT="$MIN_ROOT/state"
+export MANAGER_CODEX_HOME="$MIN_ROOT/manager-home"
+export MANAGER_CODEX_BIN="/bin/true"
+export WORKER_CODEX_HOME="$MIN_ROOT/worker-home"
+export WORKER_CODEX_BIN="/bin/true"
+export MANAGER_MODEL="gpt-5.6-terra"
+export WORKER_MODEL="gpt-5.6-luna"
+export LUNA_WORKER_MODEL="gpt-5.6-luna"
+export TERRA_WORKER_MODEL="gpt-5.6-terra"
+export HARNESS_WORKER_GOAL_MODE="1"
+export HARNESS_DECOMPOSITION_V2="1"
+export HARNESS_DECOMPOSITION_CRITIC_ENABLED="0"
+export HARNESS_MIN_LUNA_CODING_NODE_PERCENT="100"
+export HARNESS_PREFERRED_WORKER_ROUTE="LUNA"
+export MAX_ORACLE_RUNS="0"
+ENV
+chmod 600 "$MIN_ROOT/harness.env"
+cat > "$MIN_ROOT/plan.tsv" <<'PLAN'
+node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route
+tests	-	-	Add focused unit coverage for value	Unit test proves value returns one	bash tests/test_value.sh	tests/test_value.sh	value	TEST_IMPLEMENTATION	LOW	LUNA
+PLAN
+"$HARNESS_BIN/harness-init" "$MIN_ROOT/harness.env" >/dev/null
+test ! -e "$MIN_ROOT/state/projects/minimaltest/control/architecture"
+"$HARNESS_BIN/manager-init-project-plan" "$MIN_ROOT/harness.env" "$MIN_ROOT/plan.tsv" >/dev/null
+min_project="$MIN_ROOT/state/projects/minimaltest"
+grep -Fqx 'profile=minimal-single-node-test' "$min_project/control/architecture/profile.env"
+"$HARNESS_BIN/harness-architecture-status" "$MIN_ROOT/harness.env" > "$MIN_ROOT/architecture-status.txt"
+grep -Fqx 'Profile: minimal-single-node-test' "$MIN_ROOT/architecture-status.txt"
+test "$(wc -l < "$min_project/control/architecture/decisions.tsv")" -eq 1
+test "$(wc -l < "$min_project/control/architecture/edges.tsv")" -eq 1
+test "$(wc -l < "$min_project/control/architecture/debt.tsv")" -eq 1
+grep -Fqx $'tests\tINV-tests-test-obligation\t-\t-\t-\tGATE-tests-test-acceptance' \
+	"$min_project/control/architecture/node-bindings.tsv"
+
+cat > "$MIN_ROOT/task.md" <<'TASK'
+# Leaf-Goal Task Assignment
+
+Project: minimaltest
+Task-ID: 001
+Task-Root: 001
+Starting-Progress: 0%
+Status: READY
+Execution-Mode: LEAF_GOAL
+Goal-ID: tests.goal
+Target-Criterion: tests.done
+Goal-Success-Evidence: Unit test proves value returns one
+Focused-Validation: bash tests/test_value.sh
+Allowed-Scope: tests/test_value.sh
+Baseline-Boundary: focused unit coverage is absent
+Hard-Block-Conditions: NONE
+Leaf-Type: TEST_IMPLEMENTATION
+Complexity-Class: LOW
+Worker-Route: LUNA
+Depends-On: -
+Deliverable: Add focused unit coverage for value
+Required-Symbols: value
+Context-Paths: tests/test_value.sh
+Architecture-Decisions: NONE
+Affected-Invariants: INV-tests-test-obligation
+Consumed-Decisions: -
+Produced-Decisions: -
+Edge-Contracts: -
+Health-Gates: GATE-tests-test-acceptance
+Expected-Max-Implementation-Files: 1
+Expected-Max-Worker-Turns: 1
+Root-Criterion: tests.done
+
+## Objective
+
+Add the focused unit test.
+
+## Acceptance criteria
+
+- The unit test passes.
+
+## Validation commands
+
+```text
+bash tests/test_value.sh
+```
+TASK
+"$HARNESS_BIN/manager-publish-task" "$MIN_ROOT/harness.env" 001 "$MIN_ROOT/task.md" tests >/dev/null
+min_worker="$("$HARNESS_BIN/harness-new-session" "$MIN_ROOT/harness.env" worker)"
+"$HARNESS_BIN/worker-claim-task" "$MIN_ROOT/harness.env" 001 "$min_worker" >/dev/null
+cat > "$MIN_ROOT/repo/tests/test_value.sh" <<'TEST'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+grep -Fq 'return 1' src/value.c
+TEST
+printf 'Add focused value unit coverage.\n' > "$MIN_ROOT/message.txt"
+"$HARNESS_BIN/harness-commit-source" "$MIN_ROOT/harness.env" 001 "$min_worker" \
+	"$MIN_ROOT/message.txt" tests/test_value.sh >/dev/null
+cat > "$MIN_ROOT/result.md" <<'RESULT'
+# Task Result
+
+Task-ID: 001
+Status: COMPLETED
+Goal-ID: tests.goal
+Goal-Outcome: COMPLETE
+Changed-Public-Symbols: -
+Changed-Representations: -
+Changed-Ownership: -
+Changed-Serialization: -
+Changed-Dependencies: -
+Affected-Invariants: INV-tests-test-obligation
+Affected-Edges: -
+
+## Summary
+
+Added the focused unit test.
+
+## Modified files
+
+- tests/test_value.sh
+
+## Implemented behavior
+
+- The test verifies value returns one.
+
+## Validation performed
+
+bash tests/test_value.sh passed.
+
+## Deviations from assignment
+
+None.
+
+## Remaining concerns
+
+None.
+
+## Worker assessment
+
+Ready for review.
+RESULT
+"$HARNESS_BIN/worker-complete-task" "$MIN_ROOT/harness.env" 001 "$min_worker" "$MIN_ROOT/result.md" >/dev/null
+cat > "$MIN_ROOT/review.md" <<'REVIEW'
+# Manager Review Record
+
+Task-ID: 001
+Decision: ACCEPT
+Progress-Percent: 100%
+Impact-Assessment: PASS
+Reviewed-Invariants: INV-tests-test-obligation
+Reviewed-Edges: -
+Debt-Recorded: NONE
+Verified-Criterion: tests.done
+
+## Specification comparison
+
+The requested unit coverage exists.
+
+## Acceptance-criteria verification
+
+- [PASS] unit test exists — committed test source
+
+## Feature verification
+
+- [PASS] requested coverage — test observes the production behavior
+
+## Validation executed
+
+- [PASS] bash tests/test_value.sh — exit status 0
+
+## Scope and regression review
+
+Only the declared test file changed; no production contract changed.
+
+## Conclusion
+
+All requested test behavior was independently verified. Accept.
+REVIEW
+"$HARNESS_BIN/manager-accept-task" "$MIN_ROOT/harness.env" 001 "$MIN_ROOT/review.md" >/dev/null
+test -f "$min_project/control/project.complete"
+grep -Eq $'^GATE-tests-test-acceptance\tFINAL_PASSED\tcompletion\t' \
+	"$min_project/control/architecture/health-ledger.tsv"
+"$HARNESS_BIN/harness-decomposition-metrics" "$MIN_ROOT/harness.env" > "$MIN_ROOT/decomposition-metrics.tsv"
+grep -Fqx $'architecture_profile\tminimal-single-node-test' "$MIN_ROOT/decomposition-metrics.tsv"
+
 printf 'architecture guard tests passed\n'

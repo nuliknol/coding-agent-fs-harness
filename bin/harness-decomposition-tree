@@ -76,7 +76,7 @@ done < "$state_file"
 luna=0; terra=0; complete=0; active=0; pending=0; coding=0; luna_coding=0
 for node in "${nodes[@]}"; do
 	[[ "${route[$node]}" == LUNA ]] && luna=$((luna + 1)) || terra=$((terra + 1))
-	if [[ "${leaf_type[$node]}" =~ ^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]]; then
+	if [[ "${leaf_type[$node]}" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]]; then
 		coding=$((coding + 1))
 		[[ "${route[$node]}" == LUNA ]] && luna_coding=$((luna_coding + 1))
 	fi

@@ -2660,7 +2660,6 @@ initialize_project_plan_v2()
 	local allowed_paths required_symbols leaf_type complexity_class worker_route dependency
 	local node_count luna_count luna_percent coding_count luna_coding_count luna_coding_percent has_leaf_type=0 route_column=11 type_column=9
 	local -a fields=()
-	architecture_require_registered
 	expected_header=$'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tleaf_type\tcomplexity_class\tworker_route'
 	legacy_header=$'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tcomplexity_class\tworker_route'
 	IFS= read -r header < "$source_file" || die 'decomposition DAG is empty'
@@ -2730,7 +2729,7 @@ initialize_project_plan_v2()
 		[[ -n "$allowed_paths" && "$allowed_paths" != - ]] || die "node $node_id requires explicit allowed_paths"
 		[[ -n "$required_symbols" ]] || die "node $node_id requires required_symbols or '-'"
 		if (( has_leaf_type == 1 )); then
-			[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]] ||
+			[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]] ||
 				die "invalid leaf_type for $node_id: $leaf_type"
 		fi
 		[[ "$complexity_class" =~ ^(LOW|MEDIUM|HIGH)$ ]] || die "invalid complexity_class for $node_id: $complexity_class"
@@ -2738,11 +2737,11 @@ initialize_project_plan_v2()
 		[[ "$worker_route" != LUNA || "$complexity_class" == LOW ]] ||
 			die "Luna node $node_id must have complexity_class LOW"
 		if (( has_leaf_type == 1 )) && [[ "$worker_route" == LUNA ]]; then
-			[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]] ||
+			[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]] ||
 				die "Luna node $node_id has Terra-only leaf_type $leaf_type"
 		fi
 		if (( has_leaf_type == 1 )) && [[ "$HARNESS_PREFERRED_WORKER_ROUTE" == LUNA && "$worker_route" == TERRA &&
-			"$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]]; then
+			"$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]]; then
 			die "Luna-preferred DAG routes coding node $node_id to Terra; split it until it is LOW/LUNA"
 		fi
 		printf '%s\n' "$node_id" >> "$seen_file"
@@ -2764,8 +2763,8 @@ initialize_project_plan_v2()
 	luna_count="$(awk -F '\t' -v route="$route_column" 'NR > 1 && $route == "LUNA" {count++} END {print count + 0}' "$dag_tmp")"
 	luna_percent=$((luna_count * 100 / node_count))
 	if (( has_leaf_type == 1 )); then
-		coding_count="$(awk -F '\t' -v type="$type_column" 'NR > 1 && $type ~ /^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$/ {count++} END {print count + 0}' "$dag_tmp")"
-		luna_coding_count="$(awk -F '\t' -v type="$type_column" -v route="$route_column" 'NR > 1 && $type ~ /^(LOCAL_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$/ && $route == "LUNA" {count++} END {print count + 0}' "$dag_tmp")"
+		coding_count="$(awk -F '\t' -v type="$type_column" 'NR > 1 && $type ~ /^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$/ {count++} END {print count + 0}' "$dag_tmp")"
+		luna_coding_count="$(awk -F '\t' -v type="$type_column" -v route="$route_column" 'NR > 1 && $type ~ /^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$/ && $route == "LUNA" {count++} END {print count + 0}' "$dag_tmp")"
 		if (( coding_count == 0 )); then luna_coding_percent=100; else luna_coding_percent=$((luna_coding_count * 100 / coding_count)); fi
 		(( luna_coding_percent >= HARNESS_MIN_LUNA_CODING_NODE_PERCENT )) ||
 			die "decomposition DAG routes only $luna_coding_count/$coding_count coding-eligible nodes ($luna_coding_percent%) to Luna; minimum is $HARNESS_MIN_LUNA_CODING_NODE_PERCENT%"
@@ -2773,6 +2772,12 @@ initialize_project_plan_v2()
 		(( luna_percent >= HARNESS_MIN_LUNA_NODE_PERCENT )) ||
 			die "legacy decomposition DAG routes only $luna_count/$node_count nodes ($luna_percent%) to Luna; minimum is $HARNESS_MIN_LUNA_NODE_PERCENT%"
 	fi
+	# Delay automatic registry creation until all DAG rows and routing rules have
+	# passed validation, so a rejected plan cannot leave durable sidecar state.
+	if (( HARNESS_ARCHITECTURE_GUARDS == 1 )) && ! architecture_registered; then
+		architecture_initialize_minimal_test_profile "$dag_tmp" || true
+	fi
+	architecture_require_registered
 	chmod 600 "$definition_tmp" "$state_tmp" "$dag_tmp"
 	mv "$definition_tmp" "$definition"
 	mv "$state_tmp" "$state"
