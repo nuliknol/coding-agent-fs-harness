@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+(( $# >= 2 && $# <= 3 )) || die "Usage: ${0##*/} ENV_FILE BRANCH [COMMIT]"
+load_harness_env "$1"
+branch="$2"
+commit="${3:-HEAD}"
+ensure_project
+(( HARNESS_AGENT_COMMITS_ENABLED == 1 )) || die 'agent branch publication is disabled'
+[[ "$(state_value status)" == ACTIVE && "$(state_value phase)" == WORKER_RUNNING ]] ||
+	die 'Light branch publication is permitted only during the active worker implementation phase'
+git check-ref-format --branch "$branch" >/dev/null 2>&1 || die "invalid branch name: $branch"
+grep -Fq -- "$branch" "$SPECIFICATION" || die "branch is not declared by the governing specification: $branch"
+commit="$(git -C "$REPOSITORY" rev-parse --verify "$commit^{commit}")" || die 'publication commit does not exist'
+[[ "$commit" == "$(git -C "$REPOSITORY" rev-parse --verify HEAD^{commit})" ]] || die 'agents may publish only HEAD'
+target_ref="refs/heads/$branch"
+old="$(git -C "$REPOSITORY" rev-parse --verify "$target_ref^{commit}" 2>/dev/null || true)"
+if [[ -n "$old" ]]; then
+	git -C "$REPOSITORY" merge-base --is-ancestor "$old" "$commit" || die 'branch publication must be a fast-forward'
+fi
+git -C "$REPOSITORY" update-ref -m 'light harness agent publication' "$target_ref" "$commit" \
+	"${old:-$(printf '0%.0s' {1..40})}"
+log_event "AGENT_BRANCH_PUBLISHED cycle=$(state_value cycle) branch=$branch commit=$commit previous=${old:--}"
+printf 'BRANCH=%s\nCOMMIT=%s\n' "$branch" "$commit"

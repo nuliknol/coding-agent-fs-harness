@@ -16,7 +16,8 @@ Every harness command must receive `ENV_FILE` as its first argument. Do not repl
 1. Claim exactly one ready task with `worker-claim-next`.
 2. Read the returned task file completely.
 3. Inspect the repository and implement only that task.
-4. Do not create, stage, or commit Git changes.
+4. After focused validation, commit task-owned source changes with
+   `harness-commit-source`; never mutate the Git index or history directly.
 5. Send heartbeats after meaningful implementation checkpoints.
 6. Preserve the cumulative root-task progress checkpoint. Run the affected
    build and one focused happy-path smoke; run one regression only for a bug
@@ -38,6 +39,7 @@ the transaction status.
 ```text
 $HARNESS_BIN/worker-claim-next "$ENV_FILE" "$SESSION" 1
 $HARNESS_BIN/worker-heartbeat "$ENV_FILE" TASK_ID "$SESSION"
+$HARNESS_BIN/harness-commit-source "$ENV_FILE" TASK_ID "$SESSION" MESSAGE_FILE PATH...
 $HARNESS_BIN/worker-complete-task "$ENV_FILE" TASK_ID "$SESSION" RESULT_FILE
 ```
 

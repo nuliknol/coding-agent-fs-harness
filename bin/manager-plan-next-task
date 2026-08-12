@@ -111,6 +111,8 @@ PROJECT_DECOMPOSITION_FILE=$decomposition_definition
 READY_PLAN_NODE=$ready_plan_node
 
 Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and follow it. Read DEVELOPMENT_POLICY_FILE when present, then read PROJECT_PLAN_FILE and PROJECT_PLAN_STATE_FILE completely. If ACTIVE_TASK_ROOT is set, also read ACTIVE_PROGRESS_FILE, ACTIVE_CRITERIA_FILE, ACTIVE_CRITERIA_DEFINITION_FILE, ACTIVE_CRITERION_DECOMPOSITION_FILE, ACTIVE_MANAGER_REMEDIATION_LEDGER, and ACTIVE_HARD_BLOCK_LEDGER when present, then publish one newly bounded continuation of that same root with Target-Criterion equal to ACTIVE_FIRST_UNMET_CRITERION. Manager-remediation ledger entries and their checkpoint artifacts are separately attributed baseline prerequisites, not feature-worker implementation changes; a scope acceptance leaf must disclose and validate them but must evaluate the feature-owned delta without charging those paths to the ordinary worker. Direct follow-up fixes causally exposed by a recorded manager remediation retain the same baseline-remediation provenance. An ordinary worker exclusive-file, forbidden-file, or ownership rule does not require human approval for such a bounded repair when observable product behavior and public contracts remain unchanged. Otherwise publish READY_PLAN_NODE, which is the first dependency-ready pending item; never publish a node whose dependencies are incomplete. Declare independently verifiable criteria with stable Root-Criterion lines. Inspect the specification and actual repository state, write exactly one bounded task under PROJECT_TMP_DIR, and publish it with manager-publish-task including its PROJECT_PLAN_ITEM_ID. Preserve completed implementation and begin at the first unmet leaf criterion. Then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or repeat completed plan items.
+
+Before publishing any continuation, inspect the governing specification for mandatory cross-harness Git refs and verify them directly. When one is absent, write the exact seven-column requirements TSV and supplier note, call manager-wait-dependency for ACTIVE_PLAN_ITEM and ACTIVE_TASK_ROOT, and terminate. Do not publish another absence audit, count repeated absence as durable evidence, or unlock preflight/integration. When all mandatory refs exist, include them in Mandatory-Git-Refs metadata so publication and final review revalidate them mechanically.
 PROMPT
 if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
@@ -140,6 +142,7 @@ task_published()
 	compgen -G "$project_path/tasks/$PROJECT-task-*.ready.md" >/dev/null ||
 		compgen -G "$project_path/running/$PROJECT-task-*.running.md" >/dev/null ||
 		compgen -G "$project_path/results/$PROJECT-task-*.result.md" >/dev/null ||
+		compgen -G "$project_path/control/dependencies/*.waiting.md" >/dev/null ||
 		{ [[ -z "$active_item_before" ]] && awk -F '\t' '!/^#/ && $2 == "ACTIVE" {found=1} END {exit found ? 0 : 1}' "$plan_state"; }
 }
 

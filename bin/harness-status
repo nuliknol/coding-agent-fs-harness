@@ -84,11 +84,11 @@ elif [[ "$MAX_ORACLE_RUNS" == 0 ]]; then
 	printf 'Oracle audit: disabled (MAX_ORACLE_RUNS=0)\n'
 fi
 if project_plan_exists; then
-	printf '\n%-24s %-12s %-16s %s\n' 'PLAN ITEM' 'STATE' 'TASK ROOT' 'TITLE'
-	printf '%-24s %-12s %-16s %s\n' '------------------------' '------------' '----------------' '-----'
+	printf '\n%-24s %-18s %-16s %s\n' 'PLAN ITEM' 'STATE' 'TASK ROOT' 'TITLE'
+	printf '%-24s %-18s %-16s %s\n' '------------------------' '------------------' '----------------' '-----'
 	awk -F '\t' '
 		NR == FNR {if ($0 !~ /^#/ && NF >= 2) title[$1] = $2; next}
-		$0 !~ /^#/ && NF >= 4 {printf "%-24s %-12s %-16s %s\n", $1, $2, $3, title[$1]}
+		$0 !~ /^#/ && NF >= 4 {printf "%-24s %-18s %-16s %s\n", $1, $2, $3, title[$1]}
 	' "$(project_plan_definition_file)" "$(project_plan_state_file)"
 fi
 printf '\n'
@@ -104,6 +104,7 @@ aborted_count=0
 blocked_count=0
 replan_count=0
 human_count=0
+waiting_dependency_count=0
 replanning_count=0
 manager_remediation_active_count=0
 task_rows=()
@@ -247,6 +248,18 @@ for file in "$dir/control/progress/$PROJECT-task-"*.needs-human.md; do
 	task_rows+=("$task_row")
 done
 
+for file in "$dir/control/progress/$PROJECT-task-"*.waiting-dependency.md; do
+	found=1
+	waiting_dependency_count=$((waiting_dependency_count + 1))
+	name="${file##*/}"
+	task_id="${name#${PROJECT}-task-}"
+	task_id="${task_id%.waiting-dependency.md}"
+	progress="$(task_progress_percent "$task_id")%"
+	request_id="$(metadata_value "$file" Request-ID)"
+	printf -v task_row '%-32s %-12s %-13s %-10s %-28s %-10s' "$task_id" 'WAITING_DEP' 'EXTERNAL' "$progress" "${request_id:--}" '-'
+	task_rows+=("$task_row")
+done
+
 if (( found == 0 )); then
 	printf '%s\n' '(no tasks)'
 else
@@ -261,6 +274,8 @@ if project_completion_recorded && project_plan_all_complete; then
 	else
 		project_status_line='Project status: COMPLETE. Every project-plan item is accepted.'
 	fi
+elif (( waiting_dependency_count > 0 )); then
+	project_status_line='Project status: WAITING_DEPENDENCY. Exact cross-harness prerequisites are recorded; no agent runs or review-cycle gain accrues until they validate.'
 elif (( human_count > 0 )); then
 	project_status_line='Project status: NEEDS_HUMAN. A documented authorization, secret, external-state, or product/specification decision requires a person; verified work is preserved.'
 elif (( manager_remediation_active_count > 0 )); then

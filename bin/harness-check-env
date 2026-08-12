@@ -37,6 +37,7 @@ printf 'Manager sandbox: %s\n' "$MANAGER_SANDBOX"
 printf 'Worker Codex: %s\n' "$WORKER_CODEX_BIN"
 printf 'Worker Codex home: %s\n' "$WORKER_CODEX_HOME"
 printf 'Worker model: %s (%s)\n' "$WORKER_MODEL" "$WORKER_REASONING_EFFORT"
+printf 'Validated agent source commits: %s\n' "$([[ "$HARNESS_AGENT_COMMITS_ENABLED" == 1 ]] && printf enabled || printf disabled)"
 if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 	printf 'Complexity decomposition: v2 proactive DAG (%s critic)\n' \
 		"$([[ "$HARNESS_DECOMPOSITION_CRITIC_ENABLED" == 1 ]] && printf enabled || printf disabled)"

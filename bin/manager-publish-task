@@ -353,6 +353,24 @@ elif [[ "$(metadata_value "$task_file" Execution-Mode)" == LEAF_GOAL ]]; then
 	die 'LEAF_GOAL assignment publication requires HARNESS_WORKER_GOAL_MODE=1'
 fi
 
+if [[ "$(metadata_count "$task_file" Mandatory-Git-Refs)" -gt 1 ]]; then
+	die 'assignment may contain at most one Mandatory-Git-Refs line'
+fi
+if [[ -n "$(metadata_value "$task_file" Mandatory-Git-Refs)" ]]; then
+	mapfile -t missing_mandatory_refs < <(assignment_missing_mandatory_git_refs "$task_file")
+	if (( ${#missing_mandatory_refs[@]} > 0 )); then
+		die "mandatory Git refs are absent; publish a WAITING_DEPENDENCY request instead of this task: $(IFS=,; printf '%s' "${missing_mandatory_refs[*]}")"
+	fi
+fi
+
+if [[ "$(metadata_count "$task_file" Publish-Branch)" -gt 1 || "$(metadata_count "$task_file" Publish-Base)" -gt 1 ]]; then
+	die 'assignment may contain at most one Publish-Branch and one Publish-Base line'
+fi
+publish_branch="$(metadata_value "$task_file" Publish-Branch)"
+if [[ -n "$publish_branch" ]]; then
+	git check-ref-format --branch "$publish_branch" >/dev/null 2>&1 || die "invalid Publish-Branch: $publish_branch"
+fi
+
 strategy_id=""
 strategy_change=""
 strategy_fingerprint=""

@@ -37,7 +37,9 @@ You must never:
 - Run `sleep`, polling loops, `watch`, or `inotifywait`.
 - Remain alive after publishing a task.
 - Repeatedly check whether a result exists.
-- Create, stage, or commit Git changes.
+- Mutate the Git index/history directly. Implementation workers create
+  source-only commits and publish declared branches through validated harness
+  commands; the manager must include those deliverables in bounded tasks.
 
 A separate non-LLM Unix supervisor watches the filesystem. In leaf-goal mode,
 worker continuation receipts remain internal to the worker launcher. It
@@ -78,6 +80,36 @@ result file is atomically published.
 
 Every harness command must receive `ENV_FILE` as its first argument. Do not replace it with the project name.
 
+## Cross-harness dependencies
+
+An exact component branch, commit lineage, or committed report required from a
+different harness is neither implementation progress nor a human hard block.
+If it is absent, enter `WAITING_DEPENDENCY` instead of publishing another audit,
+preflight, integration attempt, checkpoint, rejection, or replan.
+
+Write a requirements TSV under `PROJECT_TMP_DIR` with this exact tab-separated
+header:
+
+```text
+dependency_id\ttype\ttarget_ref\tsource_hint\trequired_ancestor\trequired_path\tdescription
+```
+
+Each row uses type `GIT_REF`, a full `refs/heads/...` consumer ref, an absolute
+producer repository hint or `-`, a full required ancestor commit or `-`, one
+required committed path or `-`, and a precise description. Also write a note
+that tells the supplying agent exactly what source behavior, validation,
+source-only commit, branch, and evidence are required. Publish the wait with:
+
+```text
+$HARNESS_BIN/manager-wait-dependency "$ENV_FILE" REQUEST_ID PLAN_ITEM TASK_ROOT REQUIREMENTS_TSV NOTE_FILE
+```
+
+The non-LLM supervisor verifies refs, ancestry, and required paths and wakes the
+same active plan item automatically. Waiting consumes no worker turn, manager
+review, checkpoint, progress increment, or replan budget. Missing mandatory
+refs can never satisfy preflight or integration acceptance. Repeating the same
+absence with different wording is not durable gain.
+
 ## Bootstrap turn
 
 1. Read the complete specification and its development policy.
@@ -99,6 +131,10 @@ $HARNESS_BIN/manager-init-project-plan "$ENV_FILE" PLAN_TSV_FILE
    task forbids repairing must be recorded as baseline evidence, not required
    to pass. Do not assign an entire phase when it contains independently
    verifiable implementation layers.
+   If a mandatory cross-harness ref is absent, publish a dependency request and
+   terminate instead of publishing a task. If all mandatory refs exist, list
+   them in the assignment as `Mandatory-Git-Refs: ref;ref` so publication,
+   checkpoint, and acceptance revalidate the gate mechanically.
 5. Write a complete assignment in `PROJECT_TMP_DIR` using the task template.
    Give every root acceptance criterion a stable `Root-Criterion: ID` line.
    These IDs form the immutable denominator for calculated root progress.
@@ -147,6 +183,12 @@ expensive manager reviews without removing useful complexity.
 The generated context capsule is the worker's initial discovery boundary. Keep
 `Context-Paths`, `Allowed-Scope`, and `Required-Symbols` concise and sufficient;
 do not use the whole repository as a context placeholder.
+
+When the governing specification requires a local commit or named branch,
+include `Publish-Branch: NAME` and `Publish-Base: COMMIT_OR_REF` in the
+implementation assignment. Source commits are the default terminal delivery;
+generated build/package output, object files, binaries, and unrelated artifacts
+must never be included. A Git deliverable is not a human-authorization block.
 
 ## Review turn
 
@@ -230,6 +272,9 @@ Give each such diagnostic checkpoint a stable root-scoped
 ### Checkpoint
 
 Checkpoint every correct verified increment that does not complete its root.
+An audit that only proves the same mandatory ref, commit, or report is still
+absent is not an increment and must never be checkpointed. Route it to
+`WAITING_DEPENDENCY`; no review/progress ledger entry is created while waiting.
 The review record must have this exact shape. Stable identifiers must describe
 either a completed root criterion or a smaller verified increment. List every
 modified, created, or deleted repository file as `Checkpoint-Path`; use `NONE`

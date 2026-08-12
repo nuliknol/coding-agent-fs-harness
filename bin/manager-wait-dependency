@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE REQUEST_ID PLAN_ITEM TASK_ROOT REQUIREMENTS_TSV NOTE_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 6 ]] || usage
+load_harness_env "$1"
+request_id="$2"
+item_id="$3"
+root="$4"
+requirements="$5"
+note="$6"
+ensure_project
+require_repository
+acquire_project_lock
+
+compgen -G "$(project_dir)/tasks/$PROJECT-task-*.ready.md" >/dev/null && die 'cannot enter dependency waiting while a task is ready'
+compgen -G "$(project_dir)/running/$PROJECT-task-*.running.md" >/dev/null && die 'cannot enter manager dependency waiting while a task is running'
+compgen -G "$(project_dir)/results/$PROJECT-task-*.result.md" >/dev/null && die 'cannot enter dependency waiting while a result awaits review'
+publish_dependency_request "$request_id" "$item_id" "$root" "$requirements" "$note" manager-planning

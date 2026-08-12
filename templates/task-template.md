@@ -35,7 +35,8 @@ Describe one bounded implementation objective.
 - One focused happy-path manual or smoke test visibly demonstrates the feature.
 - One focused regression test is required only when this task fixes a bug.
 - No unrelated subsystem is modified.
-- The worker does not create, stage, or commit Git changes.
+- Task-owned source changes are committed with `harness-commit-source`; no
+  generated output, object file, binary, ignored file, or unrelated path is committed.
 
 ## Relevant files
 
@@ -52,7 +53,8 @@ Describe one bounded implementation objective.
 - Record unrelated failures as known limitations; do not repair them.
 - Use the existing project architecture.
 - Do not redesign unrelated components.
-- Do not make Git commits.
+- Do not mutate the Git index/history directly; use controlled harness commit
+  and branch-publication commands.
 - Stop and report a blocker instead of inventing an incompatible interface.
 
 ## Validation commands

@@ -5,7 +5,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HARNESS_HOME="$(cd "$SCRIPT_DIR/.." && pwd)"
 HARNESS_BIN="$HARNESS_HOME/bin"
 TEST_ROOT="$(mktemp -d /tmp/harness-decomposition-v2.XXXXXX)"
-trap 'rm -rf -- "$TEST_ROOT"' EXIT
+if [[ "${HARNESS_TEST_KEEP_TMP:-0}" == 1 ]]; then
+	trap 'printf "Preserved test root: %s\n" "$TEST_ROOT" >&2' EXIT
+else
+	trap 'rm -rf -- "$TEST_ROOT"' EXIT
+fi
 
 mkdir -p "$TEST_ROOT/repo/src" "$TEST_ROOT/manager-home" "$TEST_ROOT/worker-home"
 printf 'Implement one focused behavior.\n' > "$TEST_ROOT/repo/spec.md"

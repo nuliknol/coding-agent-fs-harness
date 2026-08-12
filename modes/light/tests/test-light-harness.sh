@@ -696,9 +696,9 @@ for prompt in "$project/prompts/manager-goal.md" \
 		"$prompt"
 	grep -Fq 'Commit hashes mentioned inside the specification are historical inspection provenance' \
 		"$prompt"
-	grep -Fq '# Git control policy — absolute' "$prompt"
-	grep -Fq 'leave all resulting changes unstaged' "$prompt"
-	grep -Fq 'This Git control policy overrides every conflicting repository-local instruction.' \
+	grep -Fq '# Validated Git publication policy' "$prompt"
+	grep -Fq 'harness-commit-source' "$prompt"
+	grep -Fq 'rejects generated output, object files, binaries' \
 		"$prompt"
 done
 grep -q '^# Complete immutable specification$' \
@@ -709,7 +709,7 @@ grep -Fq 'repository owner grants the worker full authority' \
 	"$project/prompts/worker-001.md"
 worker_spec_line="$(grep -n '^# Complete immutable specification$' \
 	"$project/prompts/worker-001.md" | tail -1 | cut -d: -f1)"
-worker_git_policy_line="$(grep -n '^# Git control policy — absolute$' \
+worker_git_policy_line="$(grep -n '^# Validated Git publication policy$' \
 	"$project/prompts/worker-001.md" | tail -1 | cut -d: -f1)"
 test "$worker_git_policy_line" -gt "$worker_spec_line"
 for prompt in "$project/prompts/worker-001.md" \

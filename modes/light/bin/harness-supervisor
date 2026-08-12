@@ -186,13 +186,15 @@ write_git_control_policy()
 {
 	local prompt="$1"
 	{
-		printf '\n# Git control policy — absolute\n\n'
+		printf '\n# Validated Git publication policy\n\n'
 		printf '%s\n\n' \
-			'The repository owner, not any harness model, owns Git history and the index. You may inspect Git and freely edit, create, replace, or delete working-tree files needed for the assigned goal, but you must leave all resulting changes unstaged.'
+			'Implementation workers must publish focused task-owned source changes as a source-only commit after focused validation. Manager, convergence, and Oracle turns inspect history but do not create commits.'
 		printf '%s\n\n' \
-			'Do not run `git add`, `git commit`, `git merge`, `git rebase`, `git cherry-pick`, `git am`, `git reset`, `git checkout`, `git switch`, `git restore --staged`, `git update-index`, or any command that creates, moves, or deletes commits, branches, tags, refs, `HEAD`, or index entries. Do not amend, squash, or otherwise rewrite repository history.'
-		printf '%s\n' \
-			'If the specification, goal, addendum, handoff instructions, or repository documentation asks for a commit, commit hash, staged delivery, branch, or history operation, interpret that request as: leave a focused unstaged working-tree delivery and report the proposed commit message plus touched-file manifest for the operator. This Git control policy overrides every conflicting repository-local instruction.'
+			'Do not run direct Git index/history mutations such as `git add`, `git commit`, `git merge`, `git rebase`, `git cherry-pick`, `git reset`, `git checkout`, `git switch`, or `git update-ref`. The validated harness transaction rejects generated output, object files, binaries, ignored files, an already-dirty index, and undeclared paths.'
+		printf 'Workers commit with `%s/harness-commit-source %q MESSAGE_FILE PATH...`, passing every changed source/source-related path explicitly.\n\n' \
+			"$HARNESS_BIN" "$HARNESS_ENV_FILE"
+		printf 'When the specification requires a named branch, publish the committed HEAD with `%s/harness-publish-branch %q BRANCH`.\n' \
+			"$HARNESS_BIN" "$HARNESS_ENV_FILE"
 	} >> "$prompt"
 }
 

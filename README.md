@@ -53,8 +53,9 @@ compatibility alias; new files should use the uppercase shell variable.
   not inherit supervisor lifetime locks.
 - Explicit runtime configuration: one trusted `.env` selects repositories,
   state, accounts, models, timing, and child-process runtime paths.
-- Manual Git ownership: the harness does not commit unless the specification
-  explicitly makes commits part of the work.
+- Validated Git delivery: implementation agents commit task-owned source and
+  related text artifacts by default; generated output, binaries, ignored files,
+  unrelated paths, and direct model-driven Git history mutations are rejected.
 
 ## Process model
 
@@ -1126,6 +1127,27 @@ MANAGER_PROVIDER_RETRY_STARTED kind=transient|quota
 MANAGER_PLAN_PROVIDER_WAIT kind=transient|quota
 MANAGER_BOOTSTRAP_PROVIDER_WAIT kind=transient|quota
 ```
+
+## Validated Git delivery and dependency waiting
+
+`HARNESS_AGENT_COMMITS_ENABLED=1` is the default. During an owned worker turn,
+`harness-commit-source ENV TASK SESSION MESSAGE PATH...` commits only explicit
+task-scope source and related text paths. It refuses generated/build paths,
+object files, binaries, ignored files, submodules, undeclared paths, a dirty
+index, and binary diffs. `harness-publish-branch` publishes only the current
+HEAD, only to a branch declared by the assignment or governing specification,
+and only by fast-forward from any existing target. Agents never run direct Git
+index or history mutation commands.
+
+Cross-harness Git prerequisites use `WAITING_DEPENDENCY`. The manager or worker
+publishes a machine-readable requirements TSV plus a supplier specification.
+The active plan item then waits without an LLM process, manager review,
+checkpoint, progress increment, or replan-budget charge. A producer publishes
+its validated source commit/branch; `harness-supply-dependency` imports that
+commit into the consumer repository without touching its worktree. The
+supervisor wakes the plan item only after every target ref, required ancestry,
+and required committed path validates. Missing mandatory refs therefore cannot
+complete preflight, unlock integration, or become repeated durable gain.
 
 ## Increment lifecycle in 4.3
 

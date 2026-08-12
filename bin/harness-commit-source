@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-mode.sh"
+harness_dispatch_mode "$SCRIPT_DIR/.." "${0##*/}" "$@"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+source "$SCRIPT_DIR/../lib/harness-git-commit.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TASK_ID SESSION MESSAGE_FILE PATH...\n' "${0##*/}" >&2
+	exit 2
+}
+
+(( $# >= 5 )) || usage
+load_harness_env "$1"
+task_id="$2"
+session="$3"
+message_file="$4"
+shift 4
+ensure_project
+require_repository
+validate_task_id "$task_id"
+ensure_session "$session"
+acquire_project_lock
+
+dir="$(project_dir)"
+base="$(task_base "$task_id")"
+running="$dir/running/$base.running.md"
+[[ -f "$running" ]] || die "task is not running: $task_id"
+lease="$dir/control/$(task_base "$task_id").lease"
+[[ -f "$lease" ]] || die 'active task lease is missing'
+owner="$(lease_value "$lease" owner)"
+[[ "$owner" == "$session" ]] || die "task is owned by $owner, not $session"
+AGENT_COMMIT_SCOPE="$(metadata_value "$running" Allowed-Scope)"
+AGENT_COMMIT_ACTOR="task=$task_id session=$session"
+commit="$(agent_commit_source "$message_file" "$@")"
+
+ledger="$dir/control/agent-commits.tsv"
+if [[ ! -f "$ledger" ]]; then
+	printf 'commit\ttask_id\tsession\tcreated_at\tpaths\n' > "$ledger"
+	chmod 600 "$ledger"
+fi
+printf '%s\t%s\t%s\t%s\t%s\n' "$commit" "$task_id" "$session" "$(timestamp_utc)" "$(IFS=,; printf '%s' "$*")" >> "$ledger"
+log_event "AGENT_SOURCE_COMMIT task=$task_id session=$session commit=$commit paths=$(printf '%q' "$*")"
+printf 'COMMIT=%s\nTASK_ID=%s\n' "$commit" "$task_id"

@@ -155,7 +155,7 @@ load_harness_env()
 	unset HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS
 	unset HARNESS_DECOMPOSITION_V2 HARNESS_DECOMPOSITION_CRITIC_ENABLED
 	unset HARNESS_MAX_LUNA_STRATEGY_FAILURES HARNESS_MIN_LUNA_NODE_PERCENT
-	unset HARNESS_PREFERRED_WORKER_ROUTE
+	unset HARNESS_PREFERRED_WORKER_ROUTE HARNESS_AGENT_COMMITS_ENABLED
 	unset HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
 	unset HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
 	unset HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_KILL_GRACE_SECONDS
@@ -263,6 +263,8 @@ load_harness_env()
 	# preference also lets old immutable Terra-heavy DAG nodes be reclassified at
 	# publication time when the manager can prove a Luna-ready execution leaf.
 	HARNESS_PREFERRED_WORKER_ROUTE="${HARNESS_PREFERRED_WORKER_ROUTE:-LUNA}"
+	# Implementation agents publish focused source-only commits by default.
+	HARNESS_AGENT_COMMITS_ENABLED="${HARNESS_AGENT_COMMITS_ENABLED:-1}"
 	# Provider-side failures retry forever. Short transient failures use a
 	# one-minute cadence; account usage-window exhaustion reports and probes every
 	# five minutes until Codex confirms quota is available again.
@@ -409,6 +411,8 @@ load_harness_env()
 		die 'HARNESS_MIN_LUNA_NODE_PERCENT must be an integer from 0 through 100'
 	[[ "$HARNESS_PREFERRED_WORKER_ROUTE" =~ ^(LUNA|TERRA)$ ]] ||
 		die 'HARNESS_PREFERRED_WORKER_ROUTE must be LUNA or TERRA'
+	[[ "$HARNESS_AGENT_COMMITS_ENABLED" =~ ^[01]$ ]] ||
+		die 'HARNESS_AGENT_COMMITS_ENABLED must be 0 or 1'
 	[[ "$HARNESS_PROVIDER_RETRY_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_PROVIDER_RETRY_SECONDS must be an integer'
 	(( HARNESS_PROVIDER_RETRY_SECONDS > 0 )) || die 'HARNESS_PROVIDER_RETRY_SECONDS must be greater than zero'
 	[[ "$HARNESS_QUOTA_RETRY_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_QUOTA_RETRY_SECONDS must be an integer'
@@ -462,7 +466,7 @@ load_harness_env()
 	export HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS HARNESS_GOAL_PROCESS_MAX_FIXES
 	export HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS
 	export HARNESS_DECOMPOSITION_V2 HARNESS_DECOMPOSITION_CRITIC_ENABLED HARNESS_MAX_LUNA_STRATEGY_FAILURES
-	export HARNESS_MIN_LUNA_NODE_PERCENT HARNESS_PREFERRED_WORKER_ROUTE
+	export HARNESS_MIN_LUNA_NODE_PERCENT HARNESS_PREFERRED_WORKER_ROUTE HARNESS_AGENT_COMMITS_ENABLED
 	export HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
 	export HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_KILL_GRACE_SECONDS
 	export WORKER_HEARTBEAT_SECONDS
@@ -742,6 +746,138 @@ task_root_human_file()
 	local root
 	root="$(task_root_id "$1")"
 	printf '%s/control/progress/%s-task-%s.needs-human.md' "$(project_dir)" "$PROJECT" "$root"
+}
+
+task_root_waiting_dependency_file()
+{
+	local root
+	root="$(task_root_id "$1")"
+	printf '%s/control/progress/%s-task-%s.waiting-dependency.md' "$(project_dir)" "$PROJECT" "$root"
+}
+
+dependency_request_dir()
+{
+	printf '%s/control/dependencies' "$(project_dir)"
+}
+
+validate_dependency_request_id()
+{
+	[[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "invalid dependency request ID: $1"
+}
+
+dependency_request_file()
+{
+	validate_dependency_request_id "$1"
+	printf '%s/%s.waiting.md' "$(dependency_request_dir)" "$1"
+}
+
+dependency_requirements_file()
+{
+	validate_dependency_request_id "$1"
+	printf '%s/%s.requirements.tsv' "$(dependency_request_dir)" "$1"
+}
+
+validate_dependency_requirements_file()
+{
+	local file="$1" header dependency_id type target_ref source_hint ancestor required_path description extra count=0
+	local -A seen=()
+	[[ -f "$file" ]] || die "dependency requirements file does not exist: $file"
+	IFS= read -r header < "$file" || die 'dependency requirements file is empty'
+	[[ "$header" == $'dependency_id\ttype\ttarget_ref\tsource_hint\trequired_ancestor\trequired_path\tdescription' ]] ||
+		die 'dependency requirements header must be: dependency_id<TAB>type<TAB>target_ref<TAB>source_hint<TAB>required_ancestor<TAB>required_path<TAB>description'
+	while IFS=$'\t' read -r dependency_id type target_ref source_hint ancestor required_path description extra; do
+		[[ -n "$dependency_id" && -n "$type" && -n "$target_ref" && -n "$source_hint" &&
+			-n "$ancestor" && -n "$required_path" && -n "$description" && -z "$extra" ]] ||
+			die 'every dependency requirement must contain exactly seven nonempty tab-separated fields'
+		[[ "$dependency_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "invalid dependency ID: $dependency_id"
+		[[ -z "${seen[$dependency_id]:-}" ]] || die "duplicate dependency ID: $dependency_id"
+		seen[$dependency_id]=1
+		[[ "$type" == GIT_REF ]] || die "unsupported dependency type: $type"
+		[[ "$target_ref" == refs/heads/* ]] || die "Git dependency must target refs/heads: $target_ref"
+		git check-ref-format "$target_ref" >/dev/null 2>&1 || die "invalid dependency target ref: $target_ref"
+		[[ "$source_hint" == - || "$source_hint" == /* ]] || die "source_hint must be '-' or an absolute repository path: $source_hint"
+		[[ "$ancestor" == - || "$ancestor" =~ ^[0-9a-fA-F]{40}$ ]] || die "required_ancestor must be '-' or a full commit ID: $ancestor"
+		if [[ "$ancestor" != - ]]; then
+			git -C "$REPOSITORY" cat-file -e "$ancestor^{commit}" 2>/dev/null || die "required ancestor is absent from the consumer repository: $ancestor"
+		fi
+		if [[ "$required_path" != - ]]; then
+			[[ "$required_path" != /* && "$required_path" != ../* && "$required_path" != */../* && "$required_path" != *$'\n'* ]] ||
+				die "invalid required repository path: $required_path"
+		fi
+		count=$((count + 1))
+	done < <(tail -n +2 "$file")
+	(( count > 0 )) || die 'dependency request must contain at least one requirement'
+}
+
+dependency_requirement_failure()
+{
+	local target_ref="$1" ancestor="$2" required_path="$3" commit
+	commit="$(git -C "$REPOSITORY" rev-parse --verify "$target_ref^{commit}" 2>/dev/null || true)"
+	[[ -n "$commit" ]] || { printf 'missing-ref'; return 0; }
+	if [[ "$ancestor" != - ]] && ! git -C "$REPOSITORY" merge-base --is-ancestor "$ancestor" "$commit"; then
+		printf 'wrong-ancestry'
+		return 0
+	fi
+	if [[ "$required_path" != - ]] && ! git -C "$REPOSITORY" cat-file -e "$commit:$required_path" 2>/dev/null; then
+		printf 'missing-required-path'
+		return 0
+	fi
+	return 1
+}
+
+dependency_requirements_satisfied()
+{
+	local file="$1" dependency_id type target_ref source_hint ancestor required_path description failure
+	while IFS=$'\t' read -r dependency_id type target_ref source_hint ancestor required_path description; do
+		failure="$(dependency_requirement_failure "$target_ref" "$ancestor" "$required_path" 2>/dev/null || true)"
+		[[ -z "$failure" ]] || return 1
+	done < <(tail -n +2 "$file")
+}
+
+dependency_requirement_failures()
+{
+	local file="$1" dependency_id type target_ref source_hint ancestor required_path description failure
+	while IFS=$'\t' read -r dependency_id type target_ref source_hint ancestor required_path description; do
+		failure="$(dependency_requirement_failure "$target_ref" "$ancestor" "$required_path" 2>/dev/null || true)"
+		[[ -z "$failure" ]] || printf '%s\t%s\t%s\t%s\n' "$dependency_id" "$failure" "$target_ref" "$description"
+	done < <(tail -n +2 "$file")
+}
+
+assignment_mandatory_git_refs()
+{
+	local file="$1" refs ref
+	refs="$(metadata_value "$file" Mandatory-Git-Refs)"
+	[[ -n "$refs" && "$refs" != NONE && "$refs" != - ]] || return 0
+	refs="${refs//,/;}"
+	IFS=';' read -r -a mandatory_ref_list <<< "$refs"
+	for ref in "${mandatory_ref_list[@]}"; do
+		ref="${ref#"${ref%%[![:space:]]*}"}"
+		ref="${ref%"${ref##*[![:space:]]}"}"
+		[[ -n "$ref" ]] || continue
+		[[ "$ref" == refs/heads/* ]] || ref="refs/heads/$ref"
+		git check-ref-format "$ref" >/dev/null 2>&1 || die "invalid Mandatory-Git-Refs entry: $ref"
+		printf '%s\n' "$ref"
+	done
+}
+
+assignment_mandatory_git_refs_satisfied()
+{
+	local file="$1" ref found=0
+	while IFS= read -r ref; do
+		[[ -n "$ref" ]] || continue
+		found=1
+		git -C "$REPOSITORY" rev-parse --verify "$ref^{commit}" >/dev/null 2>&1 || return 1
+	done < <(assignment_mandatory_git_refs "$file")
+	(( found == 1 )) || return 0
+}
+
+assignment_missing_mandatory_git_refs()
+{
+	local file="$1" ref
+	while IFS= read -r ref; do
+		[[ -n "$ref" ]] || continue
+		git -C "$REPOSITORY" rev-parse --verify "$ref^{commit}" >/dev/null 2>&1 || printf '%s\n' "$ref"
+	done < <(assignment_mandatory_git_refs "$file")
 }
 
 task_root_replanning_file()
@@ -1304,6 +1440,11 @@ task_root_needs_human()
 	[[ -f "$(task_root_human_file "$1")" ]]
 }
 
+task_root_waiting_dependency()
+{
+	[[ -f "$(task_root_waiting_dependency_file "$1")" ]]
+}
+
 task_root_is_replanning()
 {
 	[[ -f "$(task_root_replanning_file "$1")" ]]
@@ -1312,7 +1453,8 @@ task_root_is_replanning()
 task_root_is_paused()
 {
 	task_root_is_blocked "$1" || task_root_needs_replan "$1" ||
-		task_root_needs_human "$1" || task_root_is_replanning "$1"
+		task_root_needs_human "$1" || task_root_is_replanning "$1" ||
+		task_root_waiting_dependency "$1"
 }
 
 task_progress_percent()
@@ -2289,6 +2431,118 @@ project_plan_item_for_root()
 	awk -F '\t' -v root="$root" '!/^#/ && $3 == root {print $1; exit}' "$(project_plan_state_file)"
 }
 
+set_project_plan_item_waiting_dependency()
+{
+	local item_id="$1" root="$2" state status current_root tmp
+	state="$(project_plan_state_file)"
+	status="$(project_plan_item_status "$item_id")"
+	current_root="$(project_plan_item_root "$item_id")"
+	[[ "$status" == ACTIVE || "$status" == PENDING ]] ||
+		die "project plan item cannot wait for a dependency from state $status: $item_id"
+	if [[ "$status" == ACTIVE ]]; then
+		[[ "$current_root" == "$root" ]] || die "active plan item belongs to root $current_root, not $root"
+	else
+		[[ "$current_root" == - ]] || die "pending plan item unexpectedly has a task root: $item_id"
+	fi
+	tmp="$state.tmp.$$"
+	awk -F '\t' -v OFS='\t' -v item="$item_id" -v root="$root" -v now="$(timestamp_utc)" '
+		/^#/ {print; next}
+		$1 == item {$2 = "WAITING_DEPENDENCY"; $3 = root; $4 = now}
+		{print}
+	' "$state" > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$state"
+}
+
+publish_dependency_request()
+{
+	local request_id="$1" item_id="$2" root="$3" requirements_source="$4" note_source="$5" trigger_task="${6:--}"
+	local dependency_dir request requirements root_marker tmp failures
+	validate_dependency_request_id "$request_id"
+	validate_task_id "$root"
+	[[ "$(project_plan_item_for_root "$root")" == "$item_id" ]] ||
+		die "task root $root is not assigned to project plan item $item_id"
+	[[ -f "$note_source" && -s "$note_source" ]] || die 'dependency request note is missing or empty'
+	validate_dependency_requirements_file "$requirements_source"
+	dependency_requirements_satisfied "$requirements_source" &&
+		die 'all declared dependencies are already satisfied; refusing a waiting transition'
+	dependency_dir="$(dependency_request_dir)"
+	mkdir -p "$dependency_dir"
+	chmod 700 "$dependency_dir"
+	request="$(dependency_request_file "$request_id")"
+	requirements="$(dependency_requirements_file "$request_id")"
+	[[ ! -e "$request" && ! -e "$requirements" ]] || die "dependency request already exists: $request_id"
+	install -m 600 "$requirements_source" "$requirements"
+	failures="$(dependency_requirement_failures "$requirements")"
+	tmp="$request.tmp.$$"
+	{
+		printf '# Waiting Dependency Request\n\n'
+		printf 'Request-ID: %s\n\n' "$request_id"
+		printf 'Project: %s\n\n' "$PROJECT"
+		printf 'Plan-Item: %s\n\n' "$item_id"
+		printf 'Task-Root: %s\n\n' "$root"
+		printf 'Triggered-By-Task: %s\n\n' "$trigger_task"
+		printf 'Consumer-Repository: %s\n\n' "$REPOSITORY"
+		printf 'Requirements-File: %s\n\n' "$requirements"
+		printf 'Waiting-Since: %s\n\n' "$(timestamp_utc)"
+		printf 'Dependency-Fingerprint: sha256:%s\n\n' "$(sha256sum "$requirements" | awk '{print $1}')"
+		printf '## Unsatisfied requirements\n\n```text\n%s\n```\n\n' "$failures"
+		printf '## Agent-authored dependency specification\n\n'
+		cat "$note_source"
+		printf '\n\n## Supply protocol\n\n'
+		printf 'A producer must publish the requested source-only commit and branch, then supply each dependency with `harness-supply-dependency ENV_FILE REQUEST_ID DEPENDENCY_ID SOURCE_REPOSITORY [SOURCE_REF]`. The consumer wakes only after every ref, ancestry constraint, and required path validates.\n'
+	} > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$request"
+	set_project_plan_item_waiting_dependency "$item_id" "$root"
+	root_marker="$(task_root_waiting_dependency_file "$root")"
+	{
+		printf '# Root Waiting For Dependency\n\n'
+		printf 'Project: %s\n\nTask-Root: %s\n\nPlan-Item: %s\n\nRequest-ID: %s\n\n' \
+			"$PROJECT" "$root" "$item_id" "$request_id"
+		printf 'Dependency-Specification: %s\n\nRequirements-File: %s\n\n' "$request" "$requirements"
+		printf 'Paused-At: %s\n\n' "$(timestamp_utc)"
+		printf 'This state consumes no worker or manager review cycles and records no durable implementation gain.\n'
+	} > "$root_marker.tmp.$$"
+	chmod 600 "$root_marker.tmp.$$"
+	mv "$root_marker.tmp.$$" "$root_marker"
+	log_event "WAITING_DEPENDENCY request=$request_id item=$item_id root=$root trigger_task=$trigger_task requirements=$requirements"
+	printf '%s\n' "$request"
+}
+
+resolve_dependency_request_if_ready()
+{
+	local request="$1" request_id requirements item_id root state tmp archive
+	[[ -f "$request" ]] || return 1
+	request_id="$(metadata_value "$request" Request-ID)"
+	requirements="$(metadata_value "$request" Requirements-File)"
+	item_id="$(metadata_value "$request" Plan-Item)"
+	root="$(metadata_value "$request" Task-Root)"
+	[[ -f "$requirements" ]] || return 1
+	dependency_requirements_satisfied "$requirements" || return 1
+	state="$(project_plan_state_file)"
+	[[ "$(project_plan_item_status "$item_id")" == WAITING_DEPENDENCY ]] || return 1
+	tmp="$state.tmp.$$"
+	awk -F '\t' -v OFS='\t' -v item="$item_id" -v now="$(timestamp_utc)" '
+		/^#/ {print; next}
+		$1 == item {$2 = "ACTIVE"; $4 = now}
+		{print}
+	' "$state" > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$state"
+	rm -f "$(task_root_waiting_dependency_file "$root")"
+	archive="$(dependency_request_dir)/$request_id.resolved.md"
+	{
+		cat "$request"
+		printf '\n\nResolved-At: %s\n' "$(timestamp_utc)"
+	} > "$archive.tmp.$$"
+	chmod 600 "$archive.tmp.$$"
+	mv "$archive.tmp.$$" "$archive"
+	rm -f "$request"
+	log_event "DEPENDENCY_RESOLVED request=$request_id item=$item_id root=$root requirements=$requirements"
+	return 0
+}
+
 project_plan_all_complete()
 {
 	local total pending
@@ -2636,6 +2890,7 @@ write_manager_snapshot()
 		printf 'auto_replan_enabled=%s\n' "$HARNESS_AUTO_REPLAN_ENABLED"
 		printf 'max_auto_replans_without_verified_gain=%s\n' "$HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN"
 		printf 'preferred_worker_route=%s\n' "$HARNESS_PREFERRED_WORKER_ROUTE"
+		printf 'agent_commits_enabled=%s\n' "$HARNESS_AGENT_COMMITS_ENABLED"
 		printf 'min_luna_node_percent=%s\n' "$HARNESS_MIN_LUNA_NODE_PERCENT"
 		printf 'env_file=%s\n' "$HARNESS_ENV_FILE"
 		printf 'env_sha256=%s\n' "$(env_sha256)"
@@ -2677,6 +2932,7 @@ write_worker_snapshot()
 		printf 'max_luna_strategy_failures=%s\n' "$HARNESS_MAX_LUNA_STRATEGY_FAILURES"
 		printf 'min_luna_node_percent=%s\n' "$HARNESS_MIN_LUNA_NODE_PERCENT"
 		printf 'preferred_worker_route=%s\n' "$HARNESS_PREFERRED_WORKER_ROUTE"
+		printf 'agent_commits_enabled=%s\n' "$HARNESS_AGENT_COMMITS_ENABLED"
 		printf 'luna_model=%s\n' "$LUNA_WORKER_MODEL"
 		printf 'luna_reasoning_effort=%s\n' "$LUNA_WORKER_REASONING_EFFORT"
 		printf 'terra_model=%s\n' "$TERRA_WORKER_MODEL"

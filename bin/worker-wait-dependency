@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TASK_ID SESSION REQUEST_ID REQUIREMENTS_TSV NOTE_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 6 ]] || usage
+load_harness_env "$1"
+task_id="$2"
+session="$3"
+request_id="$4"
+requirements="$5"
+note="$6"
+ensure_project
+require_repository
+validate_task_id "$task_id"
+ensure_session "$session"
+acquire_project_lock
+
+dir="$(project_dir)"
+base="$(task_base "$task_id")"
+running="$dir/running/$base.running.md"
+lease="$dir/control/$base.lease"
+[[ -f "$running" && -f "$lease" ]] || die "task is not actively owned: $task_id"
+owner="$(lease_value "$lease" owner)"
+[[ "$owner" == "$session" ]] || die "task is owned by $owner, not $session"
+root="$(task_root_id "$task_id")"
+item_id="$(project_plan_item_for_root "$root")"
+[[ -n "$item_id" ]] || die "task root is not assigned to a project plan item: $root"
+
+request_path="$(publish_dependency_request "$request_id" "$item_id" "$root" "$requirements" "$note" "$task_id")"
+mv "$running" "$dir/archive/$base.assignment.md"
+rm -f "$lease" "$(goal_continue_marker_file "$task_id")"
+goal_state="$(goal_state_file "$task_id")"
+if [[ -f "$goal_state" ]]; then
+	goal_state_set "$goal_state" state WAITING_DEPENDENCY
+	goal_state_set "$goal_state" dependency_request "$request_path"
+	goal_state_set "$goal_state" updated_at "$(timestamp_utc)"
+fi
+log_event "WORKER_WAITING_DEPENDENCY task=$task_id session=$session request=$request_id"
+printf 'WAITING_DEPENDENCY=%s\n' "$request_path"

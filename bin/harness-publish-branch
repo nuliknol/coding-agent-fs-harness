@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-mode.sh"
+harness_dispatch_mode "$SCRIPT_DIR/.." "${0##*/}" "$@"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TASK_ID SESSION BRANCH [COMMIT]\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -ge 4 && $# -le 5 ]] || usage
+load_harness_env "$1"
+task_id="$2"
+session="$3"
+branch="$4"
+commit="${5:-HEAD}"
+ensure_project
+require_repository
+validate_task_id "$task_id"
+ensure_session "$session"
+(( HARNESS_AGENT_COMMITS_ENABLED == 1 )) || die 'agent branch publication is disabled by HARNESS_AGENT_COMMITS_ENABLED=0'
+git check-ref-format --branch "$branch" >/dev/null 2>&1 || die "invalid branch name: $branch"
+[[ "$branch" != HEAD && "$branch" != -* ]] || die "invalid branch name: $branch"
+acquire_project_lock
+
+dir="$(project_dir)"
+base="$(task_base "$task_id")"
+running="$dir/running/$base.running.md"
+lease="$dir/control/$base.lease"
+[[ -f "$running" && -f "$lease" ]] || die "task is not actively owned: $task_id"
+owner="$(lease_value "$lease" owner)"
+[[ "$owner" == "$session" ]] || die "task is owned by $owner, not $session"
+
+declared_branch="$(metadata_value "$running" Publish-Branch)"
+if [[ -n "$declared_branch" ]]; then
+	[[ "$branch" == "$declared_branch" ]] || die "assignment permits publication only to branch: $declared_branch"
+else
+	[[ -n "$SPECIFICATION" && -f "$SPECIFICATION" ]] || die 'assignment has no Publish-Branch and no governing specification is available'
+	grep -Fq -- "$branch" "$SPECIFICATION" || die "branch is not declared by the assignment or governing specification: $branch"
+fi
+
+commit="$(git -C "$REPOSITORY" rev-parse --verify "$commit^{commit}")" || die 'publication commit does not exist'
+head_commit="$(git -C "$REPOSITORY" rev-parse --verify HEAD^{commit})"
+[[ "$commit" == "$head_commit" ]] || die 'agents may publish only the current checked-out HEAD commit'
+publish_base="$(metadata_value "$running" Publish-Base)"
+if [[ -n "$publish_base" && "$publish_base" != NONE && "$publish_base" != - ]]; then
+	base_commit="$(git -C "$REPOSITORY" rev-parse --verify "$publish_base^{commit}")" || die "Publish-Base does not resolve: $publish_base"
+	git -C "$REPOSITORY" merge-base --is-ancestor "$base_commit" "$commit" ||
+		die "publication commit does not descend from Publish-Base: $publish_base"
+fi
+
+target_ref="refs/heads/$branch"
+old_commit="$(git -C "$REPOSITORY" rev-parse --verify "$target_ref^{commit}" 2>/dev/null || true)"
+if [[ -n "$old_commit" ]]; then
+	git -C "$REPOSITORY" merge-base --is-ancestor "$old_commit" "$commit" ||
+		die "branch publication would not be a fast-forward: $branch"
+	git -C "$REPOSITORY" update-ref -m "harness agent publication: $task_id" "$target_ref" "$commit" "$old_commit"
+else
+	git -C "$REPOSITORY" update-ref -m "harness agent publication: $task_id" "$target_ref" "$commit" "$(printf '0%.0s' {1..40})"
+fi
+
+ledger="$dir/control/agent-branches.tsv"
+if [[ ! -f "$ledger" ]]; then
+	printf 'published_at\ttask_id\tsession\tbranch\tcommit\tprevious\n' > "$ledger"
+	chmod 600 "$ledger"
+fi
+printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(timestamp_utc)" "$task_id" "$session" \
+	"$branch" "$commit" "${old_commit:--}" >> "$ledger"
+log_event "AGENT_BRANCH_PUBLISHED task=$task_id session=$session branch=$branch commit=$commit previous=${old_commit:--}"
+printf 'BRANCH=%s\nCOMMIT=%s\n' "$branch" "$commit"

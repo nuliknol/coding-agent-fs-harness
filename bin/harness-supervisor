@@ -160,7 +160,20 @@ project_has_active_task()
 		compgen -G "$dir/control/progress/$PROJECT-task-*.blocked.md" >/dev/null ||
 		compgen -G "$dir/control/progress/$PROJECT-task-*.needs-replan.md" >/dev/null ||
 		compgen -G "$dir/control/progress/$PROJECT-task-*.needs-human.md" >/dev/null ||
+		compgen -G "$dir/control/progress/$PROJECT-task-*.waiting-dependency.md" >/dev/null ||
 		compgen -G "$dir/control/progress/$PROJECT-task-*.replanning.md" >/dev/null
+}
+
+process_dependency_requests()
+{
+	local request
+	shopt -s nullglob
+	for request in "$(dependency_request_dir)"/*.waiting.md; do
+		[[ -f "$request" ]] || continue
+		if resolve_dependency_request_if_ready "$request"; then
+			log_event "SUPERVISOR_DEPENDENCY_WAKE request=$request"
+		fi
+	done
 }
 
 reclassify_legacy_convergence_human_markers()
@@ -380,6 +393,7 @@ log_event "SUPERVISOR_STARTED pid=$$ env_file=$HARNESS_ENV_FILE"
 printf 'Supervisor started for %s with PID %s. No LLM is running while idle.\n' "$PROJECT" "$$"
 
 while true; do
+	process_dependency_requests
 	if handle_project_completion; then
 		break
 	fi

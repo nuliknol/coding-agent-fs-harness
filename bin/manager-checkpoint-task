@@ -137,6 +137,9 @@ fi
 
 [[ -f "$result" ]] || die "result does not exist: $task_id"
 [[ -f "$assignment_archive" ]] || die "archived assignment is missing: $task_id"
+if ! assignment_mandatory_git_refs_satisfied "$assignment_archive"; then
+	die "mandatory Git refs are absent; dependency absence is WAITING_DEPENDENCY, not durable checkpoint gain: $(assignment_missing_mandatory_git_refs "$assignment_archive" | paste -sd, -)"
+fi
 [[ ! -e "$running" ]] || die "task is still running: $task_id"
 [[ ! -e "$lease" ]] || die "worker lease still exists: $task_id"
 goal_outcome="$(metadata_value "$result" Goal-Outcome)"

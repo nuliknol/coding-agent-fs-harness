@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-mode.sh"
+harness_dispatch_mode "$SCRIPT_DIR/.." "${0##*/}" "$@"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE REQUEST_ID DEPENDENCY_ID SOURCE_REPOSITORY [SOURCE_REF]\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -ge 4 && $# -le 5 ]] || usage
+load_harness_env "$1"
+request_id="$2"
+dependency_id="$3"
+source_repository="$(realpath -m "$4")"
+source_ref="${5:-}"
+ensure_project
+require_repository
+validate_dependency_request_id "$request_id"
+[[ "$dependency_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "invalid dependency ID: $dependency_id"
+request="$(dependency_request_file "$request_id")"
+requirements="$(dependency_requirements_file "$request_id")"
+[[ -f "$request" && -f "$requirements" ]] || die "dependency request is not waiting: $request_id"
+validate_dependency_requirements_file "$requirements"
+IFS=$'\t' read -r found_id type target_ref source_hint ancestor required_path description < <(
+	awk -F '\t' -v id="$dependency_id" 'NR > 1 && $1 == id {print; exit}' "$requirements"
+)
+[[ "$found_id" == "$dependency_id" ]] || die "dependency ID is not declared by request $request_id: $dependency_id"
+[[ -d "$source_repository" ]] || die "source repository does not exist: $source_repository"
+git -C "$source_repository" rev-parse --is-inside-work-tree >/dev/null 2>&1 || die 'source path is not a Git repository'
+if [[ "$source_hint" != - ]]; then
+	[[ "$source_repository" == "$(realpath -m "$source_hint")" ]] || die "request requires source repository: $source_hint"
+fi
+[[ -n "$source_ref" ]] || source_ref="$target_ref"
+source_commit="$(git -C "$source_repository" rev-parse --verify "$source_ref^{commit}")" || die "source ref does not resolve to a commit: $source_ref"
+if [[ "$ancestor" != - ]]; then
+	git -C "$source_repository" merge-base --is-ancestor "$ancestor" "$source_commit" ||
+		die "source commit does not descend from required ancestor: $ancestor"
+fi
+if [[ "$required_path" != - ]]; then
+	git -C "$source_repository" cat-file -e "$source_commit:$required_path" 2>/dev/null ||
+		die "source commit does not contain required path: $required_path"
+fi
+
+acquire_project_lock
+if [[ "$source_repository" != "$REPOSITORY" ]]; then
+	git -C "$REPOSITORY" fetch --quiet --no-tags --no-write-fetch-head "$source_repository" "$source_commit"
+fi
+git -C "$REPOSITORY" cat-file -e "$source_commit^{commit}" || die 'source commit import failed'
+old_commit="$(git -C "$REPOSITORY" rev-parse --verify "$target_ref^{commit}" 2>/dev/null || true)"
+if [[ -n "$old_commit" && "$old_commit" != "$source_commit" ]]; then
+	git -C "$REPOSITORY" merge-base --is-ancestor "$old_commit" "$source_commit" ||
+		die "dependency supply would not fast-forward $target_ref"
+fi
+git -C "$REPOSITORY" update-ref -m "harness dependency supply: $request_id/$dependency_id" \
+	"$target_ref" "$source_commit" "${old_commit:-$(printf '0%.0s' {1..40})}"
+
+ledger="$(dependency_request_dir)/supplies.tsv"
+if [[ ! -f "$ledger" ]]; then
+	printf 'supplied_at\trequest_id\tdependency_id\ttarget_ref\tcommit\tsource_repository\tsource_ref\n' > "$ledger"
+	chmod 600 "$ledger"
+fi
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(timestamp_utc)" "$request_id" "$dependency_id" \
+	"$target_ref" "$source_commit" "$source_repository" "$source_ref" >> "$ledger"
+log_event "DEPENDENCY_SUPPLIED request=$request_id dependency=$dependency_id target_ref=$target_ref commit=$source_commit source_repository=$source_repository source_ref=$source_ref"
+printf 'DEPENDENCY_ID=%s\nTARGET_REF=%s\nCOMMIT=%s\n' "$dependency_id" "$target_ref" "$source_commit"

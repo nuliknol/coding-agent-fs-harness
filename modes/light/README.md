@@ -398,16 +398,17 @@ The harness records the launch commit in `project.conf`. Each manager and
 worker turn receives the current `HEAD` commit as its canonical diff baseline,
 so later owner-created commits on top of the launch commit become baseline
 content automatically. Historical or inspected commit hashes mentioned in a
-specification are never used to identify worker-authored changes. Codex turns
-may edit and delete tracked files when the specification requires it, but may
-not modify Git history, refs, `HEAD`, or the index. A specification request for
-a focused commit, branch, commit hash, or staged handoff is interpreted as a
-focused unstaged working-tree delivery with a proposed commit message and
-touched-file manifest for the operator. This absolute Git-control policy is
-appended after complete specifications and addenda so repository-local wording
-cannot override it. The executor also restores the Git index to its pre-turn
-state, so model edits remain in the working tree without unexpectedly staging
-them. It snapshots and verifies the configured specification, development policy,
+specification are never used to identify worker-authored changes. Codex
+implementation turns may edit and delete tracked files when the specification
+requires it. After focused validation, the worker uses
+`harness-commit-source` to publish only explicitly named source and related
+text artifacts; generated output, object files, binaries, ignored files, a
+dirty pre-existing index, and unrelated paths are rejected. A named branch is
+published with `harness-publish-branch` only when the specification declares
+it. Models still may not run direct Git index/history mutation commands. This
+validated policy is appended after complete specifications and addenda so
+repository-local wording cannot weaken its artifact controls. The executor
+snapshots and verifies the configured specification, development policy,
 immutable inputs, prompts, reviews, addenda, and durable control files around
 every turn. If Codex changes protected content, the harness restores it and
 rejects the turn.

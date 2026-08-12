@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+source "$SCRIPT_DIR/../../../lib/harness-git-commit.sh"
+
+(( $# >= 3 )) || die "Usage: ${0##*/} ENV_FILE MESSAGE_FILE PATH..."
+load_harness_env "$1"
+message_file="$2"
+shift 2
+ensure_project
+[[ "$(state_value status)" == ACTIVE && "$(state_value phase)" == WORKER_RUNNING ]] ||
+	die 'a Light source commit is permitted only during the active worker implementation phase'
+AGENT_COMMIT_SCOPE=""
+AGENT_COMMIT_ACTOR="cycle=$(state_value cycle) role=worker"
+commit="$(agent_commit_source "$message_file" "$@")"
+ledger="$(project_dir)/control/agent-commits.tsv"
+if [[ ! -f "$ledger" ]]; then
+	printf 'commit\tcycle\tcreated_at\tpaths\n' > "$ledger"
+	chmod 600 "$ledger"
+fi
+printf '%s\t%s\t%s\t%s\n' "$commit" "$(state_value cycle)" "$(timestamp_utc)" "$(IFS=,; printf '%s' "$*")" >> "$ledger"
+log_event "AGENT_SOURCE_COMMIT cycle=$(state_value cycle) commit=$commit paths=$(printf '%q' "$*")"
+printf 'COMMIT=%s\nCYCLE=%s\n' "$commit" "$(state_value cycle)"

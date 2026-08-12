@@ -20,6 +20,8 @@ printf 'Convergence auditor: %s (%s), sandbox=%s\n' \
 	"$CONVERGENCE_MODEL" "$CONVERGENCE_REASONING_EFFORT" "$CONVERGENCE_SANDBOX"
 printf 'Worker: %s (%s), sandbox=%s\n' \
 	"$WORKER_MODEL" "$WORKER_REASONING_EFFORT" "$WORKER_SANDBOX"
+printf 'Validated agent source commits: %s\n' \
+	"$([[ "$HARNESS_AGENT_COMMITS_ENABLED" == 1 ]] && printf enabled || printf disabled)"
 if oracle_enabled; then
 	printf 'Oracle: %s (%s), sandbox=%s, maximum runs=%s\n' \
 		"$ORACLE_MODEL" "$ORACLE_REASONING_EFFORT" "$ORACLE_SANDBOX" \

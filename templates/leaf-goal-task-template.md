@@ -14,6 +14,8 @@ Focused-Validation: State the affected build and one focused validation command.
 Allowed-Scope: State the exact file and behavior boundary.
 Baseline-Boundary: State the durable starting failure, diagnostic, or evidence boundary.
 Hard-Block-Conditions: List only explicit authority, external dependency, or incompatible observable product/specification outcomes. Worker file ownership, exclusive/forbidden paths, and baseline restrictions route to manager baseline remediation.
+Mandatory-Git-Refs: NONE
+<!-- For a Git branch deliverable, add Publish-Branch and Publish-Base metadata. -->
 Leaf-Type: LOCAL_IMPLEMENTATION
 Complexity-Class: LOW
 Worker-Route: LUNA

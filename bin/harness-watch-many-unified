@@ -230,8 +230,17 @@ while IFS= read -r -d '' env_file; do
 	cycle="$(find "$dir/archive" -maxdepth 1 -type f \( -name '*.accepted.md' -o -name '*.checkpointed.md' -o -name '*.rejected.md' \) -printf '.\n' 2>/dev/null | wc -l | tr -d ' ')"
 	manager="$(awk -F': ' '$1=="Manager supervisor" {print $2; exit}' <<< "$status_output")"; worker="$(awk -F': ' '$1=="Worker supervisor" {print $2; exit}' <<< "$status_output")"
 	active="$(full_active_file "$dir" "$project")"
+	waiting_request=""
+	if [[ -d "$dir/control/dependencies" ]]; then
+		waiting_request="$(find "$dir/control/dependencies" -maxdepth 1 -type f -name '*.waiting.md' -print 2>/dev/null | sort | head -n 1)"
+	fi
 	if [[ -f "$dir/control/project.complete" ]]; then display_status=done; description='Completed normally. Every dependency-DAG node is accepted.'
 	elif [[ -f "$dir/control/project.blocked.md" ]]; then display_status=paused; description="NEEDS HUMAN: $(markdown_summary "$dir/control/project.blocked.md")"
+	elif [[ -n "$waiting_request" ]]; then
+		display_status=waiting
+		request_id="$(awk -F': ' '$1=="Request-ID" {print $2; exit}' "$waiting_request")"
+		failures="$(awk '/^```text$/ {inside=1; next} inside && /^```$/ {exit} inside && NF {print}' "$waiting_request" | paste -sd';' -)"
+		description="WAITING_DEPENDENCY ${request_id:-unknown}: ${failures:-see $waiting_request}."
 	elif [[ -n "$active" && "$active" == */results/* ]]; then [[ "$manager" == running* ]] && display_status='m/running' || display_status='m/stopped'; description='Manager is reviewing a completed leaf.'
 	elif [[ -n "$active" ]]; then
 		[[ "$worker" == running* ]] && display_status='w/running' || display_status='w/stopped'

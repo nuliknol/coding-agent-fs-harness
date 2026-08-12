@@ -22,20 +22,35 @@ The launcher has already claimed the task. During this turn:
    run one regression test only when this assignment fixes a specific bug.
 5. In goal mode, either publish one nonterminal continuation receipt or write a
    terminal result. In legacy mode, write a result.
-6. Publish a terminal result only with:
+6. After focused validation, commit every task-owned source/source-related
+   change before a terminal result. Write a commit message file under
+   `PROJECT_TMP_DIR` and use only the controlled transaction:
+
+```text
+$HARNESS_BIN/harness-commit-source "$ENV_FILE" "$TASK_ID" "$SESSION" MESSAGE_FILE PATH...
+```
+
+   Pass every source path explicitly. Generated output, object files, binaries,
+   ignored files, undeclared paths, and paths outside `Allowed-Scope` are
+   rejected. If the assignment declares `Publish-Branch`, publish the new HEAD
+   with `$HARNESS_BIN/harness-publish-branch "$ENV_FILE" "$TASK_ID" "$SESSION" BRANCH`.
+7. Publish a terminal result only with:
 
 ```text
 $HARNESS_BIN/worker-complete-task "$ENV_FILE" "$TASK_ID" "$SESSION" RESULT_FILE
 ```
 
-7. Terminate immediately after either publication command succeeds.
+8. Terminate immediately after either publication command succeeds.
 
 You must never:
 
 - Wait for another task.
 - Call `worker-claim-next` or `worker-claim-task`.
 - Run `sleep`, polling loops, `watch`, or `inotifywait`.
-- Create, stage, or commit Git changes.
+- Run direct Git index/history mutations such as `git add`, `git commit`,
+  `git switch`, `git checkout`, `git merge`, `git cherry-pick`, `git rebase`,
+  or `git update-ref`. Source commits and branch publication use only the
+  validated harness commands above.
 - Claim that work is complete without publishing the result through `worker-complete-task`.
 - Write directly to goal state or iteration ledgers; only
   `worker-continue-task` may commit a continuation.
@@ -54,6 +69,24 @@ Acceptance or abort clears it, while an explicit fresh-context request
 or rotation limit starts a replacement thread. No Codex process remains alive
 between tasks. A separate heartbeat process renews the task lease while this
 run is active.
+
+If an exact cross-harness Git ref is a mandatory prerequisite and is absent,
+do not repeatedly audit the same absence and do not publish it as completion,
+a checkpoint, or durable gain. Write a seven-column dependency requirements
+TSV and a precise supplier note under `PROJECT_TMP_DIR`, then call:
+
+```text
+$HARNESS_BIN/worker-wait-dependency "$ENV_FILE" "$TASK_ID" "$SESSION" REQUEST_ID REQUIREMENTS_TSV NOTE_FILE
+```
+
+The TSV header is `dependency_id`, `type`, `target_ref`, `source_hint`,
+`required_ancestor`, `required_path`, and `description` separated by tabs.
+`type` is `GIT_REF`; use full `refs/heads/...` target refs, an absolute producer
+repository hint or `-`, a full required ancestor commit or `-`, and one path
+that must exist in the supplied commit or `-`. The note must state what another
+agent must build, validate, commit, and publish. This transition ends the turn,
+creates a machine-readable dependency specification, and consumes no review
+cycle. Never use it for ordinary in-scope code, build, or test work.
 
 ## Variables supplied by the launcher
 
