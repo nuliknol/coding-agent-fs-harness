@@ -37,6 +37,11 @@ if assignment_is_manager_remediation "$ready"; then
 	execution_model="$MANAGER_MODEL"
 	execution_fallback_model="$MANAGER_FALLBACK_MODEL"
 	execution_mode=MANAGER_REMEDIATION
+	worker_route=MANAGER_REMEDIATION
+	if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
+		leaf_expected_turns="$(require_single_metadata_value "$ready" Expected-Max-Worker-Turns 'v2 manager remediation assignment')"
+		[[ "$leaf_expected_turns" =~ ^[1-9][0-9]*$ ]] || die 'invalid v2 Expected-Max-Worker-Turns'
+	fi
 	require_manager_codex
 	write_manager_snapshot
 else
@@ -292,6 +297,18 @@ waiting_dependency_committed()
 		! -e "$running" && ! -e "$lease" && -f "$assignment_archive" ]]
 }
 
+emit_synthetic_impact_manifest()
+{
+	(( HARNESS_ARCHITECTURE_GUARDS == 1 )) || return 0
+	printf 'Changed-Public-Symbols: -\n'
+	printf 'Changed-Representations: -\n'
+	printf 'Changed-Ownership: -\n'
+	printf 'Changed-Serialization: -\n'
+	printf 'Changed-Dependencies: -\n'
+	printf 'Affected-Invariants: %s\n' "$(require_single_metadata_value "$task_file" Affected-Invariants 'active assignment')"
+	printf 'Affected-Edges: %s\n' "$(require_single_metadata_value "$task_file" Edge-Contracts 'active assignment')"
+}
+
 normalize_direct_result()
 {
 	local normalize_status
@@ -445,7 +462,9 @@ while true; do
 					printf 'Task-ID: %s\n' "$task_id"
 					printf 'Status: COMPLETED\n'
 					printf 'Goal-ID: %s\n' "$goal_id"
-					printf 'Goal-Outcome: NEEDS_DECOMPOSITION\n\n'
+					printf 'Goal-Outcome: NEEDS_DECOMPOSITION\n'
+					emit_synthetic_impact_manifest
+					printf '\n'
 					printf '## Summary\n\nThe routed leaf reached its declared maximum of %s durable worker turns without a terminal completion.\n\n' "$leaf_expected_turns"
 					printf '## Modified files\n\nWorkspace changes are preserved for independent manager inspection.\n\n'
 					printf '## Implemented behavior\n\nNo additional implementation claim is synthesized by the harness.\n\n'
@@ -552,7 +571,9 @@ while true; do
 			printf 'Task-ID: %s\n' "$task_id"
 			printf 'Status: COMPLETED\n'
 			printf 'Goal-ID: %s\n' "$goal_id"
-			printf 'Goal-Outcome: NEEDS_DECOMPOSITION\n\n'
+			printf 'Goal-Outcome: NEEDS_DECOMPOSITION\n'
+			emit_synthetic_impact_manifest
+			printf '\n'
 			printf '## Summary\n\nThe leaf-goal execution protocol made no durable transition for %s consecutive recoverable turns.\n\n' "$protocol_failures"
 			printf '## Modified files\n\nWorkspace changes, if any, are preserved for manager inspection.\n\n'
 			printf '## Implemented behavior\n\nNo implementation claim is synthesized by the harness.\n\n'
