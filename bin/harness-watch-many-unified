@@ -36,9 +36,23 @@ config_dir="$(realpath "$1")"
 
 if (( ! render_once )); then
 	command -v watch >/dev/null 2>&1 || { printf 'The watch command is required.\n' >&2; exit 1; }
-	exec watch --interval "$interval" --exec \
+	if [[ "${HARNESS_WATCH_COLOR:-auto}" != never &&
+		( "${HARNESS_WATCH_COLOR:-auto}" == always || -z "${NO_COLOR:-}" ) ]] &&
+		watch --help 2>&1 | grep -q -- '--color'; then
+		exec watch --color --interval "$interval" --exec env HARNESS_WATCH_COLOR=always \
+			"${HARNESS_WATCH_ENTRYPOINT:-$SCRIPT_DIR/harness-watch-many}" --once "$config_dir"
+	fi
+	exec watch --interval "$interval" --exec env HARNESS_WATCH_COLOR=never \
 		"${HARNESS_WATCH_ENTRYPOINT:-$SCRIPT_DIR/harness-watch-many}" --once "$config_dir"
 fi
+
+reverse_rows=0
+case "${HARNESS_WATCH_COLOR:-auto}" in
+	always) reverse_rows=1 ;;
+	never) ;;
+	auto|'') [[ -t 1 && "${TERM:-dumb}" != dumb && -z "${NO_COLOR:-}" ]] && reverse_rows=1 ;;
+	*) printf 'Invalid HARNESS_WATCH_COLOR: %s (expected auto, always, or never)\n' "$HARNESS_WATCH_COLOR" >&2; exit 2 ;;
+esac
 
 terminal_columns()
 {
@@ -145,10 +159,29 @@ latest_trace()
 
 wrap_description() { printf '%s\n' "$1" | fold -s -w "$2"; }
 
+status_requires_attention()
+{
+	case "$1" in
+		paused|waiting|failed|dead-end|'config err'|'config error'|uninit|unknown|*/stopped) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+print_row_line()
+{
+	local status="$1" line="$2" padded
+	if (( reverse_rows )) && status_requires_attention "$status"; then
+		printf -v padded '%-*s' "$columns" "$line"
+		printf '\033[7m%s\033[0m\n' "$padded"
+	else
+		printf '%s\n' "$line"
+	fi
+}
+
 print_row()
 {
 	local project="$1" cycle="$2" status="$3" completion="$4" description="$5"
-	local line last line_count index
+	local line last line_count index rendered
 	local -a descriptions=() completions=()
 	mapfile -t descriptions < <(wrap_description "$description" "$description_width")
 	mapfile -t completions <<< "$completion"
@@ -163,13 +196,14 @@ print_row()
 	line_count=${#descriptions[@]}; (( ${#completions[@]} <= line_count )) || line_count=${#completions[@]}
 	for ((index=0; index<line_count; index++)); do
 		if (( index == 0 )); then
-			printf '%-*.*s |%*.*s| %-*.*s | %-*.*s | %s\n' \
+			printf -v rendered '%-*.*s |%*.*s| %-*.*s | %-*.*s | %s' \
 				"$project_width" "$project_width" "$project" "$cycle_width" "$cycle_width" "$cycle" \
 				"$status_width" "$status_width" "$status" "$completion_width" "$completion_width" "${completions[$index]:-}" "${descriptions[$index]:-}"
 		else
-			printf '%*s |%*s| %*s | %*s | %s\n' "$project_width" '' "$cycle_width" '' \
+			printf -v rendered '%*s |%*s| %*s | %*s | %s' "$project_width" '' "$cycle_width" '' \
 				"$status_width" '' "$completion_width" "${completions[$index]:-}" "${descriptions[$index]:-}"
 		fi
+		print_row_line "$status" "$rendered"
 	done
 }
 

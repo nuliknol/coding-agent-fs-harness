@@ -381,6 +381,14 @@ printf 'operator decision required\n' > \
 	"$project_dir/control/progress/decompv2-task-n1.needs-human.md"
 human_watch="$(COLUMNS=100 LINES=24 "$HARNESS_BIN/harness-watch-many" --once "$TEST_ROOT/watch-mixed")"
 grep -Eq '^decompv2 +\| *0\| paused' <<< "$human_watch"
+! grep -q $'\033\[' <<< "$human_watch"
+human_watch_color="$(HARNESS_WATCH_COLOR=always COLUMNS=100 LINES=24 \
+	"$HARNESS_BIN/harness-watch-many" --once "$TEST_ROOT/watch-mixed")"
+grep -Eq $'^\033\[7mdecompv2 +\| *0\| paused' <<< "$human_watch_color"
+grep -Eq $'\033\[0m$' <<< "$(grep $'^\033\[7mdecompv2 ' <<< "$human_watch_color")"
+# Stopped active supervisors are also attention states; active running and
+# completed rows remain visually normal.
+grep -Eq $'^\033\[7mdispatchlight +\| *0\| m/stopped' <<< "$human_watch_color"
 rm -f -- "$project_dir/control/progress/decompv2-task-n1.needs-human.md"
 light_watch="$(COLUMNS=100 LINES=24 "$HARNESS_BIN/harness-watch-many" --once "$TEST_ROOT/watch-light")"
 grep -q '^dispatchlight ' <<< "$light_watch"

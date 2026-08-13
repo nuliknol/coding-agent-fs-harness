@@ -64,9 +64,23 @@ if (( ! render_once )); then
 		printf 'The watch command is required.\n' >&2
 		exit 1
 	}
-	exec watch --interval "$interval" --exec \
+	if [[ "${HARNESS_WATCH_COLOR:-auto}" != never &&
+		( "${HARNESS_WATCH_COLOR:-auto}" == always || -z "${NO_COLOR:-}" ) ]] &&
+		watch --help 2>&1 | grep -q -- '--color'; then
+		exec watch --color --interval "$interval" --exec env HARNESS_WATCH_COLOR=always \
+			"$SCRIPT_DIR/harness-watch-many" --once "$config_dir"
+	fi
+	exec watch --interval "$interval" --exec env HARNESS_WATCH_COLOR=never \
 		"$SCRIPT_DIR/harness-watch-many" --once "$config_dir"
 fi
+
+reverse_rows=0
+case "${HARNESS_WATCH_COLOR:-auto}" in
+	always) reverse_rows=1 ;;
+	never) ;;
+	auto|'') [[ -t 1 && "${TERM:-dumb}" != dumb && -z "${NO_COLOR:-}" ]] && reverse_rows=1 ;;
+	*) printf 'Invalid HARNESS_WATCH_COLOR: %s (expected auto, always, or never)\n' "$HARNESS_WATCH_COLOR" >&2; exit 2 ;;
+esac
 
 terminal_columns()
 {
@@ -487,6 +501,25 @@ wrap_description()
 	printf '%s\n' "$text" | fold -s -w "$width"
 }
 
+status_requires_attention()
+{
+	case "$1" in
+		paused|waiting|failed|dead-end|'config err'|'config error'|uninit|unknown|*/stopped) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+print_row_line()
+{
+	local status="$1" line="$2" padded
+	if (( reverse_rows )) && status_requires_attention "$status"; then
+		printf -v padded '%-*s' "$columns" "$line"
+		printf '\033[7m%s\033[0m\n' "$padded"
+	else
+		printf '%s\n' "$line"
+	fi
+}
+
 print_row()
 {
 	local project="$1"
@@ -494,7 +527,7 @@ print_row()
 	local display_status="$3"
 	local completion="$4"
 	local description="$5"
-	local line last_index line_count index
+	local line last_index line_count index rendered
 	local -a description_lines=() completion_lines=()
 	mapfile -t description_lines < <(wrap_description "$description" "$description_width")
 	mapfile -t completion_lines <<< "$completion"
@@ -515,18 +548,19 @@ print_row()
 	fi
 	for ((index = 0; index < line_count; index++)); do
 		if (( index == 0 )); then
-			printf '%-*.*s |%*.*s| %-*.*s | %-*.*s | %s\n' \
+			printf -v rendered '%-*.*s |%*.*s| %-*.*s | %-*.*s | %s' \
 				"$project_width" "$project_width" "$project" \
 				"$cycle_width" "$cycle_width" "$cycle" \
 				"$status_width" "$status_width" "$display_status" \
 				"$completion_width" "$completion_width" "${completion_lines[$index]:-}" \
 				"${description_lines[$index]:-}"
 		else
-			printf '%*s |%*s| %*s | %*s | %s\n' \
+			printf -v rendered '%*s |%*s| %*s | %*s | %s' \
 				"$project_width" '' "$cycle_width" '' "$status_width" '' \
 				"$completion_width" "${completion_lines[$index]:-}" \
 				"${description_lines[$index]:-}"
 		fi
+		print_row_line "$display_status" "$rendered"
 	done
 }
 
