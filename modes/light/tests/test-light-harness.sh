@@ -827,11 +827,21 @@ percentage_watch_output="$(COLUMNS=130 LINES=24 \
 grep -q 'V50% 2/4' <<< "$percentage_watch_output"
 grep -q 'C75% @10' <<< "$percentage_watch_output"
 grep -q '^percentage-watch .*| *12| w/stopped' <<< "$percentage_watch_output"
+percentage_watch_color="$(HARNESS_WATCH_COLOR=always COLUMNS=130 LINES=24 \
+	"$ROOT/bin/harness-watch-many" --once "$percentage_watch_dir")"
+grep -q '^percentage-watch .*| *12| w/stopped' <<< "$percentage_watch_color"
+! grep -q $'^\033\[7mpercentage-watch .*| *12| w/stopped' \
+	<<< "$percentage_watch_color"
 sed -i 's/^phase=WORKER_REQUIRED$/phase=REVIEW_REQUIRED/' \
 	"$percentage_watch_project/control/state.env"
 percentage_watch_output="$(COLUMNS=130 LINES=24 \
 	"$ROOT/bin/harness-watch-many" --once "$percentage_watch_dir")"
 grep -q '^percentage-watch .*| *12| m/stopped' <<< "$percentage_watch_output"
+percentage_watch_color="$(HARNESS_WATCH_COLOR=always COLUMNS=130 LINES=24 \
+	"$ROOT/bin/harness-watch-many" --once "$percentage_watch_dir")"
+grep -q '^percentage-watch .*| *12| m/stopped' <<< "$percentage_watch_color"
+! grep -q $'^\033\[7mpercentage-watch .*| *12| m/stopped' \
+	<<< "$percentage_watch_color"
 
 repair_repo="$TEST_DIR/protocol-repair-repository"
 repair_state="$TEST_DIR/protocol-repair-state"

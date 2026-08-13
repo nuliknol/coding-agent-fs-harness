@@ -162,7 +162,7 @@ wrap_description() { printf '%s\n' "$1" | fold -s -w "$2"; }
 status_requires_attention()
 {
 	case "$1" in
-		paused|waiting|failed|dead-end|'config err'|'config error'|uninit|unknown|*/stopped) return 0 ;;
+		paused|waiting|failed|dead-end|'config err'|'config error'|uninit|unknown) return 0 ;;
 		*) return 1 ;;
 	esac
 }
