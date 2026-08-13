@@ -87,6 +87,34 @@ architecture_require_id_list()
 	done
 }
 
+architecture_validate_contract_artifact()
+{
+	local edge="$1" artifact="$2" decisions="$3" ref decision
+	local -a artifacts=()
+	[[ "$artifact" == - ]] && return 0
+	IFS=',' read -r -a artifacts <<< "$artifact"
+	for ref in "${artifacts[@]}"; do
+		[[ -n "$ref" ]] || die "edge $edge contains an empty contract artifact"
+		[[ "$ref" == "$(trim_surrounding_whitespace "$ref")" ]] ||
+			die "edge $edge contract artifact has surrounding whitespace: $ref"
+		if [[ "$ref" == decision:* ]]; then
+			decision="${ref#decision:}"
+			architecture_validate_id "$decision"
+			architecture_registry_has_id "$(architecture_decisions_file)" "$decision" ||
+				die "edge $edge contract artifact references unknown decision: $decision"
+			architecture_list_contains "$decisions" "$decision" ||
+				die "edge $edge decision artifact must also appear in decision_ids: $decision"
+			continue
+		fi
+		if [[ "$ref" =~ ^[A-Za-z][A-Za-z0-9+.-]*: ]]; then
+			die "edge $edge uses unsupported contract artifact namespace: $ref (use decision:DECISION_ID or a repository-relative path)"
+		fi
+		[[ "$ref" != /* && "$ref" != . && "$ref" != .. && "$ref" != ../* &&
+			"$ref" != */../* && "$ref" != */.. && "$ref" != *'*'* && "$ref" != *'?'* && "$ref" != *'['* ]] ||
+			die "edge $edge contract artifact must be a bounded repository-relative path: $ref"
+	done
+}
+
 architecture_validate_source_file()
 {
 	local kind="$1" file="$2" expected="$3" min_fields="$4" header fields first
@@ -230,6 +258,14 @@ architecture_revise()
 		install -m 600 "$source_dir/$file" "$tmp"
 		mv "$tmp" "$dir/$file"
 	done
+	if [[ -f "$(project_dir)/control/manager-plan-stalled.md" ||
+		-f "$(project_dir)/control/manager-plan-failed.md" ||
+		-f "$(project_dir)/control/manager-plan-structural-error.md" ]]; then
+		rm -f "$(project_dir)/control/manager-plan-stalled.md" \
+			"$(project_dir)/control/manager-plan-failed.md" \
+			"$(project_dir)/control/manager-plan-structural-error.md"
+		log_event 'ARCHITECTURE_PLANNING_STALL_CLEARED reason=validated_registry_revision'
+	fi
 	log_event "ARCHITECTURE_REGISTRY_REVISED backup=$revision_dir note_sha256=$note_sha"
 	printf '%s\n' "$revision_dir"
 }
@@ -326,6 +362,7 @@ architecture_validate_registries()
 		[[ -n "$producer_node" && -n "$consumer_node" && -n "$artifact" && -n "$symbols" && -n "$ownership" && -n "$representation" && -n "$versioning" && -n "$validation" ]] || die "edge $edge has empty required fields"
 		architecture_require_id_list "edge $edge decision_ids" "$decisions" "$(architecture_decisions_file)"
 		architecture_require_id_list "edge $edge invariant_ids" "$invariants" "$(architecture_invariants_file)"
+		architecture_validate_contract_artifact "$edge" "$artifact" "$decisions"
 	done < "$(architecture_edges_file)"
 	seen=()
 	while IFS=$'\t' read -r node invariants consumes produces edges gates; do
@@ -445,10 +482,51 @@ architecture_decision_accepted()
 	[[ "$static" == ACCEPTED ]] || awk -F '\t' -v id="$id" 'NR>1 && $1==id && $2=="ACCEPTED" {ok=1} END {exit !ok}' "$(architecture_decision_ledger_file)"
 }
 
+architecture_resolve_contract_artifact()
+{
+	local edge="$1" ref="$2" decision evidence
+	if [[ "$ref" == decision:* ]]; then
+		decision="${ref#decision:}"
+		architecture_decision_accepted "$decision" ||
+			die "edge $edge contract artifact decision is unresolved: $decision"
+		evidence="$(awk -F '\t' -v id="$decision" 'NR>1 && $1==id {print $8; exit}' "$(architecture_decisions_file)")"
+		[[ -n "$evidence" && "$evidence" != - && "$evidence" != operator-worktree:* ]] ||
+			die "edge $edge decision $decision lacks durable committed repository evidence"
+		printf '%s\n' "$evidence"
+		return 0
+	fi
+	printf '%s\n' "$ref"
+}
+
+architecture_require_committed_contract_artifacts()
+{
+	local edge="$1" artifact="$2" ref artifact_path
+	local -a artifacts=()
+	[[ "$artifact" == - ]] && return 0
+	IFS=',' read -r -a artifacts <<< "$artifact"
+	for ref in "${artifacts[@]}"; do
+		artifact_path="$(architecture_resolve_contract_artifact "$edge" "$ref")"
+		[[ -e "$REPOSITORY/$artifact_path" ]] ||
+			die "edge $edge contract artifact is absent: $artifact_path (from $ref)"
+		git -C "$REPOSITORY" ls-tree -r --name-only HEAD -- "$artifact_path" | grep -Fqx -- "$artifact_path" ||
+			die "edge $edge contract artifact is not committed at HEAD: $artifact_path (from $ref)"
+	done
+}
+
+architecture_require_outgoing_artifacts()
+{
+	local node="$1" edge producer consumer artifact remainder
+	while IFS=$'\t' read -r edge producer consumer artifact remainder; do
+		[[ "$edge" != edge_id && "$producer" == "$node" ]] || continue
+		architecture_list_contains "$(architecture_node_value "$node" edge_contracts)" "$edge" || continue
+		architecture_require_committed_contract_artifacts "$edge" "$artifact"
+	done < "$(architecture_edges_file)"
+}
+
 architecture_require_node_ready()
 {
-	local node="$1" decisions id edge producer artifact artifact_path
-	local -a ids=() artifacts=()
+	local node="$1" decisions id edge producer artifact
+	local -a ids=()
 	(( HARNESS_ARCHITECTURE_GUARDS == 1 )) || return 0
 	decisions="$(architecture_node_value "$node" consumes_decisions)"
 	architecture_parse_id_list "$decisions" ids
@@ -458,13 +536,7 @@ architecture_require_node_ready()
 		architecture_list_contains "$(architecture_node_value "$node" edge_contracts)" "$edge" || continue
 		[[ "$node" == "$producer" ]] && continue
 		[[ "$(project_plan_item_status "$producer")" == COMPLETE ]] || die "edge $edge producer is not complete: $producer"
-		[[ "$artifact" == - ]] && continue
-		IFS=',' read -r -a artifacts <<< "$artifact"
-		for artifact_path in "${artifacts[@]}"; do
-			[[ -n "$artifact_path" ]] || die "edge $edge contains an empty contract artifact"
-			[[ -e "$REPOSITORY/$artifact_path" ]] || die "edge $edge contract artifact is absent: $artifact_path"
-			git -C "$REPOSITORY" ls-tree -r --name-only HEAD -- "$artifact_path" | grep -Fqx -- "$artifact_path" || die "edge $edge contract artifact is not committed at HEAD: $artifact_path"
-		done
+		architecture_require_committed_contract_artifacts "$edge" "$artifact"
 	done < "$(architecture_edges_file)"
 }
 
@@ -612,6 +684,11 @@ architecture_run_acceptance_gates()
 	done
 	architecture_parse_id_list "$(architecture_node_value "$node" produces_decisions)" ids
 	for decision in "${ids[@]}"; do architecture_decision_accepted "$decision" || die "task cannot be accepted before produced decision is recorded: $decision"; done
+	# A producer may create its contract artifact during this task, so existence
+	# cannot be required when the registry or assignment is initialized. Require
+	# the resolved artifact to be durable at producer acceptance instead, before
+	# the plan item can become COMPLETE and unblock any consumer.
+	architecture_require_outgoing_artifacts "$node"
 }
 
 architecture_open_critical_debt_count()

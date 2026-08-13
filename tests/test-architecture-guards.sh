@@ -62,7 +62,7 @@ ADR-widget	PROPOSED	contract	Choose widget ownership.	Store owns values and call
 TSV
 cat > "$TEST_ROOT/architecture/edges.tsv" <<'TSV'
 edge_id	producer_node	consumer_node	contract_artifact	public_symbols	ownership_model	representation	versioning_rule	compatibility_validation	decision_ids	invariant_ids
-EDGE-widget	contract	coding	include/widget.h	widget_value	store-owned	canonical integer	additive only	grep -q 'return 1' src/widget.c	ADR-widget	INV-widget
+EDGE-widget	contract	coding	decision:ADR-widget	widget_value	store-owned	canonical integer	additive only	grep -q 'return 1' src/widget.c	ADR-widget	INV-widget
 TSV
 cat > "$TEST_ROOT/architecture/node-bindings.tsv" <<'TSV'
 node_id	invariant_ids	consumes_decisions	produces_decisions	edge_contracts	health_gates
@@ -131,6 +131,30 @@ fi
 grep -Fq 'edge EDGE-widget uses a broad aggregate as a mandatory success condition' \
 	"$TEST_ROOT/broad-edge.out"
 test ! -e "$TEST_ROOT/state/projects/archguard/control/architecture"
+unsupported_artifact_architecture="$TEST_ROOT/unsupported-artifact-architecture"
+cp -a "$TEST_ROOT/architecture" "$unsupported_artifact_architecture"
+sed -i 's/decision:ADR-widget/architecture:ADR-widget/' \
+	"$unsupported_artifact_architecture/edges.tsv"
+if "$HARNESS_BIN/manager-init-architecture" "$TEST_ROOT/harness.env" \
+	"$unsupported_artifact_architecture" > "$TEST_ROOT/unsupported-artifact.out" 2>&1; then
+	printf 'unsupported architecture contract-artifact namespace was accepted\n' >&2
+	exit 1
+fi
+grep -Fq 'edge EDGE-widget uses unsupported contract artifact namespace: architecture:ADR-widget' \
+	"$TEST_ROOT/unsupported-artifact.out"
+test ! -e "$TEST_ROOT/state/projects/archguard/control/architecture"
+unknown_decision_architecture="$TEST_ROOT/unknown-decision-architecture"
+cp -a "$TEST_ROOT/architecture" "$unknown_decision_architecture"
+sed -i 's/decision:ADR-widget/decision:ADR-missing/' \
+	"$unknown_decision_architecture/edges.tsv"
+if "$HARNESS_BIN/manager-init-architecture" "$TEST_ROOT/harness.env" \
+	"$unknown_decision_architecture" > "$TEST_ROOT/unknown-decision.out" 2>&1; then
+	printf 'unknown decision contract artifact was accepted\n' >&2
+	exit 1
+fi
+grep -Fq 'edge EDGE-widget contract artifact references unknown decision: ADR-missing' \
+	"$TEST_ROOT/unknown-decision.out"
+test ! -e "$TEST_ROOT/state/projects/archguard/control/architecture"
 "$HARNESS_BIN/manager-init-architecture" "$TEST_ROOT/harness.env" "$TEST_ROOT/architecture" >/dev/null
 "$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/harness.env" "$TEST_ROOT/plan.tsv" >/dev/null
 
@@ -144,6 +168,11 @@ sed -i 's/Widget values use one canonical representation\./Widget values retain 
 printf 'Correct a defective generated registry without resetting verified work.\n' > "$TEST_ROOT/revision-note.md"
 decision_ledger="$TEST_ROOT/state/projects/archguard/control/architecture/decision-ledger.tsv"
 ledger_before="$(sha256sum "$decision_ledger")"
+cat > "$TEST_ROOT/state/projects/archguard/control/manager-plan-stalled.md" <<'STALL'
+# Manager Planning Stalled
+
+State-Fingerprint: sha256:stale-before-architecture-repair
+STALL
 revision_output="$("$HARNESS_BIN/harness-revise-architecture" "$TEST_ROOT/harness.env" \
 	"$revision_architecture" "$TEST_ROOT/revision-note.md")"
 grep -Fq 'Widget values retain one canonical representation.' \
@@ -152,6 +181,9 @@ grep -Fq 'Widget values retain one canonical representation.' \
 revision_backup="${revision_output##*Previous registry: }"
 test -f "$revision_backup/invariants.tsv"
 test -f "$revision_backup/revision-note.md"
+test ! -e "$TEST_ROOT/state/projects/archguard/control/manager-plan-stalled.md"
+grep -Fq 'ARCHITECTURE_PLANNING_STALL_CLEARED reason=validated_registry_revision' \
+	"$TEST_ROOT/state/projects/archguard/logs/events.log"
 
 invalid_revision="$TEST_ROOT/invalid-revision-architecture"
 cp -a "$revision_architecture" "$invalid_revision"
@@ -345,11 +377,33 @@ write_result "$TEST_ROOT/contract-result.md" 001 contract.goal
 "$HARNESS_BIN/manager-accept-architecture-decision" "$TEST_ROOT/harness.env" ADR-widget 001 \
 	"$TEST_ROOT/repo/design/adr/widget-ownership.md" >/dev/null
 write_review "$TEST_ROOT/contract-review.md" 001 contract.done NONE
+installed_edges="$TEST_ROOT/state/projects/archguard/control/architecture/edges.tsv"
+cp "$installed_edges" "$installed_edges.valid"
+sed 's/decision:ADR-widget/include\/missing-contract.h/' "$installed_edges.valid" > "$installed_edges"
+if "$HARNESS_BIN/manager-accept-task" "$TEST_ROOT/harness.env" 001 \
+	"$TEST_ROOT/contract-review.md" > "$TEST_ROOT/missing-producer-artifact.out" 2>&1; then
+	printf 'producer acceptance ignored a missing outgoing contract artifact\n' >&2
+	exit 1
+fi
+grep -Fq 'edge EDGE-widget contract artifact is absent: include/missing-contract.h' \
+	"$TEST_ROOT/missing-producer-artifact.out"
+mv "$installed_edges.valid" "$installed_edges"
 "$HARNESS_BIN/manager-accept-task" "$TEST_ROOT/harness.env" 001 "$TEST_ROOT/contract-review.md" >/dev/null
 
 write_task "$TEST_ROOT/coding-task.md" 002 coding.goal coding.done LOCAL_IMPLEMENTATION LOW LUNA contract \
 	'Implement canonical widget behavior' 'widget_value returns one' "grep -q 'return 1' src/widget.c" \
 	'src/widget.c' NONE ADR-widget - GATE-widget
+mv "$TEST_ROOT/repo/design/adr/widget-ownership.md" \
+	"$TEST_ROOT/repo/design/adr/widget-ownership.md.temporarily-absent"
+if "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" 002 \
+	"$TEST_ROOT/coding-task.md" coding > "$TEST_ROOT/missing-consumer-artifact.out" 2>&1; then
+	printf 'consumer scheduling ignored a missing decision evidence artifact\n' >&2
+	exit 1
+fi
+grep -Fq 'edge EDGE-widget contract artifact is absent: design/adr/widget-ownership.md' \
+	"$TEST_ROOT/missing-consumer-artifact.out"
+mv "$TEST_ROOT/repo/design/adr/widget-ownership.md.temporarily-absent" \
+	"$TEST_ROOT/repo/design/adr/widget-ownership.md"
 "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" 002 "$TEST_ROOT/coding-task.md" coding >/dev/null
 worker_2="$("$HARNESS_BIN/harness-new-session" "$TEST_ROOT/harness.env" worker)"
 "$HARNESS_BIN/worker-claim-task" "$TEST_ROOT/harness.env" 002 "$worker_2" >/dev/null

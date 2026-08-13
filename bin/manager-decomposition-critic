@@ -57,6 +57,8 @@ decision_id<TAB>status<TAB>producer_node<TAB>problem<TAB>chosen_contract<TAB>aff
 edges.tsv:
 edge_id<TAB>producer_node<TAB>consumer_node<TAB>contract_artifact<TAB>public_symbols<TAB>ownership_model<TAB>representation<TAB>versioning_rule<TAB>compatibility_validation<TAB>decision_ids<TAB>invariant_ids
 
+contract_artifact must be '-' when no durable artifact crosses the edge, a bounded repository-relative path, or decision:DECISION_ID. A decision reference resolves to that accepted decision's committed evidence path and the same DECISION_ID must appear in decision_ids. Do not invent URI-like placeholders such as architecture:DECISION_ID; unsupported namespaces are rejected. A future repository path may be absent during decomposition, but the producer must create and commit it before acceptance.
+
 node-bindings.tsv:
 node_id<TAB>invariant_ids<TAB>consumes_decisions<TAB>produces_decisions<TAB>edge_contracts<TAB>health_gates
 
