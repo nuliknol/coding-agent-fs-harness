@@ -46,6 +46,17 @@ ENV
 chmod 600 "$TEST_ROOT/harness.env"
 
 "$HARNESS_BIN/harness-init" "$TEST_ROOT/harness.env" >/dev/null
+cat > "$TEST_ROOT/broad-plan.tsv" <<'PLAN'
+node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route
+broad	-	-	Implement one bounded stage	Owned stage passes	./semantic-smoke --computing-all	src/a.c	target_symbol	LOCAL_IMPLEMENTATION	LOW	LUNA
+PLAN
+if "$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/harness.env" \
+	"$TEST_ROOT/broad-plan.tsv" > "$TEST_ROOT/broad-plan.out" 2>&1; then
+	printf 'decomposition accepted an unrelated aggregate as mandatory focused validation\n' >&2
+	exit 1
+fi
+grep -Fq 'plan node broad focused_validation uses a broad aggregate as a mandatory success condition' \
+	"$TEST_ROOT/broad-plan.out"
 cat > "$TEST_ROOT/plan.tsv" <<'PLAN'
 node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route
 n1	-	-	Implement target_symbol locally	target_symbol returns one	test "$(./focused-smoke)" = 1	src/a.c	target_symbol	LOCAL_IMPLEMENTATION	LOW	LUNA

@@ -2763,6 +2763,7 @@ initialize_project_plan_v2()
 		fi
 		[[ -n "$deliverable" && -n "$acceptance_evidence" && -n "$focused_validation" ]] ||
 			die "node $node_id requires deliverable, acceptance_evidence, and focused_validation"
+		architecture_require_scoped_validation "plan node $node_id focused_validation" "$focused_validation"
 		[[ -n "$allowed_paths" && "$allowed_paths" != - ]] || die "node $node_id requires explicit allowed_paths"
 		[[ -n "$required_symbols" ]] || die "node $node_id requires required_symbols or '-'"
 		if (( has_leaf_type == 1 )); then
