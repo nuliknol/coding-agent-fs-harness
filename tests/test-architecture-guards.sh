@@ -62,7 +62,7 @@ ADR-widget	PROPOSED	contract	Choose widget ownership.	Store owns values and call
 TSV
 cat > "$TEST_ROOT/architecture/edges.tsv" <<'TSV'
 edge_id	producer_node	consumer_node	contract_artifact	public_symbols	ownership_model	representation	versioning_rule	compatibility_validation	decision_ids	invariant_ids
-EDGE-widget	contract	coding	include/widget.h	widget_value	store-owned	canonical integer	additive only	test -f include/widget.h	ADR-widget	INV-widget
+EDGE-widget	contract	coding	include/widget.h	widget_value	store-owned	canonical integer	additive only	grep -q 'return 1' src/widget.c	ADR-widget	INV-widget
 TSV
 cat > "$TEST_ROOT/architecture/node-bindings.tsv" <<'TSV'
 node_id	invariant_ids	consumes_decisions	produces_decisions	edge_contracts	health_gates

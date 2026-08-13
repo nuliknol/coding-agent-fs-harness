@@ -171,6 +171,10 @@ critical debt, expired debt, or a missing health gate blocks final completion.
 Every cumulative health gate is rerun at the final boundary so a later leaf
 cannot rely on stale earlier system-health evidence.
 
+An edge compatibility command runs when its consumer is accepted. Producer
+acceptance establishes the committed contract artifact and must not require a
+future consumer target to exist.
+
 Component and lane gates must use focused selectors. Broad aggregate output may
 be retained as baseline evidence, but unrelated aggregate failures cannot be a
 mandatory success condition. A human-owned specification can explicitly opt a

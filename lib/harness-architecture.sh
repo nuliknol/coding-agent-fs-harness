@@ -572,7 +572,7 @@ architecture_run_command()
 
 architecture_run_acceptance_gates()
 {
-	local node="$1" task="$2" invariants edges gates id kind validation gate trigger depends severity gate_invariants gate_edges log sha decision dependency
+	local node="$1" task="$2" invariants edges gates id kind validation gate trigger depends severity gate_invariants gate_edges log sha decision dependency consumer
 	local -a ids=() dependency_ids=()
 	(( HARNESS_ARCHITECTURE_GUARDS == 1 )) || return 0
 	invariants="$(architecture_node_value "$node" invariant_ids)"
@@ -587,7 +587,11 @@ architecture_run_acceptance_gates()
 	edges="$(architecture_node_value "$node" edge_contracts)"
 	architecture_parse_id_list "$edges" ids
 	for id in "${ids[@]}"; do
-		validation="$(awk -F '\t' -v id="$id" 'NR>1 && $1==id {print $9; exit}' "$(architecture_edges_file)")"
+		IFS=$'\t' read -r consumer validation < <(awk -F '\t' -v id="$id" 'NR>1 && $1==id {print $3, $9; exit}' "$(architecture_edges_file)")
+		# Compatibility is meaningful only after the consumer exists. Producer
+		# acceptance establishes and commits the contract artifact; running a
+		# consumer build here creates a forward-dependency deadlock.
+		[[ "$node" == "$consumer" ]] || continue
 		[[ "$validation" == REVIEW ]] && continue
 		log="$(architecture_dir)/health-logs/$task-edge-$id.log"
 		architecture_run_command "$validation" "$log" || die "edge compatibility validation failed: $id (see $log)"
