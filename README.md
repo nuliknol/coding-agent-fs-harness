@@ -108,6 +108,7 @@ export HARNESS_WORKER_GOAL_MODE="1"
 export HARNESS_DECOMPOSITION_V2="1"
 export HARNESS_DECOMPOSITION_CRITIC_ENABLED="1"
 export HARNESS_MAX_LUNA_STRATEGY_FAILURES="3"
+export HARNESS_MAX_LUNA_ALLOWED_PATHS="8"
 export HARNESS_MIN_LUNA_NODE_PERCENT="80"
 export HARNESS_MIN_LUNA_CODING_NODE_PERCENT="80"
 export HARNESS_PREFERRED_WORKER_ROUTE="LUNA"
@@ -177,7 +178,9 @@ gate into whole-project success by including `HARNESS_BROAD_GATE_REQUIRED=1`
 in its registered validation command. Defective installed registries can be
 replaced while stopped with `harness-revise-architecture`; the command validates
 the candidate against the durable DAG, preserves ledgers, and archives the
-previous registry.
+previous registry. If a defect is discovered only while reviewing a committed
+worker result, the manager may use `manager-revise-architecture` to perform the
+same transaction under the project lock and then retry acceptance in that turn.
 
 Use these controlled commands during execution:
 
@@ -187,6 +190,7 @@ bin/manager-record-debt ENV_FILE DEBT_ROW_TSV
 bin/manager-resolve-debt ENV_FILE DEBT_ID EVIDENCE_FILE
 bin/harness-architecture-status --details ENV_FILE
 bin/harness-revise-architecture ENV_FILE ARCHITECTURE_SOURCE_DIR REVISION_NOTE_FILE
+bin/manager-revise-architecture ENV_FILE TASK_ID ARCHITECTURE_SOURCE_DIR REVISION_NOTE_FILE
 ```
 
 `harness-decomposition-tree --details` includes each node's invariant,
@@ -509,6 +513,7 @@ export HARNESS_WORKER_GOAL_MODE="1"
 export HARNESS_DECOMPOSITION_V2="1"
 export HARNESS_DECOMPOSITION_CRITIC_ENABLED="1"
 export HARNESS_MAX_LUNA_STRATEGY_FAILURES="3"
+export HARNESS_MAX_LUNA_ALLOWED_PATHS="8"
 export HARNESS_MIN_LUNA_NODE_PERCENT="80"
 export HARNESS_MIN_LUNA_CODING_NODE_PERCENT="80"
 export HARNESS_PREFERRED_WORKER_ROUTE="LUNA"

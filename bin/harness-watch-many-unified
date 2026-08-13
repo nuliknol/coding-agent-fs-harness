@@ -244,6 +244,10 @@ while IFS= read -r -d '' env_file; do
 		[[ -f "$planning_alert" ]] || planning_alert="$dir/control/manager-plan-stalled.md"
 		[[ -f "$planning_alert" ]] || planning_alert="$dir/control/manager-plan-failed.md"
 		description="PLANNING_STALLED: $(markdown_summary "$planning_alert")"
+	elif [[ "$project_status" == REVIEW_STALLED.* ]]; then
+		display_status=paused
+		review_alert="$(find "$dir/control" -maxdepth 1 -type f -name "$project-task-*.manager-review-stalled.md" -print 2>/dev/null | sort | head -n 1)"
+		description="REVIEW_STALLED: $(markdown_summary "$review_alert")"
 	elif [[ -n "$waiting_request" ]]; then
 		display_status=waiting
 		request_id="$(awk -F': ' '$1=="Request-ID" {print $2; exit}' "$waiting_request")"

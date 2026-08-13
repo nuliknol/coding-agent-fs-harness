@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TASK_ID ARCHITECTURE_SOURCE_DIR REVISION_NOTE_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 4 ]] || usage
+load_harness_env "$1"
+task_id="$2"
+source_dir="$(realpath -m "$3")"
+note_file="$(realpath -m "$4")"
+ensure_project
+validate_task_id "$task_id"
+(( HARNESS_ARCHITECTURE_GUARDS == 1 )) || die 'architecture revision requires HARNESS_ARCHITECTURE_GUARDS=1'
+
+dir="$(project_dir)"
+base="$(task_base "$task_id")"
+result="$dir/results/$base.result.md"
+assignment="$dir/archive/$base.assignment.md"
+running="$dir/running/$base.running.md"
+lease="$dir/control/$base.lease"
+[[ -f "$result" && -f "$assignment" ]] ||
+	die 'manager architecture revision is allowed only while reviewing a committed worker result'
+[[ ! -e "$running" && ! -e "$lease" ]] ||
+	die 'manager architecture revision requires an idle committed result'
+[[ "$(project_plan_item_status "$(project_plan_item_for_root "$(task_root_id "$task_id")")")" == ACTIVE ]] ||
+	die 'manager architecture revision requires the task root to be the active project-plan item'
+
+acquire_project_lock
+[[ -f "$result" && -f "$assignment" && ! -e "$running" && ! -e "$lease" ]] ||
+	die 'review state changed while acquiring the architecture revision lock'
+backup="$(architecture_revise "$source_dir" "$note_file")"
+marker="$dir/control/$base.architecture-revised-event"
+{
+	printf 'task_id=%s\n' "$task_id"
+	printf 'revised_at=%s\n' "$(timestamp_utc)"
+	printf 'previous_registry=%s\n' "$backup"
+	printf 'revision_note_sha256=%s\n' "$(sha256sum "$note_file" | awk '{print $1}')"
+} > "$marker.tmp.$$"
+chmod 600 "$marker.tmp.$$"
+mv "$marker.tmp.$$" "$marker"
+log_event "MANAGER_ARCHITECTURE_REVISED task=$task_id backup=$backup marker=$marker"
+printf 'Architecture registry revised during review. Previous registry: %s\n' "$backup"

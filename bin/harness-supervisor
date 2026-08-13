@@ -128,7 +128,7 @@ planning_gap_state_fingerprint()
 
 process_results()
 {
-	local file task_id base marker current previous review_state_changed status alert tmp running lease assignment_archive accepted checkpointed rejected blocked
+	local file task_id base marker current previous invocation_fingerprint post_fingerprint review_state_changed status alert stalled tmp running lease assignment_archive accepted checkpointed rejected blocked
 	shopt -s nullglob
 	for file in "$dir/results/$PROJECT-task-"*.result.md; do
 		task_id="$(task_id_from_filename "$file")"
@@ -150,10 +150,13 @@ process_results()
 		fi
 
 		marker="$dir/control/$base.reviewed-event"
+		stalled="$dir/control/$base.manager-review-stalled.md"
 		current="$(review_state_fingerprint "$file")"
 		previous=""
 		[[ ! -f "$marker" ]] || previous="$(kv_file_value "$marker" fingerprint)"
 		[[ "$current" != "$previous" ]] || continue
+		rm -f "$stalled"
+		invocation_fingerprint="$current"
 		review_state_changed=0
 		[[ -z "$previous" ]] || review_state_changed=1
 
@@ -181,16 +184,38 @@ process_results()
 				log_event "SUPERVISOR_RESULT_LEFT_PENDING task=$task_id"
 			fi
 		elif (( status == manager_pending_exit_status )); then
-			current="$(review_state_fingerprint "$file")"
+			post_fingerprint="$(review_state_fingerprint "$file")"
 			tmp="$marker.tmp.$$"
 			{
-				printf 'fingerprint=%s\n' "$current"
+				# When the review revised durable state, preserve the invocation
+				# fingerprint so the next scan performs one fresh review. Only an
+				# unchanged no-op is suppressed.
+				if [[ "$post_fingerprint" != "$invocation_fingerprint" ]]; then
+					printf 'fingerprint=%s\n' "$invocation_fingerprint"
+				else
+					printf 'fingerprint=%s\n' "$post_fingerprint"
+				fi
 				printf 'handled_at=%s\n' "$(timestamp_utc)"
 				printf 'manager_exit_status=%s\n' "$status"
 			} > "$tmp"
 			chmod 600 "$tmp"
 			mv "$tmp" "$marker"
-			log_event "SUPERVISOR_REVIEW_LEFT_UNCOMMITTED task=$task_id fingerprint=$current retry=suppressed_until_state_change"
+			if [[ "$post_fingerprint" != "$invocation_fingerprint" ]]; then
+				log_event "SUPERVISOR_REVIEW_STATE_CHANGED task=$task_id before=$invocation_fingerprint after=$post_fingerprint retry=fresh_review"
+			else
+				tmp="$stalled.tmp.$$"
+				{
+					printf '# Manager Review Stalled\n\n'
+					printf 'Project: %s\n\n' "$PROJECT"
+					printf 'Task-ID: %s\n\n' "$task_id"
+					printf 'State-Fingerprint: %s\n\n' "$post_fingerprint"
+					printf 'Stalled-At: %s\n\n' "$(timestamp_utc)"
+					printf 'The manager returned without a terminal action or durable state change. The supervisor will not invoke it again until relevant state changes.\n'
+				} > "$tmp"
+				chmod 600 "$tmp"
+				mv "$tmp" "$stalled"
+				log_event "SUPERVISOR_REVIEW_LEFT_UNCOMMITTED task=$task_id fingerprint=$post_fingerprint retry=suppressed_until_state_change alert=$stalled"
+			fi
 		else
 			alert="$dir/control/$base.manager-failed.md"
 			tmp="$alert.tmp.$$"

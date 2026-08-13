@@ -298,8 +298,8 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 			(( leaf_expected_turns <= 3 )) || die 'Luna leaves may expect at most three worker turns'
 			[[ "$goal_allowed_scope" != / && "$goal_allowed_scope" != . && "$goal_allowed_scope" != *'*'* ]] ||
 				die 'Luna Allowed-Scope must name bounded explicit paths without repository-wide wildcards'
-			(( $(awk -F',' '{print NF}' <<< "$goal_allowed_scope") <= 5 )) ||
-				die 'Luna Allowed-Scope may name at most five path groups'
+			(( $(awk -F',' '{print NF}' <<< "$goal_allowed_scope") <= HARNESS_MAX_LUNA_ALLOWED_PATHS )) ||
+				die "Luna Allowed-Scope may name at most $HARNESS_MAX_LUNA_ALLOWED_PATHS path groups"
 			[[ "$leaf_context_paths" != *'*'* ]] ||
 				die 'Luna Context-Paths must use explicit paths without wildcards'
 			(( $(awk -F',' '{print NF}' <<< "$leaf_context_paths") <= 8 )) ||

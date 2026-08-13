@@ -200,6 +200,15 @@ elif [[ "$kind" == review ]]; then
 	if [[ "$TASK_ID" == 002 && "$count" == 1 ]]; then
 		final_message="review-left-pending"
 	elif [[ "$TASK_ID" == 002 && "$count" == 2 ]]; then
+		# Change durable review state during the manager invocation but leave
+		# the result pending. The supervisor must schedule one fresh review
+		# instead of suppressing the post-change fingerprint.
+		plan_state="$HARNESS_ROOT/projects/$PROJECT/control/project-plan-state.tsv"
+		awk -F '\t' 'BEGIN {OFS=FS} $1 == "phase-2" {$4="2026-08-12T20:01:00Z"} {print}' \
+			"$plan_state" > "$plan_state.tmp"
+		mv "$plan_state.tmp" "$plan_state"
+		final_message="review-revised-state-left-pending"
+	elif [[ "$TASK_ID" == 002 && "$count" == 3 ]]; then
 		note="$(mktemp)"
 		cat > "$note" <<NOTE
 # Manager Review Record
@@ -428,6 +437,7 @@ grep -q 'WORKER_PROVIDER_WAIT task=002.*kind=quota' "$EVENTS"
 grep -q 'WORKER_PROVIDER_RETRY_STARTED task=002.*kind=quota' "$EVENTS"
 grep -q 'MANAGER_REVIEW_LEFT_PENDING task=002' "$EVENTS"
 grep -q 'SUPERVISOR_REVIEW_LEFT_UNCOMMITTED task=002.*retry=suppressed_until_state_change' "$EVENTS"
+grep -q 'SUPERVISOR_REVIEW_STATE_CHANGED task=002.*retry=fresh_review' "$EVENTS"
 grep -q 'MANAGER_CONTEXT_ROTATED previous=mock-thread-001 current=mock-thread-rotated reason=review_state_changed' "$EVENTS"
 grep -q 'WORKER_SUPERVISOR_TRIGGER task=001' "$EVENTS"
 grep -q 'WORKER_DIRECT_RESULT_NORMALIZED task=001' "$EVENTS"
@@ -466,7 +476,7 @@ first_review_line="$(grep -n 'MANAGER_REVIEW_STARTED task=001' "$EVENTS" | head 
 [[ -n "$first_complete_line" && -n "$first_review_line" ]]
 (( first_complete_line < first_review_line ))
 review_002_count="$(grep -c 'MANAGER_REVIEW_STARTED task=002' "$EVENTS")"
-[[ "$review_002_count" == 2 ]]
+[[ "$review_002_count" == 3 ]]
 [[ ! -e "$TEST_ROOT/state/projects/testproj/control/testproj-task-002.manager-failed.md" ]]
 
 for _ in $(seq 1 100); do

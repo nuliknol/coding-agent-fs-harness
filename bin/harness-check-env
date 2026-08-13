@@ -48,6 +48,7 @@ if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 	printf 'Minimum Luna coding nodes: %s%%\n' "$HARNESS_MIN_LUNA_CODING_NODE_PERCENT"
 	printf 'Architecture guards: %s\n' "$([[ "$HARNESS_ARCHITECTURE_GUARDS" == 1 ]] && printf enabled || printf disabled)"
 	printf 'Luna strategy failures before escalation: %s\n' "$HARNESS_MAX_LUNA_STRATEGY_FAILURES"
+	printf 'Maximum Luna Allowed-Scope path groups: %s\n' "$HARNESS_MAX_LUNA_ALLOWED_PATHS"
 else
 	printf 'Complexity decomposition: legacy v1\n'
 fi

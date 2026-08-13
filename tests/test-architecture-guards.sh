@@ -93,6 +93,19 @@ fi
 grep -Fq 'health gate GATE-widget cannot depend on its own trigger node: coding' \
 	"$TEST_ROOT/self-gate.out"
 test ! -e "$TEST_ROOT/state/projects/archguard/control/architecture"
+wrong_binding_architecture="$TEST_ROOT/wrong-binding-architecture"
+cp -a "$TEST_ROOT/architecture" "$wrong_binding_architecture"
+awk -F '\t' 'BEGIN {OFS=FS} $1 == "contract" {$6="GATE-widget"} {print}' \
+	"$wrong_binding_architecture/node-bindings.tsv" > "$wrong_binding_architecture/node-bindings.tsv.tmp"
+mv "$wrong_binding_architecture/node-bindings.tsv.tmp" "$wrong_binding_architecture/node-bindings.tsv"
+if "$HARNESS_BIN/manager-init-architecture" "$TEST_ROOT/harness.env" "$wrong_binding_architecture" \
+	> "$TEST_ROOT/wrong-binding.out" 2>&1; then
+	printf 'health gate bound to a node other than its trigger was accepted\n' >&2
+	exit 1
+fi
+grep -Fq 'health gate GATE-widget is bound to node contract but declares trigger node coding' \
+	"$TEST_ROOT/wrong-binding.out"
+test ! -e "$TEST_ROOT/state/projects/archguard/control/architecture"
 broad_architecture="$TEST_ROOT/broad-architecture"
 cp -a "$TEST_ROOT/architecture" "$broad_architecture"
 awk -F '\t' 'BEGIN {OFS=FS} $1 == "GATE-widget" {$4="./widget-smoke --computing-all"} {print}' \
@@ -348,6 +361,27 @@ implementation_commit="$(awk -F= '$1=="COMMIT" {print $2}' <<< "$commit_output")
 write_result "$TEST_ROOT/coding-result.md" 002 coding.goal
 "$HARNESS_BIN/worker-complete-task" "$TEST_ROOT/harness.env" 002 "$worker_2" "$TEST_ROOT/coding-result.md" >/dev/null
 
+# A manager may transactionally correct a defective registry while reviewing
+# an idle committed result, even though both supervisors are alive. This is the
+# recovery path for a gate error discovered only by focused acceptance.
+project_dir="$TEST_ROOT/state/projects/archguard"
+live_revision="$TEST_ROOT/live-review-revision"
+cp -a "$project_dir/control/architecture" "$live_revision"
+rm -rf "$live_revision/health-logs" "$live_revision/impacts" "$live_revision/revisions"
+rm -f "$live_revision/decision-ledger.tsv" "$live_revision/health-ledger.tsv" "$live_revision/debt-ledger.tsv" "$live_revision/profile.env"
+sed -i 's/Widget values retain one canonical representation\./Widget values retain exactly one canonical representation./' \
+	"$live_revision/invariants.tsv"
+printf 'Correct a registry defect discovered during the active manager review.\n' > "$TEST_ROOT/live-revision-note.md"
+printf '%s\n' "$$" > "$project_dir/control/supervisor.pid"
+printf '%s\n' "$$" > "$project_dir/control/worker-supervisor.pid"
+live_revision_output="$("$HARNESS_BIN/manager-revise-architecture" "$TEST_ROOT/harness.env" 002 \
+	"$live_revision" "$TEST_ROOT/live-revision-note.md")"
+rm -f "$project_dir/control/supervisor.pid" "$project_dir/control/worker-supervisor.pid"
+grep -Fq 'Architecture registry revised during review.' <<< "$live_revision_output"
+grep -Fq 'Widget values retain exactly one canonical representation.' \
+	"$project_dir/control/architecture/invariants.tsv"
+test -f "$project_dir/control/archguard-task-002.architecture-revised-event"
+
 expires="$(date -u -d tomorrow +%Y-%m-%d)"
 printf 'DEBT-widget\t002\t%s\tCANONICAL_REPRESENTATION\tINV-widget\tTemporary duplicate representation remains.\tcoding\tCRITICAL\t%s\tWAIVED\ttest-owner\n' \
 	"$implementation_commit" "$expires" > "$TEST_ROOT/debt-row.tsv"
@@ -361,7 +395,6 @@ printf 'Duplicate representation removed and focused gate passes.\n' > "$TEST_RO
 "$HARNESS_BIN/manager-resolve-debt" "$TEST_ROOT/harness.env" DEBT-widget "$TEST_ROOT/debt-resolution.md" >/dev/null
 "$HARNESS_BIN/manager-accept-task" "$TEST_ROOT/harness.env" 002 "$TEST_ROOT/coding-review.md" >/dev/null
 
-project_dir="$TEST_ROOT/state/projects/archguard"
 test -f "$project_dir/control/project.complete"
 test "$(find "$project_dir/control/architecture/impacts" -name '*.impact.md' | wc -l)" -eq 2
 grep -Eq $'^GATE-widget\tPASSED\t002\t' "$project_dir/control/architecture/health-ledger.tsv"

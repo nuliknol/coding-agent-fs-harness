@@ -256,7 +256,7 @@ architecture_initialize_minimal_test_profile()
 	[[ -n "$SPECIFICATION" && -f "$SPECIFICATION" ]] || return 1
 	[[ -n "$deliverable" && -n "$evidence" && -n "$validation" && "$validation" != REVIEW ]] || return 1
 	[[ -n "$paths" && "$paths" != - && "$paths" != / && "$paths" != . && "$paths" != *'*'* ]] || return 1
-	(( $(awk -F',' '{print NF}' <<< "$paths") <= 5 )) || return 1
+	(( $(awk -F',' '{print NF}' <<< "$paths") <= HARNESS_MAX_LUNA_ALLOWED_PATHS )) || return 1
 	[[ -n "$symbols" ]] || return 1
 
 	profile_dir="$(mktemp -d "$PROJECT_TMP_DIR/minimal-test-architecture.XXXXXX")"
@@ -291,7 +291,7 @@ architecture_validate_registries()
 	local id category authority severity statement scope source validation_kind validation_ref nodes
 	local status producer problem contract interfaces supersedes evidence
 	local edge producer_node consumer_node artifact symbols ownership representation versioning validation decisions invariants
-	local node consumes produces edges gates gate depends debt task commit consequence remediation expires waiver invariant_authority
+	local node consumes produces edges gates gate depends debt task commit consequence remediation expires waiver invariant_authority trigger
 	local invariant_count=0 critical_gate_count=0 id
 	local -a ids=()
 	architecture_require_registered
@@ -356,6 +356,12 @@ architecture_validate_registries()
 	while IFS=$'\t' read -r node invariants consumes produces edges gates; do
 		[[ "$node" != node_id ]] || continue
 		architecture_require_id_list "node $node health_gates" "$gates" "$(architecture_health_gates_file)"
+		architecture_parse_id_list "$gates" ids
+		for gate in "${ids[@]}"; do
+			trigger="$(awk -F '\t' -v id="$gate" 'NR>1 && $1==id {print $2; exit}' "$(architecture_health_gates_file)")"
+			[[ "$trigger" == "$node" ]] ||
+				die "health gate $gate is bound to node $node but declares trigger node $trigger"
+		done
 	done < "$(architecture_node_bindings_file)"
 	seen=()
 	while IFS=$'\t' read -r debt task commit category invariants consequence remediation severity expires status waiver; do

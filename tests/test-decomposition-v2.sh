@@ -237,6 +237,68 @@ sed \
 grep -Fqx 'Worker-Route: LUNA' \
 	"$TEST_ROOT/legacy-route-state/projects/decompv2legacyroute/tasks/decompv2legacyroute-task-001.ready.md"
 
+# A Luna leaf may authorize a bounded capsule containing source, fixture,
+# build-registration, and validation paths while retaining the independent
+# five-implementation-file budget. Six path groups must not deadlock planning.
+cat > "$TEST_ROOT/six-path-plan.tsv" <<'PLAN'
+node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route
+six	-	-	Implement one bounded six-path concern	focused six-path smoke passes	./six-path-smoke	src/a.c,src/b.c,include/a.h,tests/a.c,tests/fixture.dat,CMakeLists.txt	target_symbol	LOCAL_IMPLEMENTATION	LOW	LUNA
+PLAN
+sed \
+	-e 's/export PROJECT="decompv2"/export PROJECT="decompv2six"/' \
+	-e "s|export HARNESS_ROOT=\"$TEST_ROOT/state\"|export HARNESS_ROOT=\"$TEST_ROOT/six-path-state\"|" \
+	"$TEST_ROOT/harness.env" > "$TEST_ROOT/six-path-harness.env"
+chmod 600 "$TEST_ROOT/six-path-harness.env"
+"$HARNESS_BIN/harness-init" "$TEST_ROOT/six-path-harness.env" >/dev/null
+"$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/six-path-harness.env" \
+	"$TEST_ROOT/six-path-plan.tsv" >/dev/null
+cat > "$TEST_ROOT/six-path-task.md" <<'TASK'
+# Leaf-Goal Task Assignment
+
+Project: decompv2six
+Task-ID: 001
+Task-Root: 001
+Starting-Progress: 0%
+Status: READY
+Execution-Mode: LEAF_GOAL
+Goal-ID: six.goal
+Target-Criterion: six.done
+Goal-Success-Evidence: focused six-path smoke passes
+Focused-Validation: ./six-path-smoke
+Allowed-Scope: src/a.c,src/b.c,include/a.h,tests/a.c,tests/fixture.dat,CMakeLists.txt
+Baseline-Boundary: bounded six-path concern is incomplete
+Hard-Block-Conditions: NONE
+Leaf-Type: LOCAL_IMPLEMENTATION
+Complexity-Class: LOW
+Worker-Route: LUNA
+Depends-On: -
+Deliverable: Implement one bounded six-path concern
+Required-Symbols: target_symbol
+Context-Paths: src/a.c,include/a.h,tests/a.c,CMakeLists.txt
+Architecture-Decisions: NONE
+Expected-Max-Implementation-Files: 5
+Expected-Max-Worker-Turns: 3
+Root-Criterion: six.done
+
+## Objective
+
+Implement the bounded concern.
+
+## Acceptance criteria
+
+- The focused smoke passes.
+
+## Validation commands
+
+```text
+./six-path-smoke
+```
+TASK
+"$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/six-path-harness.env" 001 \
+	"$TEST_ROOT/six-path-task.md" six >/dev/null
+grep -Fqx 'Worker-Route: LUNA' \
+	"$TEST_ROOT/six-path-state/projects/decompv2six/tasks/decompv2six-task-001.ready.md"
+
 # The same public bin/ entry points must dispatch an explicit Light project to
 # the namespaced implementation without requiring a second checkout.
 printf 'prototype policy\n' > "$TEST_ROOT/policy.md"

@@ -22,6 +22,7 @@ oracle_limit_marker="$(project_oracle_limit_file)"
 manager_plan_structural_error="$dir/control/manager-plan-structural-error.md"
 manager_plan_stalled="$dir/control/manager-plan-stalled.md"
 manager_plan_failed="$dir/control/manager-plan-failed.md"
+manager_review_stalled="$(find "$dir/control" -maxdepth 1 -type f -name "$PROJECT-task-*.manager-review-stalled.md" -print 2>/dev/null | sort | head -n 1)"
 if project_plan_exists; then
 	printf -v project_progress_line 'Project progress: %s%% (%s/%s plan items complete)' \
 		"$(project_plan_progress_percent)" "$(project_plan_complete_count)" "$(project_plan_total_count)"
@@ -308,6 +309,8 @@ elif [[ -f "$oracle_invocation_failure" ]]; then
 	project_status_line='Project status: ORACLE_AUDIT_FAILED. The final independent audit invocation failed locally; verified work is preserved and the audit requires an automatic retry or supervisor restart.'
 elif [[ -f "$manager_plan_structural_error" || -f "$manager_plan_stalled" || -f "$manager_plan_failed" ]]; then
 	project_status_line='Project status: PLANNING_STALLED. No task was published; unchanged-state retries are suppressed until the plan, decomposition DAG, or architecture bindings are repaired.'
+elif [[ -n "$manager_review_stalled" ]]; then
+	project_status_line='Project status: REVIEW_STALLED. A completed result received no terminal manager action and made no durable state change; retries are suppressed until the review boundary changes.'
 elif [[ -f "$dir/control/manager-plan.running" ]]; then
 	project_status_line='Project status: PLANNING. The manager is preparing the next bounded task.'
 elif (( active_count > 0 )); then
