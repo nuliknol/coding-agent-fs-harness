@@ -662,10 +662,19 @@ metadata_value()
 		index($0, field ":") == 1 {
 			value = substr($0, length(field) + 2)
 			sub(/^[[:space:]]+/, "", value)
+			sub(/[[:space:]]+$/, "", value)
 			print value
 			exit
 		}
 	' "$file"
+}
+
+trim_surrounding_whitespace()
+{
+	local value="$1"
+	value="${value#"${value%%[![:space:]]*}"}"
+	value="${value%"${value##*[![:space:]]}"}"
+	printf '%s\n' "$value"
 }
 
 require_single_metadata_value()
@@ -2700,7 +2709,7 @@ initialize_project_plan_v2()
 {
 	local source_file="$1" header expected_header legacy_header definition state dag
 	local definition_tmp state_tmp dag_tmp seen_file
-	local node_id parent_id depends_on deliverable acceptance_evidence focused_validation
+	local node_id parent_id depends_on deliverable acceptance_evidence focused_validation field_index
 	local allowed_paths required_symbols leaf_type complexity_class worker_route dependency
 	local node_count luna_count luna_percent coding_count luna_coding_count luna_coding_percent has_leaf_type=0 route_column=11 type_column=9
 	local -a fields=()
@@ -2741,12 +2750,18 @@ initialize_project_plan_v2()
 	while IFS=$'\t' read -r -a fields; do
 		if (( has_leaf_type == 1 )); then
 			(( ${#fields[@]} == 11 )) || die 'each decomposition node must contain exactly eleven tab-separated fields'
+			for field_index in "${!fields[@]}"; do
+				fields[$field_index]="$(trim_surrounding_whitespace "${fields[$field_index]}")"
+			done
 			node_id="${fields[0]}"; parent_id="${fields[1]}"; depends_on="${fields[2]}"
 			deliverable="${fields[3]}"; acceptance_evidence="${fields[4]}"; focused_validation="${fields[5]}"
 			allowed_paths="${fields[6]}"; required_symbols="${fields[7]}"; leaf_type="${fields[8]}"
 			complexity_class="${fields[9]}"; worker_route="${fields[10]}"
 		else
 			(( ${#fields[@]} == 10 )) || die 'each legacy decomposition node must contain exactly ten tab-separated fields'
+			for field_index in "${!fields[@]}"; do
+				fields[$field_index]="$(trim_surrounding_whitespace "${fields[$field_index]}")"
+			done
 			node_id="${fields[0]}"; parent_id="${fields[1]}"; depends_on="${fields[2]}"
 			deliverable="${fields[3]}"; acceptance_evidence="${fields[4]}"; focused_validation="${fields[5]}"
 			allowed_paths="${fields[6]}"; required_symbols="${fields[7]}"; leaf_type=""

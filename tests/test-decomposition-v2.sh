@@ -133,6 +133,34 @@ test -s "$project_dir/control/decomposition-metrics.tsv"
 
 grep -Eq $'^n2\tPENDING\t-' "$project_dir/control/project-plan-state.tsv"
 
+# Decomposition TSV fields are canonicalized at registration. In particular,
+# generated validation commands may contain harmless surrounding whitespace,
+# while assignment metadata is necessarily parsed without it. Both forms must
+# resolve to one durable value so a valid node remains publishable.
+{
+	printf '%s\n' $'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tleaf_type\tcomplexity_class\tworker_route'
+	printf '%s\n' $' ws1 \t - \t - \t Implement whitespace-safe target \t target_symbol returns one \t  test "$(./focused-smoke)" = 1  \t src/a.c \t target_symbol \t LOCAL_IMPLEMENTATION \t LOW \t LUNA '
+} > "$TEST_ROOT/whitespace-plan.tsv"
+sed \
+	-e 's/export PROJECT="decompv2"/export PROJECT="decompv2whitespace"/' \
+	-e "s|export HARNESS_ROOT=\"$TEST_ROOT/state\"|export HARNESS_ROOT=\"$TEST_ROOT/whitespace-state\"|" \
+	"$TEST_ROOT/harness.env" > "$TEST_ROOT/whitespace-harness.env"
+chmod 600 "$TEST_ROOT/whitespace-harness.env"
+"$HARNESS_BIN/harness-init" "$TEST_ROOT/whitespace-harness.env" >/dev/null
+"$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/whitespace-harness.env" \
+	"$TEST_ROOT/whitespace-plan.tsv" >/dev/null
+whitespace_dir="$TEST_ROOT/whitespace-state/projects/decompv2whitespace"
+grep -Fqx $'ws1\t-\t-\tImplement whitespace-safe target\ttarget_symbol returns one\ttest "$(./focused-smoke)" = 1\tsrc/a.c\ttarget_symbol\tLOCAL_IMPLEMENTATION\tLOW\tLUNA' \
+	"$whitespace_dir/control/project-decomposition-v2.tsv"
+sed \
+	-e 's/Project: decompv2/Project: decompv2whitespace/' \
+	-e 's/Goal-ID: n1.goal/Goal-ID: ws1.goal/' \
+	-e 's/Deliverable: Implement target_symbol locally/Deliverable: Implement whitespace-safe target/' \
+	"$TEST_ROOT/task.md" > "$TEST_ROOT/whitespace-task.md"
+"$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/whitespace-harness.env" ws1 \
+	"$TEST_ROOT/whitespace-task.md" ws1 >/dev/null
+grep -Eq $'^ws1\tACTIVE\tws1\t' "$whitespace_dir/control/project-plan-state.tsv"
+
 cat > "$TEST_ROOT/reclassified-plan.tsv" <<'PLAN'
 node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route
 n1	-	-	Implement target_symbol locally	target_symbol returns one	test "$(./focused-smoke)" = 1	src/a.c	target_symbol	LOCAL_IMPLEMENTATION	LOW	LUNA
