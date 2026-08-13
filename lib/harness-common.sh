@@ -2411,11 +2411,16 @@ project_plan_node_value()
 {
 	local item_id="$1" field="$2"
 	awk -F '\t' -v item="$item_id" -v wanted="$field" '
+		function trim(value) {
+			sub(/^[[:space:]]+/, "", value)
+			sub(/[[:space:]]+$/, "", value)
+			return value
+		}
 		NR == 1 {
-			for (i = 1; i <= NF; i++) column[$i] = i
+			for (i = 1; i <= NF; i++) column[trim($i)] = i
 			next
 		}
-		$1 == item && column[wanted] {print $column[wanted]; exit}
+		trim($1) == item && column[wanted] {print trim($column[wanted]); exit}
 	' "$(project_decomposition_plan_file)"
 }
 

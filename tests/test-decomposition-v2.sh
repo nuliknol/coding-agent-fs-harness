@@ -152,6 +152,12 @@ chmod 600 "$TEST_ROOT/whitespace-harness.env"
 whitespace_dir="$TEST_ROOT/whitespace-state/projects/decompv2whitespace"
 grep -Fqx $'ws1\t-\t-\tImplement whitespace-safe target\ttarget_symbol returns one\ttest "$(./focused-smoke)" = 1\tsrc/a.c\ttarget_symbol\tLOCAL_IMPLEMENTATION\tLOW\tLUNA' \
 	"$whitespace_dir/control/project-decomposition-v2.tsv"
+# Simulate a plan installed by an older harness version, before registration
+# canonicalized fields. Lookup must normalize this durable legacy value too.
+awk -F '\t' 'BEGIN {OFS="\t"} NR == 2 {$6="  " $6 "  "} {print}' \
+	"$whitespace_dir/control/project-decomposition-v2.tsv" > "$whitespace_dir/control/project-decomposition-v2.tsv.tmp"
+mv "$whitespace_dir/control/project-decomposition-v2.tsv.tmp" \
+	"$whitespace_dir/control/project-decomposition-v2.tsv"
 sed \
 	-e 's/Project: decompv2/Project: decompv2whitespace/' \
 	-e 's/Goal-ID: n1.goal/Goal-ID: ws1.goal/' \
