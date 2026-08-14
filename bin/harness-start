@@ -8,26 +8,81 @@ source "$SCRIPT_DIR/../lib/harness-common.sh"
 
 usage()
 {
-	printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2
+	printf 'Usage: %s [--background] ENV_FILE\n' "${0##*/}" >&2
 	exit 2
 }
 
+background=0
+if [[ "${1:-}" == --background ]]; then
+	background=1
+	shift
+fi
 [[ $# -eq 1 ]] || usage
 load_harness_env "$1"
-acquire_env_command_lock harness-start
 ensure_project
 require_goal_mode_clean_boundary
 dir="$(project_dir)"
 
-supervisors_running=0
-for supervisor_pid_file in "$dir/control/supervisor.pid" "$dir/control/worker-supervisor.pid"; do
-	[[ -f "$supervisor_pid_file" ]] || continue
-	supervisor_pid="$(<"$supervisor_pid_file")"
-	if [[ "$supervisor_pid" =~ ^[1-9][0-9]*$ ]] && kill -0 "$supervisor_pid" 2>/dev/null; then
-		supervisors_running=1
-		break
+if (( background == 1 )); then
+	if project_supervisors_running; then
+		printf 'Harness supervisors already reference this environment; no background start was launched.\n'
+		exit 0
 	fi
-done
+	require_clean_repository_start_state
+	if env_has_running_processes; then
+		printf 'Active startup or agent processes still reference %s:\n' "$HARNESS_ENV_FILE" >&2
+		env_process_lines >&2
+		die 'refusing duplicate background harness-start while no project supervisor owns these processes'
+	fi
+	exec 8>"$dir/control/harness-start-background.lock"
+	flock -x 8
+	background_pid_file="$dir/control/harness-start-background.pid"
+	if [[ -f "$background_pid_file" ]]; then
+		background_pid="$(<"$background_pid_file")"
+		if [[ "$background_pid" =~ ^[1-9][0-9]*$ ]] && kill -0 "$background_pid" 2>/dev/null; then
+			die "background harness-start is already running with PID $background_pid"
+		fi
+		rm -f "$background_pid_file"
+	fi
+	background_stamp="$(timestamp_compact_utc)"
+	background_log="$dir/logs/harness-start-$background_stamp.log"
+	background_status="$dir/control/harness-start-background.status"
+	background_started="$(timestamp_utc)"
+	setsid "$HARNESS_HOME/lib/harness-start-background-runner" \
+		"$HARNESS_BIN/harness-start" "$HARNESS_ENV_FILE" \
+		"$background_pid_file" "$background_status" \
+		"$background_log" "$background_started" </dev/null >> "$background_log" 2>&1 &
+	background_pid=$!
+	{
+		printf 'state=RUNNING\n'
+		printf 'pid=%s\n' "$background_pid"
+		printf 'started_at=%s\n' "$background_started"
+		printf 'finished_at=\n'
+		printf 'exit_status=\n'
+		printf 'log=%s\n' "$background_log"
+	} > "$background_status.tmp.$$"
+	chmod 600 "$background_status.tmp.$$"
+	mv "$background_status.tmp.$$" "$background_status"
+	printf '%s\n' "$background_pid" > "$background_pid_file.tmp.$$"
+	chmod 600 "$background_pid_file.tmp.$$"
+	mv "$background_pid_file.tmp.$$" "$background_pid_file"
+	if ! kill -0 "$background_pid" 2>/dev/null; then
+		background_state="$(kv_file_value "$background_status" state 2>/dev/null || true)"
+		[[ -n "$background_state" && "$background_state" != RUNNING ]] ||
+			die "background harness-start failed to detach; inspect $background_log"
+	fi
+	printf 'Harness start launched in background.\n'
+	printf 'PID: %s\n' "$background_pid"
+	printf 'Log: %s\n' "$background_log"
+	printf 'Status: %s\n' "$background_status"
+	printf 'The detached startup owns specification review, decomposition, bootstrap, and supervisor launch.\n'
+	exit 0
+fi
+
+acquire_env_command_lock harness-start
+
+supervisors_running=0
+project_supervisors_running && supervisors_running=1
 if (( supervisors_running == 0 )); then
 	require_clean_repository_start_state
 fi

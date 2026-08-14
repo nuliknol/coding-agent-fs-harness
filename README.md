@@ -140,6 +140,19 @@ supervisor remains idempotent and does not apply this stopped-project
 preflight. A startup/reviewer/worker process without a live supervisor does not
 bypass validation and is reported as an overlapping start instead.
 
+Long initial review, decomposition, and bootstrap work can be detached safely:
+
+```bash
+harness-start --background /path/to/repository/harness.env
+```
+
+The launcher performs the clean-repository and overlap preflight, starts a new
+session with closed standard input, redirects all startup output to a
+project-state log, writes a durable `harness-start-background.status` record,
+prints the PID/log/status paths, and returns immediately. Exit status `3` is
+recorded as `SPEC_CLARIFICATION_REQUIRED`; other nonzero exits are `FAILED`.
+Ordinary `harness-start ENV_FILE` remains synchronous for interactive use.
+
 An accepted review also installs a normalized Specification IR: independently
 testable obligations, typed semantic relations, a bounded repository inventory,
 and authority-qualified repository facts. The decomposition critic must provide

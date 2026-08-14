@@ -2311,6 +2311,20 @@ env_has_running_processes()
 	[[ -n "$(env_process_lines)" ]]
 }
 
+project_supervisors_running()
+{
+	local dir pid_file pid
+	dir="$(project_dir)"
+	for pid_file in "$dir/control/supervisor.pid" "$dir/control/worker-supervisor.pid"; do
+		[[ -f "$pid_file" ]] || continue
+		pid="$(<"$pid_file")"
+		if [[ "$pid" =~ ^[1-9][0-9]*$ ]] && kill -0 "$pid" 2>/dev/null; then
+			return 0
+		fi
+	done
+	return 1
+}
+
 confirm_reset_state()
 {
 	local reason="$1"

@@ -113,7 +113,26 @@ grep -Fq 'Question you must answer: Should negative input normalize to zero or r
 	<<< "$clarification_prompt"
 grep -Fq '## Required specification amendment' <<< "$clarification_prompt"
 grep -Fq "git -C $repo add -- spec.md" <<< "$clarification_prompt"
-grep -Fq "$HARNESS_BIN/harness-start $env_file" <<< "$clarification_prompt"
+grep -Fq "$HARNESS_BIN/harness-start --background $env_file" <<< "$clarification_prompt"
+grep -Fq 'Do not wait for the detached startup to finish.' <<< "$clarification_prompt"
+
+background_output="$("$HARNESS_BIN/harness-start" --background "$env_file")"
+grep -Fq 'Harness start launched in background.' <<< "$background_output"
+background_pid="$(awk -F': ' '$1 == "PID" {print $2}' <<< "$background_output")"
+background_log="$(awk -F': ' '$1 == "Log" {print $2}' <<< "$background_output")"
+background_status_file="$(awk -F': ' '$1 == "Status" {print $2}' <<< "$background_output")"
+[[ "$background_pid" =~ ^[1-9][0-9]*$ ]]
+[[ -n "$background_log" && -n "$background_status_file" ]]
+for _ in $(seq 1 300); do
+	[[ -f "$background_status_file" ]] || { sleep 0.01; continue; }
+	background_state="$(awk -F= '$1 == "state" {print $2}' "$background_status_file")"
+	[[ "$background_state" != RUNNING ]] && break
+	sleep 0.01
+done
+grep -Fqx 'state=SPEC_CLARIFICATION_REQUIRED' "$background_status_file"
+grep -Fqx 'exit_status=3' "$background_status_file"
+grep -Fq "Specification clarification required: $record_output" "$background_log"
+test ! -e "$project_dir/control/harness-start-background.pid"
 
 set +e
 printf 'must block review startup\n' > "$repo/untracked-before-start.txt"
