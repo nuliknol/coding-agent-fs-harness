@@ -46,6 +46,7 @@ log_phase()
 		manager-bootstrap-*) printf '30\tdecomposition-bootstrap\tscaffolding' ;;
 		manager-plan-*) printf '40\ttask-planning\tscaffolding' ;;
 		manager-replan-*) printf '50\troot-replanning\tscaffolding' ;;
+		manager-goal-continuation-*) printf '55\tsemantic-continuation-review\tscaffolding' ;;
 		manager-review-*) printf '60\timplementation-review\tscaffolding' ;;
 		manager-pending-reclassification-*) printf '70\troute-reclassification\tscaffolding' ;;
 		oracle-*) printf '80\toracle-validation\tscaffolding' ;;

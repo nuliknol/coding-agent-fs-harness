@@ -128,6 +128,8 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 		"$HARNESS_GOAL_MAX_IDENTICAL_ITERATIONS" "$HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS"
 	printf 'Leaf-goal process budget: %s fixes, %s focused-smoke runs\n' \
 		"$HARNESS_GOAL_PROCESS_MAX_FIXES" "$HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS"
+	printf 'Semantic continuation review: %s (fresh worker context after each approved episode)\n' \
+		"$([[ "$HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED" == 1 ]] && printf enabled || printf disabled)"
 else
 	printf 'Worker leaf-goal mode: disabled (legacy one-turn assignments)\n'
 fi

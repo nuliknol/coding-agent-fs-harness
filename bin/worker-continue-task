@@ -129,7 +129,11 @@ printf '%s\t%s\tCONTINUE\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
 	"$workspace_before" "$workspace_after" "$material_fingerprint" "$movement" \
 	"$identical_streak" "$archive_receipt" >> "$ledger_file"
 
-goal_state_set "$state_file" state ITERATING
+if (( HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED == 1 )); then
+	goal_state_set "$state_file" state AWAITING_MANAGER_REVIEW
+else
+	goal_state_set "$state_file" state ITERATING
+fi
 goal_state_set "$state_file" iteration_count "$reported_iteration"
 goal_state_set "$state_file" identical_iterations "$identical_streak"
 goal_state_set "$state_file" protocol_failures 0
@@ -140,7 +144,17 @@ goal_state_set "$state_file" updated_at "$(timestamp_utc)"
 if [[ "$movement" != identical ]]; then
 	goal_state_set "$state_file" last_movement_at "$(timestamp_utc)"
 fi
-if (( reported_iteration % HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS == 0 )); then
+if (( HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED == 1 )); then
+	# Every continuation closes the current semantic episode. The next worker
+	# receives the durable receipt and compact goal summary in a fresh context;
+	# the old conversation can no longer accumulate indefinitely.
+	generation="$(kv_file_value "$state_file" context_generation)"
+	[[ "$generation" =~ ^[0-9]+$ ]] || generation=0
+	goal_state_set "$state_file" context_generation "$((generation + 1))"
+	goal_state_set "$state_file" thread_id ""
+	goal_state_set "$state_file" thread_context awaiting-semantic-review
+	goal_thread_store "$task_id" "" awaiting-semantic-review
+elif (( reported_iteration % HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS == 0 )); then
 	generation="$(kv_file_value "$state_file" context_generation)"
 	[[ "$generation" =~ ^[0-9]+$ ]] || generation=0
 	goal_state_set "$state_file" context_generation "$((generation + 1))"
@@ -149,7 +163,8 @@ if (( reported_iteration % HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS == 0 )); the
 	goal_thread_store "$task_id" "" rotation-requested
 fi
 if (( identical_streak >= HARNESS_GOAL_MAX_IDENTICAL_ITERATIONS )); then
-	if [[ "$(kv_file_value "$state_file" thread_context)" != rotation-requested ]]; then
+	if (( HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED == 0 )) &&
+		[[ "$(kv_file_value "$state_file" thread_context)" != rotation-requested ]]; then
 		generation="$(kv_file_value "$state_file" context_generation)"
 		[[ "$generation" =~ ^[0-9]+$ ]] || generation=0
 		goal_state_set "$state_file" context_generation "$((generation + 1))"
@@ -157,7 +172,9 @@ if (( identical_streak >= HARNESS_GOAL_MAX_IDENTICAL_ITERATIONS )); then
 		goal_state_set "$state_file" thread_context rotation-requested
 		goal_thread_store "$task_id" "" rotation-requested
 	fi
-	goal_state_set "$state_file" state STRATEGY_REVIEW
+	if (( HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED == 0 )); then
+		goal_state_set "$state_file" state STRATEGY_REVIEW
+	fi
 	goal_state_set "$state_file" strategy_review_required 1
 fi
 
@@ -196,4 +213,7 @@ chmod 600 "$summary_file.tmp.$$"
 mv "$summary_file.tmp.$$" "$summary_file"
 
 log_event "WORKER_GOAL_CONTINUED task=$task_id goal=$reported_goal iteration=$reported_iteration movement=$movement identical_streak=$identical_streak receipt=$archive_receipt"
+if (( HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED == 1 )); then
+	log_event "WORKER_GOAL_AWAITING_SEMANTIC_REVIEW task=$task_id goal=$reported_goal iteration=$reported_iteration receipt=$archive_receipt"
+fi
 printf '%s\n' "$archive_receipt"

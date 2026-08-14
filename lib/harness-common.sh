@@ -159,6 +159,7 @@ load_harness_env()
 	unset HARNESS_WORKER_GOAL_MODE HARNESS_GOAL_MAX_IDENTICAL_ITERATIONS
 	unset HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS HARNESS_GOAL_PROCESS_MAX_FIXES
 	unset HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS
+	unset HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED
 	unset HARNESS_DECOMPOSITION_V2 HARNESS_DECOMPOSITION_CRITIC_ENABLED
 	unset HARNESS_SPECIFICATION_REVIEW_ENABLED
 	unset HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS HARNESS_START_MAX_AGENT_INVOCATIONS
@@ -275,6 +276,12 @@ load_harness_env()
 	HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS="${HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS:-8}"
 	HARNESS_GOAL_PROCESS_MAX_FIXES="${HARNESS_GOAL_PROCESS_MAX_FIXES:-3}"
 	HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS="${HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS:-4}"
+	# A worker CONTINUE receipt closes one semantic episode. A compact, fresh
+	# manager turn must confirm that the proposed next action still belongs to
+	# the same criterion and authority before another fresh worker episode can
+	# begin. This prevents an initially bounded leaf from silently turning into
+	# an unbounded investigation while leaving implementation tactics to Codex.
+	HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED="${HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED:-1}"
 	# Version-two decomposition is opt-in for old environment files so active
 	# projects keep their immutable v1 plan. New example configurations enable
 	# it. V2 installs a validated dependency DAG, a pre-execution critic gate,
@@ -473,6 +480,8 @@ load_harness_env()
 		die 'HARNESS_GOAL_PROCESS_MAX_FIXES must be a positive integer'
 	[[ "$HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS" =~ ^[1-9][0-9]*$ ]] ||
 		die 'HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS must be a positive integer'
+	[[ "$HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED" =~ ^[01]$ ]] ||
+		die 'HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED must be 0 or 1'
 	(( HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS >= HARNESS_GOAL_PROCESS_MAX_FIXES )) ||
 		die 'HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS must be at least HARNESS_GOAL_PROCESS_MAX_FIXES'
 	[[ "$HARNESS_DECOMPOSITION_V2" =~ ^[01]$ ]] || die 'HARNESS_DECOMPOSITION_V2 must be 0 or 1'
@@ -572,6 +581,7 @@ load_harness_env()
 	export HARNESS_WORKER_GOAL_MODE HARNESS_GOAL_MAX_IDENTICAL_ITERATIONS
 	export HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS HARNESS_GOAL_PROCESS_MAX_FIXES
 	export HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS
+	export HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED
 	export HARNESS_DECOMPOSITION_V2 HARNESS_DECOMPOSITION_CRITIC_ENABLED HARNESS_SPECIFICATION_REVIEW_ENABLED
 	export HARNESS_DOMAIN_PROFILES
 	export HARNESS_MAX_LUNA_STRATEGY_FAILURES
@@ -1349,6 +1359,13 @@ goal_continue_marker_file()
 	printf '%s/%s.continue' "$(goal_control_dir)" "$(task_base "$1")"
 }
 
+goal_continuation_decision_file()
+{
+	local task_id="$1" iteration="$2"
+	[[ "$iteration" =~ ^[1-9][0-9]*$ ]] || die 'goal continuation decision iteration must be positive'
+	printf '%s/iteration-%04d.manager-decision.md' "$(goal_iteration_archive_dir "$task_id")" "$iteration"
+}
+
 goal_iteration_archive_dir()
 {
 	printf '%s/archive/goal-iterations/%s' "$(project_dir)" "$(task_base "$1")"
@@ -1365,7 +1382,7 @@ task_goal_is_active()
 	state_file="$(goal_state_file "$1")"
 	[[ -f "$state_file" ]] || return 1
 	state="$(kv_file_value "$state_file" state 2>/dev/null || true)"
-	[[ "$state" =~ ^(READY|RUNNING|ITERATING|STRATEGY_REVIEW|REVIEW)$ ]]
+	[[ "$state" =~ ^(READY|RUNNING|AWAITING_MANAGER_REVIEW|ITERATING|SEMANTIC_REPLAN|STRATEGY_REVIEW|REVIEW)$ ]]
 }
 
 require_goal_mode_clean_boundary()
@@ -3950,6 +3967,7 @@ write_project_snapshot()
 		printf 'domain_profiles=%s\n' "${HARNESS_DOMAIN_PROFILES:-}"
 		printf 'domain_profiles_sha256=%s\n' "$(domain_profiles_sha256)"
 		printf 'architecture_guards=%s\n' "$HARNESS_ARCHITECTURE_GUARDS"
+		printf 'semantic_continuation_review_enabled=%s\n' "$HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED"
 		printf 'harness_home=%s\n' "$HARNESS_HOME"
 		printf 'harness_bin=%s\n' "$HARNESS_BIN"
 		printf 'project_tmp_dir=%s\n' "$(project_tmp_dir)"
@@ -3991,6 +4009,7 @@ write_manager_snapshot()
 		printf 'min_luna_node_percent=%s\n' "$HARNESS_MIN_LUNA_NODE_PERCENT"
 		printf 'min_luna_coding_node_percent=%s\n' "$HARNESS_MIN_LUNA_CODING_NODE_PERCENT"
 		printf 'architecture_guards=%s\n' "$HARNESS_ARCHITECTURE_GUARDS"
+		printf 'semantic_continuation_review_enabled=%s\n' "$HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED"
 		printf 'domain_profiles=%s\n' "${HARNESS_DOMAIN_PROFILES:-}"
 		printf 'domain_profiles_sha256=%s\n' "$(domain_profiles_sha256)"
 		printf 'env_file=%s\n' "$HARNESS_ENV_FILE"
@@ -4038,6 +4057,7 @@ write_worker_snapshot()
 		printf 'goal_context_rotation_iterations=%s\n' "$HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS"
 		printf 'goal_process_max_fixes=%s\n' "$HARNESS_GOAL_PROCESS_MAX_FIXES"
 		printf 'goal_process_max_smoke_runs=%s\n' "$HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS"
+		printf 'semantic_continuation_review_enabled=%s\n' "$HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED"
 		printf 'decomposition_v2=%s\n' "$HARNESS_DECOMPOSITION_V2"
 		printf 'decomposition_critic_enabled=%s\n' "$HARNESS_DECOMPOSITION_CRITIC_ENABLED"
 		printf 'specification_review_enabled=%s\n' "$HARNESS_SPECIFICATION_REVIEW_ENABLED"

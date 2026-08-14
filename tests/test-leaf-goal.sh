@@ -91,6 +91,44 @@ VERDICT
 	printf '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n'
 	exit 0
 fi
+if printf '%s\n' "$prompt" | grep -q 'You are the semantic continuation manager'; then
+	GOAL_ITERATION="$(value GOAL_ITERATION)"
+	DECISION_FILE="$(value DECISION_FILE)"
+	decision=CONTINUE
+	relation=SAME_CRITERION
+	reason='The next focused validation directly tests the assigned criterion.'
+	evidence='The receipt preserves the same target and reports implementation movement.'
+	if [[ "$PROJECT" == goalreplan ]]; then
+		decision=REPLAN
+		relation=PREMISE_INVALIDATED
+		reason='The continuation evidence disproves the leaf causal premise.'
+		evidence='The observed failure belongs to an upstream prerequisite rather than the target criterion.'
+	fi
+	cat > "$DECISION_FILE" <<DECISION
+# Goal Continuation Decision
+
+Task-ID: $TASK_ID
+Goal-ID: $GOAL_ID
+Iteration: $GOAL_ITERATION
+Decision: $decision
+Criterion-Relation: $relation
+Reason: $reason
+Evidence: $evidence
+DECISION
+	"$HARNESS_BIN/manager-record-goal-continuation-decision" "$ENV_FILE" "$TASK_ID" "$DECISION_FILE" >/dev/null
+	[[ -z "$last_message_file" ]] || printf 'semantic continuation approved\n' > "$last_message_file"
+	printf '{"type":"thread.started","thread_id":"goal-semantic-manager-thread"}\n'
+	printf '{"type":"item.completed","item":{"type":"agent_message","text":"semantic continuation approved"}}\n'
+	printf '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n'
+	exit 0
+fi
+if [[ "$PROJECT" == goalresource ]]; then
+	[[ -z "$last_message_file" ]] || printf 'episode exhausted without terminal claim\n' > "$last_message_file"
+	printf '{"type":"thread.started","thread_id":"goal-resource-thread"}\n'
+	printf '{"type":"item.completed","item":{"type":"agent_message","text":"episode exhausted"}}\n'
+	printf '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":10}}\n'
+	exit 0
+fi
 count_file="$HARNESS_ROOT/goal-mock-count"
 count=0
 [[ ! -f "$count_file" ]] || count="$(cat "$count_file")"
@@ -174,6 +212,7 @@ export HARNESS_GOAL_MAX_IDENTICAL_ITERATIONS="3"
 export HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS="8"
 export HARNESS_GOAL_PROCESS_MAX_FIXES="3"
 export HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS="4"
+export HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED="1"
 export WORKER_HEARTBEAT_SECONDS="1"
 export HARNESS_USE_INOTIFY="0"
 export HARNESS_PROVIDER_RETRY_SECONDS="1"
@@ -262,19 +301,111 @@ grep -q '^cumulative_output_tokens=2$' "$goal_state"
 [[ "$(wc -l < "$goal_ledger")" == 2 ]]
 iteration_receipt="$project_dir/archive/goal-iterations/goalproj-task-001/iteration-0001.md"
 [[ -f "$iteration_receipt" ]]
+semantic_decision="$project_dir/archive/goal-iterations/goalproj-task-001/iteration-0001.manager-decision.md"
+[[ -f "$semantic_decision" ]]
+grep -Fqx 'Decision: CONTINUE' "$semantic_decision"
+grep -q '^semantic_reviews=1$' "$goal_state"
 [[ "$(cat "$TEST_ROOT/state/goal-mock-count")" == 3 ]]
-[[ "$(wc -l < "$ARGS_LOG")" == 3 ]]
-tail -n 1 "$ARGS_LOG" | grep -q 'resume goal-thread-001'
+[[ "$(wc -l < "$ARGS_LOG")" == 4 ]]
+if tail -n 1 "$ARGS_LOG" | grep -q 'resume goal-thread-001'; then
+	printf 'fresh semantic episode unexpectedly resumed the previous worker thread\n' >&2
+	exit 1
+fi
 grep -q 'WORKER_PROVIDER_WAIT task=001.*kind=transient' "$project_dir/logs/events.log"
 grep -q 'WORKER_GOAL_CONTINUED task=001 goal=goal.001.behavior iteration=1' "$project_dir/logs/events.log"
+grep -q 'WORKER_GOAL_CONTINUATION_APPROVED task=001 goal=goal.001.behavior iteration=1' "$project_dir/logs/events.log"
 grep -q 'WORKER_GOAL_RESUMING task=001 goal=goal.001.behavior iteration=1' "$project_dir/logs/events.log"
 [[ "$(find "$project_dir/results" -type f -name '*.result.md' | wc -l)" == 1 ]]
+"$HARNESS_BIN/harness-implementation-log" "$TEST_ROOT/harness.env" > "$TEST_ROOT/implementation-log.out"
+grep -Fq 'Semantic continuation review started; task=001; iteration=1' "$TEST_ROOT/implementation-log.out"
+grep -Fq 'Fresh semantic episode approved; task=001; iteration=1; relation=SAME_CRITERION' "$TEST_ROOT/implementation-log.out"
 
 "$HARNESS_BIN/harness-status" --full "$TEST_ROOT/harness.env" > "$TEST_ROOT/status.out"
 grep -q 'Worker leaf-goal mode: enabled' "$TEST_ROOT/status.out"
 grep -q 'Active worker goal: goal.001.behavior (REVIEW)' "$TEST_ROOT/status.out"
 grep -q 'Internal iterations: 1' "$TEST_ROOT/status.out"
 grep -q 'Cumulative processed tokens (not current context size): input=2 output=2' "$TEST_ROOT/status.out"
+
+# A manager finding that invalidates the leaf premise must close the worker
+# episode and publish a normal NEEDS_DECOMPOSITION result without launching a
+# second implementation episode or requiring human intervention.
+REPLAN_ROOT="$TEST_ROOT/semantic-replan"
+mkdir -p "$REPLAN_ROOT/repo" "$REPLAN_ROOT/manager-home" "$REPLAN_ROOT/worker-home"
+printf 'semantic replan specification\n' > "$REPLAN_ROOT/repo/spec.md"
+git -C "$REPLAN_ROOT/repo" init -q
+git -C "$REPLAN_ROOT/repo" config user.name 'Harness Test'
+git -C "$REPLAN_ROOT/repo" config user.email 'harness@example.invalid'
+git -C "$REPLAN_ROOT/repo" add spec.md
+git -C "$REPLAN_ROOT/repo" commit -qm baseline
+cat > "$REPLAN_ROOT/harness.env" <<ENV
+export PROJECT="goalreplan"
+export REPOSITORY="$REPLAN_ROOT/repo"
+export SPECIFICATION="\$REPOSITORY/spec.md"
+export HARNESS_HOME="$HARNESS_HOME"
+export HARNESS_BIN="\$HARNESS_HOME/bin"
+export HARNESS_ROOT="$REPLAN_ROOT/state"
+export HARNESS_AGENT_MIN_INTERVAL_SECONDS="0"
+export MANAGER_CODEX_HOME="$REPLAN_ROOT/manager-home"
+export MANAGER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export WORKER_CODEX_HOME="$REPLAN_ROOT/worker-home"
+export WORKER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export HARNESS_PROVIDER_RETRY_SECONDS="1"
+export HARNESS_QUOTA_RETRY_SECONDS="1"
+export HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED="1"
+ENV
+chmod 600 "$REPLAN_ROOT/harness.env"
+"$HARNESS_BIN/harness-init" "$REPLAN_ROOT/harness.env" >/dev/null
+printf 'P0\tSemantic replan\n' > "$REPLAN_ROOT/plan.tsv"
+"$HARNESS_BIN/manager-init-project-plan" "$REPLAN_ROOT/harness.env" "$REPLAN_ROOT/plan.tsv" >/dev/null
+"$HARNESS_BIN/manager-publish-task" "$REPLAN_ROOT/harness.env" 001 "$TEST_ROOT/task.md" P0 >/dev/null
+"$HARNESS_BIN/worker-invoke-task" "$REPLAN_ROOT/harness.env" 001 >/dev/null
+replan_project="$REPLAN_ROOT/state/projects/goalreplan"
+replan_state="$replan_project/control/goals/goalreplan-task-001.goal"
+replan_result="$replan_project/results/goalreplan-task-001.result.md"
+grep -Fqx 'Goal-Outcome: NEEDS_DECOMPOSITION' "$replan_result"
+grep -q '^terminal_outcome=NEEDS_DECOMPOSITION$' "$replan_state"
+grep -q '^semantic_decision=REPLAN$' "$replan_state"
+grep -q '^semantic_relation=PREMISE_INVALIDATED$' "$replan_state"
+[[ "$(cat "$REPLAN_ROOT/state/goal-mock-count")" == 2 ]]
+[[ ! -e "$replan_project/control/progress/goalreplan-task-001.needs-human.md" ]]
+grep -q 'WORKER_GOAL_SEMANTIC_REPLAN task=001' "$replan_project/logs/events.log"
+
+# An emergency per-invocation resource fuse preserves work and returns the
+# leaf to decomposition; it does not fabricate NEEDS_HUMAN.
+RESOURCE_ROOT="$TEST_ROOT/goal-resource"
+mkdir -p "$RESOURCE_ROOT/repo" "$RESOURCE_ROOT/manager-home" "$RESOURCE_ROOT/worker-home"
+printf 'resource episode specification\n' > "$RESOURCE_ROOT/repo/spec.md"
+git -C "$RESOURCE_ROOT/repo" init -q
+git -C "$RESOURCE_ROOT/repo" config user.name 'Harness Test'
+git -C "$RESOURCE_ROOT/repo" config user.email 'harness@example.invalid'
+git -C "$RESOURCE_ROOT/repo" add spec.md
+git -C "$RESOURCE_ROOT/repo" commit -qm baseline
+cat > "$RESOURCE_ROOT/harness.env" <<ENV
+export PROJECT="goalresource"
+export REPOSITORY="$RESOURCE_ROOT/repo"
+export SPECIFICATION="\$REPOSITORY/spec.md"
+export HARNESS_HOME="$HARNESS_HOME"
+export HARNESS_BIN="\$HARNESS_HOME/bin"
+export HARNESS_ROOT="$RESOURCE_ROOT/state"
+export HARNESS_AGENT_MIN_INTERVAL_SECONDS="0"
+export MANAGER_CODEX_HOME="$RESOURCE_ROOT/manager-home"
+export MANAGER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export WORKER_CODEX_HOME="$RESOURCE_ROOT/worker-home"
+export WORKER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION="50"
+export HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED="1"
+ENV
+chmod 600 "$RESOURCE_ROOT/harness.env"
+"$HARNESS_BIN/harness-init" "$RESOURCE_ROOT/harness.env" >/dev/null
+printf 'P0\tResource episode\n' > "$RESOURCE_ROOT/plan.tsv"
+"$HARNESS_BIN/manager-init-project-plan" "$RESOURCE_ROOT/harness.env" "$RESOURCE_ROOT/plan.tsv" >/dev/null
+"$HARNESS_BIN/manager-publish-task" "$RESOURCE_ROOT/harness.env" 001 "$TEST_ROOT/task.md" P0 >/dev/null
+"$HARNESS_BIN/worker-invoke-task" "$RESOURCE_ROOT/harness.env" 001 >/dev/null
+resource_project="$RESOURCE_ROOT/state/projects/goalresource"
+resource_result="$resource_project/results/goalresource-task-001.result.md"
+grep -Fqx 'Goal-Outcome: NEEDS_DECOMPOSITION' "$resource_result"
+[[ ! -e "$resource_project/control/progress/goalresource-task-001.needs-human.md" ]]
+grep -q 'WORKER_GOAL_RESOURCE_EPISODE_CLOSED task=001.*guard=TOKEN_LIMIT' "$resource_project/logs/events.log"
 
 cat > "$TEST_ROOT/checkpoint.md" <<'NOTE'
 # Manager Review Record
@@ -521,6 +652,7 @@ export WORKER_CODEX_BIN="$TEST_ROOT/mock-codex"
 export HARNESS_WORKER_GOAL_MODE="1"
 export HARNESS_GOAL_MAX_IDENTICAL_ITERATIONS="1"
 export HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS="8"
+export HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED="0"
 ENV
 chmod 600 "$ROTATE_ROOT/harness.env"
 "$HARNESS_BIN/harness-init" "$ROTATE_ROOT/harness.env" >/dev/null

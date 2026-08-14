@@ -644,6 +644,11 @@ if (( goal_mode == 1 )); then
 		printf 'thread_id=%s\n' "$goal_thread_id"
 		printf 'thread_context=%s\n' "$goal_thread_context"
 		printf 'strategy_review_required=0\n'
+		printf 'semantic_reviews=0\n'
+		printf 'semantic_review_iteration=0\n'
+		printf 'semantic_decision=-\n'
+		printf 'semantic_relation=-\n'
+		printf 'semantic_decision_file=-\n'
 		printf 'last_boundary=%s\n' "$goal_baseline_boundary"
 		printf 'last_workspace=%s\n' "$goal_workspace"
 		printf 'last_material_fingerprint=-\n'

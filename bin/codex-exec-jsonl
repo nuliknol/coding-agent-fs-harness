@@ -154,6 +154,7 @@ prompt_value()
 resource_task_id="$(prompt_value TASK_ID)"
 resource_task_root="$(prompt_value TASK_ROOT)"
 resource_agent_phase="$(prompt_value AGENT_PHASE)"
+resource_goal_mode="$(prompt_value WORKER_GOAL_MODE)"
 resource_processed_token_limit="$HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION"
 if [[ "$resource_agent_phase" == specification_review ]]; then
 	resource_processed_token_limit="$HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION"
@@ -164,7 +165,11 @@ fi
 record_resource_guard()
 {
 	local alarm marker="-"
-	if [[ -n "$resource_task_root" && "$resource_task_root" != - ]]; then
+	# A leaf-goal resource fuse closes only the current implementation episode.
+	# worker-invoke-task converts it into a preserved NEEDS_DECOMPOSITION handoff,
+	# so it is not a genuine human authority/secret/external-state dependency.
+	if [[ -n "$resource_task_root" && "$resource_task_root" != - ]] &&
+		! { [[ "$role" =~ ^worker ]] && [[ "$resource_goal_mode" == 1 ]]; }; then
 		mkdir -p "$(project_dir)/control/progress"
 		chmod 700 "$(project_dir)/control/progress"
 		marker="$(mark_root_needs_human "$resource_task_root" "$resource_task_id" \

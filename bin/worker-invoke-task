@@ -263,7 +263,7 @@ Publish the receipt with:
 
 $HARNESS_BIN/worker-continue-task "$HARNESS_ENV_FILE" "$task_id" "$session" RECEIPT_FILE
 
-After that command succeeds, end this Codex turn. The harness will resume the same logical goal automatically. A CONTINUE receipt must record a changed boundary, changed workspace, or genuinely new evidence/strategy. Process-local work should stay within $HARNESS_GOAL_PROCESS_MAX_FIXES small corrections and $HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS focused smoke executions before publishing CONTINUE.
+After that command succeeds, end this Codex turn. The harness will review the semantic boundary and either start a fresh implementation episode for the same logical goal or return the leaf to decomposition. A CONTINUE receipt must record a changed boundary, changed workspace, or genuinely new evidence/strategy. If evidence shows that the assigned failure premise is false, that an upstream prerequisite owns the actual failure, or that the next work exceeds this leaf's authority, state that plainly in "Next bounded action" and stop; do not broaden the leaf on your own. Process-local work should stay within $HARNESS_GOAL_PROCESS_MAX_FIXES small corrections and $HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS focused smoke executions before publishing CONTINUE.
 
 For a terminal result, include "Goal-ID: $goal_id" and exactly one "Goal-Outcome: COMPLETE|NEEDS_DECOMPOSITION|HARD_BLOCKED", retain the normal worker result headings, publish it with worker-complete-task, and terminate. Do not use NEEDS_DECOMPOSITION merely because another ordinary diagnostic/fix turn is required. Do not use HARD_BLOCKED for test failure, complexity, token pressure, or lack of immediate progress.
 PROMPT
@@ -324,6 +324,32 @@ emit_synthetic_impact_manifest()
 	printf 'Changed-Dependencies: -\n'
 	printf 'Affected-Invariants: %s\n' "$(require_single_metadata_value "$task_file" Affected-Invariants 'active assignment')"
 	printf 'Affected-Edges: %s\n' "$(require_single_metadata_value "$task_file" Edge-Contracts 'active assignment')"
+}
+
+publish_goal_decomposition_handoff()
+{
+	local reason="$1" concern="$2" handoff
+	handoff="$PROJECT_TMP_DIR/$base.goal-decomposition-handoff.$$"
+	{
+		printf '# Worker Task Result\n\n'
+		printf 'Task-ID: %s\n' "$task_id"
+		printf 'Status: COMPLETED\n'
+		printf 'Goal-ID: %s\n' "$goal_id"
+		printf 'Goal-Outcome: NEEDS_DECOMPOSITION\n'
+		emit_synthetic_impact_manifest
+		printf '\n'
+		printf '## Summary\n\n%s\n\n' "$reason"
+		printf '## Modified files\n\nAll workspace changes and source commits produced before the episode closed are preserved for independent manager inspection.\n\n'
+		printf '## Implemented behavior\n\nNo implementation claim is synthesized by the harness.\n\n'
+		printf '## Validation performed\n\nSee the preserved JSONL, command evidence, assignment, and goal ledger.\n\n'
+		printf '## Deviations from assignment\n\nThe current semantic episode ended before terminal acceptance.\n\n'
+		printf '## Remaining concerns\n\n%s\n\n' "$concern"
+		printf '## Worker assessment\n\nNEEDS_DECOMPOSITION; use fresh context and preserve any independently verified increment.\n'
+	} > "$handoff"
+	chmod 600 "$handoff"
+	"$HARNESS_BIN/worker-complete-task" "$HARNESS_ENV_FILE" "$task_id" "$session" "$handoff" >/dev/null
+	rm -f "$handoff"
+	completion_committed
 }
 
 normalize_direct_result()
@@ -421,7 +447,8 @@ while true; do
 	if [[ "$observed_thread_id" =~ ^[A-Za-z0-9-]+$ ]]; then
 		worker_resume_thread_id="$observed_thread_id"
 		if (( goal_mode == 1 )) &&
-			[[ "$(kv_file_value "$goal_state" thread_context 2>/dev/null || true)" != rotation-requested ]]; then
+			[[ "$(kv_file_value "$goal_state" thread_context 2>/dev/null || true)" != rotation-requested ]] &&
+			[[ "$(kv_file_value "$goal_state" state 2>/dev/null || true)" != AWAITING_MANAGER_REVIEW ]]; then
 			goal_state_set "$goal_state" thread_id "$observed_thread_id"
 			goal_state_set "$goal_state" thread_context resumed
 			goal_thread_store "$task_id" "$observed_thread_id" resumed
@@ -429,6 +456,18 @@ while true; do
 	fi
 	classification="$(kv_file_value "${json_log%.jsonl}.classification" classification 2>/dev/null || true)"
 	record_root_agent_tokens "$task_id" "$execution_role" "${json_log%.jsonl}.classification"
+	resource_guard="$(kv_file_value "${json_log%.jsonl}.classification" resource_guard 2>/dev/null || printf -)"
+	if (( goal_mode == 1 )) && [[ "$resource_guard" != - ]]; then
+		if publish_goal_decomposition_handoff \
+			"The implementation episode reached the emergency $resource_guard resource fuse; this limits one context, not the amount of work allowed for the goal." \
+			"The manager must inspect the preserved evidence, split or restate the next semantic episode, and may continue the same criterion when it remains valid."; then
+			cleanup_heartbeat
+			log_event "WORKER_GOAL_RESOURCE_EPISODE_CLOSED task=$task_id root=$task_root guard=$resource_guard classification=${classification:-unknown}"
+			printf 'Worker goal %s closed its overgrown semantic episode and requested decomposition.\n' "$goal_id"
+			exit 0
+		fi
+		die 'failed to publish resource-fuse decomposition handoff'
+	fi
 	if task_root_needs_human "$task_root" && [[ "$(kv_file_value "${json_log%.jsonl}.classification" resource_guard 2>/dev/null || printf -)" != - ]]; then
 		cleanup_heartbeat
 		log_event "WORKER_RESOURCE_GUARD_PAUSED task=$task_id root=$task_root classification=${classification:-unknown}"
@@ -478,6 +517,48 @@ while true; do
 		goal_iteration_after="$(kv_file_value "$goal_state" iteration_count)"
 		if (( goal_iteration_after > goal_iteration_before )); then
 			goal_movement="$(kv_file_value "$(goal_continue_marker_file "$task_id")" movement 2>/dev/null || printf unknown)"
+			if (( HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED == 1 )); then
+				"$HARNESS_BIN/manager-review-goal-continuation" "$HARNESS_ENV_FILE" "$task_id" >/dev/null
+				semantic_decision="$(kv_file_value "$goal_state" semantic_decision 2>/dev/null || true)"
+				semantic_relation="$(kv_file_value "$goal_state" semantic_relation 2>/dev/null || true)"
+				semantic_decision_file="$(kv_file_value "$goal_state" semantic_decision_file 2>/dev/null || true)"
+				if [[ "$semantic_decision" == REPLAN ]]; then
+					handoff="$PROJECT_TMP_DIR/$base.semantic-replan-handoff.$$"
+					{
+						printf '# Worker Task Result\n\n'
+						printf 'Task-ID: %s\n' "$task_id"
+						printf 'Status: COMPLETED\n'
+						printf 'Goal-ID: %s\n' "$goal_id"
+						printf 'Goal-Outcome: NEEDS_DECOMPOSITION\n'
+						emit_synthetic_impact_manifest
+						printf '\n'
+						printf '## Summary\n\nThe semantic continuation review closed this leaf after iteration %s.\n\n' "$goal_iteration_after"
+						printf '## Modified files\n\nWorkspace changes and source commits from completed episodes are preserved for manager inspection.\n\n'
+						printf '## Implemented behavior\n\nNo claim beyond the worker continuation receipt is synthesized by the harness.\n\n'
+						printf '## Validation performed\n\nSee the durable continuation receipt and semantic decision.\n\n'
+						printf '## Deviations from assignment\n\nCriterion relation: %s.\n\n' "$semantic_relation"
+						printf '## Remaining concerns\n\nThe manager must revise decomposition before authorizing more implementation work. Decision: %s\n\n' "$semantic_decision_file"
+						printf '## Worker assessment\n\nNEEDS_DECOMPOSITION because the proposed next action no longer qualifies as another episode of the same bounded criterion.\n'
+					} > "$handoff"
+					chmod 600 "$handoff"
+					"$HARNESS_BIN/worker-complete-task" "$HARNESS_ENV_FILE" "$task_id" "$session" "$handoff" >/dev/null
+					rm -f "$handoff"
+					if completion_committed; then
+						cleanup_heartbeat
+						log_event "WORKER_GOAL_SEMANTIC_REPLAN task=$task_id goal=$goal_id iteration=$goal_iteration_after relation=$semantic_relation decision=$semantic_decision_file"
+						printf 'Worker goal %s returned to decomposition after semantic boundary review.\n' "$goal_id"
+						exit 0
+					fi
+					die 'failed to publish semantic-replan handoff'
+				fi
+				[[ "$semantic_decision" == CONTINUE && "$semantic_relation" == SAME_CRITERION ]] ||
+					die 'semantic continuation review did not publish a valid decision'
+				worker_resume_thread_id=""
+				goal_state_set "$goal_state" thread_context fresh-semantic-episode
+				goal_thread_store "$task_id" "" fresh-semantic-episode
+				worker_context_mode="fresh"
+				worker_context_reason="semantic_episode_boundary"
+			fi
 			strategy_review="$(kv_file_value "$goal_state" strategy_review_required)"
 			context_state="$(kv_file_value "$goal_state" thread_context)"
 			if (( HARNESS_DECOMPOSITION_V2 == 1 && goal_iteration_after >= leaf_expected_turns )); then
@@ -516,8 +597,8 @@ while true; do
 				worker_context_mode="fresh"
 				worker_context_reason="goal_iteration_rotation"
 			fi
-			printf '\nGoal iteration %s is durably committed with movement=%s. Re-read GOAL_SUMMARY_FILE and GOAL_STATE_FILE. Continue the same leaf goal from its new boundary. ' \
-				"$goal_iteration_after" "$goal_movement" >> "$prompt_file"
+			printf '\nGoal iteration %s is durably committed with movement=%s. This later episode block supersedes earlier iteration and boundary values in this prompt. Re-read GOAL_SUMMARY_FILE and GOAL_STATE_FILE, use the current durable values there, and continue the same leaf goal from its new boundary in a fresh semantic episode. The next receipt Iteration must be %s. ' \
+				"$goal_iteration_after" "$goal_movement" "$((goal_iteration_after + 1))" >> "$prompt_file"
 			if [[ "$strategy_review" == 1 ]]; then
 				printf 'Repeated materially identical iterations closed CONTINUE. Publish a truthful terminal Goal-Outcome: NEEDS_DECOMPOSITION so the persistent manager can change strategy or append child criteria.\n' >> "$prompt_file"
 			else

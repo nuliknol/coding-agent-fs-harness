@@ -1255,12 +1255,19 @@ export HARNESS_GOAL_MAX_IDENTICAL_ITERATIONS="3"
 export HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS="8"
 export HARNESS_GOAL_PROCESS_MAX_FIXES="3"
 export HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS="4"
+export HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED="1"
 ```
 
 `HARNESS_GOAL_PROCESS_*` bounds one process, not the logical goal. Reaching a
-bound publishes a continuation rather than claiming completion. Context
-rotation also preserves goal state and workspace. Closure mode remains a
-separate compatibility path for legacy assignments.
+bound publishes a continuation rather than claiming completion. With semantic
+continuation review enabled, every `CONTINUE` closes the current episode. A
+fresh, compact manager turn compares its evidence and next action to the
+assigned criterion and authority. `SAME_CRITERION` starts a fresh worker
+context; an invalidated premise, upstream prerequisite, or out-of-authority
+next action publishes `NEEDS_DECOMPOSITION` with all work preserved. This
+limits context growth without prescribing shell commands or limiting the total
+amount of implementation work. Closure mode remains a separate compatibility
+path for legacy assignments.
 
 Correct increments are checkpointed rather than rejected. A zero-improvement
 result may still record a stable verified increment. The rolling zero-gain,

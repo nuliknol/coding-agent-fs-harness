@@ -93,7 +93,20 @@ current_worker_log()
 
 current_manager_log()
 {
-	local result task_id candidate="" candidate_epoch="" log epoch planning_turn=0 replan_running
+	local result running task_id candidate="" candidate_epoch="" log epoch planning_turn=0 replan_running
+	# Semantic continuation review runs while the worker still owns the leaf, so
+	# it has no result-mailbox anchor. Follow its compact manager turn directly.
+	for running in "$dir/running/$PROJECT-task-"*.running.md; do
+		[[ -f "$running" ]] || continue
+		task_id="$(task_id_from_filename "$running")"
+		log="$(latest_matching_log "$logs_dir/manager-goal-continuation-$task_id-iteration-*-attempt-*.jsonl")"
+		[[ -n "$log" ]] || continue
+		epoch="$(stat -c '%Y' "$log" 2>/dev/null || printf '0')"
+		if [[ -z "$candidate" || "$epoch" -gt "$candidate_epoch" || ( "$epoch" -eq "$candidate_epoch" && "$log" > "$candidate" ) ]]; then
+			candidate="$log"
+			candidate_epoch="$epoch"
+		fi
+	done
 	for result in "$dir/results/$PROJECT-task-"*.result.md; do
 		[[ -f "$result" ]] || continue
 		task_id="$(task_id_from_filename "$result")"
@@ -165,6 +178,11 @@ role_and_task_from_log()
 		MANAGER:manager-review-*.jsonl)
 			task="${name#manager-review-}"
 			task="${task%-????????T??????Z-attempt-???.jsonl}"
+			;;
+		MANAGER:manager-goal-continuation-*.jsonl)
+			task="${name#manager-goal-continuation-}"
+			task="${task%-iteration-*}"
+			task="semantic-continuation-$task"
 			;;
 		MANAGER:manager-bootstrap-*.jsonl)
 			task="bootstrap"

@@ -164,6 +164,21 @@ grep -q '^resource_guard=ITEM_LIMIT$' "$TMP/item-loop.classification"
 grep -q 'agent invocation resource circuit breaker: live item-start budget reached' \
 	"$TMP/state/projects/jsonltest/control/progress/jsonltest-task-resource-root.needs-human.md"
 
+# A leaf-goal guard closes one semantic episode in worker-invoke-task. It must
+# not be mislabeled as a human authorization/secret/external-state dependency.
+goal_resource_prompt="$TMP/goal-resource-prompt"
+printf 'TASK_ID=goal-resource\nTASK_ROOT=goal-resource\nWORKER_GOAL_MODE=1\n' > "$goal_resource_prompt"
+set +e
+MOCK_MODE=item_loop "$ROOT/bin/codex-exec-jsonl" "$TMP/env-resource" worker gpt-5.5 \
+	"$goal_resource_prompt" "$TMP/goal-item-loop.jsonl" "$TMP/goal-item-loop.stderr" "$TMP/goal-item-loop.last"
+goal_item_status=$?
+set -e
+(( goal_item_status != 0 ))
+grep -q '^classification=agent_item_budget_exceeded$' "$TMP/goal-item-loop.classification"
+[[ ! -e "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-goal-resource.needs-human.md" ]]
+grep -q 'task=goal-resource.*kind=ITEM_LIMIT' \
+	"$TMP/state/projects/jsonltest/logs/agent-resource-alarms.log"
+
 printf 'TASK_ID=token-root\nTASK_ROOT=token-root\n' > "$resource_prompt"
 printf 'export HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION="100"\n' >> "$TMP/env-resource"
 set +e

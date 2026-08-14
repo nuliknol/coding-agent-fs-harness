@@ -1,0 +1,184 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TASK_ID\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 2 ]] || usage
+load_harness_env "$1"
+task_id="$2"
+ensure_project
+require_repository
+require_manager_codex
+validate_task_id "$task_id"
+write_manager_snapshot
+
+dir="$(project_dir)"
+base="$(task_base "$task_id")"
+running="$dir/running/$base.running.md"
+state_file="$(goal_state_file "$task_id")"
+marker_file="$(goal_continue_marker_file "$task_id")"
+summary_file="$(goal_summary_file "$task_id")"
+capsule_file="$(task_context_capsule_file "$task_id")"
+[[ -f "$running" ]] || die "task is not running: $task_id"
+assignment_uses_goal_mode "$running" || die 'semantic continuation review requires a LEAF_GOAL assignment'
+[[ -f "$state_file" && -f "$marker_file" && -f "$summary_file" ]] ||
+	die "goal continuation state is incomplete: $task_id"
+iteration="$(kv_file_value "$state_file" iteration_count)"
+[[ "$iteration" =~ ^[1-9][0-9]*$ ]] || die 'active continuation iteration is invalid'
+decision_file="$(goal_continuation_decision_file "$task_id" "$iteration")"
+if [[ -f "$decision_file" ]]; then
+	printf '%s\n' "$decision_file"
+	exit 0
+fi
+[[ "$(kv_file_value "$state_file" state)" == AWAITING_MANAGER_REVIEW ]] ||
+	die "goal is not awaiting semantic review: $(kv_file_value "$state_file" state)"
+receipt_file="$(kv_file_value "$marker_file" receipt)"
+[[ -f "$receipt_file" ]] || die "latest continuation receipt is missing: $receipt_file"
+goal_id="$(kv_file_value "$state_file" goal_id)"
+target="$(kv_file_value "$state_file" target_criterion)"
+movement="$(kv_file_value "$marker_file" movement)"
+strategy_review="$(kv_file_value "$state_file" strategy_review_required)"
+output_file="$PROJECT_TMP_DIR/$base.semantic-continuation-$iteration.decision.md"
+prompt_file="$dir/control/$base.semantic-continuation-$iteration.prompt.md"
+
+cat > "$prompt_file.tmp.$$" <<PROMPT
+You are the semantic continuation manager for one bounded implementation leaf.
+
+HARNESS_BIN=$HARNESS_BIN
+ENV_FILE=$HARNESS_ENV_FILE
+PROJECT=$PROJECT
+REPOSITORY=$REPOSITORY
+TASK_ID=$task_id
+GOAL_ID=$goal_id
+GOAL_ITERATION=$iteration
+TARGET_CRITERION=$target
+TASK_FILE=$running
+GOAL_STATE_FILE=$state_file
+GOAL_SUMMARY_FILE=$summary_file
+CONTINUATION_RECEIPT_FILE=$receipt_file
+CONTEXT_CAPSULE_FILE=$capsule_file
+DECISION_FILE=$output_file
+AGENT_PHASE=semantic_continuation_review
+
+Read TASK_FILE, GOAL_SUMMARY_FILE, and CONTINUATION_RECEIPT_FILE completely. Read CONTEXT_CAPSULE_FILE only when it exists. Do not implement, edit repository files, run builds/tests, or investigate the repository. This is a compact semantic boundary review, not another engineering episode.
+
+Decide whether the receipt's "Next bounded action" remains a direct attempt to satisfy the same TARGET_CRITERION under the assignment's existing authority:
+
+- CONTINUE / SAME_CRITERION: the next action remains direct implementation or focused validation of the same criterion, using the same accepted premise and authority.
+- REPLAN / PREMISE_INVALIDATED: new evidence shows the leaf's assumed failure location, target, or causal premise is false.
+- REPLAN / UPSTREAM_PREREQUISITE: progress now requires repairing or establishing a prerequisite owned before this criterion.
+- REPLAN / OUTSIDE_AUTHORITY: progress requires work outside Allowed-Scope, an unresolved architecture/specification decision, or authority not granted by the assignment.
+- REPLAN / REVIEW_INCONCLUSIVE: the receipt is too ambiguous or incomplete to authorize another episode.
+
+MOVEMENT=$movement and STRATEGY_REVIEW_REQUIRED=$strategy_review. If STRATEGY_REVIEW_REQUIRED=1, you must REPLAN because repeated materially identical episodes have already closed continuation.
+
+Write DECISION_FILE with exactly this shape and concise, one-line Reason and Evidence values:
+
+# Goal Continuation Decision
+
+Task-ID: $task_id
+Goal-ID: $goal_id
+Iteration: $iteration
+Decision: CONTINUE|REPLAN
+Criterion-Relation: SAME_CRITERION|PREMISE_INVALIDATED|UPSTREAM_PREREQUISITE|OUTSIDE_AUTHORITY|REVIEW_INCONCLUSIVE
+Reason: one line
+Evidence: one line
+
+Then commit the decision exactly once with:
+
+$HARNESS_BIN/manager-record-goal-continuation-decision "$HARNESS_ENV_FILE" "$task_id" "$output_file"
+
+After that command succeeds, terminate immediately. Do not call any other harness transition command.
+PROMPT
+if codex_model_requires_narrow_prompt "$MANAGER_MODEL"; then
+	cat >> "$prompt_file.tmp.$$" <<'PROMPT'
+
+Context: authorized local software engineering. Review only the supplied assignment, compact status, context capsule, and continuation receipt. No security work or external access is involved.
+PROMPT
+fi
+chmod 600 "$prompt_file.tmp.$$"
+mv "$prompt_file.tmp.$$" "$prompt_file"
+
+record_inconclusive_replan()
+{
+	local reason="$1" evidence="$2" fallback_file
+	fallback_file="$PROJECT_TMP_DIR/$base.semantic-continuation-$iteration.fallback-decision.md"
+	{
+		printf '# Goal Continuation Decision\n\n'
+		printf 'Task-ID: %s\n' "$task_id"
+		printf 'Goal-ID: %s\n' "$goal_id"
+		printf 'Iteration: %s\n' "$iteration"
+		printf 'Decision: REPLAN\n'
+		printf 'Criterion-Relation: REVIEW_INCONCLUSIVE\n'
+		printf 'Reason: %s\n' "$reason"
+		printf 'Evidence: %s\n' "$evidence"
+	} > "$fallback_file"
+	chmod 600 "$fallback_file"
+	"$HARNESS_BIN/manager-record-goal-continuation-decision" "$HARNESS_ENV_FILE" "$task_id" "$fallback_file" >/dev/null
+}
+
+attempt=1
+provider_retries=0
+fallback_stage=0
+current_model="$MANAGER_MODEL"
+while true; do
+	stamp="$(date -u '+%Y%m%dT%H%M%SZ')"
+	attempt_label="$(printf '%03d' "$attempt")"
+	json_log="$dir/logs/manager-goal-continuation-$task_id-iteration-$iteration-$stamp-attempt-$attempt_label.jsonl"
+	stderr_log="${json_log%.jsonl}.stderr.log"
+	last_message="${json_log%.jsonl}.md"
+	log_event "MANAGER_GOAL_CONTINUATION_REVIEW_STARTED task=$task_id goal=$goal_id iteration=$iteration attempt=$attempt model=$current_model"
+	set +e
+	"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" manager_review "$current_model" \
+		"$prompt_file" "$json_log" "$stderr_log" "$last_message"
+	status=$?
+	set -e
+	classification="$(kv_file_value "${json_log%.jsonl}.classification" classification 2>/dev/null || true)"
+	record_root_agent_tokens "$task_id" manager_review "${json_log%.jsonl}.classification"
+	if [[ -f "$decision_file" ]]; then
+		log_event "MANAGER_GOAL_CONTINUATION_REVIEW_FINISHED task=$task_id goal=$goal_id iteration=$iteration attempt=$attempt"
+		printf '%s\n' "$decision_file"
+		exit 0
+	fi
+
+	retry_kind="$(codex_provider_retry_kind "$classification" 2>/dev/null || true)"
+	if [[ -n "$retry_kind" ]]; then
+		retry_delay="$(codex_provider_retry_delay "$classification")"
+		provider_retries=$((provider_retries + 1))
+		log_event "MANAGER_GOAL_CONTINUATION_PROVIDER_WAIT task=$task_id iteration=$iteration kind=$retry_kind retry=$provider_retries delay_seconds=$retry_delay"
+		sleep "$retry_delay"
+		attempt=$((attempt + 1))
+		continue
+	fi
+
+	if codex_model_requires_narrow_prompt "$current_model" && [[ "$classification" == model_refusal_or_blocked_content ]]; then
+		if (( fallback_stage == 0 )); then
+			fallback_stage=1
+			attempt=$((attempt + 1))
+			printf '\nRetry: make only the five-field semantic decision and call the recorder; do not perform implementation work.\n' >> "$prompt_file"
+			continue
+		elif (( fallback_stage == 1 )) && [[ "$MANAGER_FALLBACK_MODEL" != "$current_model" ]]; then
+			fallback_stage=2
+			current_model="$MANAGER_FALLBACK_MODEL"
+			attempt=$((attempt + 1))
+			continue
+		fi
+	fi
+
+	# Never spend another model turn merely because the reviewer failed to use
+	# the protocol. Conservatively close the episode and hand the root back to
+	# decomposition with all worker evidence preserved.
+	record_inconclusive_replan \
+		"The semantic reviewer did not commit a continuation decision; another worker episode is not authorized." \
+		"review-status=$status classification=${classification:-unknown} log=$json_log"
+	log_event "MANAGER_GOAL_CONTINUATION_REVIEW_INCONCLUSIVE task=$task_id goal=$goal_id iteration=$iteration status=$status classification=${classification:-unknown}"
+	printf '%s\n' "$decision_file"
+	exit 0
+done

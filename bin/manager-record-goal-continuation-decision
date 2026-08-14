@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TASK_ID DECISION_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 3 ]] || usage
+load_harness_env "$1"
+task_id="$2"
+decision_input="$3"
+
+ensure_project
+validate_task_id "$task_id"
+[[ -f "$decision_input" ]] || die "goal continuation decision does not exist: $decision_input"
+acquire_project_lock
+
+dir="$(project_dir)"
+base="$(task_base "$task_id")"
+running="$dir/running/$base.running.md"
+state_file="$(goal_state_file "$task_id")"
+marker_file="$(goal_continue_marker_file "$task_id")"
+[[ -f "$running" ]] || die "task is not running: $task_id"
+assignment_uses_goal_mode "$running" || die 'semantic continuation decisions require a LEAF_GOAL assignment'
+[[ -f "$state_file" && -f "$marker_file" ]] || die "goal continuation state is incomplete: $task_id"
+
+reported_task="$(require_single_metadata_value "$decision_input" Task-ID 'goal continuation decision')"
+reported_goal="$(require_single_metadata_value "$decision_input" Goal-ID 'goal continuation decision')"
+reported_iteration="$(require_single_metadata_value "$decision_input" Iteration 'goal continuation decision')"
+decision="$(require_single_metadata_value "$decision_input" Decision 'goal continuation decision')"
+relation="$(require_single_metadata_value "$decision_input" Criterion-Relation 'goal continuation decision')"
+reason="$(require_single_metadata_value "$decision_input" Reason 'goal continuation decision')"
+evidence="$(require_single_metadata_value "$decision_input" Evidence 'goal continuation decision')"
+
+[[ "$reported_task" == "$task_id" ]] || die "decision Task-ID is $reported_task, expected $task_id"
+[[ "$reported_goal" == "$(kv_file_value "$state_file" goal_id)" ]] ||
+	die 'decision Goal-ID does not match the active goal'
+[[ "$reported_iteration" =~ ^[1-9][0-9]*$ ]] || die 'decision Iteration must be positive'
+[[ "$reported_iteration" == "$(kv_file_value "$state_file" iteration_count)" ]] ||
+	die 'decision Iteration does not match the latest durable continuation'
+[[ "$decision" =~ ^(CONTINUE|REPLAN)$ ]] || die 'Decision must be CONTINUE or REPLAN'
+[[ "$relation" =~ ^(SAME_CRITERION|PREMISE_INVALIDATED|UPSTREAM_PREREQUISITE|OUTSIDE_AUTHORITY|REVIEW_INCONCLUSIVE)$ ]] ||
+	die 'invalid Criterion-Relation'
+[[ -n "$reason" && -n "$evidence" ]] || die 'Reason and Evidence must be nonempty'
+if [[ "$decision" == CONTINUE ]]; then
+	[[ "$relation" == SAME_CRITERION ]] || die 'CONTINUE requires Criterion-Relation: SAME_CRITERION'
+	[[ "$(kv_file_value "$state_file" strategy_review_required)" == 0 ]] ||
+		die 'repeated identical episodes require REPLAN'
+else
+	[[ "$relation" != SAME_CRITERION ]] || die 'REPLAN requires a non-SAME_CRITERION relation'
+fi
+
+archive_decision="$(goal_continuation_decision_file "$task_id" "$reported_iteration")"
+if [[ -f "$archive_decision" ]]; then
+	cmp -s "$decision_input" "$archive_decision" ||
+		die "semantic decision for iteration $reported_iteration already exists with different content"
+	printf '%s\n' "$archive_decision"
+	exit 0
+fi
+[[ "$(kv_file_value "$state_file" state)" == AWAITING_MANAGER_REVIEW ]] ||
+	die "goal is not awaiting semantic review: $(kv_file_value "$state_file" state)"
+
+mkdir -p "$(dirname "$archive_decision")"
+chmod 700 "$(dirname "$archive_decision")"
+install -m 600 "$decision_input" "$archive_decision"
+semantic_reviews="$(kv_file_value "$state_file" semantic_reviews 2>/dev/null || printf 0)"
+[[ "$semantic_reviews" =~ ^[0-9]+$ ]] || semantic_reviews=0
+goal_state_set "$state_file" semantic_reviews "$((semantic_reviews + 1))"
+goal_state_set "$state_file" semantic_review_iteration "$reported_iteration"
+goal_state_set "$state_file" semantic_decision "$decision"
+goal_state_set "$state_file" semantic_relation "$relation"
+goal_state_set "$state_file" semantic_decision_file "$archive_decision"
+goal_state_set "$state_file" semantic_reviewed_at "$(timestamp_utc)"
+goal_state_set "$state_file" updated_at "$(timestamp_utc)"
+
+if [[ "$decision" == CONTINUE ]]; then
+	goal_state_set "$state_file" state ITERATING
+	goal_state_set "$state_file" thread_id ""
+	goal_state_set "$state_file" thread_context fresh-semantic-episode
+	goal_thread_store "$task_id" "" fresh-semantic-episode
+	log_event "WORKER_GOAL_CONTINUATION_APPROVED task=$task_id goal=$reported_goal iteration=$reported_iteration relation=$relation decision=$archive_decision"
+else
+	goal_state_set "$state_file" state SEMANTIC_REPLAN
+	goal_state_set "$state_file" strategy_review_required 1
+	goal_state_set "$state_file" thread_id ""
+	goal_state_set "$state_file" thread_context semantic-replan
+	goal_thread_store "$task_id" "" semantic-replan
+	log_event "WORKER_GOAL_BOUNDARY_INVALIDATED task=$task_id goal=$reported_goal iteration=$reported_iteration relation=$relation decision=$archive_decision"
+fi
+
+summary_file="$(goal_summary_file "$task_id")"
+if [[ -f "$summary_file" ]]; then
+	{
+		cat "$summary_file"
+		printf '\n## Semantic continuation review\n\n'
+		printf 'Iteration: %s\n' "$reported_iteration"
+		printf 'Decision: %s\n' "$decision"
+		printf 'Criterion-Relation: %s\n' "$relation"
+		printf 'Reason: %s\n' "$reason"
+		printf 'Evidence: %s\n' "$evidence"
+		printf 'Decision-File: %s\n' "$archive_decision"
+	} > "$summary_file.tmp.$$"
+	chmod 600 "$summary_file.tmp.$$"
+	mv "$summary_file.tmp.$$" "$summary_file"
+fi
+
+printf '%s\n' "$archive_decision"
