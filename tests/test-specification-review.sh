@@ -221,7 +221,15 @@ if "$HARNESS_BIN/manager-record-specification-review" "$env_file" "$verdict" "$f
 	exit 1
 fi
 
-printf 'REQ-1: target_symbol must normalize negative input to zero.\n' > "$repo/spec.md"
+cat > "$repo/spec.md" <<'EOF'
+REQ-1: target_symbol must normalize negative input to zero.
+
+Registry:
+```
+items:
+  - REQ-1
+```
+EOF
 git -C "$repo" add spec.md
 git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm clarify-negative-input
 spec_sha="$(sha256sum "$repo/spec.md" | awk '{print $1}')"
@@ -281,6 +289,29 @@ if "$HARNESS_BIN/harness-start" "$env_file" >"$TEST_ROOT/stalled-start.out" 2>"$
 	exit 1
 fi
 grep -Fq 'specification normalization is durably stalled for unchanged inputs' "$TEST_ROOT/stalled-start.err"
+
+# The independent decomposition critic must not bypass deterministic source
+# validation that protects initial specification review. In particular, the
+# final item of a fenced registry remains visible without regex/newline tricks.
+false_challenge_report="$TEST_ROOT/false-challenge.md"
+false_challenge_issues="$TEST_ROOT/false-challenge-issues.tsv"
+cat > "$false_challenge_report" <<'EOF'
+# Specification Review Challenge
+
+The accepted review allegedly missed the final registry item.
+EOF
+cat > "$false_challenge_issues" <<'EOF'
+issue_id	class	requirement_ids	source_locations	outcome_a	outcome_b	evidence_checked	missing_decision	minimal_question
+SPEC-false-challenge	UNDEFINED_COMPLETION_BOUNDARY	REQ-1	spec.md:3	REQ-1 is required	REQ-1 is not required	The fenced registry omits REQ-1.	Whether REQ-1 is omitted	Should REQ-1 be present?
+EOF
+if "$HARNESS_BIN/manager-challenge-specification-review" "$env_file" "$false_challenge_report" "$false_challenge_issues" \
+	>"$TEST_ROOT/false-challenge.out" 2>"$TEST_ROOT/false-challenge.err"; then
+	printf 'source-contradicted decomposition challenge was unexpectedly accepted\n' >&2
+	exit 1
+fi
+grep -Fq 'allegedly omitted REQ-1 is present in the complete fenced registry' \
+	"$TEST_ROOT/false-challenge.err"
+grep -Fqx 'status=ACCEPTED' "$project_dir/control/specification-review.env"
 
 challenge_report="$TEST_ROOT/challenge.md"
 challenge_issues="$TEST_ROOT/challenge-issues.tsv"

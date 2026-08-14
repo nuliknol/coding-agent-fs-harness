@@ -2803,6 +2803,46 @@ specification_sha256()
 	sha256sum "$SPECIFICATION" | awk '{print $1}'
 }
 
+# Return success when a cited repository source contains WANTED in the first
+# complete fenced region at or shortly after one of LOCATIONS. Specification
+# reviewers and independent critics must share this check so a challenge cannot
+# bypass deterministic validation applied to the initial review.
+specification_fenced_source_region_contains_id()
+{
+	local locations="$1" wanted="$2" location source_path source_line
+	while IFS= read -r location; do
+		location="${location#${location%%[![:space:]]*}}"
+		location="${location%${location##*[![:space:]]}}"
+		[[ "$location" =~ ^([^,]+):([0-9]+)$ ]] || continue
+		source_path="${BASH_REMATCH[1]}"
+		source_line="${BASH_REMATCH[2]}"
+		[[ "$source_path" != /* && "$source_path" != .. && "$source_path" != ../* && "$source_path" != */../* ]] || continue
+		[[ -f "$REPOSITORY/$source_path" ]] || continue
+		awk -v start="$source_line" -v wanted="$wanted" '
+			NR < start {next}
+			!inside && NR > start + 100 {exit}
+			!inside && /^```/ {inside=1; next}
+			inside && /^```/ {exit}
+			inside && index($0, wanted) {found=1}
+			END {exit found ? 0 : 1}
+		' "$REPOSITORY/$source_path" && return 0
+	done < <(printf '%s\n' "$locations" | tr ',' '\n')
+	return 1
+}
+
+validate_specification_issue_source_claims()
+{
+	local issue_id="$1" source_locations="$2" combined_claim_text="$3" omitted_id
+	while IFS= read -r omitted_id; do
+		[[ -n "$omitted_id" ]] || continue
+		if specification_fenced_source_region_contains_id "$source_locations" "$omitted_id"; then
+			die "specification issue $issue_id is contradicted by its cited source: allegedly omitted $omitted_id is present in the complete fenced registry"
+		fi
+	done < <(printf '%s\n' "$combined_claim_text" |
+		grep -Eio 'omit(s|ted|ting)?[[:space:]]+`?[A-Za-z][A-Za-z0-9._:-]*`?' |
+		sed -E 's/^omit(s|ted|ting)?[[:space:]]+`?//I; s/`$//' || true)
+}
+
 # Emit explicit requirement prerequisites found in the two structured forms
 # used by harness specifications: Markdown requirement tables and the optional
 # inline machine-readable registry. The output has no header:

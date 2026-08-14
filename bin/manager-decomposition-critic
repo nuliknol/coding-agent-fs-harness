@@ -59,6 +59,8 @@ $HARNESS_BIN/manager-challenge-specification-review "$HARNESS_ENV_FILE" CHALLENG
 
 Terminate immediately after it succeeds. Ask only the minimal product question. Do not use this path for coding difficulty, architecture delegated to the implementer, discoverable repository facts, or a defect in the generated normalized IR. A dependency cycle explicitly declared by governing sources is CONTRADICTORY_REQUIREMENTS and always uses this clarification path; it cannot be repaired by dropping a source edge.
 
+For every alleged omitted registry/list item, inspect the complete fenced source region with two independent EOF-safe methods before challenging: one structured parser and one direct literal search that includes the final line even when the extracted text has no trailing newline. Never infer omission from a regex that requires `\n`, from a truncated slice, or from an item count alone.
+
 2. If the governing sources are sufficiently clear but the accepted facts, obligations, or relations omit, distort, or contradict those clear sources or repository evidence, write RENORMALIZATION_REASON beginning with `# Specification Renormalization Request`, identify the exact source-to-IR mismatch, and call:
 
 $HARNESS_BIN/manager-request-specification-renormalization "$HARNESS_ENV_FILE" RENORMALIZATION_REASON

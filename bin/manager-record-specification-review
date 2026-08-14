@@ -29,29 +29,6 @@ project_plan_exists && die 'cannot replace specification acceptance after DAG re
 	die 'specification review requires verdict, facts, issues, obligations, relations, inventory, and domain-manifest files'
 acquire_project_lock
 
-fenced_source_region_contains_id()
-{
-	local locations="$1" wanted="$2" location source_path source_line
-	while IFS= read -r location; do
-		location="${location#${location%%[![:space:]]*}}"
-		location="${location%${location##*[![:space:]]}}"
-		[[ "$location" =~ ^([^,]+):([0-9]+)$ ]] || continue
-		source_path="${BASH_REMATCH[1]}"
-		source_line="${BASH_REMATCH[2]}"
-		[[ "$source_path" != /* && "$source_path" != .. && "$source_path" != ../* && "$source_path" != */../* ]] || continue
-		[[ -f "$REPOSITORY/$source_path" ]] || continue
-		awk -v start="$source_line" -v wanted="$wanted" '
-			NR < start {next}
-			!inside && NR > start + 100 {exit}
-			!inside && /^```/ {inside=1; next}
-			inside && /^```/ {exit}
-			inside && index($0, wanted) {found=1}
-			END {exit found ? 0 : 1}
-		' "$REPOSITORY/$source_path" && return 0
-	done < <(printf '%s\n' "$locations" | tr ',' '\n')
-	return 1
-}
-
 decision="$(awk -F': ' '$1 == "Decision" {print $2; exit}' "$verdict_file")"
 review_spec_sha="$(awk -F': ' '$1 == "Specification-SHA256" {print $2; exit}' "$verdict_file")"
 review_baseline="$(awk -F': ' '$1 == "Repository-Baseline" {print $2; exit}' "$verdict_file")"
@@ -119,14 +96,8 @@ while IFS=$'\t' read -r issue_id issue_class requirement_ids source_locations ou
 		-n "$evidence_checked" && -n "$missing_decision" && -n "$minimal_question" ]] ||
 		die "specification issue $issue_id has empty required fields"
 	[[ "$outcome_a" != "$outcome_b" ]] || die "specification issue $issue_id must identify incompatible outcomes"
-	while IFS= read -r omitted_id; do
-		[[ -n "$omitted_id" ]] || continue
-		if fenced_source_region_contains_id "$source_locations" "$omitted_id"; then
-			die "specification issue $issue_id is contradicted by its cited source: allegedly omitted $omitted_id is present in the complete fenced registry"
-		fi
-	done < <(printf '%s\n' "$evidence_checked $missing_decision $outcome_a $outcome_b" |
-		grep -Eio 'omit(s|ted|ting)?[[:space:]]+`?[A-Za-z][A-Za-z0-9._:-]*`?' |
-		sed -E 's/^omit(s|ted|ting)?[[:space:]]+`?//I; s/`$//' || true)
+	validate_specification_issue_source_claims "$issue_id" "$source_locations" \
+		"$evidence_checked $missing_decision $outcome_a $outcome_b"
 	issue_count=$((issue_count + 1))
 done < <(tail -n +2 "$issues_file")
 if [[ "$decision" == ACCEPT ]]; then

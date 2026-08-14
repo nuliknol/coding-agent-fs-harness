@@ -33,6 +33,8 @@ while IFS=$'\t' read -r issue_id issue_class requirement_ids source_locations ou
 	[[ "$issue_class" =~ ^(CONTRADICTORY_REQUIREMENTS|OBSERVABLE_CONTRACT_AMBIGUITY|MISSING_ACCEPTANCE_AUTHORITY|MISSING_REQUIRED_PRODUCER|UNDEFINED_COMPATIBILITY|UNDEFINED_COMPLETION_BOUNDARY|UNAVAILABLE_EXTERNAL_AUTHORITY)$ ]] ||
 		die "invalid specification challenge class for $issue_id: $issue_class"
 	[[ "$outcome_a" != "$outcome_b" ]] || die "specification challenge issue must identify incompatible outcomes: $issue_id"
+	validate_specification_issue_source_claims "$issue_id" "$source_locations" \
+		"$evidence_checked $missing_decision $outcome_a $outcome_b"
 	issue_count=$((issue_count + 1))
 done < <(tail -n +2 "$issues_file")
 (( issue_count > 0 )) || die 'specification challenge requires at least one structured issue'
