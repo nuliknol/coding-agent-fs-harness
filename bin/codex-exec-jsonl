@@ -153,6 +153,11 @@ prompt_value()
 
 resource_task_id="$(prompt_value TASK_ID)"
 resource_task_root="$(prompt_value TASK_ROOT)"
+resource_agent_phase="$(prompt_value AGENT_PHASE)"
+resource_processed_token_limit="$HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION"
+if [[ "$resource_agent_phase" == specification_review ]]; then
+	resource_processed_token_limit="$HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION"
+fi
 [[ -n "$resource_task_root" ]] || resource_task_root="$(prompt_value ACTIVE_TASK_ROOT)"
 [[ -n "$resource_task_id" ]] || resource_task_id="${resource_task_root:-agent-invocation}"
 
@@ -290,10 +295,10 @@ if [[ "$usage_input" =~ ^[0-9]+$ && "$usage_output" =~ ^[0-9]+$ ]]; then
 		fi
 	fi
 fi
-if (( resource_guard_tripped == 0 && invocation_delta_known == 1 && invocation_processed_delta > HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION )); then
+if (( resource_guard_tripped == 0 && invocation_delta_known == 1 && invocation_processed_delta > resource_processed_token_limit )); then
 	resource_guard_tripped=1
 	resource_guard_kind=TOKEN_LIMIT
-	resource_guard_reason="processed-token delta exceeded ($invocation_processed_delta/$HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION)"
+	resource_guard_reason="processed-token delta exceeded ($invocation_processed_delta/$resource_processed_token_limit; phase=${resource_agent_phase:-ordinary})"
 fi
 if (( resource_guard_tripped == 1 )); then
 	record_resource_guard
@@ -348,10 +353,11 @@ elif ! jq -e 'select(.type == "turn.completed")' "$json_log" >/dev/null 2>&1; th
 elif [[ ! -s "$last_message" ]]; then classification="empty_final_output"
 fi
 classification_file="${json_log%.jsonl}.classification"
-printf 'classification=%s\nprovider_code=%s\nhttp_status=%s\nexit_status=%s\nidle_timeout=%s\nstop_requested=%s\npartial_edits=%s\nrole=%s\nmodel=%s\nthread_id=%s\ninput_tokens=%s\ncached_input_tokens=%s\noutput_tokens=%s\ninvocation_processed_delta=%s\ninvocation_delta_known=%s\nitem_started_count=%s\nresource_guard=%s\njsonl=%s\nstderr=%s\nlast_message=%s\n' \
+printf 'classification=%s\nprovider_code=%s\nhttp_status=%s\nexit_status=%s\nidle_timeout=%s\nstop_requested=%s\npartial_edits=%s\nrole=%s\nmodel=%s\nthread_id=%s\ninput_tokens=%s\ncached_input_tokens=%s\noutput_tokens=%s\ninvocation_processed_delta=%s\ninvocation_delta_known=%s\nitem_started_count=%s\nresource_guard=%s\nagent_phase=%s\nprocessed_token_limit=%s\njsonl=%s\nstderr=%s\nlast_message=%s\n' \
 	"$classification" "$error_code" "$http_status" "$status" "$idle_timed_out" "$stop_requested" "$git_state_changed" \
 	"$role" "$model" "$usage_thread" "$usage_input" "$usage_cached" "$usage_output" \
 	"$invocation_processed_delta" "$invocation_delta_known" "$agent_item_count" "${resource_guard_kind:--}" \
+	"${resource_agent_phase:-ordinary}" "$resource_processed_token_limit" \
 	"$json_log" "$stderr_log" "$last_message" > "$classification_file"
 printf 'CODEX_CLASSIFICATION=%s\nCODEX_STDERR_LOG=%s\nCODEX_CLASSIFICATION_FILE=%s\n' "$classification" "$stderr_log" "$classification_file" >&2
 exit "$status"

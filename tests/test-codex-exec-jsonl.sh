@@ -176,6 +176,17 @@ grep -q '^classification=agent_token_budget_exceeded$' "$TMP/token-heavy.classif
 grep -q '^invocation_processed_delta=110$' "$TMP/token-heavy.classification"
 grep -q '^resource_guard=TOKEN_LIMIT$' "$TMP/token-heavy.classification"
 
+# The named specification-normalization phase has a separate bounded allowance
+# while ordinary manager/worker turns retain the lower default limit.
+phase_prompt="$TMP/specification-review-prompt"
+printf 'AGENT_PHASE=specification_review\n' > "$phase_prompt"
+printf 'export HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION="120"\n' >> "$TMP/env-resource"
+MOCK_MODE=token_heavy "$ROOT/bin/codex-exec-jsonl" "$TMP/env-resource" manager_plan gpt-5.5 \
+	"$phase_prompt" "$TMP/token-phase.jsonl" "$TMP/token-phase.stderr" "$TMP/token-phase.last"
+grep -q '^classification=success$' "$TMP/token-phase.classification"
+grep -q '^agent_phase=specification_review$' "$TMP/token-phase.classification"
+grep -q '^processed_token_limit=120$' "$TMP/token-phase.classification"
+
 # One harness-start transaction has a hard process budget independent of the
 # time-based limiter. Exhaustion must fail before the model executable starts.
 startup_budget="$TMP/state/projects/jsonltest/control/test-startup-budget.env"

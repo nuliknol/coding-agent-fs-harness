@@ -10,7 +10,15 @@ trap '[[ "${KEEP_TEST_ROOT:-0}" == 1 ]] || rm -rf -- "$TEST_ROOT"' EXIT
 repo="$TEST_ROOT/repo"
 state="$TEST_ROOT/state"
 mkdir -p "$repo/src" "$repo/.harness/domain-profiles" "$TEST_ROOT/configs" "$TEST_ROOT/manager-home" "$TEST_ROOT/worker-home"
-printf 'REQ-1: expose target_symbol and preserve zero on invalid input.\n' > "$repo/spec.md"
+cat > "$repo/spec.md" <<'EOF'
+REQ-1: expose target_symbol and preserve zero on invalid input.
+
+Registry:
+```
+items:
+  - REQ-1
+```
+EOF
 printf 'int target_symbol(int value) { return value < 0 ? 0 : value; }\n' > "$repo/src/a.c"
 cat > "$repo/.harness/domain-profiles/test-contract.tsv" <<'EOF'
 invariant_id	category	statement	source_authority	validation_hint
@@ -98,6 +106,23 @@ cat > "$issues" <<'EOF'
 issue_id	class	requirement_ids	source_locations	outcome_a	outcome_b	evidence_checked	missing_decision	minimal_question
 SPEC-negative-input	OBSERVABLE_CONTRACT_AMBIGUITY	REQ-1	spec.md:1	Return zero for negative input	Return a typed invalid-input error	spec.md:1;src/a.c:1	Authoritative negative-input behavior	Should negative input normalize to zero or return an error?
 EOF
+
+# A model-generated omission claim cannot override the complete cited fenced
+# registry. This reproduces the EOF-slicing bug where the last list item was
+# dropped only because an ad-hoc regex required a trailing newline.
+false_issues="$TEST_ROOT/false-issues.tsv"
+cat > "$false_issues" <<'EOF'
+issue_id	class	requirement_ids	source_locations	outcome_a	outcome_b	evidence_checked	missing_decision	minimal_question
+SPEC-false-omission	UNDEFINED_COMPLETION_BOUNDARY	REQ-1	spec.md:3	REQ-1 is required	REQ-1 is not required	The fenced registry omits REQ-1.	Whether REQ-1 is omitted	Should REQ-1 be present?
+EOF
+if "$HARNESS_BIN/manager-record-specification-review" "$env_file" "$verdict" "$facts" "$false_issues" "$obligations" "$relations" "$inventory" "$domain_manifest" \
+	>"$TEST_ROOT/false-omission.out" 2>"$TEST_ROOT/false-omission.err"; then
+	printf 'source-contradicted omission clarification was unexpectedly accepted\n' >&2
+	exit 1
+fi
+grep -Fq 'allegedly omitted REQ-1 is present in the complete fenced registry' \
+	"$TEST_ROOT/false-omission.err"
+
 record_output="$("$HARNESS_BIN/manager-record-specification-review" "$env_file" "$verdict" "$facts" "$issues" "$obligations" "$relations" "$inventory" "$domain_manifest")"
 [[ "$record_output" =~ ^spec-review/specification-review-.*\.md$ ]]
 [[ -f "$repo/$record_output" ]]
@@ -421,6 +446,72 @@ grep -Fqx $'scaffolding\timplementation-review\tmanager\tgpt-5.6-terra\t1\t50\t3
 implementation_output="$("$HARNESS_BIN/harness-implementation-log" "$env_file")"
 grep -Fq 'Specification ACCEPTED; obligations=2, relations=5' <<< "$implementation_output"
 grep -Fq 'Decomposition DAG registered; nodes=2' <<< "$implementation_output"
+
+# A post-turn token guard must roll back a candidate specification state even
+# when the agent wrote it immediately before returning usage.
+rollback_repo="$TEST_ROOT/rollback-repo"
+rollback_state="$TEST_ROOT/rollback-state"
+mkdir -p "$rollback_repo" "$TEST_ROOT/rollback-home"
+printf 'REQ-R: deterministic rollback contract.\n' > "$rollback_repo/spec.md"
+git -C "$rollback_repo" init -q
+git -C "$rollback_repo" add spec.md
+git -C "$rollback_repo" -c user.name=test -c user.email=test@example.invalid commit -qm seed
+rollback_env="$TEST_ROOT/configs/rollback.env"
+rollback_mock="$TEST_ROOT/rollback-codex"
+cat > "$rollback_env" <<ENV
+export PROJECT="rollback-review"
+export REPOSITORY="$rollback_repo"
+export SPECIFICATION="$rollback_repo/spec.md"
+export HARNESS_MODE="full"
+export HARNESS_HOME="$HARNESS_HOME"
+export HARNESS_BIN="$HARNESS_BIN"
+export HARNESS_ROOT="$rollback_state"
+export HARNESS_AGENT_MIN_INTERVAL_SECONDS="0"
+export MANAGER_CODEX_HOME="$TEST_ROOT/rollback-home"
+export MANAGER_CODEX_BIN="$rollback_mock"
+export WORKER_CODEX_HOME="$TEST_ROOT/rollback-home"
+export WORKER_CODEX_BIN="/bin/false"
+export HARNESS_DECOMPOSITION_V2="1"
+export HARNESS_SPECIFICATION_REVIEW_ENABLED="1"
+export HARNESS_DECOMPOSITION_CRITIC_ENABLED="0"
+export HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION="1000"
+export HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION="100"
+export MAX_ORACLE_RUNS="0"
+ENV
+chmod 600 "$rollback_env"
+"$HARNESS_BIN/harness-init" "$rollback_env" >/dev/null
+rollback_project="$rollback_state/projects/rollback-review"
+rollback_spec_sha="$(sha256sum "$rollback_repo/spec.md" | awk '{print $1}')"
+rollback_baseline="$(git -C "$rollback_repo" rev-parse HEAD)"
+rollback_domain_sha="$(bash -c 'source "$1"; load_harness_env "$2"; domain_profiles_sha256' _ "$HARNESS_HOME/lib/harness-common.sh" "$rollback_env")"
+cat > "$rollback_mock" <<EOF
+#!/usr/bin/env bash
+set -Eeuo pipefail
+last=""
+next=0
+for argument in "\$@"; do
+	if (( next )); then last="\$argument"; next=0; continue; fi
+	[[ "\$argument" != --output-last-message ]] || next=1
+done
+cat > "$rollback_project/control/specification-review.env" <<STATE
+status=ACCEPTED
+specification_sha256=$rollback_spec_sha
+repository_baseline=$rollback_baseline
+domain_profiles_sha256=$rollback_domain_sha
+report=spec-review/untrusted.md
+STATE
+printf 'candidate\n' > "\$last"
+printf '%s\n' '{"type":"thread.started","thread_id":"rollback-thread"}' '{"type":"turn.completed","usage":{"input_tokens":90,"cached_input_tokens":0,"output_tokens":20}}'
+EOF
+chmod +x "$rollback_mock"
+if "$HARNESS_BIN/manager-review-specification" "$rollback_env" \
+	>"$TEST_ROOT/rollback-review.out" 2>"$TEST_ROOT/rollback-review.err"; then
+	printf 'resource-exceeded specification review unexpectedly succeeded\n' >&2
+	exit 1
+fi
+test ! -f "$rollback_project/control/specification-review.env"
+grep -Fq 'SPECIFICATION_REVIEW_CANDIDATE_ROLLED_BACK status=75 classification=agent_token_budget_exceeded' \
+	"$rollback_project/logs/events.log"
 
 # A source-declared cycle must become a deterministic clarification before any
 # manager model is invoked. The provisional clarification IR may be empty.

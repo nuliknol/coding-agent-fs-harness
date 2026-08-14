@@ -59,6 +59,7 @@ prompt="$dir/control/manager-specification-review.prompt.md"
 cat > "$prompt.tmp.$$" <<PROMPT
 You are the independent pre-acceptance specification reviewer for a filesystem-backed coding harness. Do not edit repository source, tests, specifications, build outputs, or harness state directly. This review occurs before the execution DAG exists.
 
+AGENT_PHASE=specification_review
 ENV_FILE=$HARNESS_ENV_FILE
 HARNESS_BIN=$HARNESS_BIN
 PROJECT=$PROJECT
@@ -84,6 +85,8 @@ UNDEFINED_COMPLETION_BOUNDARY
 UNAVAILABLE_EXTERNAL_AUTHORITY
 
 Do not request clarification for coding difficulty, repository size, unknown implementation details, paths or symbols discoverable from the repository, missing tests that can be implemented, local build/integration defects, file ownership, decomposition complexity, or an architecture choice explicitly delegated to the implementer. Those are automatic engineering work. Every clarification issue must identify two distinct incompatible observable outcomes, the governing sources and repository evidence checked, the missing authoritative decision, and one minimal question. If repository or governing evidence resolves the question, accept it and record that evidence as a fact.
+
+Every alleged missing list member, duplicate, count mismatch, or membership mismatch must be reproduced with two independent EOF-safe checks before requesting clarification. A parser that slices immediately before a closing fence must treat the last list row as terminated at end-of-slice; never require a trailing newline to recognize it. Search every allegedly omitted stable ID directly in the governing source and inspect the complete containing list. If the source contains the member in that list, the omission claim is false and must not be recorded.
 
 Explicit normative Dependencies fields are source authority. Preserve every such edge as a SPECIFIED DEPENDS_ON relation. If the governing source declares a dependency cycle, that is CONTRADICTORY_REQUIREMENTS: request clarification about the authoritative direction or non-ordering relationship. Never make the IR acyclic by silently omitting or reversing a source-declared edge.
 
@@ -151,18 +154,36 @@ while true; do
 	json="$dir/logs/manager-specification-review-$stamp-attempt-$(printf '%03d' "$attempt").jsonl"
 	stderr="$dir/logs/manager-specification-review-$stamp-attempt-$(printf '%03d' "$attempt").stderr.log"
 	message="$dir/logs/manager-specification-review-$stamp-attempt-$(printf '%03d' "$attempt").md"
+	review_state="$(specification_review_state_file)"
+	review_state_backup="$dir/control/specification-review.before-invocation.$$.$attempt"
+	review_state_existed=0
+	if [[ -f "$review_state" ]]; then
+		install -m 600 "$review_state" "$review_state_backup"
+		review_state_existed=1
+	fi
 	set +e
 	"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" manager_plan "$MANAGER_MODEL" "$prompt" "$json" "$stderr" "$message"
 	status=$?
 	set -e
-	if specification_review_matches_current_inputs; then
+	classification="$(kv_file_value "${json%.jsonl}.classification" classification 2>/dev/null || true)"
+	if (( status == 0 )) && [[ "$classification" == success ]] && specification_review_matches_current_inputs; then
+		rm -f "$review_state_backup"
 		recorded_status="$(specification_review_state_value status)"
 		if [[ "$recorded_status" =~ ^(ACCEPTED|SPEC_CLARIFICATION_REQUIRED)$ ]]; then
 			printf '%s\n' "$(specification_review_report_relative_path)"
 			exit 0
 		fi
 	fi
-	classification="$(kv_file_value "${json%.jsonl}.classification" classification 2>/dev/null || true)"
+	# A model may invoke the recorder immediately before a watchdog or protocol
+	# failure is classified. Such a side effect is a candidate, not authority.
+	# Restore the exact pre-turn state so harness-start cannot consume it.
+	if (( review_state_existed == 1 )); then
+		install -m 600 "$review_state_backup" "$review_state"
+	else
+		rm -f "$review_state"
+	fi
+	rm -f "$review_state_backup"
+	log_event "SPECIFICATION_REVIEW_CANDIDATE_ROLLED_BACK status=$status classification=${classification:-unknown} jsonl=$json"
 	retry_kind="$(codex_provider_retry_kind "$classification" 2>/dev/null || true)"
 	if [[ -n "$retry_kind" ]]; then
 		delay="$(codex_provider_retry_delay "$classification")"

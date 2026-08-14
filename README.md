@@ -218,6 +218,16 @@ replaced with `HARNESS_MODEL_PRICING_FILE`. Cache writes are excluded because
 current Codex usage events do not expose cache-write token counts. Use `--tsv`
 for machine-readable cost records. `harness-statistics --tsv` remains the
 machine-readable delivery and raw-token report.
+
+Every agent invocation has item, token, and wall-clock circuit breakers.
+Ordinary turns use `HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION` (two
+million by default). The atomic Specification IR compiler uses the separately
+bounded `HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION`
+(eight million by default) because one accepted review may normalize hundreds
+of imported obligations. A failed or resource-exceeded specification-review
+turn cannot make its candidate control state authoritative. Clarification
+omission claims against fenced registries are checked directly against the
+complete EOF-safe source region before they can be recorded.
 Run `bin/harness-decomposition-tree ENV_FILE` to display the immutable DAG as a
 terminal tree with node state, complexity, configured worker route,
 dependencies, deliverable, and active task route. `--compact` shows one line
