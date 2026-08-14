@@ -178,8 +178,9 @@ obligations allocated to their node, and final Oracle PASS requires independent
 evidence for every obligation. This keeps product requirements distinct from
 repository-derived facts and fallible planning hints.
 
-The independent decomposition critic challenges that acceptance before it may
-register a DAG. A genuine unresolved product contract transitions back to
+An independent Sol architecture-fit transaction challenges that acceptance
+before DAG construction. Its accepted verdict is durable for the specification,
+repository baseline, and domain-profile digest. A genuine unresolved product contract transitions back to
 `SPEC_CLARIFICATION_REQUIRED` and writes a critic report under
 `$REPOSITORY/spec-review/`. If the governing sources are clear but the generated
 facts, obligations, or relations are defective, the critic requests automatic
@@ -191,7 +192,7 @@ unchanged restart refuses further agent calls. Thus only missing human
 authority is bounced as specification clarification; structural fitness is
 handled by the separate architecture gate below.
 
-Before DAG registration, the same fresh Sol critic performs an evidence-backed
+Before DAG registration, this dedicated Sol critic performs an evidence-backed
 architecture-fit review. If the accepted feature necessarily conflicts with a
 foundational ownership, transaction, migration, dependency-direction,
 contract-authority, observability, critical-invariant, or resource-lifetime
@@ -218,6 +219,14 @@ Force does not dismiss the finding. Registration requires one prerequisite
 Terra `CROSS_COMPONENT_ARCHITECTURE` node and one open critical debt record per
 redesign issue, a focused critical health gate, and dependency ordering that
 keeps affected Luna work unavailable until remediation is accepted.
+
+After architecture fit is accepted, a separate fresh Sol turn constructs the
+DAG, obligation coverage, and architecture registry from a bounded semantic
+capsule. `manager-submit-decomposition` stages every candidate artifact before
+deterministic validation and installs all sidecars as one transaction. If
+startup is interrupted after staging, the next `harness-start` recovers the
+candidate without repeating model exploration. Failed detached startup is
+reported explicitly as `STARTUP_FAILED` instead of looking merely stopped.
 
 Reusable domain theory is opt-in through `HARNESS_DOMAIN_PROFILES`. A profile
 resolves first from `$REPOSITORY/.harness/domain-profiles/NAME.tsv`, then from

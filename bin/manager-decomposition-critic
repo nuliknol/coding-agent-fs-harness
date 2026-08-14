@@ -11,6 +11,9 @@ require_manager_configuration
 require_manager_codex
 (( HARNESS_DECOMPOSITION_V2 == 1 )) || die 'decomposition critic requires HARNESS_DECOMPOSITION_V2=1'
 project_plan_exists && { printf 'Decomposition DAG already exists.\n'; exit 0; }
+if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )); then
+	architecture_fit_is_accepted || die 'decomposition requires a current accepted Sol architecture-fit review or matching force waiver'
+fi
 if architecture_redesign_requires_action && [[ "${HARNESS_FORCE_DECOMPOSITION:-0}" != 1 ]]; then
 	printf 'Architecture redesign required: %s\n' "$(architecture_redesign_report_relative_path)"
 	exit 6
@@ -38,7 +41,7 @@ if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )); then
 	domain_manifest_file="$(specification_domain_manifest_file)"
 fi
 cat > "$prompt.tmp.$$" <<PROMPT
-You are the fresh decomposition planner and critic for a filesystem-backed coding harness. Do not edit the repository.
+You are the fresh DAG construction planner for a filesystem-backed coding harness. Do not edit the repository.
 
 ENV_FILE=$HARNESS_ENV_FILE
 HARNESS_BIN=$HARNESS_BIN
@@ -62,46 +65,17 @@ ARCHITECTURE_REDESIGN_REPORT=$(architecture_redesign_state_value report -)
 ARCHITECTURE_FORCE_WAIVER=$(architecture_redesign_force_file)
 ARCHITECTURE_FORCE_WAIVER_ID=$(kv_file_value "$(architecture_redesign_force_file)" waiver_id 2>/dev/null || printf '-')
 ARCHITECTURE_FORCE_DEBT_EXPIRES_AT=$(date -u -d '+30 days' +%Y-%m-%d)
+ARCHITECTURE_FIT_REPORT=$(architecture_fit_state_value report force-waiver)
 
-Before drafting a DAG, independently challenge the accepted review, normalized IR, and architectural fitness against the governing sources and repository evidence. There are exactly four outcomes:
+The separate Sol architecture-fit transaction already challenged the governing specification, normalized IR, and foundational repository boundaries. Its durable decision is authoritative for this baseline. Do not repeat specification clarification, IR renormalization, or architecture-redesign analysis in this turn. Do not inspect harness source. Proceed directly to DAG construction.
 
-1. If a governing source contains a demonstrated unresolved product/specification defect in one of the supported clarification classes, write CHALLENGE_REPORT beginning with `# Specification Review Challenge` and CHALLENGE_ISSUES using the specification issues TSV schema, then call:
-
-$HARNESS_BIN/manager-challenge-specification-review "$HARNESS_ENV_FILE" CHALLENGE_REPORT CHALLENGE_ISSUES
-
-Terminate immediately after it succeeds. Ask only the minimal product question. Do not use this path for coding difficulty, architecture delegated to the implementer, discoverable repository facts, or a defect in the generated normalized IR. A dependency cycle explicitly declared by governing sources is CONTRADICTORY_REQUIREMENTS and always uses this clarification path; it cannot be repaired by dropping a source edge.
-
-For every alleged omitted registry/list item, inspect the complete fenced source region with two independent EOF-safe methods before challenging: one structured parser and one direct literal search that includes the final line even when the extracted text has no trailing newline. Never infer omission from a regex that requires a trailing newline character, from a truncated slice, or from an item count alone.
-
-Repeat the adversarial satisfiability and observability pass independently. For each authoritative behavior, identify a reachable input/state witness, its expected observable result, and validation evidence that can reach that witness. Challenge the specification when overlapping requirements demand incompatible results for the same witness, or when mandatory acceptance data cannot exercise the behavior they claim to prove. Do not defer such a contradiction or unreachable acceptance boundary into the DAG, and do not manufacture a conflict when the statements can coexist or the implementer is authorized to add the missing validation partition.
-
-2. If the governing sources are sufficiently clear but the accepted facts, obligations, or relations omit, distort, or contradict those clear sources or repository evidence, write RENORMALIZATION_REASON beginning with `# Specification Renormalization Request`, identify the exact source-to-IR mismatch, and call:
-
-$HARNESS_BIN/manager-request-specification-renormalization "$HARNESS_ENV_FILE" RENORMALIZATION_REASON
-
-Terminate immediately after it succeeds. This is an automatic compiler correction and must not bounce a false clarification to the user. Use renormalization only when preserving all governing statements can produce a valid acyclic IR. Never request renormalization when the source itself must change or an authority must choose between incompatible dependency directions.
-
-3. If the specification and normalized IR are clear, but satisfying them on the current repository baseline necessarily violates a foundational ownership, transaction, migration, dependency-direction, contract-authority, observability, critical-invariant, or resource-lifetime boundary, refuse decomposition. This is not a preference for cleaner architecture and not ordinary feature-local refactoring. Use it only when cited current repository evidence proves that no authority-closed feature DAG can satisfy the accepted obligations without structural debt that the feature specification does not authorize.
-
-Write ARCHITECTURE_REPORT beginning with `# Architecture Redesign Required` and containing exact lines for Project, Specification-SHA256, Repository-Baseline, and Decision: ARCHITECTURE_REDESIGN_REQUIRED. Write ARCHITECTURE_ISSUES with this exact tab-separated header:
-
-issue_id<TAB>class<TAB>requirement_ids<TAB>source_locations<TAB>architecture_evidence<TAB>violated_boundary<TAB>why_no_bounded_dag<TAB>required_capability<TAB>acceptance_evidence<TAB>severity
-
-Use stable ARCH-... IDs. class must be OWNERSHIP_MODEL_INCOMPATIBLE, TRANSACTION_MODEL_INSUFFICIENT, MIGRATION_PATH_ABSENT, DEPENDENCY_DIRECTION_CONFLICT, FOUNDATIONAL_CONTRACT_OUT_OF_SCOPE, OBSERVABILITY_SEAM_ABSENT, CRITICAL_INVARIANT_CONFLICT, or RESOURCE_MODEL_INSUFFICIENT. requirement_ids must name normalized obligations. source_locations and architecture_evidence must each contain comma-separated, repository-relative path:line citations to existing files. severity must be CRITICAL. Explain why splitting, a normal Terra contract decision, or a bounded local refactor cannot resolve the issue inside this feature authority.
-
-Write REDESIGN_SPECIFICATION beginning with `# Architecture Redesign Specification`. It is a concise requirements-only brief, not a speculative implementation design. Trace every ARCH-... issue and state required capabilities, preserved invariants and compatibility boundaries, migration/rollback requirements where applicable, forbidden patch-around behavior, and deterministic acceptance evidence. Then call:
-
-$HARNESS_BIN/manager-record-architecture-redesign "$HARNESS_ENV_FILE" ARCHITECTURE_REPORT ARCHITECTURE_ISSUES REDESIGN_SPECIFICATION
-
-Terminate immediately after it succeeds. Do not register a DAG or architecture registry.
-
-Do not use ARCHITECTURE_REDESIGN_REQUIRED for code ugliness, missing local implementation, optional cleanup, unrelated technical debt, stale planning hints, absent documentation, or an architecture that is merely different from your preference. When the accepted feature specification explicitly authorizes the necessary architecture change and defines its acceptance boundary, create bounded Terra architecture-decision/remediation nodes instead of bouncing.
+When mapping source registries, never infer an omitted final item from a regex that requires a trailing newline character; use EOF-safe parsing and a direct literal check.
 
 When FORCE_DECOMPOSITION=1, a human has explicitly waived a matching redesign report. Do not emit another redesign request for those findings. The waiver does not erase them: create prerequisite Terra CROSS_COMPONENT_ARCHITECTURE nodes for every required capability, make all affected implementation nodes depend on them, and create one OPEN CRITICAL architecture debt row named DEBT-ARCH-... per ARCH-... issue. Each debt consequence must name its exact ARCH-... issue ID, remediation_node must be the corresponding Terra node, expires_at must be ARCHITECTURE_FORCE_DEBT_EXPIRES_AT, and waiver_authority must be COMMAND_LINE_FORCE_DECOMPOSITION:ARCHITECTURE_FORCE_WAIVER_ID. Bind at least one CRITICAL focused health gate to every remediation node. Every coverage node allocated an affected requirement must be that remediation node or depend transitively on it. Dependent Luna work must not become ready until those Terra nodes and their focused architecture gates are accepted. The manager must resolve each debt row only after accepting its remediation node and evidence.
 
-4. Only when the accepted review, normalized IR, and architecture-fit review survive this independent challenge—or a matching force waiver has converted every blocker into prerequisite remediation—may you register a DAG.
+The accepted review, normalized IR, and architecture-fit review have survived the independent challenge, or a matching force waiver has converted every blocker into prerequisite remediation. Construct and submit the DAG now.
 
-Read the complete specification, accepted specification review, normalized obligations, typed semantic relations, repository inventory and facts, selected domain-profile manifest, applicable repository development policy, and enough current repository structure to verify real dependencies and existing contracts. Treat OBSERVED repository facts as evidence, INFERRED facts as hypotheses to verify, and PLANNING_HINT facts as advisory only; none can silently add product requirements. The repository inventory is a navigation aid and never limits necessary inspection. Produce a topologically ordered decomposition DAG with this exact tab-separated header:
+Read the accepted specification review, normalized obligations, typed semantic relations, repository facts, selected domain-profile manifest, and ARCHITECTURE_FIT_REPORT. These are the bounded semantic capsule. Search the repository inventory only for exact paths or symbols needed by a node; never print or read the complete inventory, complete development policy, harness implementation, unrelated Git history, or broad source trees. Retain verbose command output in files and return bounded excerpts. Treat OBSERVED repository facts as evidence, INFERRED facts as hypotheses to verify, and PLANNING_HINT facts as advisory only. Produce a topologically ordered decomposition DAG with this exact tab-separated header:
 
 node_id<TAB>parent_id<TAB>depends_on<TAB>deliverable<TAB>acceptance_evidence<TAB>focused_validation<TAB>allowed_paths<TAB>required_symbols<TAB>leaf_type<TAB>complexity_class<TAB>worker_route
 
@@ -123,7 +97,7 @@ obligation_id<TAB>node_ids<TAB>evidence_plan
 
 Include exactly one row for every obligation in SPECIFICATION_OBLIGATIONS_FILE. node_ids is a comma-separated list of DAG nodes whose combined accepted evidence proves that obligation. Every DAG node must appear in at least one coverage row, so the plan cannot invent unrelated work. evidence_plan names the deterministic node evidence and final integration evidence that will discharge the obligation. Respect typed relations: dependency relations constrain order; MAY_DEVELOP_INDEPENDENTLY does not create a false prerequisite; INTEGRATION_DEPENDENCY_ONLY permits isolated fixture work but requires an actual-producer integration node; REGRESSION_BOUNDARY and FINAL_HEALTH_DEPENDENCY require corresponding validation nodes. Repository-derived and planning-hint relations may guide decomposition but cannot override normative authority.
 
-First draft the DAG privately. Then perform a critic pass over every node: attempt to identify hidden prerequisites, multiple implementation concerns, undeclared symbols, broad file scopes, validation chains, or architecture decisions. Split or reroute every failing node. Count routes and confirm the Luna percentage meets the configured minimum before registration. Register only the corrected final DAG with:
+Draft the DAG and perform one bounded critic pass over every node. Attempt to identify hidden prerequisites, multiple implementation concerns, undeclared symbols, broad file scopes, validation chains, or architecture decisions. Split or reroute every failing node. Count routes and confirm the Luna percentage. Do not manually read harness source or manually replay deterministic validators; the submission command performs those checks and preserves the candidate before validation.
 
 When ARCHITECTURE_GUARDS=1, a DAG containing exactly one dependency-free LOW/LUNA TEST_IMPLEMENTATION node receives a deterministic minimal architecture profile automatically when manager-init-project-plan runs. For that case, do not create ARCH_DIR or call manager-init-architecture: register the DAG directly. The generated profile has one specified test obligation, no decisions or edges, one node binding, one critical acceptance health gate using focused_validation, and no debt.
 
@@ -151,13 +125,11 @@ debt_id<TAB>introduced_by_task<TAB>introduced_by_commit<TAB>category<TAB>affecte
 
 Use '-' for an intentionally empty identifier list. Every DAG node must have exactly one node binding. Categories, authority, severity, and statuses must follow the architecture templates. SPECIFIED invariants must cite an original requirement; DERIVED invariants must be necessary consequences, not model preferences; PROPOSED invariants cannot silently constrain implementation. Every dependency carrying an API, representation, ownership, serialization, concurrency, or error contract needs an edge row. Terra decision nodes produce explicit ADR-like decisions; Luna nodes may consume accepted decisions but produce none. Add milestone health gates after coherent component groups and at final integration, using deterministic commands. Every invariant command, edge compatibility check, and lane/component/leaf gate must use its focused selector and must not require an unrelated aggregate test to exit zero. If an aggregate is useful as evidence, capture or tolerate its exit and assert the owned stage's exact result separately. Use HARNESS_BROAD_GATE_REQUIRED=1 in a validation command only when the human-owned governing specification explicitly requires whole-project aggregate success. Every enforceable invariant's affected_nodes must list only nodes whose bindings contain that invariant; do not classify a contract-decision node as runtime-affected when enforcement belongs to its implementation descendants. Start debt.tsv with only known, explicitly waived debt; do not invent debt to make the plan pass.
 
-Initialize the architecture registry first when enabled and it does not already exist. If a previous registration attempt initialized it but DAG validation failed, read and reuse the existing immutable registry instead of calling initialization again:
+Submit the DAG, coverage, and architecture registry in one durable transaction:
 
-$HARNESS_BIN/manager-init-architecture "$HARNESS_ENV_FILE" ARCH_DIR
+$HARNESS_BIN/manager-submit-decomposition "$HARNESS_ENV_FILE" DAG_FILE SPECIFICATION_COVERAGE_FILE ARCH_DIR
 
-Then register the DAG:
-
-$HARNESS_BIN/manager-init-project-plan "$HARNESS_ENV_FILE" DAG_FILE SPECIFICATION_COVERAGE_FILE
+For the deterministic single-node TEST_IMPLEMENTATION profile, pass '-' as ARCH_DIR. The command stages all candidate files before deterministic validation. If it rejects the candidate, correct only the reported validation defect and resubmit; do not restart repository exploration.
 
 After the command succeeds, terminate. Do not publish a worker task, wait, poll, or modify repository files.
 PROMPT

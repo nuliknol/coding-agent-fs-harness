@@ -42,6 +42,7 @@ log_phase()
 	local name="${1##*/}"
 	case "$name" in
 		manager-specification-review-*) printf '10\tspecification-review\tscaffolding' ;;
+		manager-architecture-fit-critic-*) printf '15\tarchitecture-fit\tscaffolding' ;;
 		manager-decomposition-critic-*) printf '20\tdecomposition-critic\tscaffolding' ;;
 		manager-bootstrap-*) printf '30\tdecomposition-bootstrap\tscaffolding' ;;
 		manager-plan-*) printf '40\ttask-planning\tscaffolding' ;;

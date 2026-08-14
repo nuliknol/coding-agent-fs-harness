@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 1 ]] || { printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+require_manager_configuration
+require_manager_codex
+(( HARNESS_DECOMPOSITION_V2 == 1 )) || die 'architecture-fit critic requires HARNESS_DECOMPOSITION_V2=1'
+project_plan_exists && exit 0
+architecture_fit_is_accepted && { printf 'Architecture fit already accepted.\n'; exit 0; }
+architecture_redesign_requires_action && { printf 'Architecture redesign required: %s\n' "$(architecture_redesign_report_relative_path)"; exit 6; }
+specification_review_is_accepted || die 'architecture-fit review requires an accepted current specification review'
+
+dir="$(project_dir)"
+prompt="$dir/control/manager-architecture-fit-critic.prompt.md"
+last_message="$dir/logs/manager-architecture-fit-critic-last-message.md"
+specification_review_report="$REPOSITORY/$(specification_review_state_value report)"
+repository_facts_file="$REPOSITORY/$(specification_review_state_value facts)"
+specification_obligations_file_path="$(specification_obligations_file)"
+specification_relations_file_path="$(specification_relations_file)"
+repository_inventory_file="$(specification_repository_inventory_file)"
+domain_manifest_file="$(specification_domain_manifest_file)"
+cat > "$prompt.tmp.$$" <<PROMPT
+You are the independent Sol architecture-fit critic for a filesystem-backed coding harness. Do not edit repository source and do not build a decomposition DAG in this turn.
+
+ENV_FILE=$HARNESS_ENV_FILE
+HARNESS_BIN=$HARNESS_BIN
+PROJECT=$PROJECT
+REPOSITORY=$REPOSITORY
+SPECIFICATION=$SPECIFICATION
+SPECIFICATION_SHA256=$(specification_sha256)
+REPOSITORY_BASELINE=$(specification_review_repository_baseline)
+DOMAIN_PROFILES_SHA256=$(domain_profiles_sha256)
+SPECIFICATION_REVIEW_REPORT=$specification_review_report
+REPOSITORY_FACTS_FILE=$repository_facts_file
+SPECIFICATION_OBLIGATIONS_FILE=$specification_obligations_file_path
+SPECIFICATION_RELATIONS_FILE=$specification_relations_file_path
+REPOSITORY_INVENTORY_FILE=$repository_inventory_file
+DOMAIN_PROFILE_MANIFEST=$domain_manifest_file
+PROJECT_TMP_DIR=$PROJECT_TMP_DIR
+AGENT_PHASE=architecture_fit
+
+This turn has exactly four outcomes. Perform only enough targeted repository inspection to decide among them. The normalized IR and repository facts are the primary capsule. Search REPOSITORY_INVENTORY_FILE for exact paths or symbols as needed; do not print or read the complete inventory, complete development policy, harness implementation, build output, or unrelated history. Retain verbose command output in files and return bounded excerpts.
+
+1. Demonstrated governing-source contradiction, observable ambiguity, missing acceptance authority, unavailable external authority, or unreachable mandatory acceptance witness: write a minimal specification challenge and call manager-challenge-specification-review. Do not manufacture a product question from discoverable repository facts.
+
+2. Clear governing sources but a demonstrable omission, distortion, or false relation in the normalized IR: write a renormalization reason beginning with # Specification Renormalization Request and call manager-request-specification-renormalization. Use this only when preserving all governing statements can produce valid acyclic IR.
+
+3. The accepted specification necessarily violates a foundational ownership, transaction, migration, dependency-direction, contract-authority, observability, critical-invariant, or resource-lifetime boundary on this baseline, and the feature authority does not permit the structural repair: write ARCHITECTURE_REPORT beginning with # Architecture Redesign Required and exact Project, Specification-SHA256, Repository-Baseline, and Decision: ARCHITECTURE_REDESIGN_REQUIRED lines. Write ARCHITECTURE_ISSUES with this exact TSV header:
+
+issue_id<TAB>class<TAB>requirement_ids<TAB>source_locations<TAB>architecture_evidence<TAB>violated_boundary<TAB>why_no_bounded_dag<TAB>required_capability<TAB>acceptance_evidence<TAB>severity
+
+Use stable ARCH-... IDs, CRITICAL severity, normalized requirement IDs, and one of OWNERSHIP_MODEL_INCOMPATIBLE, TRANSACTION_MODEL_INSUFFICIENT, MIGRATION_PATH_ABSENT, DEPENDENCY_DIRECTION_CONFLICT, FOUNDATIONAL_CONTRACT_OUT_OF_SCOPE, OBSERVABILITY_SEAM_ABSENT, CRITICAL_INVARIANT_CONFLICT, or RESOURCE_MODEL_INSUFFICIENT. Write REDESIGN_SPECIFICATION beginning with # Architecture Redesign Specification and trace every issue. Then call manager-record-architecture-redesign with those three files and terminate. This requires repository-relative path:line evidence proving that no authority-closed feature DAG can satisfy the obligations. Do not bounce ordinary missing implementation, local refactoring, stale hints, documentation, code ugliness, or architecture changes explicitly authorized by the feature.
+
+4. Architecture fit is acceptable: write REPORT beginning exactly with # Architecture Fit Review and containing these exact metadata lines:
+
+Project: $PROJECT
+Specification-SHA256: $(specification_sha256)
+Repository-Baseline: $(specification_review_repository_baseline)
+Domain-Profiles-SHA256: $(domain_profiles_sha256)
+Decision: ACCEPT
+
+Include an Evidence: section naming the inspected ownership, transaction, dependency, migration, observability, invariant, and resource-lifetime boundaries, plus any authorized Terra architecture decisions the future DAG must contain. Then call:
+
+$HARNESS_BIN/manager-record-architecture-fit "$HARNESS_ENV_FILE" REPORT
+
+Terminate immediately after the command succeeds. Do not create DAG, coverage, or architecture-registry files in this turn. Do not inspect harness source to second-guess the command contract.
+PROMPT
+chmod 600 "$prompt.tmp.$$"
+mv "$prompt.tmp.$$" "$prompt"
+
+attempt=1
+while true; do
+	stamp="$(timestamp_compact_utc)"
+	json="$dir/logs/manager-architecture-fit-critic-$stamp-attempt-$(printf '%03d' "$attempt").jsonl"
+	stderr="$dir/logs/manager-architecture-fit-critic-$stamp-attempt-$(printf '%03d' "$attempt").stderr.log"
+	message="$dir/logs/manager-architecture-fit-critic-$stamp-attempt-$(printf '%03d' "$attempt").md"
+	set +e
+	"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" decomposition "$DECOMPOSITION_MODEL" "$prompt" "$json" "$stderr" "$message"
+	status=$?
+	set -e
+	if architecture_fit_is_accepted; then
+		cp -f "$message" "$last_message" 2>/dev/null || true
+		printf 'Architecture fit accepted: %s\n' "$(architecture_fit_state_value report force-waiver)"
+		exit 0
+	fi
+	if specification_review_requires_clarification; then exit 3; fi
+	if architecture_redesign_requires_action; then exit 6; fi
+	if specification_renormalization_stall_matches_current_inputs; then exit 5; fi
+	if ! specification_review_is_accepted; then exit 4; fi
+	classification="$(kv_file_value "${json%.jsonl}.classification" classification 2>/dev/null || true)"
+	retry_kind="$(codex_provider_retry_kind "$classification" 2>/dev/null || true)"
+	if [[ -n "$retry_kind" ]]; then
+		delay="$(codex_provider_retry_delay "$classification")"
+		printf 'Architecture-fit provider retry in %s seconds (%s).\n' "$delay" "$retry_kind" >&2
+		sleep "$delay"
+		attempt=$((attempt + 1))
+		continue
+	fi
+	(( status == 0 )) && die 'architecture-fit critic exited without recording a decision'
+	die "architecture-fit critic failed with status $status; see $json"
+done

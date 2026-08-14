@@ -160,6 +160,51 @@ while ! project_plan_exists; do
 	fi
 
 	if (( HARNESS_DECOMPOSITION_V2 == 1 && HARNESS_DECOMPOSITION_CRITIC_ENABLED == 1 )); then
+		if decomposition_candidate_matches_current_inputs &&
+			[[ "$(decomposition_candidate_state_value status)" == STAGED ]]; then
+			printf 'Recovering a durably staged decomposition candidate before launching another Sol turn.\n'
+			if "$HARNESS_BIN/manager-submit-decomposition" --recover "$HARNESS_ENV_FILE"; then
+				continue
+			fi
+		fi
+
+		if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )); then
+			set +e
+			"$HARNESS_BIN/manager-architecture-fit-critic" "$HARNESS_ENV_FILE"
+			fit_status=$?
+			set -e
+			case "$fit_status" in
+			0) ;;
+			3)
+				printf 'Specification clarification required: %s\n' "$(specification_review_report_relative_path)"
+				exit 3
+				;;
+			4)
+				(( renormalizations < HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS )) ||
+					die 'architecture-fit critic exceeded the configured specification IR renormalization limit'
+				renormalizations=$((renormalizations + 1))
+				printf 'Regenerating normalized specification IR after architecture-fit challenge.\n'
+				continue
+				;;
+			5)
+				stall_report="$(kv_file_value "$(specification_renormalization_stall_file)" report 2>/dev/null || true)"
+				die "specification normalization stalled without convergence; inspect ${stall_report:-the architecture-fit critic logs}"
+				;;
+			6)
+				if (( force_decomposition_requested == 1 )); then
+					architecture_redesign_record_force_waiver
+					export HARNESS_FORCE_DECOMPOSITION=1
+					printf 'Architecture redesign finding force-authorized; continuing with prerequisite remediation decomposition.\n'
+				else
+					printf 'Architecture redesign required: %s\n' "$(architecture_redesign_report_relative_path)"
+					printf 'Action request: harness-show-redesign-request %s\n' "$HARNESS_ENV_FILE"
+					exit 6
+				fi
+				;;
+				*) exit "$fit_status" ;;
+			esac
+		fi
+
 		set +e
 		"$HARNESS_BIN/manager-decomposition-critic" "$HARNESS_ENV_FILE"
 		critic_status=$?

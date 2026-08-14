@@ -2936,6 +2936,16 @@ architecture_redesign_state_file()
 	printf '%s/control/architecture-redesign-review.env' "$(project_dir)"
 }
 
+architecture_fit_state_file()
+{
+	printf '%s/control/architecture-fit-review.env' "$(project_dir)"
+}
+
+decomposition_candidate_state_file()
+{
+	printf '%s/control/decomposition-candidate.env' "$(project_dir)"
+}
+
 architecture_redesign_force_file()
 {
 	printf '%s/control/architecture-redesign-force.env' "$(project_dir)"
@@ -3267,6 +3277,56 @@ architecture_redesign_state_value()
 	fi
 	[[ -n "$value" ]] || value="$fallback"
 	printf '%s' "$value"
+}
+
+architecture_fit_state_value()
+{
+	local key="$1" fallback="${2:-}" state value=""
+	state="$(architecture_fit_state_file)"
+	if [[ -f "$state" ]]; then
+		value="$(awk -F= -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' "$state")"
+	fi
+	[[ -n "$value" ]] || value="$fallback"
+	printf '%s' "$value"
+}
+
+architecture_fit_matches_current_inputs()
+{
+	local state
+	state="$(architecture_fit_state_file)"
+	[[ -f "$state" ]] || return 1
+	[[ "$(architecture_fit_state_value specification_sha256)" == "$(specification_sha256)" ]] || return 1
+	[[ "$(architecture_fit_state_value repository_baseline)" == "$(specification_review_repository_baseline)" ]] || return 1
+	[[ "$(architecture_fit_state_value domain_profiles_sha256 none)" == "$(domain_profiles_sha256)" ]]
+}
+
+architecture_fit_is_accepted()
+{
+	project_plan_exists && return 0
+	architecture_redesign_force_matches_current_inputs && return 0
+	architecture_fit_matches_current_inputs || return 1
+	[[ "$(architecture_fit_state_value status)" == ACCEPTED ]]
+}
+
+decomposition_candidate_state_value()
+{
+	local key="$1" fallback="${2:-}" state value=""
+	state="$(decomposition_candidate_state_file)"
+	if [[ -f "$state" ]]; then
+		value="$(awk -F= -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' "$state")"
+	fi
+	[[ -n "$value" ]] || value="$fallback"
+	printf '%s' "$value"
+}
+
+decomposition_candidate_matches_current_inputs()
+{
+	local state
+	state="$(decomposition_candidate_state_file)"
+	[[ -f "$state" ]] || return 1
+	[[ "$(decomposition_candidate_state_value specification_sha256)" == "$(specification_sha256)" ]] || return 1
+	[[ "$(decomposition_candidate_state_value repository_baseline)" == "$(specification_review_repository_baseline)" ]] || return 1
+	[[ "$(decomposition_candidate_state_value domain_profiles_sha256 none)" == "$(domain_profiles_sha256)" ]]
 }
 
 architecture_redesign_matches_current_inputs()

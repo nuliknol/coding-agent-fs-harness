@@ -32,6 +32,7 @@ if (( status_detail == 0 )); then
 		/^Specification IR: / ||
 		/^Specification coverage: / ||
 		/^Architecture fit: / ||
+		/^Startup transaction: / ||
 		/^Architecture health: / ||
 		/^Oracle audit: / ||
 		/^Active root evidence: / ||
@@ -92,6 +93,9 @@ architecture_fit_report=''
 if (( HARNESS_DECOMPOSITION_V2 == 1 && HARNESS_DECOMPOSITION_CRITIC_ENABLED == 1 )); then
 	if project_plan_exists; then
 		architecture_fit_status='ACCEPTED'
+	elif architecture_fit_is_accepted; then
+		architecture_fit_status='ACCEPTED'
+		architecture_fit_report="$(architecture_fit_state_value report force-waiver)"
 	elif architecture_redesign_matches_current_inputs &&
 		[[ "$(architecture_redesign_state_value status)" == ARCHITECTURE_REDESIGN_REQUIRED ]]; then
 		architecture_fit_report="$(architecture_redesign_report_relative_path)"
@@ -103,6 +107,16 @@ if (( HARNESS_DECOMPOSITION_V2 == 1 && HARNESS_DECOMPOSITION_CRITIC_ENABLED == 1
 	else
 		architecture_fit_status='PENDING'
 	fi
+fi
+startup_status_file="$dir/control/harness-start-background.status"
+startup_state='IDLE'
+startup_exit=''
+startup_log=''
+if [[ -f "$startup_status_file" ]]; then
+	startup_state="$(awk -F= '$1=="state" {print $2; exit}' "$startup_status_file")"
+	[[ -n "$startup_state" ]] || startup_state=IDLE
+	startup_exit="$(awk -F= '$1=="exit_status" {print $2; exit}' "$startup_status_file")"
+	startup_log="$(awk -F= '$1=="log" {sub(/^[^=]*=/, ""); print; exit}' "$startup_status_file")"
 fi
 if project_plan_exists; then
 	printf -v project_progress_line 'Project progress: %s%% (%s/%s plan items complete)' \
@@ -200,6 +214,13 @@ if [[ -n "$architecture_fit_report" ]]; then
 	printf 'Architecture fit: %s (%s)\n' "$architecture_fit_status" "$architecture_fit_report"
 else
 	printf 'Architecture fit: %s\n' "$architecture_fit_status"
+fi
+if [[ "$startup_state" == FAILED ]]; then
+	printf 'Startup transaction: FAILED exit=%s log=%s\n' "${startup_exit:-unknown}" "${startup_log:-unknown}"
+elif [[ "$startup_state" == RUNNING ]]; then
+	printf 'Startup transaction: RUNNING log=%s\n' "${startup_log:-unknown}"
+else
+	printf 'Startup transaction: %s\n' "$startup_state"
 fi
 if (( HARNESS_ARCHITECTURE_GUARDS == 1 )); then
 	if architecture_registered; then
@@ -514,6 +535,8 @@ elif [[ "$specification_review_status" == SPEC_CLARIFICATION_REQUIRED ]]; then
 	project_status_line="Project status: SPEC_CLARIFICATION_REQUIRED. Review $specification_review_report before DAG registration."
 elif [[ "$architecture_fit_status" == ARCHITECTURE_REDESIGN_REQUIRED ]]; then
 	project_status_line="Project status: ARCHITECTURE_REDESIGN_REQUIRED. Foundational architecture cannot safely support the accepted specification; review $architecture_fit_report before DAG registration."
+elif [[ "$startup_state" == FAILED && ! -f "$(project_plan_definition_file)" ]]; then
+	project_status_line="Project status: STARTUP_FAILED. Initial review or decomposition exited with status ${startup_exit:-unknown}; inspect ${startup_log:-the background startup log}."
 elif (( token_usage_anomaly_count > 0 )); then
 	project_status_line='Project status: TOKEN_USAGE_ANOMALY. Irregular per-episode or cumulative leaf token consumption was detected; all further project agent launches are suppressed pending an explicit corrective resolution.'
 elif project_completion_recorded && project_plan_all_complete; then

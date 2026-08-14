@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 2 ]] || {
+	printf 'Usage: %s ENV_FILE REPORT_MD\n' "${0##*/}" >&2
+	exit 2
+}
+load_harness_env "$1"
+report_file="$2"
+ensure_project
+require_manager_configuration
+project_plan_exists && die 'cannot replace architecture-fit acceptance after DAG registration'
+specification_review_is_accepted || die 'architecture-fit acceptance requires a current accepted specification review'
+architecture_redesign_requires_action && die 'cannot accept architecture fit while an unwaived redesign finding is current'
+[[ -f "$report_file" ]] || die "architecture-fit report does not exist: $report_file"
+acquire_project_lock
+
+IFS= read -r header < "$report_file" || die 'architecture-fit report is empty'
+[[ "$header" == '# Architecture Fit Review' ]] ||
+	die 'architecture-fit report must begin with # Architecture Fit Review'
+current_spec_sha="$(specification_sha256)"
+current_baseline="$(specification_review_repository_baseline)"
+current_domain_sha="$(domain_profiles_sha256)"
+grep -Fqx "Project: $PROJECT" "$report_file" || die 'architecture-fit report Project does not match the environment'
+grep -Fqx "Specification-SHA256: $current_spec_sha" "$report_file" || die 'architecture-fit report specification hash is stale'
+grep -Fqx "Repository-Baseline: $current_baseline" "$report_file" || die 'architecture-fit report repository baseline is stale'
+grep -Fqx "Domain-Profiles-SHA256: $current_domain_sha" "$report_file" || die 'architecture-fit report domain-profile hash is stale'
+grep -Fqx 'Decision: ACCEPT' "$report_file" || die 'architecture-fit report must declare Decision: ACCEPT'
+grep -Fq 'Evidence:' "$report_file" || die 'architecture-fit report requires an Evidence section'
+
+review_dir="$REPOSITORY/architecture-review"
+mkdir -p "$review_dir"
+chmod 700 "$review_dir"
+name="architecture-fit-${current_spec_sha:0:12}-${current_baseline:0:12}-$(timestamp_compact_utc).md"
+install -m 600 "$report_file" "$review_dir/$name.tmp.$$"
+mv "$review_dir/$name.tmp.$$" "$review_dir/$name"
+relative="architecture-review/$name"
+state="$(architecture_fit_state_file)"
+tmp="$state.tmp.$$"
+{
+	printf 'status=ACCEPTED\n'
+	printf 'specification_sha256=%s\n' "$current_spec_sha"
+	printf 'repository_baseline=%s\n' "$current_baseline"
+	printf 'domain_profiles_sha256=%s\n' "$current_domain_sha"
+	printf 'report=%s\n' "$relative"
+	printf 'model=%s\n' "$DECOMPOSITION_MODEL"
+	printf 'reasoning_effort=%s\n' "$DECOMPOSITION_REASONING_EFFORT"
+	printf 'reviewed_at=%s\n' "$(timestamp_utc)"
+} > "$tmp"
+chmod 600 "$tmp"
+mv "$tmp" "$state"
+log_event "ARCHITECTURE_FIT_ACCEPTED report=$relative model=$DECOMPOSITION_MODEL"
+printf '%s\n' "$relative"

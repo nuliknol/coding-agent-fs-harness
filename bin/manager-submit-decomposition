@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE DAG_TSV COVERAGE_TSV ARCHITECTURE_DIR_OR_DASH\n' "${0##*/}" >&2
+	printf '       %s --recover ENV_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+recover=0
+if [[ "${1:-}" == --recover ]]; then
+	[[ $# -eq 2 ]] || usage
+	recover=1
+	env_file="$2"
+else
+	[[ $# -eq 4 ]] || usage
+	env_file="$1"
+	dag_source="$2"
+	coverage_source="$3"
+	architecture_source="$4"
+fi
+load_harness_env "$env_file"
+ensure_project
+require_manager_configuration
+specification_review_is_accepted || die 'decomposition submission requires an accepted current specification review'
+architecture_fit_is_accepted || die 'decomposition submission requires an accepted current Sol architecture-fit review or matching force waiver'
+project_plan_exists && { printf '%s\n' "$(project_plan_definition_file)"; exit 0; }
+acquire_project_lock
+
+state="$(decomposition_candidate_state_file)"
+if (( recover == 1 )); then
+	decomposition_candidate_matches_current_inputs || die 'no staged decomposition candidate matches the current inputs'
+	[[ "$(decomposition_candidate_state_value status)" == STAGED ]] || die 'no recoverable staged decomposition candidate exists'
+	candidate_dir="$(decomposition_candidate_state_value directory)"
+	dag_stage="$candidate_dir/dag.tsv"
+	coverage_stage="$candidate_dir/coverage.tsv"
+	architecture_stage="$(decomposition_candidate_state_value architecture_directory -)"
+else
+	[[ -f "$dag_source" && -f "$coverage_source" ]] || die 'decomposition submission requires DAG and coverage TSV files'
+	if (( HARNESS_ARCHITECTURE_GUARDS == 1 )) && [[ "$architecture_source" != - ]]; then
+		[[ -d "$architecture_source" ]] || die 'guarded decomposition requires an architecture directory or - for the deterministic single-test profile'
+	fi
+	candidate_id="$({
+		sha256sum "$dag_source" "$coverage_source"
+		if [[ "$architecture_source" != - ]]; then
+			for name in invariants decisions edges node-bindings health-gates debt; do
+				[[ -f "$architecture_source/$name.tsv" ]] || die "architecture candidate is missing $name.tsv"
+				sha256sum "$architecture_source/$name.tsv"
+			done
+		fi
+	} | sha256sum | awk '{print $1}')"
+	candidate_dir="$(project_dir)/control/decomposition-candidates/$candidate_id"
+	mkdir -p "$candidate_dir"
+	chmod 700 "$(project_dir)/control/decomposition-candidates" "$candidate_dir"
+	install -m 600 "$dag_source" "$candidate_dir/dag.tsv.tmp.$$"
+	install -m 600 "$coverage_source" "$candidate_dir/coverage.tsv.tmp.$$"
+	mv "$candidate_dir/dag.tsv.tmp.$$" "$candidate_dir/dag.tsv"
+	mv "$candidate_dir/coverage.tsv.tmp.$$" "$candidate_dir/coverage.tsv"
+	dag_stage="$candidate_dir/dag.tsv"
+	coverage_stage="$candidate_dir/coverage.tsv"
+	architecture_stage=-
+	if [[ "$architecture_source" != - ]]; then
+		architecture_stage="$candidate_dir/architecture"
+		mkdir -p "$architecture_stage"
+		chmod 700 "$architecture_stage"
+		for name in invariants decisions edges node-bindings health-gates debt; do
+			install -m 600 "$architecture_source/$name.tsv" "$architecture_stage/$name.tsv"
+		done
+	fi
+	tmp="$state.tmp.$$"
+	{
+		printf 'status=STAGED\n'
+		printf 'specification_sha256=%s\n' "$(specification_sha256)"
+		printf 'repository_baseline=%s\n' "$(specification_review_repository_baseline)"
+		printf 'domain_profiles_sha256=%s\n' "$(domain_profiles_sha256)"
+		printf 'directory=%s\n' "$candidate_dir"
+		printf 'architecture_directory=%s\n' "$architecture_stage"
+		printf 'architecture_registered_by_candidate=0\n'
+		printf 'staged_at=%s\n' "$(timestamp_utc)"
+	} > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$state"
+	log_event "DECOMPOSITION_CANDIDATE_STAGED directory=$candidate_dir"
+fi
+
+registered_by_candidate="$(decomposition_candidate_state_value architecture_registered_by_candidate 0)"
+if (( HARNESS_ARCHITECTURE_GUARDS == 1 )) && [[ "$architecture_stage" != - ]] && ! architecture_registered; then
+	set +e
+	(
+		architecture_initialize "$architecture_stage"
+	)
+	architecture_status=$?
+	set -e
+	if (( architecture_status != 0 )); then
+		sed -i 's/^status=.*/status=REJECTED/' "$state"
+		die 'decomposition candidate architecture registry was rejected'
+	fi
+	registered_by_candidate=1
+	sed -i 's/^architecture_registered_by_candidate=.*/architecture_registered_by_candidate=1/' "$state"
+fi
+
+set +e
+(
+	initialize_project_plan "$dag_stage" "$coverage_stage"
+)
+plan_status=$?
+set -e
+if (( plan_status != 0 )); then
+	if [[ "$registered_by_candidate" == 1 ]] && ! project_plan_exists; then
+		rm -rf -- "$(architecture_dir)"
+	fi
+	sed -i 's/^status=.*/status=REJECTED/' "$state"
+	log_event "DECOMPOSITION_CANDIDATE_REJECTED directory=$candidate_dir status=$plan_status"
+	die "decomposition candidate failed deterministic validation with status $plan_status"
+fi
+sed -i 's/^status=.*/status=INSTALLED/' "$state"
+printf 'installed_at=%s\n' "$(timestamp_utc)" >> "$state"
+log_event "DECOMPOSITION_CANDIDATE_INSTALLED directory=$candidate_dir nodes=$(project_plan_total_count)"
+printf '%s\n' "$(project_plan_definition_file)"
