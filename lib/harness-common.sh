@@ -3248,6 +3248,7 @@ root_accepted_task_file()
 	shopt -s nullglob
 	for file in "$(project_dir)/archive/$PROJECT-task-$root.accepted.md" \
 		"$(project_dir)/archive/$PROJECT-task-$root-revision-"*.accepted.md; do
+		[[ -f "$file" ]] || continue
 		task="${file##*/}"
 		task="${task#${PROJECT}-task-}"
 		task="${task%.accepted.md}"

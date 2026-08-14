@@ -53,21 +53,21 @@ if [[ -f "$result" ]]; then
 	mv "$result" "$result_archive"
 fi
 
-if [[ ! -f "$superseded" ]]; then
-	tmp="$superseded.tmp.$$"
-	{
-		printf '# Superseded Task Result\n\n'
-		printf 'Project: %s\n\n' "$PROJECT"
-		printf 'Task-ID: %s\n\n' "$task_id"
-		printf 'Task-Root: %s\n\n' "$root"
-		printf 'Project-Plan-Item: %s\n\n' "$item"
-		printf 'Superseded-By: %s\n\n' "$accepted_task"
-		printf 'Superseded-At: %s\n\n' "$(timestamp_utc)"
-		printf 'Reason: another result already accepted this root and completed its project-plan item; this late result cannot produce a second lifecycle decision.\n'
-	} > "$tmp"
-	chmod 600 "$tmp"
-	mv "$tmp" "$superseded"
-fi
+superseded_at="$(metadata_value "$superseded" Superseded-At 2>/dev/null || true)"
+[[ -n "$superseded_at" ]] || superseded_at="$(timestamp_utc)"
+tmp="$superseded.tmp.$$"
+{
+	printf '# Superseded Task Result\n\n'
+	printf 'Project: %s\n\n' "$PROJECT"
+	printf 'Task-ID: %s\n\n' "$task_id"
+	printf 'Task-Root: %s\n\n' "$root"
+	printf 'Project-Plan-Item: %s\n\n' "$item"
+	printf 'Superseded-By: %s\n\n' "$accepted_task"
+	printf 'Superseded-At: %s\n\n' "$superseded_at"
+	printf 'Reason: another result already accepted this root and completed its project-plan item; this late result cannot produce a second lifecycle decision.\n'
+} > "$tmp"
+chmod 600 "$tmp"
+mv "$tmp" "$superseded"
 
 rm -f \
 	"$dir/control/$base.reviewed-event" \
