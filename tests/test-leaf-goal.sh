@@ -98,7 +98,7 @@ if printf '%s\n' "$prompt" | grep -q 'You are the semantic continuation manager'
 	relation=SAME_CRITERION
 	reason='The next focused validation directly tests the assigned criterion.'
 	evidence='The receipt preserves the same target and reports implementation movement.'
-	if [[ "$PROJECT" == goalreplan ]]; then
+	if [[ "$PROJECT" == goalreplan || "$PROJECT" == goalrecovery ]]; then
 		decision=REPLAN
 		relation=PREMISE_INVALIDATED
 		reason='The continuation evidence disproves the leaf causal premise.'
@@ -406,6 +406,81 @@ resource_result="$resource_project/results/goalresource-task-001.result.md"
 grep -Fqx 'Goal-Outcome: NEEDS_DECOMPOSITION' "$resource_result"
 [[ ! -e "$resource_project/control/progress/goalresource-task-001.needs-human.md" ]]
 grep -q 'WORKER_GOAL_RESOURCE_EPISODE_CLOSED task=001.*guard=TOKEN_LIMIT' "$resource_project/logs/events.log"
+
+# A continuation committed by 5.9.x is adopted at restart and receives the
+# semantic review before any new worker context is launched.
+RECOVERY_ROOT="$TEST_ROOT/semantic-recovery"
+mkdir -p "$RECOVERY_ROOT/repo" "$RECOVERY_ROOT/manager-home" "$RECOVERY_ROOT/worker-home"
+printf 'semantic recovery specification\n' > "$RECOVERY_ROOT/repo/spec.md"
+git -C "$RECOVERY_ROOT/repo" init -q
+git -C "$RECOVERY_ROOT/repo" config user.name 'Harness Test'
+git -C "$RECOVERY_ROOT/repo" config user.email 'harness@example.invalid'
+git -C "$RECOVERY_ROOT/repo" add spec.md
+git -C "$RECOVERY_ROOT/repo" commit -qm baseline
+cat > "$RECOVERY_ROOT/harness.env" <<ENV
+export PROJECT="goalrecovery"
+export REPOSITORY="$RECOVERY_ROOT/repo"
+export SPECIFICATION="\$REPOSITORY/spec.md"
+export HARNESS_HOME="$HARNESS_HOME"
+export HARNESS_BIN="\$HARNESS_HOME/bin"
+export HARNESS_ROOT="$RECOVERY_ROOT/state"
+export HARNESS_AGENT_MIN_INTERVAL_SECONDS="0"
+export MANAGER_CODEX_HOME="$RECOVERY_ROOT/manager-home"
+export MANAGER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export WORKER_CODEX_HOME="$RECOVERY_ROOT/worker-home"
+export WORKER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED="0"
+ENV
+chmod 600 "$RECOVERY_ROOT/harness.env"
+"$HARNESS_BIN/harness-init" "$RECOVERY_ROOT/harness.env" >/dev/null
+printf 'P0\tSemantic recovery\n' > "$RECOVERY_ROOT/plan.tsv"
+"$HARNESS_BIN/manager-init-project-plan" "$RECOVERY_ROOT/harness.env" "$RECOVERY_ROOT/plan.tsv" >/dev/null
+"$HARNESS_BIN/manager-publish-task" "$RECOVERY_ROOT/harness.env" 001 "$TEST_ROOT/task.md" P0 >/dev/null
+recovery_session="$("$HARNESS_BIN/harness-new-session" "$RECOVERY_ROOT/harness.env" worker)"
+"$HARNESS_BIN/worker-claim-task" "$RECOVERY_ROOT/harness.env" 001 "$recovery_session" >/dev/null
+recovery_project="$RECOVERY_ROOT/state/projects/goalrecovery"
+recovery_state="$recovery_project/control/goals/goalrecovery-task-001.goal"
+recovery_boundary="$(awk -F= '$1 == "last_boundary" {sub(/^[^=]*=/, ""); print}' "$recovery_state")"
+recovery_workspace="$(awk -F= '$1 == "last_workspace" {sub(/^[^=]*=/, ""); print}' "$recovery_state")"
+cat > "$RECOVERY_ROOT/legacy-receipt.md" <<RECEIPT
+# Worker Goal Iteration
+
+Task-ID: 001
+Goal-ID: goal.001.behavior
+Iteration: 1
+Outcome: CONTINUE
+Boundary-Before: $recovery_boundary
+Boundary-After: upstream-failure-observed
+Workspace-Fingerprint-Before: $recovery_workspace
+Workspace-Fingerprint-After: $recovery_workspace
+
+## Progress made
+
+Located the actual failing prerequisite.
+
+## Validation performed
+
+The focused reproducer fails before reaching the assigned target.
+
+## Next bounded action
+
+Repair the upstream prerequisite before returning to this criterion.
+
+## Scope check
+
+No out-of-scope files were modified.
+RECEIPT
+"$HARNESS_BIN/worker-continue-task" "$RECOVERY_ROOT/harness.env" 001 \
+	"$recovery_session" "$RECOVERY_ROOT/legacy-receipt.md" >/dev/null
+grep -q '^state=ITERATING$' "$recovery_state"
+"$HARNESS_BIN/harness-reset-task" "$RECOVERY_ROOT/harness.env" 001 --force >/dev/null
+printf 'export HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED="1"\n' >> "$RECOVERY_ROOT/harness.env"
+"$HARNESS_BIN/worker-invoke-task" "$RECOVERY_ROOT/harness.env" 001 >/dev/null
+recovery_result="$recovery_project/results/goalrecovery-task-001.result.md"
+grep -Fqx 'Goal-Outcome: NEEDS_DECOMPOSITION' "$recovery_result"
+grep -q '^semantic_relation=PREMISE_INVALIDATED$' "$recovery_state"
+[[ ! -e "$RECOVERY_ROOT/state/goal-mock-count" ]]
+grep -q 'WORKER_GOAL_RECOVERED_SEMANTIC_REPLAN task=001' "$recovery_project/logs/events.log"
 
 cat > "$TEST_ROOT/checkpoint.md" <<'NOTE'
 # Manager Review Record

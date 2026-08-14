@@ -119,6 +119,7 @@ goal_id=""
 goal_target=""
 goal_summary=""
 goal_ledger=""
+pending_semantic_review=0
 if assignment_uses_goal_mode "$task_file"; then
 	goal_mode=1
 	(( HARNESS_WORKER_GOAL_MODE == 1 )) ||
@@ -130,7 +131,24 @@ if assignment_uses_goal_mode "$task_file"; then
 		die "goal state is missing for task: $task_id"
 	goal_id="$(kv_file_value "$goal_state" goal_id)"
 	goal_target="$(kv_file_value "$goal_state" target_criterion)"
-	goal_state_set "$goal_state" state RUNNING
+	goal_iteration_at_claim="$(kv_file_value "$goal_state" iteration_count 2>/dev/null || printf 0)"
+	goal_marker_at_claim="$(goal_continue_marker_file "$task_id")"
+	if (( HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED == 1 )) &&
+		[[ "$goal_iteration_at_claim" =~ ^[1-9][0-9]*$ ]] &&
+		[[ -f "$goal_marker_at_claim" ]] &&
+		[[ "$(kv_file_value "$goal_marker_at_claim" iteration 2>/dev/null || true)" == "$goal_iteration_at_claim" ]] &&
+		[[ ! -f "$(goal_continuation_decision_file "$task_id" "$goal_iteration_at_claim")" ]]; then
+		# Upgrade/recovery compatibility: an older worker may have durably
+		# published CONTINUE and then crashed or hit a resource fuse before this
+		# semantic-review protocol existed. Review it before launching any worker.
+		pending_semantic_review=1
+		goal_state_set "$goal_state" state AWAITING_MANAGER_REVIEW
+		goal_state_set "$goal_state" thread_id ""
+		goal_state_set "$goal_state" thread_context awaiting-semantic-review
+		goal_thread_store "$task_id" "" awaiting-semantic-review
+	else
+		goal_state_set "$goal_state" state RUNNING
+	fi
 	goal_state_set "$goal_state" active_session "$session"
 	goal_state_set "$goal_state" updated_at "$(timestamp_utc)"
 fi
@@ -423,6 +441,30 @@ heartbeat_pid=$!
 trace_event WORKER_HEARTBEAT_STARTED "task_id=$task_id" "session=$session" "heartbeat_pid=$heartbeat_pid" "interval=$WORKER_HEARTBEAT_SECONDS"
 
 while true; do
+	if (( pending_semantic_review == 1 )); then
+		"$HARNESS_BIN/manager-review-goal-continuation" "$HARNESS_ENV_FILE" "$task_id" >/dev/null
+		semantic_decision="$(kv_file_value "$goal_state" semantic_decision 2>/dev/null || true)"
+		semantic_relation="$(kv_file_value "$goal_state" semantic_relation 2>/dev/null || true)"
+		semantic_decision_file="$(kv_file_value "$goal_state" semantic_decision_file 2>/dev/null || true)"
+		if [[ "$semantic_decision" == REPLAN ]]; then
+			if publish_goal_decomposition_handoff \
+				"Recovery found an unreviewed durable continuation from an earlier worker episode; semantic review returned it to decomposition." \
+				"Criterion relation: $semantic_relation. Decision: $semantic_decision_file"; then
+				cleanup_heartbeat
+				log_event "WORKER_GOAL_RECOVERED_SEMANTIC_REPLAN task=$task_id goal=$goal_id iteration=$(kv_file_value "$goal_state" iteration_count) relation=$semantic_relation decision=$semantic_decision_file"
+				printf 'Recovered worker goal %s returned to decomposition after semantic review.\n' "$goal_id"
+				exit 0
+			fi
+			die 'failed to publish recovered semantic-replan handoff'
+		fi
+		[[ "$semantic_decision" == CONTINUE && "$semantic_relation" == SAME_CRITERION ]] ||
+			die 'recovered semantic continuation review did not publish a valid decision'
+		worker_resume_thread_id=""
+		worker_context_mode=fresh
+		worker_context_reason=semantic_episode_recovery
+		pending_semantic_review=0
+		log_event "WORKER_GOAL_RECOVERED_CONTINUATION_APPROVED task=$task_id goal=$goal_id iteration=$(kv_file_value "$goal_state" iteration_count)"
+	fi
 	goal_iteration_before=0
 	if (( goal_mode == 1 )); then
 		goal_iteration_before="$(kv_file_value "$goal_state" iteration_count)"
