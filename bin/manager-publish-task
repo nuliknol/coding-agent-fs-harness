@@ -37,6 +37,7 @@ else
 	plan_item_id="${4:-}"
 fi
 ensure_project
+require_registered_specification_ir
 trace_init manager_publish_task
 trace_script_start "$@"
 goal_publish_state=""
@@ -647,6 +648,11 @@ if (( recovery_publish == 1 )); then
 fi
 if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 	context_capsule="$(task_context_capsule_file "$task_id")"
+	context_specification_obligations='-'
+	if specification_ir_available; then
+		context_specification_obligations="$(specification_obligations_for_node "$plan_item_id" | paste -sd, -)"
+		[[ -n "$context_specification_obligations" ]] || die "published DAG node has no normalized specification obligations: $plan_item_id"
+	fi
 	mkdir -p "$(dirname "$context_capsule")"
 	{
 		printf '# Bounded Worker Context Capsule\n\n'
@@ -664,6 +670,7 @@ if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 		printf 'Required-Symbols: %s\n' "$leaf_required_symbols"
 		printf 'Context-Paths: %s\n' "$leaf_context_paths"
 		printf 'Architecture-Decisions: %s\n' "$leaf_architecture_decisions"
+		printf 'Specification-Obligations: %s\n' "$context_specification_obligations"
 		if (( HARNESS_ARCHITECTURE_GUARDS == 1 )); then
 			printf 'Affected-Invariants: %s\n' "$(architecture_node_value "$plan_item_id" invariant_ids)"
 			printf 'Consumed-Decisions: %s\n' "$(architecture_node_value "$plan_item_id" consumes_decisions)"
@@ -687,6 +694,21 @@ if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 		printf -- '- Assignment: %s\n' "$ready"
 		printf -- '- Root assignment: %s\n' "$root_assignment"
 		printf -- '- Cumulative progress: %s\n' "$progress"
+		if [[ "$context_specification_obligations" != - ]]; then
+			printf '\n## Allocated proof obligations\n\n'
+			awk -F '\t' -v selected=",$context_specification_obligations," '
+				NR > 1 && index(selected, "," $1 ",") {printf "- %s [%s/%s]: %s | outcome: %s | authority: %s\n", $1, $2, $5, $6, $7, $8}
+			' "$(specification_obligations_file)"
+			printf '\n## Relevant semantic relations\n\n'
+			awk -F '\t' -v selected=",$context_specification_obligations," '
+				NR > 1 && index(selected, "," $3 ",") {printf "- %s: %s %s -> %s [%s] | %s\n", $1, $2, $3, $4, $5, $6}
+			' "$(specification_relations_file)"
+			printf '\n## Repository evidence referenced by this leaf\n\n'
+			awk -F '\t' -v selected=",$context_specification_obligations," '
+				FILENAME == ARGV[1] && FNR > 1 && index(selected, "," $3 ",") && $4 ~ /^FACT-/ {wanted[$4]=1; next}
+				FILENAME == ARGV[2] && FNR > 1 && ($1 in wanted) {printf "- %s [%s/%s]: %s = %s | %s\n", $1, $6, $7, $3, $4, $5}
+			' "$(specification_relations_file)" "$REPOSITORY/$(specification_review_state_value facts)"
+		fi
 		printf '\nThis capsule is intentionally narrow. Inspect other repository paths only when direct compiler, linker, or focused-validation evidence proves they are required by the declared leaf.\n'
 	} > "$context_capsule.tmp.$$"
 	chmod 600 "$context_capsule.tmp.$$"

@@ -39,10 +39,14 @@ printf 'Worker Codex home: %s\n' "$WORKER_CODEX_HOME"
 printf 'Worker model: %s (%s)\n' "$WORKER_MODEL" "$WORKER_REASONING_EFFORT"
 printf 'Validated agent source commits: %s\n' "$([[ "$HARNESS_AGENT_COMMITS_ENABLED" == 1 ]] && printf enabled || printf disabled)"
 if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
+	if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )); then
+		command -v tsort >/dev/null 2>&1 || die 'tsort is required for normalized specification dependency validation'
+	fi
 	printf 'Complexity decomposition: v2 proactive DAG (%s critic)\n' \
 		"$([[ "$HARNESS_DECOMPOSITION_CRITIC_ENABLED" == 1 ]] && printf enabled || printf disabled)"
 	printf 'Pre-acceptance specification review: %s\n' \
 		"$([[ "$HARNESS_SPECIFICATION_REVIEW_ENABLED" == 1 ]] && printf enabled || printf disabled)"
+	printf 'Selected domain profiles: %s\n' "${HARNESS_DOMAIN_PROFILES:-none}"
 	printf 'Luna leaf route: %s (%s)\n' "$LUNA_WORKER_MODEL" "$LUNA_WORKER_REASONING_EFFORT"
 	printf 'Terra leaf route: %s (%s)\n' "$TERRA_WORKER_MODEL" "$TERRA_WORKER_REASONING_EFFORT"
 	printf 'Preferred worker route: %s\n' "$HARNESS_PREFERRED_WORKER_ROUTE"

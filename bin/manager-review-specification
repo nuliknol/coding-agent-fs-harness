@@ -26,6 +26,19 @@ trap 'trace_script_exit $?' EXIT
 dir="$(project_dir)"
 spec_sha="$(specification_sha256)"
 repository_baseline="$(specification_review_repository_baseline)"
+domain_profiles_sha="$(domain_profiles_sha256)"
+repository_inventory="$PROJECT_TMP_DIR/$PROJECT-repository-inventory.tsv"
+domain_manifest="$PROJECT_TMP_DIR/$PROJECT-domain-profiles.tsv"
+"$HARNESS_BIN/harness-build-repository-inventory" "$HARNESS_ENV_FILE" "$repository_inventory" >/dev/null
+{
+	printf 'profile_id\tsource\tsha256\n'
+	while IFS= read -r profile_id; do
+		profile_source="$(domain_profile_file "$profile_id")"
+		printf '%s\t%s\t%s\n' "$profile_id" "$profile_source" "$(sha256sum "$profile_source" | awk '{print $1}')"
+	done < <(domain_profile_names)
+} > "$domain_manifest.tmp.$$"
+chmod 600 "$domain_manifest.tmp.$$"
+mv "$domain_manifest.tmp.$$" "$domain_manifest"
 prompt="$dir/control/manager-specification-review.prompt.md"
 cat > "$prompt.tmp.$$" <<PROMPT
 You are the independent pre-acceptance specification reviewer for a filesystem-backed coding harness. Do not edit repository source, tests, specifications, build outputs, or harness state directly. This review occurs before the execution DAG exists.
@@ -37,9 +50,12 @@ REPOSITORY=$REPOSITORY
 SPECIFICATION=$SPECIFICATION
 SPECIFICATION_SHA256=$spec_sha
 REPOSITORY_BASELINE=$repository_baseline
+DOMAIN_PROFILES_SHA256=$domain_profiles_sha
+REPOSITORY_INVENTORY=$repository_inventory
+DOMAIN_PROFILE_MANIFEST=$domain_manifest
 PROJECT_TMP_DIR=$PROJECT_TMP_DIR
 
-Read the complete specification, every mandatory document it references, the applicable development policy, and enough repository source, public interfaces, build definitions, tests, and history to establish real producers, consumers, contracts, symbols, paths, validation targets, and existing behavior. Repository observations reduce the burden on the specification author but never invent product authority.
+Read the complete specification, every mandatory document it references, the applicable development policy, REPOSITORY_INVENTORY, every profile listed in DOMAIN_PROFILE_MANIFEST, and enough repository source, public interfaces, build definitions, tests, and history to establish real producers, consumers, contracts, symbols, paths, validation targets, and existing behavior. The inventory is a bounded navigation aid, not a restriction on repository or dataset inspection. Repository observations reduce the burden on the specification author but never invent product authority. Explicitly selected domain profiles are reusable human-owned authority; unselected profiles add no semantics.
 
 Decide whether the specification is sufficiently precise for the harness to accept an implementation commitment. Use SPEC_CLARIFICATION_REQUIRED only for a demonstrated pre-acceptance defect in one of these classes:
 
@@ -53,7 +69,7 @@ UNAVAILABLE_EXTERNAL_AUTHORITY
 
 Do not request clarification for coding difficulty, repository size, unknown implementation details, paths or symbols discoverable from the repository, missing tests that can be implemented, local build/integration defects, file ownership, decomposition complexity, or an architecture choice explicitly delegated to the implementer. Those are automatic engineering work. Every clarification issue must identify two distinct incompatible observable outcomes, the governing sources and repository evidence checked, the missing authoritative decision, and one minimal question. If repository or governing evidence resolves the question, accept it and record that evidence as a fact.
 
-Write three files under PROJECT_TMP_DIR.
+Write five files under PROJECT_TMP_DIR: VERDICT_FILE, FACTS_FILE, ISSUES_FILE, OBLIGATIONS_FILE, and RELATIONS_FILE.
 
 VERDICT_FILE must contain:
 
@@ -62,6 +78,7 @@ VERDICT_FILE must contain:
 Project: $PROJECT
 Specification-SHA256: $spec_sha
 Repository-Baseline: $repository_baseline
+Domain-Profiles-SHA256: $domain_profiles_sha
 Decision: ACCEPT or SPEC_CLARIFICATION_REQUIRED
 
 ## Review summary
@@ -87,9 +104,23 @@ issue_id<TAB>class<TAB>requirement_ids<TAB>source_locations<TAB>outcome_a<TAB>ou
 
 Use stable SPEC-... IDs. For ACCEPT, write only the header. For SPEC_CLARIFICATION_REQUIRED, write at least one complete row. Keep every TSV field on one physical line and do not put tab characters inside field values.
 
-After writing all three files, call exactly:
+OBLIGATIONS_FILE is the normalized Specification IR and must use exactly this tab-separated header:
 
-$HARNESS_BIN/manager-record-specification-review "$HARNESS_ENV_FILE" VERDICT_FILE FACTS_FILE ISSUES_FILE
+obligation_id<TAB>authority<TAB>source_requirement<TAB>source_location<TAB>obligation_type<TAB>statement<TAB>observable_outcome<TAB>acceptance_authority
+
+Authority: SPECIFIED, DOMAIN_PROFILE, or DERIVED. Types: FUNCTIONAL, CONTRACT, COMPATIBILITY, INVARIANT, TEST, INTEGRATION, PERFORMANCE, DOCUMENTATION, COMPLETION, or RESOURCE_LIFETIME. Preserve existing stable requirement IDs when available; otherwise generate stable semantic IDs rather than requesting that the author enumerate repository structure. Every normative product requirement, selected domain-profile invariant, compatibility promise, integration boundary, and completion condition must become exactly one independently testable obligation. A selected profile invariant must use authority DOMAIN_PROFILE and source_requirement PROFILE:profile_id:invariant_id. DERIVED obligations may encode necessary engineering consequences but cannot invent observable product behavior. Every row must name its source and acceptance authority.
+
+RELATIONS_FILE must use exactly this tab-separated header:
+
+relation_id<TAB>relation_type<TAB>subject<TAB>object<TAB>authority<TAB>evidence
+
+Relation types: DEPENDS_ON, MAY_DEVELOP_INDEPENDENTLY, INTEGRATION_DEPENDENCY_ONLY, REGRESSION_BOUNDARY, FINAL_HEALTH_DEPENDENCY, PRODUCES, CONSUMES, PRESERVES, IMPLEMENTS, VALIDATES, OWNS, or REQUIRES_ACCEPTED. Authority: SPECIFIED, DOMAIN_PROFILE, REPOSITORY_DERIVED, or PLANNING_HINT. The subject is always an obligation ID. Dependency-like objects are obligation IDs. Artifact relations may use stable artifact tokens or an OBSERVED FACT-... ID. Every obligation requires at least one VALIDATES relation. CONSUMES artifacts must have a PRODUCES relation or reference an OBSERVED repository fact. OWNS means exclusive ownership; do not emit multiple owners for a shared path. Distinguish normative relations from repository-derived facts and fallible planning hints. Do not create dependency cycles.
+
+Perform a normalization critic pass before recording: verify every normative source statement is represented, every selected profile invariant is represented exactly once, every consumed artifact has a producer or observed baseline, every obligation has acceptance authority and validation, exclusive ownership is consistent, and typed dependencies are acyclic. A missing repository path or symbol that can be discovered or implemented is not a specification clarification. A real unresolved producer, conflicting authority, or incompatible observable outcome must appear in ISSUES_FILE and use SPEC_CLARIFICATION_REQUIRED.
+
+After writing all five model-authored files, call exactly:
+
+$HARNESS_BIN/manager-record-specification-review "$HARNESS_ENV_FILE" VERDICT_FILE FACTS_FILE ISSUES_FILE OBLIGATIONS_FILE RELATIONS_FILE "$repository_inventory" "$domain_manifest"
 
 After that command succeeds, terminate. Do not create a DAG or publish a task.
 PROMPT

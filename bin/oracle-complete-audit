@@ -15,6 +15,7 @@ load_harness_env "$1"
 verdict="$2"
 addendum="${3:-}"
 ensure_project
+require_registered_specification_ir
 oracle_enabled || die 'Oracle is disabled for this environment'
 [[ -f "$verdict" ]] || die "verdict file does not exist: $verdict"
 [[ -z "$addendum" || -f "$addendum" ]] || die "addendum file does not exist: $addendum"
@@ -26,8 +27,12 @@ audit_id="$(awk -F': ' '$1 == "Audit-ID" {print $2; exit}' "$pending")"
 [[ "$audit_id" =~ ^[1-9][0-9]*$ ]] || die 'pending Oracle audit has no valid Audit-ID'
 decision="$(awk -F': ' '$1 == "Decision" {print $2; exit}' "$verdict")"
 [[ "$decision" == PASS || "$decision" == FAIL ]] || die 'Oracle verdict Decision must be PASS or FAIL'
-grep -Fqx '# Oracle Audit Verdict' "$verdict" || die 'Oracle verdict must begin with # Oracle Audit Verdict'
+IFS= read -r verdict_header < "$verdict" || die 'Oracle verdict is empty'
+[[ "$verdict_header" == '# Oracle Audit Verdict' ]] || die 'Oracle verdict must begin with # Oracle Audit Verdict'
 grep -Fqx '## Traceability verification' "$verdict" || die 'Oracle verdict lacks traceability verification'
+if specification_ir_available; then
+	grep -Fqx '## Specification IR verification' "$verdict" || die 'Oracle verdict lacks Specification IR verification'
+fi
 grep -Fqx '## Acceptance verification' "$verdict" || die 'Oracle verdict lacks acceptance verification'
 if (( HARNESS_ARCHITECTURE_GUARDS == 1 )); then
 	grep -Fqx '## Architecture verification' "$verdict" || die 'Oracle verdict lacks architecture verification'
@@ -35,6 +40,41 @@ if (( HARNESS_ARCHITECTURE_GUARDS == 1 )); then
 fi
 grep -Fqx '## Findings' "$verdict" || die 'Oracle verdict lacks findings'
 grep -Fqx '## Conclusion' "$verdict" || die 'Oracle verdict lacks conclusion'
+
+validate_specification_ir_verdict_section()
+{
+	local obligations_file obligation_id line result evidence observed=0
+	local -A required=() seen=()
+	obligations_file="$(specification_obligations_file)"
+	while IFS=$'\t' read -r obligation_id _; do
+		[[ "$obligation_id" != obligation_id && -n "$obligation_id" ]] || continue
+		required[$obligation_id]=1
+	done < "$obligations_file"
+	while IFS= read -r line; do
+		[[ -n "$line" ]] || continue
+		if [[ "$line" =~ ^-[[:space:]]\[(PASS|FAIL)\][[:space:]]([^[:space:]]+)[[:space:]]—[[:space:]](.+)$ ]]; then
+			result="${BASH_REMATCH[1]}"
+			obligation_id="${BASH_REMATCH[2]}"
+			evidence="${BASH_REMATCH[3]}"
+		else
+			die "Oracle Specification IR verification contains a malformed row: $line"
+		fi
+		[[ -n "${required[$obligation_id]:-}" ]] || die "Oracle verdict references unknown normalized obligation: $obligation_id"
+		[[ -z "${seen[$obligation_id]:-}" ]] || die "Oracle verdict repeats normalized obligation: $obligation_id"
+		[[ -n "$evidence" ]] || die "Oracle verdict lacks evidence for normalized obligation: $obligation_id"
+		[[ "$decision" != PASS || "$result" == PASS ]] || die "Oracle PASS contains a failed normalized obligation: $obligation_id"
+		seen[$obligation_id]="$result"
+		observed=$((observed + 1))
+	done < <(awk '$0 == "## Specification IR verification" {inside=1; next} inside && /^## / {exit} inside {print}' "$verdict")
+	for obligation_id in "${!required[@]}"; do
+		[[ -n "${seen[$obligation_id]:-}" ]] || die "Oracle verdict lacks independently reproduced evidence for obligation: $obligation_id"
+	done
+	(( observed == ${#required[@]} )) || die 'Oracle verdict does not contain exactly one row per normalized obligation'
+}
+
+if specification_ir_available; then
+	validate_specification_ir_verdict_section
+fi
 
 oracle_dir="$(project_oracle_dir)"
 mkdir -p "$oracle_dir"
@@ -44,6 +84,7 @@ install -m 600 "$verdict" "$archive"
 if [[ "$decision" == PASS ]]; then
 	[[ -z "$addendum" ]] || die 'a PASS Oracle verdict must not include an addendum'
 	project_plan_all_complete || die 'Oracle PASS is only valid when every plan item is complete'
+	specification_coverage_completion_ready || die 'Oracle PASS is only valid when normalized specification coverage is complete'
 	if (( HARNESS_ARCHITECTURE_GUARDS == 1 )); then
 		awk '$0=="## Architecture verification" {inside=1; next} inside && /^## / {exit} inside && /^- \[PASS\] .+ — .+/ {ok=1} END {exit !ok}' "$verdict" || die 'Oracle PASS lacks concrete architecture PASS evidence'
 		awk '$0=="## Debt verification" {inside=1; next} inside && /^## / {exit} inside && /^- \[PASS\] .+ — .+/ {ok=1} END {exit !ok}' "$verdict" || die 'Oracle PASS lacks concrete debt PASS evidence'
@@ -103,6 +144,7 @@ definition="$(project_plan_definition_file)"
 state="$(project_plan_state_file)"
 dag="$(project_decomposition_plan_file)"
 binding="$(architecture_node_bindings_file)"
+coverage="$(specification_coverage_file)"
 items_tmp="$oracle_dir/addendum-$audit_id.items.tsv"
 nodes_tmp="$oracle_dir/addendum-$audit_id.nodes.tsv"
 bindings_tmp="$oracle_dir/addendum-$audit_id.bindings.tsv"
@@ -117,9 +159,10 @@ definition_tmp="$definition.tmp.$$"
 state_tmp="$state.tmp.$$"
 dag_tmp="$dag.tmp.$$"
 binding_tmp="$binding.tmp.$$"
+coverage_tmp="$coverage.tmp.$$"
 cleanup_candidates()
 {
-	rm -f "$definition_tmp" "$state_tmp" "$dag_tmp" "$binding_tmp"
+	rm -f "$definition_tmp" "$state_tmp" "$dag_tmp" "$binding_tmp" "$coverage_tmp"
 }
 trap cleanup_candidates EXIT
 cp "$definition" "$definition_tmp"
@@ -231,15 +274,39 @@ if project_plan_uses_dag; then
 	fi
 fi
 
+if specification_ir_available; then
+	mapfile -t original_obligation_ids < <(awk -F': ' '$1 == "Original-Requirement-ID" {print $2}' "$addendum")
+	((${#original_obligation_ids[@]} > 0)) || die 'normalized Oracle remediation requires an Original-Requirement-ID'
+	for obligation_id in "${original_obligation_ids[@]}"; do
+		awk -F '\t' -v wanted="$obligation_id" 'NR > 1 && $1 == wanted {found=1} END {exit found ? 0 : 1}' "$(specification_obligations_file)" ||
+			die "Oracle remediation references unknown normalized obligation: $obligation_id"
+	done
+	oracle_node_csv="$(printf '%s\n' "${!oracle_nodes[@]}" | LC_ALL=C sort | paste -sd, -)"
+	original_obligation_csv="$(printf '%s\n' "${original_obligation_ids[@]}" | LC_ALL=C sort -u | paste -sd, -)"
+	awk -F '\t' -v OFS='\t' -v obligations="$original_obligation_csv" -v nodes="$oracle_node_csv" -v audit="$audit_id" '
+		BEGIN {n=split(obligations, wanted, ","); for (i=1; i<=n; i++) selected[wanted[i]]=1}
+		NR == 1 {print; next}
+		selected[$1] {
+			m=split(nodes, additions, ",")
+			for (i=1; i<=m; i++) if ($2 !~ "(^|,)" additions[i] "(,|$)") $2=$2 "," additions[i]
+			$3=$3 "; Oracle remediation audit " audit
+		}
+		{print}
+	' "$coverage" > "$coverage_tmp"
+	validate_specification_coverage_file "$coverage_tmp" "$dag_tmp"
+fi
+
 chmod 600 "$definition_tmp" "$state_tmp" "$items_tmp"
 [[ ! -f "$nodes_tmp" ]] || chmod 600 "$nodes_tmp"
 [[ ! -f "$bindings_tmp" ]] || chmod 600 "$bindings_tmp"
 [[ ! -f "$dag_tmp" ]] || chmod 600 "$dag_tmp"
 [[ ! -f "$binding_tmp" ]] || chmod 600 "$binding_tmp"
+[[ ! -f "$coverage_tmp" ]] || chmod 600 "$coverage_tmp"
 mv "$definition_tmp" "$definition"
 mv "$state_tmp" "$state"
 [[ ! -f "$dag_tmp" ]] || mv "$dag_tmp" "$dag"
 [[ ! -f "$binding_tmp" ]] || mv "$binding_tmp" "$binding"
+[[ ! -f "$coverage_tmp" ]] || mv "$coverage_tmp" "$coverage"
 trap - EXIT
 cleanup_candidates
 rm -f "$pending"

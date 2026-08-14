@@ -20,10 +20,18 @@ prompt="$dir/control/manager-decomposition-critic.prompt.md"
 last_message="$dir/logs/manager-decomposition-critic-last-message.md"
 specification_review_report='-'
 repository_facts_file='-'
+specification_obligations_file_path='-'
+specification_relations_file_path='-'
+repository_inventory_file='-'
+domain_manifest_file='-'
 if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )); then
 	specification_review_is_accepted || die 'decomposition requires an accepted current specification review'
 	specification_review_report="$REPOSITORY/$(specification_review_state_value report)"
 	repository_facts_file="$REPOSITORY/$(specification_review_state_value facts)"
+	specification_obligations_file_path="$(specification_obligations_file)"
+	specification_relations_file_path="$(specification_relations_file)"
+	repository_inventory_file="$(specification_repository_inventory_file)"
+	domain_manifest_file="$(specification_domain_manifest_file)"
 fi
 cat > "$prompt.tmp.$$" <<PROMPT
 You are the fresh decomposition planner and critic for a filesystem-backed coding harness. Do not edit the repository.
@@ -35,11 +43,31 @@ REPOSITORY=$REPOSITORY
 SPECIFICATION=$SPECIFICATION
 SPECIFICATION_REVIEW_REPORT=$specification_review_report
 REPOSITORY_FACTS_FILE=$repository_facts_file
+SPECIFICATION_OBLIGATIONS_FILE=$specification_obligations_file_path
+SPECIFICATION_RELATIONS_FILE=$specification_relations_file_path
+REPOSITORY_INVENTORY_FILE=$repository_inventory_file
+DOMAIN_PROFILE_MANIFEST=$domain_manifest_file
 PROJECT_TMP_DIR=$PROJECT_TMP_DIR
 ARCHITECTURE_GUARDS=$HARNESS_ARCHITECTURE_GUARDS
 MAX_LUNA_ALLOWED_PATHS=$HARNESS_MAX_LUNA_ALLOWED_PATHS
 
-Read the complete specification, accepted specification review and repository facts when present, applicable repository development policy, and enough current repository structure to verify real dependencies and existing contracts. Treat OBSERVED repository facts as evidence, INFERRED facts as hypotheses to verify, and PLANNING_HINT facts as advisory only; none can silently add product requirements. Produce a topologically ordered decomposition DAG with this exact tab-separated header:
+Before drafting a DAG, independently challenge the accepted review and normalized IR against the governing sources and repository evidence. There are exactly three outcomes:
+
+1. If a governing source contains a demonstrated unresolved product/specification defect in one of the supported clarification classes, write CHALLENGE_REPORT beginning with `# Specification Review Challenge` and CHALLENGE_ISSUES using the specification issues TSV schema, then call:
+
+$HARNESS_BIN/manager-challenge-specification-review "$HARNESS_ENV_FILE" CHALLENGE_REPORT CHALLENGE_ISSUES
+
+Terminate immediately after it succeeds. Ask only the minimal product question. Do not use this path for coding difficulty, architecture delegated to the implementer, discoverable repository facts, or a defect in the generated normalized IR.
+
+2. If the governing sources are sufficiently clear but the accepted facts, obligations, or relations omit, distort, or contradict those clear sources or repository evidence, write RENORMALIZATION_REASON beginning with `# Specification Renormalization Request`, identify the exact source-to-IR mismatch, and call:
+
+$HARNESS_BIN/manager-request-specification-renormalization "$HARNESS_ENV_FILE" RENORMALIZATION_REASON
+
+Terminate immediately after it succeeds. This is an automatic compiler correction and must not bounce a false clarification to the user.
+
+3. Only when the accepted review and normalized IR survive this independent challenge may you register a DAG.
+
+Read the complete specification, accepted specification review, normalized obligations, typed semantic relations, repository inventory and facts, selected domain-profile manifest, applicable repository development policy, and enough current repository structure to verify real dependencies and existing contracts. Treat OBSERVED repository facts as evidence, INFERRED facts as hypotheses to verify, and PLANNING_HINT facts as advisory only; none can silently add product requirements. The repository inventory is a navigation aid and never limits necessary inspection. Produce a topologically ordered decomposition DAG with this exact tab-separated header:
 
 node_id<TAB>parent_id<TAB>depends_on<TAB>deliverable<TAB>acceptance_evidence<TAB>focused_validation<TAB>allowed_paths<TAB>required_symbols<TAB>leaf_type<TAB>complexity_class<TAB>worker_route
 
@@ -50,6 +78,12 @@ A LUNA node is valid only when complexity_class is LOW, leaf_type is LOCAL_IMPLE
 PREFERRED_WORKER_ROUTE=$HARNESS_PREFERRED_WORKER_ROUTE. Optimize explicitly for cheap-worker execution. At least $HARNESS_MIN_LUNA_CODING_NODE_PERCENT percent of coding-eligible DAG nodes (LOCAL_IMPLEMENTATION, TEST_IMPLEMENTATION, MECHANICAL_API, FOCUSED_BUG, and DOCUMENTATION) must route to LUNA. Terra-only decision and integration nodes are excluded from this denominator. A Terra contract or architecture decision does not make its implementation descendants Terra work: depend bounded LOW/LUNA implementation nodes on that decision. Split broad local implementation, mechanical API propagation, focused tests or bug fixes, fixtures, and post-behavior documentation into Luna-ready nodes of at most five expected implementation files and one deterministic validation. When a concern mixes decision and coding, create a narrow Terra decision node followed by one or more Luna implementation nodes. Do not use Terra merely because the overall specification is large.
 
 Decompose deeply enough that Luna can execute deterministically, but do not create microscopic handoffs. A Luna-ready node should normally own one cohesive implementation concern, one to five implementation files, and the largest useful deterministic focused validation that still fits within three worker turns. Do not split an already Luna-ready concern merely to inflate the route percentage; every extra leaf incurs a manager review.
+
+Also produce SPECIFICATION_COVERAGE_FILE with exactly this tab-separated header:
+
+obligation_id<TAB>node_ids<TAB>evidence_plan
+
+Include exactly one row for every obligation in SPECIFICATION_OBLIGATIONS_FILE. node_ids is a comma-separated list of DAG nodes whose combined accepted evidence proves that obligation. Every DAG node must appear in at least one coverage row, so the plan cannot invent unrelated work. evidence_plan names the deterministic node evidence and final integration evidence that will discharge the obligation. Respect typed relations: dependency relations constrain order; MAY_DEVELOP_INDEPENDENTLY does not create a false prerequisite; INTEGRATION_DEPENDENCY_ONLY permits isolated fixture work but requires an actual-producer integration node; REGRESSION_BOUNDARY and FINAL_HEALTH_DEPENDENCY require corresponding validation nodes. Repository-derived and planning-hint relations may guide decomposition but cannot override normative authority.
 
 First draft the DAG privately. Then perform a critic pass over every node: attempt to identify hidden prerequisites, multiple implementation concerns, undeclared symbols, broad file scopes, validation chains, or architecture decisions. Split or reroute every failing node. Count routes and confirm the Luna percentage meets the configured minimum before registration. Register only the corrected final DAG with:
 
@@ -85,7 +119,7 @@ $HARNESS_BIN/manager-init-architecture "$HARNESS_ENV_FILE" ARCH_DIR
 
 Then register the DAG:
 
-$HARNESS_BIN/manager-init-project-plan "$HARNESS_ENV_FILE" DAG_FILE
+$HARNESS_BIN/manager-init-project-plan "$HARNESS_ENV_FILE" DAG_FILE SPECIFICATION_COVERAGE_FILE
 
 After the command succeeds, terminate. Do not publish a worker task, wait, poll, or modify repository files.
 PROMPT
@@ -114,6 +148,18 @@ while true; do
 		log_event "DECOMPOSITION_CRITIC_APPROVED nodes=$(project_plan_total_count) attempts=$attempt"
 		printf 'Decomposition critic approved %s DAG nodes.\n' "$(project_plan_total_count)"
 		exit 0
+	fi
+	if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )) && specification_review_requires_clarification; then
+		cp -f "$message" "$last_message" 2>/dev/null || true
+		log_event "DECOMPOSITION_CRITIC_CLARIFICATION report=$(specification_review_report_relative_path) attempts=$attempt"
+		printf 'Specification clarification required: %s\n' "$(specification_review_report_relative_path)"
+		exit 3
+	fi
+	if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )) && ! specification_review_is_accepted; then
+		cp -f "$message" "$last_message" 2>/dev/null || true
+		log_event "DECOMPOSITION_CRITIC_RENORMALIZATION attempts=$attempt"
+		printf 'Specification IR renormalization requested.\n'
+		exit 4
 	fi
 	classification="$(kv_file_value "${json%.jsonl}.classification" classification 2>/dev/null || true)"
 	retry_kind="$(codex_provider_retry_kind "$classification" 2>/dev/null || true)"

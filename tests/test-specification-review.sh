@@ -9,11 +9,15 @@ trap '[[ "${KEEP_TEST_ROOT:-0}" == 1 ]] || rm -rf -- "$TEST_ROOT"' EXIT
 
 repo="$TEST_ROOT/repo"
 state="$TEST_ROOT/state"
-mkdir -p "$repo/src" "$TEST_ROOT/configs" "$TEST_ROOT/manager-home" "$TEST_ROOT/worker-home"
+mkdir -p "$repo/src" "$repo/.harness/domain-profiles" "$TEST_ROOT/configs" "$TEST_ROOT/manager-home" "$TEST_ROOT/worker-home"
 printf 'REQ-1: expose target_symbol and preserve zero on invalid input.\n' > "$repo/spec.md"
 printf 'int target_symbol(int value) { return value < 0 ? 0 : value; }\n' > "$repo/src/a.c"
+cat > "$repo/.harness/domain-profiles/test-contract.tsv" <<'EOF'
+invariant_id	category	statement	source_authority	validation_hint
+stable-negative-contract	CONTRACT	Negative input behavior remains stable	PROJECT_POLICY	Focused negative-input test
+EOF
 git -C "$repo" init -q
-git -C "$repo" add spec.md src/a.c
+git -C "$repo" add spec.md src/a.c .harness/domain-profiles/test-contract.tsv
 git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm seed
 
 env_file="$TEST_ROOT/configs/spec-review.env"
@@ -37,6 +41,7 @@ export TERRA_WORKER_MODEL="gpt-5.6-terra"
 export HARNESS_DECOMPOSITION_V2="1"
 export HARNESS_DECOMPOSITION_CRITIC_ENABLED="0"
 export HARNESS_SPECIFICATION_REVIEW_ENABLED="1"
+export HARNESS_DOMAIN_PROFILES="test-contract"
 export HARNESS_ARCHITECTURE_GUARDS="0"
 export HARNESS_MIN_LUNA_CODING_NODE_PERCENT="100"
 export MAX_ORACLE_RUNS="0"
@@ -46,20 +51,43 @@ chmod 600 "$env_file"
 project_dir="$state/projects/spec-review-test"
 spec_sha="$(sha256sum "$repo/spec.md" | awk '{print $1}')"
 baseline="$(git -C "$repo" rev-parse HEAD)"
+domain_sha="$(bash -c 'source "$1"; load_harness_env "$2"; domain_profiles_sha256' _ "$HARNESS_HOME/lib/harness-common.sh" "$env_file")"
 
 verdict="$TEST_ROOT/verdict.md"
 facts="$TEST_ROOT/facts.tsv"
 issues="$TEST_ROOT/issues.tsv"
+obligations="$TEST_ROOT/obligations.tsv"
+relations="$TEST_ROOT/relations.tsv"
+inventory="$TEST_ROOT/inventory.tsv"
+domain_manifest="$TEST_ROOT/domain-manifest.tsv"
+"$HARNESS_BIN/harness-build-repository-inventory" "$env_file" "$inventory" >/dev/null
+printf '%s\n' \
+	$'profile_id\tsource\tsha256' \
+	"test-contract"$'\t'"$repo/.harness/domain-profiles/test-contract.tsv"$'\t'"$(sha256sum "$repo/.harness/domain-profiles/test-contract.tsv" | awk '{print $1}')" > "$domain_manifest"
 cat > "$verdict" <<EOF
 # Specification Review
 
 Project: spec-review-test
 Specification-SHA256: $spec_sha
 Repository-Baseline: $baseline
+Domain-Profiles-SHA256: $domain_sha
 Decision: SPEC_CLARIFICATION_REQUIRED
 
 ## Review summary
 REQ-1 does not define whether negative input is rejected or normalized.
+EOF
+cat > "$obligations" <<'EOF'
+obligation_id	authority	source_requirement	source_location	obligation_type	statement	observable_outcome	acceptance_authority
+REQ-1	SPECIFIED	REQ-1	spec.md:1	CONTRACT	Define target_symbol negative-input behavior	One authoritative negative-input outcome	specification:REQ-1
+PROFILE-negative-contract	DOMAIN_PROFILE	PROFILE:test-contract:stable-negative-contract	.harness/domain-profiles/test-contract.tsv:2	INVARIANT	Preserve stable negative-input behavior	Focused negative-input behavior remains stable	profile:test-contract
+EOF
+cat > "$relations" <<'EOF'
+relation_id	relation_type	subject	object	authority	evidence
+REL-req-validates	VALIDATES	REQ-1	FACT-target-test	SPECIFIED	specification:REQ-1
+REL-profile-validates	VALIDATES	PROFILE-negative-contract	validation:negative-input	DOMAIN_PROFILE	profile:test-contract
+REL-profile-preserves	PRESERVES	PROFILE-negative-contract	FACT-target-symbol	DOMAIN_PROFILE	profile:test-contract
+REL-profile-depends	DEPENDS_ON	PROFILE-negative-contract	REQ-1	DOMAIN_PROFILE	profile:test-contract
+REL-hint-cycle	DEPENDS_ON	REQ-1	PROFILE-negative-contract	PLANNING_HINT	advisory-only reverse ordering
 EOF
 cat > "$facts" <<'EOF'
 fact_id	kind	subject	value	evidence	authority	confidence
@@ -70,7 +98,7 @@ cat > "$issues" <<'EOF'
 issue_id	class	requirement_ids	source_locations	outcome_a	outcome_b	evidence_checked	missing_decision	minimal_question
 SPEC-negative-input	OBSERVABLE_CONTRACT_AMBIGUITY	REQ-1	spec.md:1	Return zero for negative input	Return a typed invalid-input error	spec.md:1;src/a.c:1	Authoritative negative-input behavior	Should negative input normalize to zero or return an error?
 EOF
-record_output="$("$HARNESS_BIN/manager-record-specification-review" "$env_file" "$verdict" "$facts" "$issues")"
+record_output="$("$HARNESS_BIN/manager-record-specification-review" "$env_file" "$verdict" "$facts" "$issues" "$obligations" "$relations" "$inventory" "$domain_manifest")"
 [[ "$record_output" =~ ^spec-review/specification-review-.*\.md$ ]]
 [[ -f "$repo/$record_output" ]]
 grep -Fqx 'status=SPEC_CLARIFICATION_REQUIRED' "$project_dir/control/specification-review.env"
@@ -94,6 +122,7 @@ plan="$TEST_ROOT/plan.tsv"
 cat > "$plan" <<'EOF'
 node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route
 n1	-	-	Add focused target_symbol tests	Negative and nonnegative cases pass	test -f src/a.c	src/a.c	target_symbol	TEST_IMPLEMENTATION	LOW	LUNA
+n2	-	n1	Verify profile compatibility	Profile-focused compatibility assertion passes	test -f src/a.c	src/a.c	target_symbol	TEST_IMPLEMENTATION	LOW	LUNA
 EOF
 if "$HARNESS_BIN/manager-init-project-plan" "$env_file" "$plan" >/dev/null 2>&1; then
 	printf 'DAG registration unexpectedly bypassed specification clarification\n' >&2
@@ -106,10 +135,11 @@ cat > "$verdict" <<EOF
 Project: spec-review-test
 Specification-SHA256: $spec_sha
 Repository-Baseline: $baseline
+Domain-Profiles-SHA256: $domain_sha
 Decision: ACCEPT
 EOF
 printf '%s\n' $'issue_id\tclass\trequirement_ids\tsource_locations\toutcome_a\toutcome_b\tevidence_checked\tmissing_decision\tminimal_question' > "$issues"
-if "$HARNESS_BIN/manager-record-specification-review" "$env_file" "$verdict" "$facts" "$issues" >/dev/null 2>&1; then
+if "$HARNESS_BIN/manager-record-specification-review" "$env_file" "$verdict" "$facts" "$issues" "$obligations" "$relations" "$inventory" "$domain_manifest" >/dev/null 2>&1; then
 	printf 'unchanged specification was unexpectedly accepted after clarification\n' >&2
 	exit 1
 fi
@@ -119,22 +149,117 @@ git -C "$repo" add spec.md
 git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm clarify-negative-input
 spec_sha="$(sha256sum "$repo/spec.md" | awk '{print $1}')"
 baseline="$(git -C "$repo" rev-parse HEAD)"
+"$HARNESS_BIN/harness-build-repository-inventory" "$env_file" "$inventory" >/dev/null
 cat > "$verdict" <<EOF
 # Specification Review
 
 Project: spec-review-test
 Specification-SHA256: $spec_sha
 Repository-Baseline: $baseline
+Domain-Profiles-SHA256: $domain_sha
 Decision: ACCEPT
 
 ## Review summary
 REQ-1 and the existing public behavior consistently require normalization to zero.
 EOF
 printf '%s\n' $'issue_id\tclass\trequirement_ids\tsource_locations\toutcome_a\toutcome_b\tevidence_checked\tmissing_decision\tminimal_question' > "$issues"
-"$HARNESS_BIN/manager-record-specification-review" "$env_file" "$verdict" "$facts" "$issues" >/dev/null
+"$HARNESS_BIN/manager-record-specification-review" "$env_file" "$verdict" "$facts" "$issues" "$obligations" "$relations" "$inventory" "$domain_manifest" >/dev/null
 grep -Fqx 'status=ACCEPTED' "$project_dir/control/specification-review.env"
 
-"$HARNESS_BIN/manager-init-project-plan" "$env_file" "$plan" >/dev/null
+renormalization_reason="$TEST_ROOT/renormalization.md"
+cat > "$renormalization_reason" <<'EOF'
+# Specification Renormalization Request
+
+The governing requirement is clear, but the generated relation set should be independently regenerated.
+EOF
+"$HARNESS_BIN/manager-request-specification-renormalization" "$env_file" "$renormalization_reason" >/dev/null
+[[ ! -f "$project_dir/control/specification-review.env" ]]
+[[ "$(find "$project_dir/control/specification-review-revisions" -type f -name '*.state.env' | wc -l)" == 1 ]]
+"$HARNESS_BIN/manager-record-specification-review" "$env_file" "$verdict" "$facts" "$issues" "$obligations" "$relations" "$inventory" "$domain_manifest" >/dev/null
+
+challenge_report="$TEST_ROOT/challenge.md"
+challenge_issues="$TEST_ROOT/challenge-issues.tsv"
+cat > "$challenge_report" <<'EOF'
+# Specification Review Challenge
+
+The accepted review missed a genuine compatibility choice in the governing source.
+EOF
+cat > "$challenge_issues" <<'EOF'
+issue_id	class	requirement_ids	source_locations	outcome_a	outcome_b	evidence_checked	missing_decision	minimal_question
+SPEC-compatibility	UNDEFINED_COMPATIBILITY	REQ-1	spec.md:1	Preserve zero normalization	Replace normalization with a typed error	spec.md:1;src/a.c:1	Compatibility authority	Must existing zero normalization remain compatible?
+EOF
+challenge_output="$("$HARNESS_BIN/manager-challenge-specification-review" "$env_file" "$challenge_report" "$challenge_issues")"
+[[ "$challenge_output" =~ ^spec-review/specification-critic-challenge-.*\.md$ ]]
+grep -Fqx 'status=SPEC_CLARIFICATION_REQUIRED' "$project_dir/control/specification-review.env"
+
+printf '%s\n' \
+	'REQ-1: target_symbol must normalize negative input to zero.' \
+	'Scope clarification: this normalization is a compatibility requirement.' > "$repo/spec.md"
+git -C "$repo" add spec.md
+git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm clarify-compatibility
+spec_sha="$(sha256sum "$repo/spec.md" | awk '{print $1}')"
+baseline="$(git -C "$repo" rev-parse HEAD)"
+"$HARNESS_BIN/harness-build-repository-inventory" "$env_file" "$inventory" >/dev/null
+cat > "$verdict" <<EOF
+# Specification Review
+
+Project: spec-review-test
+Specification-SHA256: $spec_sha
+Repository-Baseline: $baseline
+Domain-Profiles-SHA256: $domain_sha
+Decision: ACCEPT
+
+## Review summary
+REQ-1 explicitly makes zero normalization a compatibility requirement.
+EOF
+"$HARNESS_BIN/manager-record-specification-review" "$env_file" "$verdict" "$facts" "$issues" "$obligations" "$relations" "$inventory" "$domain_manifest" >/dev/null
+grep -Fqx 'status=ACCEPTED' "$project_dir/control/specification-review.env"
+
+coverage="$TEST_ROOT/coverage.tsv"
+incomplete_coverage="$TEST_ROOT/incomplete-coverage.tsv"
+invalid_dependency_coverage="$TEST_ROOT/invalid-dependency-coverage.tsv"
+cat > "$incomplete_coverage" <<'EOF'
+obligation_id	node_ids	evidence_plan
+REQ-1	n1	Focused negative and nonnegative target_symbol test
+EOF
+if "$HARNESS_BIN/manager-init-project-plan" "$env_file" "$plan" "$incomplete_coverage" >/dev/null 2>&1; then
+	printf 'DAG registration unexpectedly accepted incomplete specification coverage\n' >&2
+	exit 1
+fi
+[[ ! -f "$project_dir/control/project-plan.tsv" ]]
+cat > "$invalid_dependency_coverage" <<'EOF'
+obligation_id	node_ids	evidence_plan
+REQ-1	n2	Focused negative and nonnegative target_symbol test
+PROFILE-negative-contract	n1	Profile compatibility is checked before its required contract
+EOF
+if "$HARNESS_BIN/manager-init-project-plan" "$env_file" "$plan" "$invalid_dependency_coverage" >/dev/null 2>&1; then
+	printf 'DAG registration unexpectedly accepted reversed typed dependency coverage\n' >&2
+	exit 1
+fi
+[[ ! -f "$project_dir/control/project-plan.tsv" ]]
+cat > "$coverage" <<'EOF'
+obligation_id	node_ids	evidence_plan
+REQ-1	n1	Focused negative and nonnegative target_symbol test
+PROFILE-negative-contract	n2	The downstream focused test proves profile compatibility
+EOF
+"$HARNESS_BIN/manager-init-project-plan" "$env_file" "$plan" "$coverage" >/dev/null
+grep -Fqx $'REQ-1\tn1\tFocused negative and nonnegative target_symbol test' "$project_dir/control/specification-coverage.tsv"
+
+printf 'int target_symbol_helper(void) { return 0; }\n' > "$repo/src/helper.c"
+git -C "$repo" add src/helper.c
+git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm advance-implementation
+post_commit_status="$("$HARNESS_BIN/harness-status" "$env_file")"
+grep -Fq 'Specification IR: obligations=2 relations=5 domain-profiles=test-contract' <<< "$post_commit_status"
+mv "$project_dir/control/specification-coverage.tsv" "$TEST_ROOT/preserved-coverage.tsv"
+invalid_status="$("$HARNESS_BIN/harness-status" "$env_file")"
+grep -Fq 'Project status: SPECIFICATION_IR_INVALID.' <<< "$invalid_status"
+invalid_watch="$(HARNESS_WATCH_COLOR=always COLUMNS=120 LINES=30 "$HARNESS_BIN/harness-watch-many" --once "$TEST_ROOT/configs")"
+grep -Eq $'^\033\[7mspec-review-test +\| *0\| paused' <<< "$invalid_watch"
+if "$HARNESS_BIN/manager-plan-next-task" "$env_file" >/dev/null 2>&1; then
+	printf 'manager planning unexpectedly bypassed missing registered Specification IR coverage\n' >&2
+	exit 1
+fi
+mv "$TEST_ROOT/preserved-coverage.tsv" "$project_dir/control/specification-coverage.tsv"
 
 cat > "$project_dir/archive/spec-review-test-task-luna.assignment.md" <<'EOF'
 Task-ID: luna
@@ -169,6 +294,8 @@ grep -Fqx $'manager_output_tokens\t20' <<< "$token_output"
 grep -Fqx $'worker_luna_input_tokens\t40' <<< "$token_output"
 grep -Fqx $'worker_terra_input_tokens\t20' <<< "$token_output"
 status_output="$("$HARNESS_BIN/harness-status" "$env_file")"
+grep -Fq 'Specification IR: obligations=2 relations=5 domain-profiles=test-contract' <<< "$status_output"
+grep -Fq 'Specification coverage: mapped=2/2 verified=0/2' <<< "$status_output"
 grep -Fq 'Manager [gpt-5.6-terra]: input=150 cached=100 output=20 processed=170' <<< "$status_output"
 grep -Fq 'Luna worker [gpt-5.6-luna]: input=40 cached=30 output=10 processed=50' <<< "$status_output"
 grep -Fq 'Terra worker [gpt-5.6-terra]: input=20 cached=5 output=5 processed=25' <<< "$status_output"

@@ -157,6 +157,7 @@ load_harness_env()
 	unset HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS
 	unset HARNESS_DECOMPOSITION_V2 HARNESS_DECOMPOSITION_CRITIC_ENABLED
 	unset HARNESS_SPECIFICATION_REVIEW_ENABLED
+	unset HARNESS_DOMAIN_PROFILES
 	unset HARNESS_MAX_LUNA_STRATEGY_FAILURES HARNESS_MAX_LUNA_ALLOWED_PATHS HARNESS_MIN_LUNA_NODE_PERCENT
 	unset HARNESS_MIN_LUNA_CODING_NODE_PERCENT HARNESS_ARCHITECTURE_GUARDS
 	unset HARNESS_PREFERRED_WORKER_ROUTE HARNESS_AGENT_COMMITS_ENABLED
@@ -264,6 +265,11 @@ load_harness_env()
 	# complete enough to accept before the execution DAG is registered. Existing
 	# plans are already across that boundary and remain migration-compatible.
 	HARNESS_SPECIFICATION_REVIEW_ENABLED="${HARNESS_SPECIFICATION_REVIEW_ENABLED:-$HARNESS_DECOMPOSITION_V2}"
+	# Optional, explicitly selected domain-theory profiles contribute reusable
+	# human-owned invariants to specification normalization. An empty list adds
+	# no product semantics. Names resolve first from the repository and then from
+	# the harness installation.
+	HARNESS_DOMAIN_PROFILES="${HARNESS_DOMAIN_PROFILES:-}"
 	HARNESS_MAX_LUNA_STRATEGY_FAILURES="${HARNESS_MAX_LUNA_STRATEGY_FAILURES:-3}"
 	# Allowed-Scope includes source, build registration, fixtures, and focused
 	# validation paths. Keep the implementation-file budget at five, but permit
@@ -492,6 +498,7 @@ load_harness_env()
 	[[ "$ORACLE_CODEX_BIN" != *[[:space:]]* ]] || die 'ORACLE_CODEX_BIN must not contain arguments'
 	[[ -d "$HARNESS_HOME" ]] || die "HARNESS_HOME does not exist: $HARNESS_HOME"
 	[[ -d "$HARNESS_BIN" ]] || die "HARNESS_BIN does not exist: $HARNESS_BIN"
+	validate_domain_profiles_configuration
 
 	local invoked_bin
 	if [[ -n "${BASH_SOURCE[1]:-}" ]]; then
@@ -513,6 +520,7 @@ load_harness_env()
 	export HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS HARNESS_GOAL_PROCESS_MAX_FIXES
 	export HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS
 	export HARNESS_DECOMPOSITION_V2 HARNESS_DECOMPOSITION_CRITIC_ENABLED HARNESS_SPECIFICATION_REVIEW_ENABLED
+	export HARNESS_DOMAIN_PROFILES
 	export HARNESS_MAX_LUNA_STRATEGY_FAILURES
 	export HARNESS_MAX_LUNA_ALLOWED_PATHS
 	export HARNESS_MIN_LUNA_NODE_PERCENT HARNESS_MIN_LUNA_CODING_NODE_PERCENT HARNESS_ARCHITECTURE_GUARDS
@@ -2371,6 +2379,80 @@ specification_review_state_file()
 	printf '%s/control/specification-review.env' "$(project_dir)"
 }
 
+domain_profile_names()
+{
+	local value name
+	value="${HARNESS_DOMAIN_PROFILES:-}"
+	[[ -n "$value" ]] || return 0
+	value="${value//,/ }"
+	for name in $value; do
+		[[ -n "$name" ]] && printf '%s\n' "$name"
+	done
+}
+
+domain_profile_file()
+{
+	local name="$1" repository_profile harness_profile
+	[[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "invalid domain profile name: $name"
+	repository_profile="$REPOSITORY/.harness/domain-profiles/$name.tsv"
+	harness_profile="$HARNESS_HOME/domain-theory/$name.tsv"
+	if [[ -f "$repository_profile" ]]; then
+		printf '%s\n' "$repository_profile"
+	elif [[ -f "$harness_profile" ]]; then
+		printf '%s\n' "$harness_profile"
+	else
+		die "domain profile does not exist: $name (checked $repository_profile and $harness_profile)"
+	fi
+}
+
+validate_domain_profile_file()
+{
+	local name="$1" file="$2" header invariant_id category statement source_authority validation_hint extra count=0
+	local -A seen=()
+	IFS= read -r header < "$file" || die "domain profile is empty: $name"
+	[[ "$header" == $'invariant_id\tcategory\tstatement\tsource_authority\tvalidation_hint' ]] ||
+		die "domain profile $name has an unsupported header"
+	while IFS=$'\t' read -r invariant_id category statement source_authority validation_hint extra; do
+		[[ -n "${invariant_id:-}${category:-}${statement:-}${source_authority:-}${validation_hint:-}${extra:-}" ]] || continue
+		[[ -n "$invariant_id" && -n "$category" && -n "$statement" && -n "$source_authority" && -n "$validation_hint" && -z "${extra:-}" ]] ||
+			die "domain profile $name rows require exactly five nonempty fields"
+		[[ "$invariant_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "invalid invariant ID in domain profile $name: $invariant_id"
+		[[ -z "${seen[$invariant_id]:-}" ]] || die "duplicate invariant ID in domain profile $name: $invariant_id"
+		seen[$invariant_id]=1
+		[[ "$category" =~ ^(CONTRACT|DETERMINISM|OWNERSHIP|SERIALIZATION|ERROR|CONCURRENCY|COMPATIBILITY|TESTING|SECURITY|PERFORMANCE|RESOURCE_LIFETIME)$ ]] ||
+			die "invalid invariant category in domain profile $name: $category"
+		[[ "$source_authority" =~ ^(STANDARD|PROJECT_POLICY|EXPLICIT_PROFILE)$ ]] ||
+			die "invalid source authority in domain profile $name: $source_authority"
+		count=$((count + 1))
+	done < <(tail -n +2 "$file")
+	(( count > 0 )) || die "domain profile has no invariants: $name"
+}
+
+validate_domain_profiles_configuration()
+{
+	local name file
+	local -A seen=()
+	while IFS= read -r name; do
+		[[ -z "${seen[$name]:-}" ]] || die "duplicate HARNESS_DOMAIN_PROFILES entry: $name"
+		seen[$name]=1
+		file="$(domain_profile_file "$name")"
+		validate_domain_profile_file "$name" "$file"
+	done < <(domain_profile_names)
+}
+
+domain_profiles_sha256()
+{
+	local name file found=0
+	{
+		while IFS= read -r name; do
+			found=1
+			file="$(domain_profile_file "$name")"
+			printf '%s\t%s\n' "$name" "$(sha256sum "$file" | awk '{print $1}')"
+		done < <(domain_profile_names)
+		(( found == 1 )) || printf 'none\n'
+	} | sha256sum | awk '{print $1}'
+}
+
 specification_review_repository_dir()
 {
 	printf '%s/spec-review' "$REPOSITORY"
@@ -2404,14 +2486,40 @@ specification_review_matches_current_inputs()
 	state="$(specification_review_state_file)"
 	[[ -f "$state" ]] || return 1
 	[[ "$(specification_review_state_value specification_sha256)" == "$(specification_sha256)" ]] || return 1
-	[[ "$(specification_review_state_value repository_baseline)" == "$(specification_review_repository_baseline)" ]]
+	[[ "$(specification_review_state_value repository_baseline)" == "$(specification_review_repository_baseline)" ]] || return 1
+	[[ "$(specification_review_state_value domain_profiles_sha256 none)" == "$(domain_profiles_sha256)" ]]
+}
+
+specification_review_authority_matches()
+{
+	local state
+	state="$(specification_review_state_file)"
+	[[ -f "$state" ]] || return 1
+	[[ "$(specification_review_state_value specification_sha256)" == "$(specification_sha256)" ]] || return 1
+	[[ "$(specification_review_state_value domain_profiles_sha256 none)" == "$(domain_profiles_sha256)" ]]
+}
+
+specification_review_baseline_is_valid()
+{
+	local accepted_baseline current_baseline
+	accepted_baseline="$(specification_review_state_value repository_baseline)"
+	current_baseline="$(specification_review_repository_baseline)"
+	[[ -n "$accepted_baseline" ]] || return 1
+	[[ "$accepted_baseline" == "$current_baseline" ]] && return 0
+	# Before DAG registration the review is a transaction over one exact source
+	# baseline. Afterwards normal task commits advance HEAD; the accepted baseline
+	# remains valid only while it is still an ancestor of the implementation.
+	project_plan_exists || return 1
+	[[ "$accepted_baseline" != unversioned && "$current_baseline" != unversioned ]] || return 1
+	git -C "$REPOSITORY" merge-base --is-ancestor "$accepted_baseline" "$current_baseline" >/dev/null 2>&1
 }
 
 specification_review_is_accepted()
 {
 	(( HARNESS_SPECIFICATION_REVIEW_ENABLED == 0 )) && return 0
-	specification_review_matches_current_inputs || return 1
-	[[ "$(specification_review_state_value status)" == ACCEPTED ]]
+	specification_review_authority_matches || return 1
+	[[ "$(specification_review_state_value status)" == ACCEPTED ]] || return 1
+	specification_review_baseline_is_valid
 }
 
 specification_review_requires_clarification()
@@ -2424,6 +2532,269 @@ specification_review_requires_clarification()
 specification_review_report_relative_path()
 {
 	specification_review_state_value report
+}
+
+specification_obligations_file()
+{
+	local relative
+	relative="$(specification_review_state_value obligations)"
+	[[ -n "$relative" ]] || return 1
+	printf '%s/%s\n' "$REPOSITORY" "$relative"
+}
+
+specification_relations_file()
+{
+	local relative
+	relative="$(specification_review_state_value relations)"
+	[[ -n "$relative" ]] || return 1
+	printf '%s/%s\n' "$REPOSITORY" "$relative"
+}
+
+specification_repository_inventory_file()
+{
+	local relative
+	relative="$(specification_review_state_value inventory)"
+	[[ -n "$relative" ]] || return 1
+	printf '%s/%s\n' "$REPOSITORY" "$relative"
+}
+
+specification_domain_manifest_file()
+{
+	local relative
+	relative="$(specification_review_state_value domain_manifest)"
+	[[ -n "$relative" ]] || return 1
+	printf '%s/%s\n' "$REPOSITORY" "$relative"
+}
+
+specification_coverage_file()
+{
+	printf '%s/control/specification-coverage.tsv' "$(project_dir)"
+}
+
+specification_ir_available()
+{
+	specification_review_is_accepted || return 1
+	[[ -f "$(specification_obligations_file 2>/dev/null)" && -f "$(specification_relations_file 2>/dev/null)" ]]
+}
+
+specification_ir_registered()
+{
+	local state
+	state="$(specification_review_state_file)"
+	[[ -f "$state" ]] || return 1
+	[[ "$(specification_review_state_value status)" == ACCEPTED ]] || return 1
+	[[ -n "$(specification_review_state_value obligations)" && -n "$(specification_review_state_value relations)" ]]
+}
+
+require_registered_specification_ir()
+{
+	specification_ir_registered || return 0
+	specification_ir_available ||
+		die 'registered Specification IR is no longer authoritative for the current specification, domain profiles, or repository history'
+	if project_plan_exists; then
+		[[ -f "$(specification_coverage_file)" ]] || die 'registered Specification IR project is missing obligation-to-DAG coverage'
+	fi
+}
+
+validate_specification_coverage_relations()
+{
+	local coverage="$1" dag="$2" relations
+	relations="$(specification_relations_file)"
+	awk -F '\t' -v coverage_file="$coverage" -v dag_file="$dag" -v relations_file="$relations" '
+		function trim(value) {gsub(/^[[:space:]]+|[[:space:]]+$/, "", value); return value}
+		function node_follows_obligation(node, object, key, parts) {
+			for (key in covers) {
+				split(key, parts, SUBSEP)
+				if (parts[1] == object && ((node SUBSEP parts[2]) in reach)) return 1
+			}
+			return 0
+		}
+		function all_subject_nodes_follow(subject, object, key, parts, found) {
+			found=0
+			for (key in covers) {
+				split(key, parts, SUBSEP)
+				if (parts[1] != subject) continue
+				found=1
+				if (!node_follows_obligation(parts[2], object)) return 0
+			}
+			return found
+		}
+		function some_subject_node_follows(subject, object, key, parts) {
+			for (key in covers) {
+				split(key, parts, SUBSEP)
+				if (parts[1] == subject && node_follows_obligation(parts[2], object)) return 1
+			}
+			return 0
+		}
+		function node_follows_any_producer(node, artifact, key, parts) {
+			for (key in producers) {
+				split(key, parts, SUBSEP)
+				if (parts[1] == artifact && node_follows_obligation(node, parts[2])) return 1
+			}
+			return 0
+		}
+		function artifact_has_producer(artifact, key, parts) {
+			for (key in producers) {split(key, parts, SUBSEP); if (parts[1] == artifact) return 1}
+			return 0
+		}
+		FILENAME == coverage_file {
+			if (FNR == 1) next
+			n=split($2, values, ",")
+			for (i=1; i<=n; i++) covers[$1 SUBSEP trim(values[i])]=1
+			next
+		}
+		FILENAME == dag_file {
+			if (FNR == 1) next
+			n=split($3, values, ",")
+			for (i=1; i<=n; i++) if (trim(values[i]) != "-") reach[$1 SUBSEP trim(values[i])]=1
+			next
+		}
+		FILENAME == relations_file {
+			if (FNR == 1) next
+			count++
+			type[count]=$2; subject[count]=$3; object[count]=$4; relation_id[count]=$1; authority[count]=$5
+			if ($2 == "PRODUCES" && $5 != "PLANNING_HINT") producers[$4 SUBSEP $3]=1
+			next
+		}
+		END {
+			do {
+				changed=0
+				for (left in reach) {
+					split(left, lparts, SUBSEP)
+					for (right in reach) {
+						split(right, rparts, SUBSEP)
+						if (lparts[2] == rparts[1] && !((lparts[1] SUBSEP rparts[2]) in reach)) {
+							added[lparts[1] SUBSEP rparts[2]]=1
+							changed=1
+						}
+					}
+				}
+				for (key in added) {reach[key]=1; delete added[key]}
+			} while (changed)
+			for (i=1; i<=count; i++) {
+				if (authority[i] == "PLANNING_HINT") continue
+				if (type[i] == "DEPENDS_ON" || type[i] == "REQUIRES_ACCEPTED") {
+					if (!all_subject_nodes_follow(subject[i], object[i])) {
+						printf "coverage violates %s relation %s: %s must follow %s\n", type[i], relation_id[i], subject[i], object[i] > "/dev/stderr"
+						errors++
+					}
+				} else if (type[i] == "INTEGRATION_DEPENDENCY_ONLY" || type[i] == "REGRESSION_BOUNDARY" || type[i] == "FINAL_HEALTH_DEPENDENCY") {
+					if (!some_subject_node_follows(subject[i], object[i])) {
+						printf "coverage lacks a downstream node for %s relation %s: %s -> %s\n", type[i], relation_id[i], subject[i], object[i] > "/dev/stderr"
+						errors++
+					}
+				} else if (type[i] == "CONSUMES" && artifact_has_producer(object[i])) {
+					for (key in covers) {
+						split(key, cparts, SUBSEP)
+						if (cparts[1] == subject[i] && !node_follows_any_producer(cparts[2], object[i])) {
+							printf "consumer node %s does not follow a producer of %s (%s)\n", cparts[2], object[i], relation_id[i] > "/dev/stderr"
+							errors++
+						}
+					}
+				}
+			}
+			exit(errors ? 1 : 0)
+		}
+	' "$coverage" "$dag" "$relations" || die 'specification coverage conflicts with typed semantic relations'
+}
+
+validate_specification_coverage_file()
+{
+	local coverage="$1" dag="$2" header obligation_id node_ids evidence_plan extra node_id
+	local obligations_file
+	local -A obligations=() dag_nodes=() covered_obligations=() covered_nodes=()
+	[[ -f "$coverage" ]] || die "specification coverage file does not exist: $coverage"
+	[[ -f "$dag" ]] || die "decomposition DAG does not exist for specification coverage: $dag"
+	obligations_file="$(specification_obligations_file)"
+	while IFS=$'\t' read -r obligation_id _; do
+		[[ "$obligation_id" != obligation_id && -n "$obligation_id" ]] && obligations[$obligation_id]=1
+	done < "$obligations_file"
+	while IFS=$'\t' read -r node_id _; do
+		[[ "$node_id" != node_id && -n "$node_id" ]] && dag_nodes[$node_id]=1
+	done < "$dag"
+	IFS= read -r header < "$coverage" || die 'specification coverage file is empty'
+	[[ "$header" == $'obligation_id\tnode_ids\tevidence_plan' ]] ||
+		die 'specification coverage header must be: obligation_id<TAB>node_ids<TAB>evidence_plan'
+	while IFS=$'\t' read -r obligation_id node_ids evidence_plan extra; do
+		[[ -n "${obligation_id:-}${node_ids:-}${evidence_plan:-}${extra:-}" ]] || continue
+		[[ -n "$obligation_id" && -n "$node_ids" && "$node_ids" != - && -n "$evidence_plan" && -z "${extra:-}" ]] ||
+			die "invalid specification coverage row: ${obligation_id:-empty}"
+		[[ -n "${obligations[$obligation_id]:-}" ]] || die "coverage references unknown obligation: $obligation_id"
+		[[ -z "${covered_obligations[$obligation_id]:-}" ]] || die "duplicate specification coverage row: $obligation_id"
+		covered_obligations[$obligation_id]=1
+		IFS=',' read -r -a coverage_nodes <<< "$node_ids"
+		for node_id in "${coverage_nodes[@]}"; do
+			node_id="$(trim_surrounding_whitespace "$node_id")"
+			[[ -n "${dag_nodes[$node_id]:-}" ]] || die "coverage for $obligation_id references unknown DAG node: $node_id"
+			covered_nodes[$node_id]=1
+		done
+	done < <(tail -n +2 "$coverage")
+	for obligation_id in "${!obligations[@]}"; do
+		[[ -n "${covered_obligations[$obligation_id]:-}" ]] || die "normalized specification obligation is absent from DAG coverage: $obligation_id"
+	done
+	for node_id in "${!dag_nodes[@]}"; do
+		[[ -n "${covered_nodes[$node_id]:-}" ]] || die "DAG node is not justified by a normalized specification obligation: $node_id"
+	done
+	validate_specification_coverage_relations "$coverage" "$dag"
+}
+
+specification_obligation_count()
+{
+	local file
+	file="$(specification_obligations_file 2>/dev/null || true)"
+	[[ -f "$file" ]] || { printf '0\n'; return 0; }
+	awk 'NR > 1 {n++} END {print n+0}' "$file"
+}
+
+specification_coverage_mapped_count()
+{
+	local file
+	file="$(specification_coverage_file)"
+	[[ -f "$file" ]] || { printf '0\n'; return 0; }
+	awk 'NR > 1 {n++} END {print n+0}' "$file"
+}
+
+specification_coverage_verified_count()
+{
+	local coverage obligation_id node_ids evidence_plan node_id verified count=0
+	coverage="$(specification_coverage_file)"
+	[[ -f "$coverage" && -f "$(project_plan_state_file)" ]] || { printf '0\n'; return 0; }
+	while IFS=$'\t' read -r obligation_id node_ids evidence_plan; do
+		[[ "$obligation_id" != obligation_id && -n "$obligation_id" ]] || continue
+		verified=1
+		IFS=',' read -r -a coverage_nodes <<< "$node_ids"
+		for node_id in "${coverage_nodes[@]}"; do
+			node_id="$(trim_surrounding_whitespace "$node_id")"
+			[[ "$(project_plan_item_status "$node_id")" == COMPLETE ]] || { verified=0; break; }
+		done
+		(( verified == 0 )) || count=$((count + 1))
+	done < <(tail -n +2 "$coverage")
+	printf '%s\n' "$count"
+}
+
+specification_obligations_for_node()
+{
+	local wanted="$1" coverage
+	coverage="$(specification_coverage_file)"
+	[[ -f "$coverage" ]] || return 0
+	awk -F '\t' -v wanted="$wanted" '
+		NR > 1 {
+			n=split($2, nodes, ",")
+			for (i=1; i<=n; i++) {
+				gsub(/^[[:space:]]+|[[:space:]]+$/, "", nodes[i])
+				if (nodes[i] == wanted) {print $1; break}
+			}
+		}
+	' "$coverage"
+}
+
+specification_coverage_completion_ready()
+{
+	specification_ir_registered || return 0
+	specification_ir_available || return 1
+	[[ -f "$(specification_coverage_file)" ]] || return 1
+	validate_specification_coverage_file "$(specification_coverage_file)" "$(project_decomposition_plan_file)" || return 1
+	[[ "$(specification_coverage_verified_count)" == "$(specification_obligation_count)" ]]
 }
 
 project_is_blocked()
@@ -2723,13 +3094,13 @@ root_has_accepted_task()
 
 initialize_project_plan()
 {
-	local source_file="$1"
+	local source_file="$1" coverage_source="${2:-}"
 	local definition state definition_tmp state_tmp item_id title accepted_root extra
 	local seen_file
 	[[ -f "$source_file" ]] || die "project plan source does not exist: $source_file"
 	! project_plan_exists || die "project plan already exists: $(project_plan_definition_file)"
 	if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
-		initialize_project_plan_v2 "$source_file"
+		initialize_project_plan_v2 "$source_file" "$coverage_source"
 		return
 	fi
 	definition="$(project_plan_definition_file)"
@@ -2781,8 +3152,8 @@ initialize_project_plan()
 
 initialize_project_plan_v2()
 {
-	local source_file="$1" header expected_header legacy_header definition state dag
-	local definition_tmp state_tmp dag_tmp seen_file
+	local source_file="$1" coverage_source="${2:-}" header expected_header legacy_header definition state dag coverage
+	local definition_tmp state_tmp dag_tmp coverage_tmp seen_file
 	local node_id parent_id depends_on deliverable acceptance_evidence focused_validation field_index
 	local allowed_paths required_symbols leaf_type complexity_class worker_route dependency
 	local node_count luna_count luna_percent coding_count luna_coding_count luna_coding_percent has_leaf_type=0 route_column=11 type_column=9
@@ -2802,9 +3173,11 @@ initialize_project_plan_v2()
 	definition="$(project_plan_definition_file)"
 	state="$(project_plan_state_file)"
 	dag="$(project_decomposition_plan_file)"
+	coverage="$(specification_coverage_file)"
 	definition_tmp="$definition.tmp.$$"
 	state_tmp="$state.tmp.$$"
 	dag_tmp="$dag.tmp.$$"
+	coverage_tmp="$coverage.tmp.$$"
 	seen_file="$state.seen.$$"
 	: > "$seen_file"
 	printf '%s\n' "$header" > "$dag_tmp"
@@ -2906,8 +3279,16 @@ initialize_project_plan_v2()
 		(( luna_percent >= HARNESS_MIN_LUNA_NODE_PERCENT )) ||
 			die "legacy decomposition DAG routes only $luna_count/$node_count nodes ($luna_percent%) to Luna; minimum is $HARNESS_MIN_LUNA_NODE_PERCENT%"
 	fi
-	# Delay automatic registry creation until all DAG rows and routing rules have
-	# passed validation, so a rejected plan cannot leave durable sidecar state.
+	if specification_ir_available; then
+		[[ -n "$coverage_source" ]] || die 'normalized specification DAG requires a coverage file'
+		validate_specification_coverage_file "$coverage_source" "$dag_tmp"
+		install -m 600 "$coverage_source" "$coverage_tmp"
+	elif [[ -n "$coverage_source" ]]; then
+		die 'coverage file supplied without normalized Specification IR'
+	fi
+	# Delay automatic registry creation until all DAG rows, routing rules, and
+	# specification coverage have passed validation, so a rejected plan cannot
+	# leave durable sidecar state.
 	if (( HARNESS_ARCHITECTURE_GUARDS == 1 )) && ! architecture_registered; then
 		architecture_initialize_minimal_test_profile "$dag_tmp" || true
 	fi
@@ -2916,11 +3297,12 @@ initialize_project_plan_v2()
 	mv "$definition_tmp" "$definition"
 	mv "$state_tmp" "$state"
 	mv "$dag_tmp" "$dag"
+	[[ ! -f "$coverage_tmp" ]] || mv "$coverage_tmp" "$coverage"
 	if ! ( architecture_validate_against_plan ); then
-		rm -f -- "$definition" "$state" "$dag"
+		rm -f -- "$definition" "$state" "$dag" "$coverage"
 		die 'decomposition DAG conflicts with architecture registries; incomplete plan registration was rolled back'
 	fi
-	log_event "PROJECT_DECOMPOSITION_V2_INITIALIZED nodes=$(project_plan_total_count) file=$dag"
+	log_event "PROJECT_DECOMPOSITION_V2_INITIALIZED nodes=$(project_plan_total_count) file=$dag coverage=$([[ -f "$coverage" ]] && printf '%s' "$coverage" || printf disabled)"
 	trace_event PROJECT_DECOMPOSITION_V2_INITIALIZED "nodes=$(project_plan_total_count)" "dag_file=$dag"
 }
 
@@ -2986,6 +3368,7 @@ mark_project_complete()
 	local file tmp
 	project_plan_exists || die 'refusing project completion without a persistent project plan'
 	project_plan_all_complete || die "refusing project completion with $(project_plan_pending_count) unfinished project plan item(s)"
+	specification_coverage_completion_ready || die 'refusing project completion with incomplete normalized specification coverage'
 	architecture_require_completion_ready
 	file="$(project_complete_file)"
 	tmp="$file.tmp.$$"
@@ -3044,6 +3427,8 @@ write_project_snapshot()
 		printf 'harness_mode=%s\n' "$HARNESS_MODE"
 		printf 'decomposition_v2=%s\n' "$HARNESS_DECOMPOSITION_V2"
 		printf 'specification_review_enabled=%s\n' "$HARNESS_SPECIFICATION_REVIEW_ENABLED"
+		printf 'domain_profiles=%s\n' "${HARNESS_DOMAIN_PROFILES:-}"
+		printf 'domain_profiles_sha256=%s\n' "$(domain_profiles_sha256)"
 		printf 'architecture_guards=%s\n' "$HARNESS_ARCHITECTURE_GUARDS"
 		printf 'harness_home=%s\n' "$HARNESS_HOME"
 		printf 'harness_bin=%s\n' "$HARNESS_BIN"
@@ -3076,6 +3461,8 @@ write_manager_snapshot()
 		printf 'min_luna_node_percent=%s\n' "$HARNESS_MIN_LUNA_NODE_PERCENT"
 		printf 'min_luna_coding_node_percent=%s\n' "$HARNESS_MIN_LUNA_CODING_NODE_PERCENT"
 		printf 'architecture_guards=%s\n' "$HARNESS_ARCHITECTURE_GUARDS"
+		printf 'domain_profiles=%s\n' "${HARNESS_DOMAIN_PROFILES:-}"
+		printf 'domain_profiles_sha256=%s\n' "$(domain_profiles_sha256)"
 		printf 'env_file=%s\n' "$HARNESS_ENV_FILE"
 		printf 'env_sha256=%s\n' "$(env_sha256)"
 		printf 'updated_at=%s\n' "$(timestamp_utc)"
@@ -3114,6 +3501,8 @@ write_worker_snapshot()
 		printf 'decomposition_v2=%s\n' "$HARNESS_DECOMPOSITION_V2"
 		printf 'decomposition_critic_enabled=%s\n' "$HARNESS_DECOMPOSITION_CRITIC_ENABLED"
 		printf 'specification_review_enabled=%s\n' "$HARNESS_SPECIFICATION_REVIEW_ENABLED"
+		printf 'domain_profiles=%s\n' "${HARNESS_DOMAIN_PROFILES:-}"
+		printf 'domain_profiles_sha256=%s\n' "$(domain_profiles_sha256)"
 		printf 'max_luna_strategy_failures=%s\n' "$HARNESS_MAX_LUNA_STRATEGY_FAILURES"
 		printf 'max_luna_allowed_paths=%s\n' "$HARNESS_MAX_LUNA_ALLOWED_PATHS"
 		printf 'min_luna_node_percent=%s\n' "$HARNESS_MIN_LUNA_NODE_PERCENT"

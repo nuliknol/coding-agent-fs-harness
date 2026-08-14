@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 2 ]] || { printf 'Usage: %s ENV_FILE REASON_MD\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+reason="$2"
+ensure_project
+require_manager_configuration
+project_plan_exists && die 'cannot renormalize specification state after DAG registration'
+specification_review_is_accepted || die 'only a current accepted specification review can be renormalized'
+[[ -f "$reason" ]] || die "renormalization reason does not exist: $reason"
+IFS= read -r reason_header < "$reason" || die 'renormalization reason is empty'
+[[ "$reason_header" == '# Specification Renormalization Request' ]] ||
+	die 'renormalization reason must begin with # Specification Renormalization Request'
+acquire_project_lock
+archive_dir="$(project_dir)/control/specification-review-revisions"
+mkdir -p "$archive_dir"
+chmod 700 "$archive_dir"
+stamp="$(timestamp_compact_utc)"
+state="$(specification_review_state_file)"
+install -m 600 "$state" "$archive_dir/$stamp.state.env"
+install -m 600 "$reason" "$archive_dir/$stamp.reason.md"
+rm -f "$state"
+log_event "SPECIFICATION_RENORMALIZATION_REQUESTED reason=$archive_dir/$stamp.reason.md"
+printf 'RENORMALIZE\n'

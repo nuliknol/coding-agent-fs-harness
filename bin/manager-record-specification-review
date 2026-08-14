@@ -6,32 +6,41 @@ source "$SCRIPT_DIR/../lib/harness-common.sh"
 
 usage()
 {
-	printf 'Usage: %s ENV_FILE VERDICT_MD FACTS_TSV ISSUES_TSV\n' "${0##*/}" >&2
+	printf 'Usage: %s ENV_FILE VERDICT_MD FACTS_TSV ISSUES_TSV OBLIGATIONS_TSV RELATIONS_TSV INVENTORY_TSV DOMAIN_MANIFEST_TSV\n' "${0##*/}" >&2
 	exit 2
 }
 
-[[ $# -eq 4 ]] || usage
+[[ $# -eq 8 ]] || usage
 load_harness_env "$1"
 verdict_file="$2"
 facts_file="$3"
 issues_file="$4"
+obligations_file="$5"
+relations_file="$6"
+inventory_file="$7"
+domain_manifest_file="$8"
 ensure_project
 require_manager_configuration
+command -v tsort >/dev/null 2>&1 || die 'tsort is required to validate specification relation cycles'
 (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )) || die 'specification review is disabled'
 project_plan_exists && die 'cannot replace specification acceptance after DAG registration'
-[[ -f "$verdict_file" && -f "$facts_file" && -f "$issues_file" ]] ||
-	die 'specification review requires verdict, facts, and issues files'
+[[ -f "$verdict_file" && -f "$facts_file" && -f "$issues_file" && -f "$obligations_file" &&
+	-f "$relations_file" && -f "$inventory_file" && -f "$domain_manifest_file" ]] ||
+	die 'specification review requires verdict, facts, issues, obligations, relations, inventory, and domain-manifest files'
 acquire_project_lock
 
 decision="$(awk -F': ' '$1 == "Decision" {print $2; exit}' "$verdict_file")"
 review_spec_sha="$(awk -F': ' '$1 == "Specification-SHA256" {print $2; exit}' "$verdict_file")"
 review_baseline="$(awk -F': ' '$1 == "Repository-Baseline" {print $2; exit}' "$verdict_file")"
+review_domain_sha="$(awk -F': ' '$1 == "Domain-Profiles-SHA256" {print $2; exit}' "$verdict_file")"
 [[ "$decision" =~ ^(ACCEPT|SPEC_CLARIFICATION_REQUIRED)$ ]] ||
 	die 'specification verdict Decision must be ACCEPT or SPEC_CLARIFICATION_REQUIRED'
 current_spec_sha="$(specification_sha256)"
 current_baseline="$(specification_review_repository_baseline)"
+current_domain_sha="$(domain_profiles_sha256)"
 [[ "$review_spec_sha" == "$current_spec_sha" ]] || die 'specification verdict SHA does not match the current specification'
 [[ "$review_baseline" == "$current_baseline" ]] || die 'specification verdict baseline does not match repository HEAD'
+[[ "$review_domain_sha" == "$current_domain_sha" ]] || die 'specification verdict domain-profile digest does not match current profiles'
 if [[ "$decision" == ACCEPT ]] && specification_review_requires_clarification; then
 	die 'cannot accept unchanged inputs after SPEC_CLARIFICATION_REQUIRED; revise the specification or repository baseline first'
 fi
@@ -39,7 +48,7 @@ fi
 facts_header=$'fact_id\tkind\tsubject\tvalue\tevidence\tauthority\tconfidence'
 IFS= read -r header < "$facts_file" || die 'repository facts file is empty'
 [[ "$header" == "$facts_header" ]] || die "repository facts header must be: $facts_header"
-declare -A facts_seen=()
+declare -A facts_seen=() observed_fact_ids=()
 observed_facts=0
 while IFS=$'\t' read -r fact_id kind subject value evidence authority confidence extra; do
 	[[ -n "${fact_id:-}${kind:-}${subject:-}${value:-}${evidence:-}${authority:-}${confidence:-}${extra:-}" ]] || continue
@@ -54,6 +63,7 @@ while IFS=$'\t' read -r fact_id kind subject value evidence authority confidence
 	[[ "$confidence" =~ ^(HIGH|MEDIUM|LOW)$ ]] || die "invalid repository fact confidence for $fact_id: $confidence"
 	if [[ "$authority" == OBSERVED ]]; then
 		observed_facts=$((observed_facts + 1))
+		observed_fact_ids[$fact_id]=1
 		[[ "$evidence" != - ]] || die "observed repository fact $fact_id requires evidence"
 		case "$evidence" in
 			git:HEAD|specification:*) ;;
@@ -71,7 +81,7 @@ done < <(tail -n +2 "$facts_file")
 issues_header=$'issue_id\tclass\trequirement_ids\tsource_locations\toutcome_a\toutcome_b\tevidence_checked\tmissing_decision\tminimal_question'
 IFS= read -r header < "$issues_file" || die 'specification issues file is empty'
 [[ "$header" == "$issues_header" ]] || die "specification issues header must be: $issues_header"
-declare -A issues_seen=()
+declare -A issues_seen=() issue_classes=()
 issue_count=0
 while IFS=$'\t' read -r issue_id issue_class requirement_ids source_locations outcome_a outcome_b evidence_checked missing_decision minimal_question extra; do
 	[[ -n "${issue_id:-}${issue_class:-}${requirement_ids:-}${source_locations:-}${outcome_a:-}${outcome_b:-}${evidence_checked:-}${missing_decision:-}${minimal_question:-}${extra:-}" ]] || continue
@@ -81,6 +91,7 @@ while IFS=$'\t' read -r issue_id issue_class requirement_ids source_locations ou
 	issues_seen[$issue_id]=1
 	[[ "$issue_class" =~ ^(CONTRADICTORY_REQUIREMENTS|OBSERVABLE_CONTRACT_AMBIGUITY|MISSING_ACCEPTANCE_AUTHORITY|MISSING_REQUIRED_PRODUCER|UNDEFINED_COMPATIBILITY|UNDEFINED_COMPLETION_BOUNDARY|UNAVAILABLE_EXTERNAL_AUTHORITY)$ ]] ||
 		die "invalid specification issue class for $issue_id: $issue_class"
+	issue_classes[$issue_class]=1
 	[[ -n "$requirement_ids" && -n "$source_locations" && -n "$outcome_a" && -n "$outcome_b" &&
 		-n "$evidence_checked" && -n "$missing_decision" && -n "$minimal_question" ]] ||
 		die "specification issue $issue_id has empty required fields"
@@ -95,6 +106,151 @@ else
 	state_status=SPEC_CLARIFICATION_REQUIRED
 fi
 
+inventory_header=$'kind\tpath\tdetail\tevidence'
+IFS= read -r header < "$inventory_file" || die 'repository inventory is empty'
+[[ "$header" == "$inventory_header" ]] || die "repository inventory header must be: $inventory_header"
+inventory_baseline="$(awk -F '\t' '$1 == "BASELINE" {print $3; exit}' "$inventory_file")"
+[[ "$inventory_baseline" == "$current_baseline" ]] || die 'repository inventory baseline does not match repository HEAD'
+
+domain_header=$'profile_id\tsource\tsha256'
+IFS= read -r header < "$domain_manifest_file" || die 'domain profile manifest is empty'
+[[ "$header" == "$domain_header" ]] || die "domain profile manifest header must be: $domain_header"
+declare -A manifest_profiles=()
+while IFS=$'\t' read -r profile_id profile_source profile_sha extra; do
+	[[ -n "${profile_id:-}${profile_source:-}${profile_sha:-}${extra:-}" ]] || continue
+	[[ "$profile_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ && -n "$profile_source" && "$profile_sha" =~ ^[0-9a-f]{64}$ && -z "${extra:-}" ]] ||
+		die "invalid domain profile manifest row: ${profile_id:-empty}"
+	[[ -z "${manifest_profiles[$profile_id]:-}" ]] || die "duplicate domain profile manifest row: $profile_id"
+	expected_profile="$(domain_profile_file "$profile_id")"
+	[[ "$profile_source" == "$expected_profile" ]] || die "domain profile source mismatch for $profile_id"
+	[[ "$profile_sha" == "$(sha256sum "$expected_profile" | awk '{print $1}')" ]] || die "domain profile digest mismatch for $profile_id"
+	manifest_profiles[$profile_id]=1
+done < <(tail -n +2 "$domain_manifest_file")
+selected_profile_count=0
+while IFS= read -r profile_id; do
+	selected_profile_count=$((selected_profile_count + 1))
+	[[ -n "${manifest_profiles[$profile_id]:-}" ]] || die "selected domain profile is missing from manifest: $profile_id"
+done < <(domain_profile_names)
+(( ${#manifest_profiles[@]} == selected_profile_count )) || die 'domain profile manifest contains an unselected profile'
+
+obligations_header=$'obligation_id\tauthority\tsource_requirement\tsource_location\tobligation_type\tstatement\tobservable_outcome\tacceptance_authority'
+IFS= read -r header < "$obligations_file" || die 'specification obligations file is empty'
+[[ "$header" == "$obligations_header" ]] || die "specification obligations header must be: $obligations_header"
+declare -A obligations=() obligation_authority=() obligation_source=()
+obligation_count=0
+authoritative_obligation_count=0
+while IFS=$'\t' read -r obligation_id authority source_requirement source_location obligation_type statement observable_outcome acceptance_authority extra; do
+	[[ -n "${obligation_id:-}${authority:-}${source_requirement:-}${source_location:-}${obligation_type:-}${statement:-}${observable_outcome:-}${acceptance_authority:-}${extra:-}" ]] || continue
+	[[ -n "$obligation_id" && -n "$authority" && -n "$source_requirement" && -n "$source_location" &&
+		-n "$obligation_type" && -n "$statement" && -n "$observable_outcome" && -n "$acceptance_authority" && -z "${extra:-}" ]] ||
+		die "specification obligation requires exactly eight nonempty fields: ${obligation_id:-empty}"
+	[[ "$obligation_id" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]] || die "invalid specification obligation ID: $obligation_id"
+	[[ -z "${obligations[$obligation_id]:-}" ]] || die "duplicate specification obligation ID: $obligation_id"
+	[[ "$authority" =~ ^(SPECIFIED|DOMAIN_PROFILE|DERIVED)$ ]] || die "invalid obligation authority for $obligation_id: $authority"
+	[[ "$obligation_type" =~ ^(FUNCTIONAL|CONTRACT|COMPATIBILITY|INVARIANT|TEST|INTEGRATION|PERFORMANCE|DOCUMENTATION|COMPLETION|RESOURCE_LIFETIME)$ ]] ||
+		die "invalid obligation type for $obligation_id: $obligation_type"
+	if [[ "$authority" == DOMAIN_PROFILE ]]; then
+		[[ "$source_requirement" =~ ^PROFILE:([A-Za-z0-9._-]+):([A-Za-z0-9._-]+)$ ]] ||
+			die "domain-profile obligation $obligation_id must use source_requirement PROFILE:name:invariant"
+		profile_ref_name="${BASH_REMATCH[1]}"
+		profile_ref_invariant="${BASH_REMATCH[2]}"
+		[[ -n "${manifest_profiles[$profile_ref_name]:-}" ]] || die "obligation $obligation_id references an unselected domain profile"
+		awk -F '\t' -v wanted="$profile_ref_invariant" 'NR > 1 && $1 == wanted {found=1} END {exit found ? 0 : 1}' \
+			"$(domain_profile_file "$profile_ref_name")" ||
+			die "obligation $obligation_id references an unknown invariant in domain profile $profile_ref_name: $profile_ref_invariant"
+	else
+		[[ "$source_requirement" != PROFILE:* ]] || die "non-profile obligation $obligation_id cannot claim PROFILE authority"
+	fi
+	obligations[$obligation_id]=1
+	obligation_authority[$obligation_id]="$authority"
+	obligation_source[$obligation_id]="$source_requirement"
+	obligation_count=$((obligation_count + 1))
+	[[ "$authority" == DERIVED ]] || authoritative_obligation_count=$((authoritative_obligation_count + 1))
+done < <(tail -n +2 "$obligations_file")
+(( obligation_count > 0 && authoritative_obligation_count > 0 )) || die 'specification IR requires at least one specified or domain-profile obligation'
+
+while IFS= read -r profile_id; do
+	profile_source="$(domain_profile_file "$profile_id")"
+	while IFS=$'\t' read -r invariant_id _; do
+		[[ "$invariant_id" != invariant_id && -n "$invariant_id" ]] || continue
+		profile_requirement="PROFILE:$profile_id:$invariant_id"
+		matched=0
+		for obligation_id in "${!obligations[@]}"; do
+			if [[ "${obligation_authority[$obligation_id]}" == DOMAIN_PROFILE && "${obligation_source[$obligation_id]}" == "$profile_requirement" ]]; then
+				matched=$((matched + 1))
+			fi
+		done
+		(( matched == 1 )) || die "selected domain invariant must map to exactly one normalized obligation: $profile_requirement"
+	done < "$profile_source"
+done < <(domain_profile_names)
+
+relations_header=$'relation_id\trelation_type\tsubject\tobject\tauthority\tevidence'
+IFS= read -r header < "$relations_file" || die 'specification relations file is empty'
+[[ "$header" == "$relations_header" ]] || die "specification relations header must be: $relations_header"
+declare -A relations_seen=() validations=() produced=() consumed=() exclusive_owner=()
+relation_count=0
+ownership_conflicts=0
+while IFS=$'\t' read -r relation_id relation_type subject object relation_authority evidence extra; do
+	[[ -n "${relation_id:-}${relation_type:-}${subject:-}${object:-}${relation_authority:-}${evidence:-}${extra:-}" ]] || continue
+	[[ -n "$relation_id" && -n "$relation_type" && -n "$subject" && -n "$object" && -n "$relation_authority" && -n "$evidence" && -z "${extra:-}" ]] ||
+		die "specification relation requires exactly six nonempty fields: ${relation_id:-empty}"
+	[[ "$relation_id" =~ ^REL-[A-Za-z0-9._:-]+$ ]] || die "invalid specification relation ID: $relation_id"
+	[[ -z "${relations_seen[$relation_id]:-}" ]] || die "duplicate specification relation ID: $relation_id"
+	relations_seen[$relation_id]=1
+	[[ "$relation_type" =~ ^(DEPENDS_ON|MAY_DEVELOP_INDEPENDENTLY|INTEGRATION_DEPENDENCY_ONLY|REGRESSION_BOUNDARY|FINAL_HEALTH_DEPENDENCY|PRODUCES|CONSUMES|PRESERVES|IMPLEMENTS|VALIDATES|OWNS|REQUIRES_ACCEPTED)$ ]] ||
+		die "invalid specification relation type for $relation_id: $relation_type"
+	[[ "$relation_authority" =~ ^(SPECIFIED|DOMAIN_PROFILE|REPOSITORY_DERIVED|PLANNING_HINT)$ ]] ||
+		die "invalid specification relation authority for $relation_id: $relation_authority"
+	[[ -n "${obligations[$subject]:-}" ]] || die "specification relation subject is not a normalized obligation: $subject"
+	case "$relation_type" in
+		DEPENDS_ON|MAY_DEVELOP_INDEPENDENTLY|INTEGRATION_DEPENDENCY_ONLY|REGRESSION_BOUNDARY|FINAL_HEALTH_DEPENDENCY|REQUIRES_ACCEPTED)
+			[[ -n "${obligations[$object]:-}" ]] || die "$relation_type relation object is not an obligation: $object"
+			[[ "$subject" != "$object" ]] || die "specification relation is self-referential: $relation_id"
+			;;
+		VALIDATES) [[ "$relation_authority" == PLANNING_HINT ]] || validations[$subject]=1 ;;
+		PRODUCES) [[ "$relation_authority" == PLANNING_HINT ]] || produced[$object]=1 ;;
+		CONSUMES) [[ "$relation_authority" == PLANNING_HINT ]] || consumed[$object]=1 ;;
+		OWNS)
+			if [[ "$relation_authority" != PLANNING_HINT ]]; then
+				if [[ -n "${exclusive_owner[$object]:-}" && "${exclusive_owner[$object]}" != "$subject" ]]; then ownership_conflicts=$((ownership_conflicts + 1)); fi
+				exclusive_owner[$object]="$subject"
+			fi
+			;;
+	esac
+	relation_count=$((relation_count + 1))
+done < <(tail -n +2 "$relations_file")
+(( relation_count > 0 )) || die 'specification IR requires at least one semantic relation'
+
+missing_validation=0
+for obligation_id in "${!obligations[@]}"; do
+	[[ -n "${validations[$obligation_id]:-}" ]] || missing_validation=$((missing_validation + 1))
+done
+missing_producer=0
+for consumed_object in "${!consumed[@]}"; do
+	if [[ -z "${produced[$consumed_object]:-}" && -z "${observed_fact_ids[$consumed_object]:-}" ]]; then
+		missing_producer=$((missing_producer + 1))
+	fi
+done
+dependency_cycle=0
+if ! awk -F '\t' 'NR > 1 && $5 != "PLANNING_HINT" && ($2 == "DEPENDS_ON" || $2 == "REQUIRES_ACCEPTED") {print $4, $3}' "$relations_file" | tsort >/dev/null 2>&1; then
+	dependency_cycle=1
+fi
+if [[ "$decision" == ACCEPT ]]; then
+	(( missing_validation == 0 )) || die "accepted specification IR has $missing_validation obligation(s) without VALIDATES relations"
+	(( missing_producer == 0 )) || die "accepted specification IR has $missing_producer consumed artifact(s) without a producer or observed repository fact"
+	(( ownership_conflicts == 0 )) || die "accepted specification IR has $ownership_conflicts conflicting exclusive ownership relation(s)"
+	(( dependency_cycle == 0 )) || die 'accepted specification IR contains a dependency cycle'
+else
+	(( missing_validation == 0 )) || [[ -n "${issue_classes[MISSING_ACCEPTANCE_AUTHORITY]:-}" ]] ||
+		die 'clarification IR has obligations without validation but no MISSING_ACCEPTANCE_AUTHORITY issue'
+	(( missing_producer == 0 )) || [[ -n "${issue_classes[MISSING_REQUIRED_PRODUCER]:-}" ]] ||
+		die 'clarification IR has consumed artifacts without producers but no MISSING_REQUIRED_PRODUCER issue'
+	(( ownership_conflicts == 0 )) || [[ -n "${issue_classes[MISSING_ACCEPTANCE_AUTHORITY]:-}${issue_classes[CONTRADICTORY_REQUIREMENTS]:-}" ]] ||
+		die 'clarification IR has conflicting ownership but no authority or contradiction issue'
+	(( dependency_cycle == 0 )) || [[ -n "${issue_classes[CONTRADICTORY_REQUIREMENTS]:-}" ]] ||
+		die 'clarification IR has a dependency cycle but no CONTRADICTORY_REQUIREMENTS issue'
+fi
+
 spec_short="${current_spec_sha:0:12}"
 baseline_short="${current_baseline:0:12}"
 review_dir="$(specification_review_repository_dir)"
@@ -103,29 +259,52 @@ chmod 700 "$review_dir"
 report_name="specification-review-$spec_short-$baseline_short.md"
 facts_name="repository-facts-$spec_short-$baseline_short.tsv"
 issues_name="specification-clarifications-$spec_short-$baseline_short.tsv"
+obligations_name="specification-obligations-$spec_short-$baseline_short.tsv"
+relations_name="specification-relations-$spec_short-$baseline_short.tsv"
+inventory_name="repository-inventory-$spec_short-$baseline_short.tsv"
+domain_manifest_name="domain-profiles-$spec_short-$baseline_short.tsv"
 install -m 600 "$verdict_file" "$review_dir/$report_name.tmp.$$"
 install -m 600 "$facts_file" "$review_dir/$facts_name.tmp.$$"
 install -m 600 "$issues_file" "$review_dir/$issues_name.tmp.$$"
+install -m 600 "$obligations_file" "$review_dir/$obligations_name.tmp.$$"
+install -m 600 "$relations_file" "$review_dir/$relations_name.tmp.$$"
+install -m 600 "$inventory_file" "$review_dir/$inventory_name.tmp.$$"
+install -m 600 "$domain_manifest_file" "$review_dir/$domain_manifest_name.tmp.$$"
 mv "$review_dir/$report_name.tmp.$$" "$review_dir/$report_name"
 mv "$review_dir/$facts_name.tmp.$$" "$review_dir/$facts_name"
 mv "$review_dir/$issues_name.tmp.$$" "$review_dir/$issues_name"
+mv "$review_dir/$obligations_name.tmp.$$" "$review_dir/$obligations_name"
+mv "$review_dir/$relations_name.tmp.$$" "$review_dir/$relations_name"
+mv "$review_dir/$inventory_name.tmp.$$" "$review_dir/$inventory_name"
+mv "$review_dir/$domain_manifest_name.tmp.$$" "$review_dir/$domain_manifest_name"
 
 report_relative="spec-review/$report_name"
 facts_relative="spec-review/$facts_name"
 issues_relative="spec-review/$issues_name"
+obligations_relative="spec-review/$obligations_name"
+relations_relative="spec-review/$relations_name"
+inventory_relative="spec-review/$inventory_name"
+domain_manifest_relative="spec-review/$domain_manifest_name"
 state="$(specification_review_state_file)"
 state_tmp="$state.tmp.$$"
 {
 	printf 'status=%s\n' "$state_status"
 	printf 'specification_sha256=%s\n' "$current_spec_sha"
 	printf 'repository_baseline=%s\n' "$current_baseline"
+	printf 'domain_profiles_sha256=%s\n' "$current_domain_sha"
 	printf 'report=%s\n' "$report_relative"
 	printf 'facts=%s\n' "$facts_relative"
 	printf 'issues=%s\n' "$issues_relative"
+	printf 'obligations=%s\n' "$obligations_relative"
+	printf 'relations=%s\n' "$relations_relative"
+	printf 'inventory=%s\n' "$inventory_relative"
+	printf 'domain_manifest=%s\n' "$domain_manifest_relative"
 	printf 'issue_count=%s\n' "$issue_count"
+	printf 'obligation_count=%s\n' "$obligation_count"
+	printf 'relation_count=%s\n' "$relation_count"
 	printf 'reviewed_at=%s\n' "$(timestamp_utc)"
 } > "$state_tmp"
 chmod 600 "$state_tmp"
 mv "$state_tmp" "$state"
-log_event "SPECIFICATION_REVIEW_RECORDED status=$state_status report=$report_relative facts=$facts_relative issues=$issues_relative issue_count=$issue_count"
+log_event "SPECIFICATION_REVIEW_RECORDED status=$state_status report=$report_relative facts=$facts_relative issues=$issues_relative obligations=$obligations_relative relations=$relations_relative inventory=$inventory_relative domain_manifest=$domain_manifest_relative issue_count=$issue_count obligation_count=$obligation_count relation_count=$relation_count"
 printf '%s\n' "$report_relative"

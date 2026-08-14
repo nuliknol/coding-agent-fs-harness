@@ -116,6 +116,15 @@ if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )); then
 else
 	printf 'Specification review: disabled\n'
 fi
+if specification_ir_available; then
+	printf 'Specification IR: obligations=%s relations=%s domain-profiles=%s\n' \
+		"$(specification_obligation_count)" "$(specification_review_state_value relation_count 0)" "${HARNESS_DOMAIN_PROFILES:-none}"
+	printf 'Specification coverage: mapped=%s/%s verified=%s/%s\n' \
+		"$(specification_coverage_mapped_count)" "$(specification_obligation_count)" \
+		"$(specification_coverage_verified_count)" "$(specification_obligation_count)"
+elif specification_ir_registered; then
+	printf 'Specification IR: INVALID (authority, history, or installed artifacts no longer match)\n'
+fi
 if (( HARNESS_ARCHITECTURE_GUARDS == 1 )); then
 	if architecture_registered; then
 		printf 'Architecture guards: enabled (%s)\n' "$(architecture_dir)"
@@ -387,7 +396,9 @@ else
 	done
 fi
 
-if [[ "$specification_review_status" == SPEC_CLARIFICATION_REQUIRED ]]; then
+if specification_ir_registered && { ! specification_ir_available || { project_plan_exists && [[ ! -f "$(specification_coverage_file)" ]]; }; }; then
+	project_status_line='Project status: SPECIFICATION_IR_INVALID. Execution is stopped because accepted semantic authority, repository history, or obligation coverage no longer matches.'
+elif [[ "$specification_review_status" == SPEC_CLARIFICATION_REQUIRED ]]; then
 	project_status_line="Project status: SPEC_CLARIFICATION_REQUIRED. Review $specification_review_report before DAG registration."
 elif project_completion_recorded && project_plan_all_complete; then
 	if [[ -f "$oracle_limit_marker" ]]; then

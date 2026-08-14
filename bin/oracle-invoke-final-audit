@@ -14,10 +14,12 @@ usage()
 load_harness_env "$1"
 ENV_FILE="$HARNESS_ENV_FILE"
 ensure_project
+require_registered_specification_ir
 require_manager_configuration
 require_oracle_codex
 oracle_enabled || exit 0
 project_plan_all_complete || die 'Oracle audit requires a complete project plan'
+specification_coverage_completion_ready || die 'Oracle audit requires complete normalized specification coverage'
 architecture_require_completion_ready
 project_is_blocked && exit 0
 pending="$(project_oracle_pending_file)"
@@ -36,6 +38,11 @@ PROJECT=$PROJECT
 PROJECT_TMP_DIR=$PROJECT_TMP_DIR
 REPOSITORY=$REPOSITORY
 SPECIFICATION=$SPECIFICATION
+SPECIFICATION_OBLIGATIONS_FILE=$(specification_obligations_file 2>/dev/null || printf '%s' -)
+SPECIFICATION_RELATIONS_FILE=$(specification_relations_file 2>/dev/null || printf '%s' -)
+SPECIFICATION_COVERAGE_FILE=$(specification_coverage_file)
+REPOSITORY_FACTS_FILE=$REPOSITORY/$(specification_review_state_value facts -)
+DOMAIN_PROFILE_MANIFEST=$(specification_domain_manifest_file 2>/dev/null || printf '%s' -)
 PROJECT_PLAN_FILE=$(project_plan_definition_file)
 PROJECT_PLAN_STATE_FILE=$(project_plan_state_file)
 PROJECT_DECOMPOSITION_FILE=$(project_decomposition_plan_file)
@@ -47,7 +54,7 @@ AUDIT_ID=$audit_id
 ARCHITECTURE_GUARDS=$HARNESS_ARCHITECTURE_GUARDS
 ARCHITECTURE_DIR=$(architecture_dir)
 
-Read the complete original specification, every referenced mandatory task/specification document, the durable plan and its state, accepted task review records, and the implemented repository. Also read every applicable \`*.manager-remediations.tsv\` and \`*.hard-blocks.tsv\` ledger under PROJECT_PROGRESS_DIR plus the corresponding manager-remediation assignments and final accepted reviews under PROJECT_ARCHIVE_DIR. When ARCHITECTURE_GUARDS=1, read every registry, decision and health ledger, impact manifest, and debt row under ARCHITECTURE_DIR. Independently reproduce only the focused acceptance/build/smoke and registered architecture-health evidence needed to establish compliance. Do not trust manager or worker claims without evidence.
+Read the complete original specification, every referenced mandatory task/specification document, normalized obligations and typed relations when present, obligation-to-DAG coverage, repository facts, selected domain profiles, the durable plan and its state, accepted task review records, and the implemented repository. Also read every applicable \`*.manager-remediations.tsv\` and \`*.hard-blocks.tsv\` ledger under PROJECT_PROGRESS_DIR plus the corresponding manager-remediation assignments and final accepted reviews under PROJECT_ARCHIVE_DIR. When ARCHITECTURE_GUARDS=1, read every registry, decision and health ledger, impact manifest, and debt row under ARCHITECTURE_DIR. Independently reproduce only the focused acceptance/build/smoke and registered architecture-health evidence needed to establish compliance. Do not trust manager or worker claims without evidence.
 
 Treat independently verified manager-remediation paths as separately attributed baseline-prerequisite provenance, not as feature-owned implementation changes. A repository-local code, build, testability, integration, file-ownership, exclusive-file, forbidden-file, or frozen-baseline conflict is resolvable engineering work. It is \`AUTOMATIC\` when still unmet; it is not a human product/specification decision. If the manager-remediation evidence is bounded, causally required by an existing acceptance command, preserves the specification's observable behavior, and the repaired acceptance command passes, do not fail merely because the prerequisite path lies outside the original worker feature scope. Prior Oracle addenda and legacy hard-block classifications are evidence only and do not override this policy.
 
@@ -64,6 +71,13 @@ Decision: PASS or FAIL
 ## Traceability verification
 - [PASS] or - [FAIL] every original requirement and mandatory referenced file is mapped to evidence or a finding
 
+## Specification IR verification
+When SPECIFICATION_OBLIGATIONS_FILE exists, include exactly one line for every normalized obligation:
+- [PASS] OBLIGATION_ID — independently reproduced evidence
+or
+- [FAIL] OBLIGATION_ID — concrete finding
+When no normalized IR exists, write one [PASS] legacy traceability line.
+
 ## Acceptance verification
 - [PASS] or - [FAIL] focused command/code evidence
 
@@ -74,7 +88,7 @@ Decision: PASS or FAIL
 - [PASS] or - [FAIL] every open or waived debt item has truthful consequence, remediation ownership, waiver authority, and unexpired disposition
 
 ## Findings
-Each finding must state the original requirement ID/path, expected behavior, observed evidence, and a reproducible command or source location. Architecture findings must also name the affected invariant, decision, edge, or debt ID.
+Each finding must state the original or normalized requirement ID/path, expected behavior, observed evidence, and a reproducible command or source location. Architecture findings must also name the affected invariant, decision, edge, or debt ID.
 
 ## Conclusion
 State why the project passes or fails.
@@ -82,7 +96,7 @@ State why the project passes or fails.
 If PASS, call:
 $HARNESS_BIN/oracle-complete-audit "$ENV_FILE" VERDICT_FILE
 
-If FAIL, create a versioned additive addendum under PROJECT_TMP_DIR. It must contain at least one \`Original-Requirement-ID: ...\` and exactly one \`Remediation-Authority: AUTOMATIC\` or \`Remediation-Authority: HUMAN_APPROVAL\`. Use \`AUTOMATIC\` for every repository-local implementation, build, testability, integration, scope, ownership, exclusive-file, forbidden-file, or baseline-prerequisite repair. An AUTOMATIC addendum must include:
+If FAIL, create a versioned additive addendum under PROJECT_TMP_DIR. It must contain at least one \`Original-Requirement-ID: ...\` and exactly one \`Remediation-Authority: AUTOMATIC\` or \`Remediation-Authority: HUMAN_APPROVAL\`. When normalized obligations exist, every Original-Requirement-ID must be an exact obligation_id from SPECIFICATION_OBLIGATIONS_FILE. Use \`AUTOMATIC\` for every repository-local implementation, build, testability, integration, scope, ownership, exclusive-file, forbidden-file, or baseline-prerequisite repair. An AUTOMATIC addendum must include:
 
 ## Harness plan items
 ORACLE-...<TAB>independently acceptance-complete remediation title

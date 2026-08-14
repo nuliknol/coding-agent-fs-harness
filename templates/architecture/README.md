@@ -31,7 +31,7 @@ Initialize the immutable registry before registering the DAG:
 
 ```text
 manager-init-architecture ENV_FILE ARCHITECTURE_SOURCE_DIR
-manager-init-project-plan ENV_FILE DAG_FILE
+manager-init-project-plan ENV_FILE DAG_FILE [SPECIFICATION_COVERAGE_TSV]
 ```
 
 If an installed registry itself is defective, stop the project and use the

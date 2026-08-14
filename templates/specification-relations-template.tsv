@@ -1,0 +1,2 @@
+relation_id	relation_type	subject	object	authority	evidence
+REL-requirement-validation	VALIDATES	REQ-stable-id	validation:focused-smoke	SPECIFIED	specification:REQ-stable-id

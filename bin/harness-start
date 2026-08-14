@@ -31,20 +31,42 @@ if (( HARNESS_BOOT_RECOVERY == 1 )) && [[ "${HARNESS_AUTOSTART_INTERNAL:-0}" != 
 	"$HARNESS_BIN/harness-autostart" enable "$HARNESS_ENV_FILE"
 fi
 
-if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )) && ! project_plan_exists; then
-	"$HARNESS_BIN/manager-review-specification" "$HARNESS_ENV_FILE" >/dev/null
-	if specification_review_requires_clarification; then
-		printf 'Specification clarification required: %s\n' "$(specification_review_report_relative_path)"
-		exit 3
+renormalizations=0
+while ! project_plan_exists; do
+	if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )); then
+		"$HARNESS_BIN/manager-review-specification" "$HARNESS_ENV_FILE" >/dev/null
+		if specification_review_requires_clarification; then
+			printf 'Specification clarification required: %s\n' "$(specification_review_report_relative_path)"
+			exit 3
+		fi
+		specification_review_is_accepted || die 'specification review did not establish an acceptance decision'
+		printf 'Specification accepted: %s\n' "$(specification_review_report_relative_path)"
 	fi
-	specification_review_is_accepted || die 'specification review did not establish an acceptance decision'
-	printf 'Specification accepted: %s\n' "$(specification_review_report_relative_path)"
-fi
 
-if (( HARNESS_DECOMPOSITION_V2 == 1 && HARNESS_DECOMPOSITION_CRITIC_ENABLED == 1 )) &&
-	! project_plan_exists; then
-	"$HARNESS_BIN/manager-decomposition-critic" "$HARNESS_ENV_FILE"
-fi
+	if (( HARNESS_DECOMPOSITION_V2 == 1 && HARNESS_DECOMPOSITION_CRITIC_ENABLED == 1 )); then
+		set +e
+		"$HARNESS_BIN/manager-decomposition-critic" "$HARNESS_ENV_FILE"
+		critic_status=$?
+		set -e
+		case "$critic_status" in
+			0) ;;
+			3)
+				printf 'Specification clarification required: %s\n' "$(specification_review_report_relative_path)"
+				exit 3
+				;;
+			4)
+				(( renormalizations == 0 )) || die 'decomposition critic requested repeated specification IR renormalization; inspect critic and reviewer logs'
+				renormalizations=$((renormalizations + 1))
+				printf 'Regenerating normalized specification IR after independent critic challenge.\n'
+				continue
+				;;
+			*) exit "$critic_status" ;;
+		esac
+	fi
+	break
+done
+
+require_registered_specification_ir
 
 # Architecture registries are persistent project state. Revalidate them on
 # every start so projects created by an older harness cannot launch agents with

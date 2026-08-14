@@ -108,6 +108,7 @@ export HARNESS_WORKER_GOAL_MODE="1"
 export HARNESS_DECOMPOSITION_V2="1"
 export HARNESS_DECOMPOSITION_CRITIC_ENABLED="1"
 export HARNESS_SPECIFICATION_REVIEW_ENABLED="1"
+export HARNESS_DOMAIN_PROFILES=""  # optional comma-separated profile IDs
 export HARNESS_MAX_LUNA_STRATEGY_FAILURES="3"
 export HARNESS_MAX_LUNA_ALLOWED_PATHS="8"
 export HARNESS_MIN_LUNA_NODE_PERCENT="80"
@@ -129,6 +130,33 @@ facts, and structured questions are written under `$REPOSITORY/spec-review/`,
 while commands and watchers display only the repository-relative report name.
 Revise and commit the governing specification or repository evidence, then run
 `harness-start` again to obtain a fresh review.
+
+An accepted review also installs a normalized Specification IR: independently
+testable obligations, typed semantic relations, a bounded repository inventory,
+and authority-qualified repository facts. The decomposition critic must provide
+an `obligation_id -> node_ids` coverage sidecar; registration rejects a missing
+obligation or an unjustified DAG node. Workers and managers receive only the
+obligations allocated to their node, and final Oracle PASS requires independent
+evidence for every obligation. This keeps product requirements distinct from
+repository-derived facts and fallible planning hints.
+
+The independent decomposition critic challenges that acceptance before it may
+register a DAG. A genuine unresolved product contract transitions back to
+`SPEC_CLARIFICATION_REQUIRED` and writes a critic report under
+`$REPOSITORY/spec-review/`. If the governing sources are clear but the generated
+facts, obligations, or relations are defective, the critic requests automatic
+IR renormalization instead; `harness-start` reruns the reviewer once and refuses
+repeated compiler churn. Thus only missing human authority is bounced to the
+specification author.
+
+Reusable domain theory is opt-in through `HARNESS_DOMAIN_PROFILES`. A profile
+resolves first from `$REPOSITORY/.harness/domain-profiles/NAME.tsv`, then from
+`$HARNESS_HOME/domain-theory/NAME.tsv`. Selected profile invariants become
+normalized obligations with digest provenance; unselected profiles contribute
+no semantics. See `templates/domain-profile-template.tsv`. The bundled
+`deterministic-multi-gpu` profile captures device-work, routing, merge, topology,
+failure, fallback, and cleanup invariants and applies only when explicitly
+selected.
 
 `templates/project-plan-template.tsv` documents the exact DAG schema and
 `templates/leaf-goal-task-template.md` documents the routed leaf contract.
@@ -174,7 +202,7 @@ registering the DAG:
 
 ```bash
 bin/manager-init-architecture ENV_FILE ARCHITECTURE_SOURCE_DIR
-bin/manager-init-project-plan ENV_FILE DAG_FILE
+bin/manager-init-project-plan ENV_FILE DAG_FILE SPECIFICATION_COVERAGE_TSV
 ```
 
 The registry records global invariants, explicit architecture decisions,
@@ -480,7 +508,7 @@ Role-specific arrays are appended after `CODEX_EXTRA_ARGS`, so they can add more
 
 - Linux
 - Bash
-- `flock`, `realpath`, `sha256sum`, `stat`
+- `flock`, `realpath`, `sha256sum`, `stat`, `tsort`
 - Codex CLI
 - Optional: `inotifywait` from `inotify-tools`
 - `jq` (required to validate and classify Codex JSON Lines)
@@ -533,6 +561,7 @@ export HARNESS_WORKER_GOAL_MODE="1"
 export HARNESS_DECOMPOSITION_V2="1"
 export HARNESS_DECOMPOSITION_CRITIC_ENABLED="1"
 export HARNESS_SPECIFICATION_REVIEW_ENABLED="1"
+export HARNESS_DOMAIN_PROFILES=""
 export HARNESS_MAX_LUNA_STRATEGY_FAILURES="3"
 export HARNESS_MAX_LUNA_ALLOWED_PATHS="8"
 export HARNESS_MIN_LUNA_NODE_PERCENT="80"
@@ -1015,6 +1044,10 @@ bash tests/test-harness.sh
 bash tests/test-leaf-goal.sh
 bash tests/test-decomposition-v2.sh
 bash tests/test-architecture-guards.sh
+bash tests/test-autostart.sh
+bash tests/test-codex-exec-jsonl.sh
+bash tests/test-git-dependency.sh
+bash tests/test-specification-review.sh
 ```
 
 The leaf-goal test covers assignment validation, code-only continuation,

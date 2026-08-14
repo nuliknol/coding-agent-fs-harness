@@ -1,0 +1,2 @@
+invariant_id	category	statement	source_authority	validation_hint
+stable-invariant-id	CONTRACT	Observable contract statement supplied by the selected domain theory	EXPLICIT_PROFILE	Planner must derive one deterministic focused validation

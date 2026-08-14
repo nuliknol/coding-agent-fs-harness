@@ -6,22 +6,28 @@ source "$SCRIPT_DIR/../lib/harness-common.sh"
 
 usage()
 {
-	printf 'Usage: %s ENV_FILE PLAN_TSV_FILE\n' "${0##*/}" >&2
+	printf 'Usage: %s ENV_FILE PLAN_TSV_FILE [SPECIFICATION_COVERAGE_TSV]\n' "${0##*/}" >&2
 	printf 'Legacy v1 rows: ITEM_ID<TAB>TITLE[<TAB>ACCEPTED_TASK_ROOT]\n' >&2
 	printf 'V2 requires the exact decomposition DAG header documented in templates/project-plan-template.tsv.\n' >&2
 	exit 2
 }
 
-[[ $# -eq 2 ]] || usage
+[[ $# -ge 2 && $# -le 3 ]] || usage
 load_harness_env "$1"
 plan_file="$2"
+coverage_file="${3:-}"
 ensure_project
 if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )) && ! specification_review_is_accepted; then
 	die 'project DAG registration requires an accepted current specification review'
+fi
+if specification_ir_available; then
+	[[ -n "$coverage_file" ]] || die 'normalized specification projects require an obligation-to-DAG coverage TSV'
+elif [[ -n "$coverage_file" ]]; then
+	die 'specification coverage was supplied without an accepted normalized Specification IR'
 fi
 trace_init manager_init_project_plan
 trace_script_start "$@"
 trap 'trace_script_exit $?' EXIT
 acquire_project_lock
-initialize_project_plan "$plan_file"
+initialize_project_plan "$plan_file" "$coverage_file"
 printf '%s\n' "$(project_plan_definition_file)"

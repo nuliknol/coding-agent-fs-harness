@@ -1,0 +1,2 @@
+obligation_id	authority	source_requirement	source_location	obligation_type	statement	observable_outcome	acceptance_authority
+REQ-stable-id	SPECIFIED	REQ-stable-id	specification.md:1	FUNCTIONAL	One independently testable normative obligation	The required behavior is observable and deterministic	specification:REQ-stable-id

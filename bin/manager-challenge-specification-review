@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 3 ]] || { printf 'Usage: %s ENV_FILE CHALLENGE_REPORT_MD ISSUES_TSV\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+challenge_report="$2"
+issues_file="$3"
+ensure_project
+require_manager_configuration
+project_plan_exists && die 'cannot challenge specification acceptance after DAG registration'
+specification_review_is_accepted || die 'only a current accepted specification review can be challenged'
+[[ -f "$challenge_report" && -f "$issues_file" ]] || die 'specification challenge requires report and issues files'
+acquire_project_lock
+
+IFS= read -r report_header < "$challenge_report" || die 'specification challenge report is empty'
+[[ "$report_header" == '# Specification Review Challenge' ]] || die 'challenge report must begin with # Specification Review Challenge'
+issues_header=$'issue_id\tclass\trequirement_ids\tsource_locations\toutcome_a\toutcome_b\tevidence_checked\tmissing_decision\tminimal_question'
+IFS= read -r header < "$issues_file" || die 'specification challenge issues file is empty'
+[[ "$header" == "$issues_header" ]] || die "specification challenge issues header must be: $issues_header"
+declare -A issues_seen=()
+issue_count=0
+while IFS=$'\t' read -r issue_id issue_class requirement_ids source_locations outcome_a outcome_b evidence_checked missing_decision minimal_question extra; do
+	[[ -n "${issue_id:-}${issue_class:-}${requirement_ids:-}${source_locations:-}${outcome_a:-}${outcome_b:-}${evidence_checked:-}${missing_decision:-}${minimal_question:-}${extra:-}" ]] || continue
+	[[ -n "$issue_id" && -n "$issue_class" && -n "$requirement_ids" && -n "$source_locations" && -n "$outcome_a" &&
+		-n "$outcome_b" && -n "$evidence_checked" && -n "$missing_decision" && -n "$minimal_question" && -z "${extra:-}" ]] ||
+		die "invalid specification challenge issue: ${issue_id:-empty}"
+	[[ "$issue_id" =~ ^SPEC-[A-Za-z0-9._-]+$ ]] || die "invalid specification challenge issue ID: $issue_id"
+	[[ -z "${issues_seen[$issue_id]:-}" ]] || die "duplicate specification challenge issue ID: $issue_id"
+	issues_seen[$issue_id]=1
+	[[ "$issue_class" =~ ^(CONTRADICTORY_REQUIREMENTS|OBSERVABLE_CONTRACT_AMBIGUITY|MISSING_ACCEPTANCE_AUTHORITY|MISSING_REQUIRED_PRODUCER|UNDEFINED_COMPATIBILITY|UNDEFINED_COMPLETION_BOUNDARY|UNAVAILABLE_EXTERNAL_AUTHORITY)$ ]] ||
+		die "invalid specification challenge class for $issue_id: $issue_class"
+	[[ "$outcome_a" != "$outcome_b" ]] || die "specification challenge issue must identify incompatible outcomes: $issue_id"
+	issue_count=$((issue_count + 1))
+done < <(tail -n +2 "$issues_file")
+(( issue_count > 0 )) || die 'specification challenge requires at least one structured issue'
+
+review_dir="$(specification_review_repository_dir)"
+mkdir -p "$review_dir"
+chmod 700 "$review_dir"
+stamp="$(timestamp_compact_utc)"
+spec_short="$(specification_sha256)"; spec_short="${spec_short:0:12}"
+baseline_short="$(specification_review_repository_baseline)"; baseline_short="${baseline_short:0:12}"
+report_name="specification-critic-challenge-$spec_short-$baseline_short-$stamp.md"
+issues_name="specification-critic-issues-$spec_short-$baseline_short-$stamp.tsv"
+install -m 600 "$challenge_report" "$review_dir/$report_name.tmp.$$"
+install -m 600 "$issues_file" "$review_dir/$issues_name.tmp.$$"
+mv "$review_dir/$report_name.tmp.$$" "$review_dir/$report_name"
+mv "$review_dir/$issues_name.tmp.$$" "$review_dir/$issues_name"
+report_relative="spec-review/$report_name"
+issues_relative="spec-review/$issues_name"
+state="$(specification_review_state_file)"
+state_tmp="$state.tmp.$$"
+awk -F= -v report="$report_relative" -v issues="$issues_relative" -v count="$issue_count" -v now="$(timestamp_utc)" '
+	BEGIN {OFS="="}
+	$1 == "status" {$2="SPEC_CLARIFICATION_REQUIRED"}
+	$1 == "report" {$2=report}
+	$1 == "issues" {$2=issues}
+	$1 == "issue_count" {$2=count}
+	$1 == "reviewed_at" {$2=now}
+	{print}
+' "$state" > "$state_tmp"
+chmod 600 "$state_tmp"
+mv "$state_tmp" "$state"
+log_event "SPECIFICATION_REVIEW_CHALLENGED report=$report_relative issues=$issues_relative issue_count=$issue_count"
+printf '%s\n' "$report_relative"

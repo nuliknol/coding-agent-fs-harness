@@ -13,6 +13,7 @@ usage()
 [[ $# -eq 1 ]] || usage
 load_harness_env "$1"
 ensure_project
+require_registered_specification_ir
 require_manager_configuration
 require_manager_codex
 trace_init manager_bootstrap
@@ -26,13 +27,21 @@ prompt_file="$project_path/control/manager-bootstrap.prompt.md"
 development_policy_file="$REPOSITORY/design/development-policy.txt"
 [[ -f "$development_policy_file" ]] || development_policy_file=""
 decomposition_file="$(project_decomposition_plan_file)"
+specification_obligations='-'
+specification_relations='-'
+specification_coverage='-'
+if specification_ir_available; then
+	specification_obligations="$(specification_obligations_file)"
+	specification_relations="$(specification_relations_file)"
+	specification_coverage="$(specification_coverage_file)"
+fi
 ready_plan_node=""
 plan_instruction=""
 if project_plan_exists; then
 	ready_plan_node="$(project_plan_first_ready_item 2>/dev/null || true)"
 	plan_instruction="The decomposition plan is already registered. Read PROJECT_PLAN_FILE and PROJECT_DECOMPOSITION_FILE completely. Publish the initial root for READY_PLAN_NODE; do not initialize or replace the plan."
 elif (( HARNESS_DECOMPOSITION_V2 == 1 )); then
-	plan_instruction="Create and critic-check a topologically ordered v2 decomposition DAG using the exact schema required by manager-init-project-plan, register it, then publish the first dependency-ready node."
+	plan_instruction="Create and critic-check a topologically ordered v2 decomposition DAG using the exact schema required by manager-init-project-plan. When SPECIFICATION_OBLIGATIONS_FILE is present, also create complete obligation-to-node coverage and pass it as the third argument to manager-init-project-plan. Register both, then publish the first dependency-ready node."
 else
 	plan_instruction="First write a tab-separated project plan under PROJECT_TMP_DIR with one immutable line per specification phase or acceptance gate: ITEM_ID<TAB>TITLE. Include the full execution stack, not merely the first task. Register it with manager-init-project-plan."
 fi
@@ -53,6 +62,9 @@ ARCHITECTURE_DIR=$(architecture_dir)
 PREFERRED_WORKER_ROUTE=$HARNESS_PREFERRED_WORKER_ROUTE
 PROJECT_PLAN_FILE=$(project_plan_definition_file)
 PROJECT_DECOMPOSITION_FILE=$decomposition_file
+SPECIFICATION_OBLIGATIONS_FILE=$specification_obligations
+SPECIFICATION_RELATIONS_FILE=$specification_relations
+SPECIFICATION_COVERAGE_FILE=$specification_coverage
 READY_PLAN_NODE=$ready_plan_node
 
 This is the bootstrap turn. Read DEVELOPMENT_POLICY_FILE when present and inspect the complete specification. $plan_instruction Then inspect the repository, write one bounded initial assignment under PROJECT_TMP_DIR with stable Root-Criterion lines for every independently verifiable acceptance criterion, and publish it with manager-publish-task including the corresponding PROJECT_PLAN_ITEM_ID. Terminate after exactly one task is published. Every harness command must receive ENV_FILE as its first argument. Do not wait for the worker and do not run any polling command.
@@ -67,6 +79,8 @@ if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
 
 V2 decomposition is mandatory and PREFERRED_WORKER_ROUTE=$HARNESS_PREFERRED_WORKER_ROUTE. The task must correspond to the exact dependency-ready DAG node and copy its Depends-On, Deliverable, Goal-Success-Evidence, Focused-Validation, Allowed-Scope, and Required-Symbols values exactly. New typed DAGs also require an exact Leaf-Type, Complexity-Class, and Worker-Route match. For a legacy untyped immutable DAG, the publisher permits a planned TERRA node to be reclassified LOW/LUNA when its first executable criterion is Luna-ready. Prefer that override whenever architecture and contracts are already resolved. Split a broad implementation into ordered Root-Criteria rather than assigning routine coding to Terra. A LUNA leaf must be LOW complexity, use only LOCAL_IMPLEMENTATION, TEST_IMPLEMENTATION, MECHANICAL_API, FOCUSED_BUG, or DOCUMENTATION, set Architecture-Decisions: NONE, expect at most five implementation files, name at most $HARNESS_MAX_LUNA_ALLOWED_PATHS bounded Allowed-Scope path groups, use at most three worker turns, and require no unresolved contract or integration judgment. Use TEST_IMPLEMENTATION for test-only source, fixtures, helpers, and build registration. TERRA is for a concrete contract, architecture, concurrency, ambiguous-specification, or unexplained integration decision; it must checkpoint that decision before Luna performs the resulting implementation. The publisher rejects hidden dependency, route, scope, and evidence mismatches.
+
+When SPECIFICATION_OBLIGATIONS_FILE is present, read it and SPECIFICATION_RELATIONS_FILE completely. The coverage file must contain obligation_id, node_ids, and evidence_plan; map every obligation exactly once and justify every DAG node. Typed relations determine dependency, independent-development, integration-only, regression, health, producer/consumer, ownership, and validation semantics.
 PROMPT
 fi
 if codex_model_requires_narrow_prompt "$MANAGER_MODEL"; then

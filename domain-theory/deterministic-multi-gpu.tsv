@@ -1,0 +1,10 @@
+invariant_id	category	statement	source_authority	validation_hint
+meaning-bearing-device-work	PERFORMANCE	Every selected GPU performs nonempty meaning-bearing device work	EXPLICIT_PROFILE	Focused runtime evidence for every selected physical device
+physical-device-identity	CONTRACT	Device identity denotes the physical device used for execution and reporting	EXPLICIT_PROFILE	Topology-aware device identity check
+independent-enqueue	CONCURRENCY	Work is enqueued independently across selected devices before collection begins	EXPLICIT_PROFILE	Instrumented enqueue-before-collection check
+deterministic-routing	DETERMINISM	The same logical input and topology produce the same device routing	EXPLICIT_PROFILE	Repeated routing digest comparison
+canonical-merge	DETERMINISM	Cross-device results are merged into one canonical topology-independent order	EXPLICIT_PROFILE	Single-device and permuted multi-device parity
+topology-parity	COMPATIBILITY	One-device, two-device, and reversed-device topologies preserve observable results	EXPLICIT_PROFILE	Topology permutation parity smoke
+no-cpu-semantic-fallback	CONTRACT	Meaning-bearing GPU semantics never fall back to CPU execution	EXPLICIT_PROFILE	Failure-path and telemetry evidence excluding CPU semantic fallback
+typed-device-failures	ERROR	Device selection, launch, execution, and collection failures use typed observable errors	EXPLICIT_PROFILE	Focused failure injection for every device phase
+checked-cleanup	RESOURCE_LIFETIME	Every partial or failed multi-device operation releases acquired resources deterministically	EXPLICIT_PROFILE	Failure-path lifetime and leak validation

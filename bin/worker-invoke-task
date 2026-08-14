@@ -14,6 +14,7 @@ usage()
 load_harness_env "$1"
 task_id="$2"
 ensure_project
+require_registered_specification_ir
 require_repository
 trace_init worker_invoke_task
 trace_script_start "$@"
@@ -86,6 +87,18 @@ if (( manager_remediation == 1 )); then
 fi
 initialize_task_progress "$task_id" "$task_file"
 task_root="$(task_root_id "$task_id")"
+plan_item_id="$(project_plan_item_for_root "$task_root")"
+specification_obligations_path='-'
+specification_relations_path='-'
+specification_coverage_path='-'
+allocated_specification_obligations='-'
+if specification_ir_available; then
+	specification_obligations_path="$(specification_obligations_file)"
+	specification_relations_path="$(specification_relations_file)"
+	specification_coverage_path="$(specification_coverage_file)"
+	allocated_specification_obligations="$(specification_obligations_for_node "$plan_item_id" | paste -sd, -)"
+	[[ -n "$allocated_specification_obligations" ]] || die "active DAG node has no normalized specification obligations: $plan_item_id"
+fi
 progress_file="$(task_progress_file "$task_root")"
 root_assignment_file="$(task_root_assignment_file "$task_root")"
 starting_progress="$(task_progress_percent "$task_root")"
@@ -188,6 +201,10 @@ PROGRESS_FILE=$progress_file
 STARTING_PROGRESS_PERCENT=$starting_progress
 DEVELOPMENT_POLICY_FILE=$development_policy_file
 CONTEXT_CAPSULE_FILE=$context_capsule_file
+SPECIFICATION_OBLIGATIONS_FILE=$specification_obligations_path
+SPECIFICATION_RELATIONS_FILE=$specification_relations_path
+SPECIFICATION_COVERAGE_FILE=$specification_coverage_path
+ALLOCATED_SPECIFICATION_OBLIGATIONS=$allocated_specification_obligations
 SESSION=$session
 WORKER_CONTEXT_MODE=$worker_context_mode
 WORKER_CONTEXT_REASON=$worker_context_reason
@@ -207,7 +224,7 @@ GOAL_ITERATION_LEDGER_FILE=$goal_ledger
 GOAL_PROCESS_MAX_FIXES=$HARNESS_GOAL_PROCESS_MAX_FIXES
 GOAL_PROCESS_MAX_SMOKE_RUNS=$HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS
 
-The task is already claimed by this launcher. Read DEVELOPMENT_POLICY_FILE when present, then CONTEXT_CAPSULE_FILE when present, ROOT_ASSIGNMENT_FILE, PROGRESS_FILE, and TASK_FILE completely. The current files are authoritative even when this turn resumes an earlier worker conversation. Preserve verified work and continue from STARTING_PROGRESS_PERCENT rather than reimplementing the root task from zero. Implement exactly the remaining bounded assignment, validate only the developed feature according to the prototype policy, then commit every task-owned source/source-related change with harness-commit-source before a terminal result. Use harness-publish-branch when Publish-Branch is declared. Never run direct Git index/history mutations. Generated output, object files, binaries, ignored files, and paths outside Allowed-Scope must remain uncommitted. Write scratch files and the result report under PROJECT_TMP_DIR, publish the result with worker-complete-task, and terminate. If an exact mandatory cross-harness Git ref is absent, use worker-wait-dependency with a precise requirements TSV and supplier note instead of repeating absence audits or claiming gain. Do not wait for another task.
+The task is already claimed by this launcher. Read DEVELOPMENT_POLICY_FILE when present, then CONTEXT_CAPSULE_FILE when present, ROOT_ASSIGNMENT_FILE, PROGRESS_FILE, and TASK_FILE completely. When SPECIFICATION_OBLIGATIONS_FILE is present, read the rows named by ALLOCATED_SPECIFICATION_OBLIGATIONS plus their typed relations and coverage evidence plan; these are the exact proof obligations owned by this DAG node. The current files are authoritative even when this turn resumes an earlier worker conversation. Preserve verified work and continue from STARTING_PROGRESS_PERCENT rather than reimplementing the root task from zero. Implement exactly the remaining bounded assignment, validate only the developed feature according to the prototype policy, then commit every task-owned source/source-related change with harness-commit-source before a terminal result. Use harness-publish-branch when Publish-Branch is declared. Never run direct Git index/history mutations. Generated output, object files, binaries, ignored files, and paths outside Allowed-Scope must remain uncommitted. Write scratch files and the result report under PROJECT_TMP_DIR, publish the result with worker-complete-task, and terminate. If an exact mandatory cross-harness Git ref is absent, use worker-wait-dependency with a precise requirements TSV and supplier note instead of repeating absence audits or claiming gain. Do not wait for another task.
 PROMPT
 if (( manager_remediation == 1 )); then
 	remediation_scope="$(require_single_metadata_value "$task_file" Remediation-Scope 'manager remediation assignment')"

@@ -270,7 +270,10 @@ while IFS= read -r -d '' env_file; do
 	if [[ -d "$dir/control/dependencies" ]]; then
 		waiting_request="$(find "$dir/control/dependencies" -maxdepth 1 -type f -name '*.waiting.md' -print 2>/dev/null | sort | awk 'NR == 1 {first=$0} END {print first}')"
 	fi
-	if [[ "$project_status" == SPEC_CLARIFICATION_REQUIRED.* ]]; then
+	if [[ "$project_status" == SPECIFICATION_IR_INVALID.* ]]; then
+		display_status=paused
+		description="$project_status"
+	elif [[ "$project_status" == SPEC_CLARIFICATION_REQUIRED.* ]]; then
 		display_status=clarify
 		completion='-'
 		review_report="${project_status#*Review }"

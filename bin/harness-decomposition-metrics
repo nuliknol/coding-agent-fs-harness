@@ -43,6 +43,16 @@ architecture_debt_open=0
 architecture_debt_critical=0
 architecture_debt_expired=0
 architecture_profile_name=disabled
+specification_obligations=0
+specification_relations=0
+specification_obligations_mapped=0
+specification_obligations_verified=0
+if specification_ir_available; then
+	specification_obligations="$(specification_obligation_count)"
+	specification_relations="$(specification_review_state_value relation_count 0)"
+	specification_obligations_mapped="$(specification_coverage_mapped_count)"
+	specification_obligations_verified="$(specification_coverage_verified_count)"
+fi
 
 shopt -s nullglob
 for assignment in "$dir"/archive/"$PROJECT-task-"*.assignment.md; do
@@ -152,6 +162,11 @@ per_item()
 	printf 'zero_gain_iteration_percent\t%s\n' "$(rate "$identical_iterations" "$total_iterations")"
 	printf 'automatic_replans\t%s\n' "$replans"
 	printf 'verified_items\t%s\n' "$verified_items"
+	printf 'specification_obligations\t%s\n' "$specification_obligations"
+	printf 'specification_relations\t%s\n' "$specification_relations"
+	printf 'specification_obligations_mapped\t%s\n' "$specification_obligations_mapped"
+	printf 'specification_obligations_verified\t%s\n' "$specification_obligations_verified"
+	printf 'specification_obligation_verified_percent\t%s\n' "$(rate "$specification_obligations_verified" "$specification_obligations")"
 	printf 'worker_input_tokens\t%s\n' "$worker_input"
 	printf 'worker_output_tokens\t%s\n' "$worker_output"
 	printf 'manager_input_tokens\t%s\n' "$manager_input"

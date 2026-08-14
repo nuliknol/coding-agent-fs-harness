@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 2 ]] || { printf 'Usage: %s ENV_FILE OUTPUT_TSV\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+output="$2"
+ensure_project
+mkdir -p "$(dirname "$output")" "$PROJECT_TMP_DIR"
+list="$PROJECT_TMP_DIR/repository-inventory-files.$$"
+if git -C "$REPOSITORY" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+	git -C "$REPOSITORY" ls-files > "$list"
+else
+	find "$REPOSITORY" -type f -printf '%P\n' | LC_ALL=C sort > "$list"
+fi
+
+tmp="$output.tmp.$$"
+cleanup_inventory() { rm -f -- "$list" "$tmp"; }
+trap cleanup_inventory EXIT
+tracked_count="$(awk 'END {print NR+0}' "$list")"
+baseline="$(specification_review_repository_baseline)"
+{
+	printf 'kind\tpath\tdetail\tevidence\n'
+	printf 'BASELINE\t-\t%s\tgit:HEAD\n' "$baseline"
+	printf 'SUMMARY\t-\ttracked_files=%s\tgit:HEAD\n' "$tracked_count"
+	awk -F/ '
+		NF {root=(NF == 1 ? "." : $1); count[root]++}
+		END {for (root in count) printf "SOURCE_ROOT\t%s\ttracked_files=%d\tgit:HEAD\n", root, count[root]}
+	' "$list" | LC_ALL=C sort
+	awk '
+		/(^|\/)(CMakeLists[.]txt|Makefile|meson[.]build|BUILD([.]bazel)?|WORKSPACE([.]bazel)?|Cargo[.]toml|package[.]json|pyproject[.]toml|go[.]mod)$/ {
+			printf "BUILD_MANIFEST\t%s\ttracked build entry\t%s\n", $0, $0
+			if (++count >= 500) exit
+		}
+	' "$list"
+	awk '
+		/(^|\/)include\/.*[.](h|hh|hpp|hxx)$/ {
+			printf "PUBLIC_INTERFACE\t%s\ttracked public-interface candidate\t%s\n", $0, $0
+			if (++count >= 1000) exit
+		}
+	' "$list"
+	awk '
+		/(^|\/)(test|tests|testing)\/|(^|\/)(test_[^\/]+|[^\/]+_(test|tests|spec))[.][^\/]+$/ {
+			printf "TEST_SOURCE\t%s\ttracked test candidate\t%s\n", $0, $0
+			if (++count >= 1000) exit
+		}
+	' "$list"
+} > "$tmp"
+chmod 600 "$tmp"
+mv "$tmp" "$output"
+trap - EXIT
+rm -f -- "$list"
+printf '%s\n' "$output"
