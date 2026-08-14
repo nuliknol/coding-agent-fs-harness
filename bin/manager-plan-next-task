@@ -41,6 +41,9 @@ thread_file="$project_path/control/manager.thread"
 project_plan_exists || die 'project plan is missing'
 project_plan_all_complete && die 'project plan is already complete'
 thread_id="$(kv_file_value "$thread_file" thread_id)"
+manager_rotation_file="$project_path/control/manager-context-rotation-required.md"
+fresh_manager_context=0
+[[ ! -f "$manager_rotation_file" ]] || fresh_manager_context=1
 plan_definition="$(project_plan_definition_file)"
 plan_state="$(project_plan_state_file)"
 decomposition_definition="$(project_decomposition_plan_file)"
@@ -202,9 +205,24 @@ while true; do
 	log_event "MANAGER_PLAN_STARTED attempt=$attempt project_progress=$(project_plan_progress_percent)"
 	trace_event MANAGER_PLAN_ATTEMPT "attempt=$attempt" "thread_id=$thread_id" "json_log=$json_log"
 	set +e
-	"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" manager_plan "$current_model" "$prompt_file" "$json_log" "$stderr_log" "$last_message" resume "$thread_id"
+	if (( fresh_manager_context == 1 )); then
+		"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" manager_plan "$current_model" "$prompt_file" "$json_log" "$stderr_log" "$last_message"
+	else
+		"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" manager_plan "$current_model" "$prompt_file" "$json_log" "$stderr_log" "$last_message" resume "$thread_id"
+	fi
 	status=$?
 	set -e
+	if (( fresh_manager_context == 1 )); then
+		fresh_thread_id="$(codex_thread_id_from_jsonl "$json_log" 2>/dev/null || true)"
+		if [[ "$fresh_thread_id" =~ ^[A-Za-z0-9-]+$ ]]; then
+			"$HARNESS_BIN/manager-register-thread" "$HARNESS_ENV_FILE" "$fresh_thread_id" >/dev/null
+			thread_id="$fresh_thread_id"
+			fresh_manager_context=0
+			rm -f "$manager_rotation_file"
+			log_event "MANAGER_CONTEXT_ROTATED thread_id=$thread_id source=$manager_rotation_file"
+			trace_event MANAGER_CONTEXT_ROTATED "thread_id=$thread_id" "source=$manager_rotation_file"
+		fi
+	fi
 	classification="$(kv_file_value "${json_log%.jsonl}.classification" classification 2>/dev/null || true)"
 	if [[ -n "$active_root_before" ]]; then
 		record_root_agent_tokens "$active_root_before" manager_plan "${json_log%.jsonl}.classification"

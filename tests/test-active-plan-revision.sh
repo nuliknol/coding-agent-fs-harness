@@ -94,6 +94,8 @@ Run the focused API smoke.
 MD
 "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" contract "$TEST_ROOT/root.md" contract >/dev/null
 project="$TEST_ROOT/state/projects/revisionproj"
+printf 'thread_id=stale-manager-thread\nregistered_at=2026-01-01T00:00:00Z\n' \
+	> "$project/control/manager.thread"
 
 bash -c 'source "$1/lib/harness-common.sh"; load_harness_env "$2"; mark_root_architecture_reassessment contract IMMUTABLE_ROOT_AUTHORITY "runtime repair requires src/api.c" "focused smoke evidence" >/dev/null' \
 	_ "$HARNESS_HOME" "$TEST_ROOT/harness.env"
@@ -127,6 +129,8 @@ revision_archive="$(find "$project/archive/plan-node-revisions/contract" -mindep
 [[ -s "$revision_archive/root-assignment.before.md" ]]
 [[ -s "$revision_archive/architecture-reassessment.md" ]]
 [[ -s "$revision_archive/resolution.md" ]]
+[[ -s "$revision_archive/manager-thread.before.env" ]]
+[[ -s "$project/control/manager-context-rotation-required.md" ]]
 grep -Fqx 'old_allowed_paths=src/api.h' "$revision_archive/revision.env"
 grep -Fqx 'new_allowed_paths=src/api.h,src/api.c' "$revision_archive/revision.env"
 

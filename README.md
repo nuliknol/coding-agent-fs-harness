@@ -891,8 +891,13 @@ active node to change, preserves its identity, dependencies, deliverable,
 acceptance evidence, focused validation, and ordered root criteria, and permits
 only additive path and symbol authority. It validates the revised assignment,
 archives the old DAG, assignment, pause marker, and resolution, then clears the
-pause atomically. Merely clearing an immutable-authority marker without revising
-the conflicting authority will cause the same pause to recur.
+pause atomically. The next planning turn automatically uses a fresh manager
+context so stale conversational scope cannot override the revised durable DAG.
+Merely clearing an immutable-authority marker without revising the conflicting
+authority will cause the same pause to recur. For other proven stale-manager
+cases, stop the harness and run `harness-rotate-manager-context ENV_FILE
+REASON_NOTE_FILE`; the next planner invocation rotates and registers the thread
+without reinitializing project state.
 
 The automatic strategy turn resumes the persistent project-scoped manager.
 Durable plan, progress, criteria, checkpoint, and replan files override older

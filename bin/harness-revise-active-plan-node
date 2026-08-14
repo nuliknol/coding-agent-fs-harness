@@ -142,6 +142,9 @@ install -m 600 "$dag" "$archive_dir/project-decomposition-v2.before.tsv"
 install -m 600 "$root_assignment" "$archive_dir/root-assignment.before.md"
 install -m 600 "$marker" "$archive_dir/architecture-reassessment.md"
 install -m 600 "$resolution_note" "$archive_dir/resolution.md"
+if [[ -f "$dir/control/manager.thread" ]]; then
+	install -m 600 "$dir/control/manager.thread" "$archive_dir/manager-thread.before.env"
+fi
 
 dag_tmp="$dag.tmp.$$"
 assignment_tmp="$root_assignment.tmp.$$"
@@ -157,6 +160,18 @@ fi
 rm -f "$marker" "$(task_root_replan_file "$root")" "$(task_root_replanning_file "$root")"
 record_root_convergence_baseline "$root"
 record_root_replan_baseline "$root"
+{
+	printf '# Manager Context Rotation Required\n\n'
+	printf 'Project: %s\n\n' "$PROJECT"
+	printf 'Plan-Node: %s\n\n' "$active_item"
+	printf 'Task-Root: %s\n\n' "$root"
+	printf 'Reason: Active DAG authority changed; stale conversational scope must not override the revised durable state.\n\n'
+	printf 'Requested-At: %s\n' "$(timestamp_utc)"
+} > "$dir/control/manager-context-rotation-required.md.tmp.$$"
+chmod 600 "$dir/control/manager-context-rotation-required.md.tmp.$$"
+mv "$dir/control/manager-context-rotation-required.md.tmp.$$" \
+	"$dir/control/manager-context-rotation-required.md"
+rm -f "$dir/control/manager-plan-stalled.md"
 {
 	printf 'project=%s\n' "$PROJECT"
 	printf 'active_plan_item=%s\n' "$active_item"

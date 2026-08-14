@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE REASON_NOTE_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 2 ]] || usage
+load_harness_env "$1"
+note_file="$2"
+ensure_project
+[[ -s "$note_file" ]] || die "manager context rotation note is missing or empty: $note_file"
+env_has_running_processes && die 'stop this harness and wait for active children to exit before rotating manager context'
+dir="$(project_dir)"
+thread_file="$dir/control/manager.thread"
+[[ -s "$thread_file" ]] || die 'manager thread is not registered'
+acquire_project_lock
+env_has_running_processes && die 'a harness process appeared while acquiring the manager context rotation lock'
+stamp="$(timestamp_compact_utc)"
+archive_dir="$dir/archive/manager-context-rotations/$stamp"
+mkdir -p "$archive_dir"
+chmod 700 "$dir/archive/manager-context-rotations" "$archive_dir"
+install -m 600 "$thread_file" "$archive_dir/manager-thread.before.env"
+install -m 600 "$note_file" "$archive_dir/reason.md"
+marker="$dir/control/manager-context-rotation-required.md"
+{
+	printf '# Manager Context Rotation Required\n\n'
+	printf 'Project: %s\n\n' "$PROJECT"
+	printf 'Reason-Note: %s\n\n' "$archive_dir/reason.md"
+	printf 'Requested-At: %s\n' "$(timestamp_utc)"
+} > "$marker.tmp.$$"
+chmod 600 "$marker.tmp.$$"
+mv "$marker.tmp.$$" "$marker"
+rm -f "$dir/control/manager-plan-stalled.md"
+log_event "MANAGER_CONTEXT_ROTATION_REQUIRED archive=$archive_dir marker=$marker"
+printf 'Manager context will rotate on the next planning invocation.\n'
+printf 'Rotation archive: %s\n' "$archive_dir"
