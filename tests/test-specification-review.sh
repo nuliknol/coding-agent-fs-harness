@@ -114,7 +114,6 @@ grep -Fq 'Question you must answer: Should negative input normalize to zero or r
 grep -Fq '## Required specification amendment' <<< "$clarification_prompt"
 grep -Fq "git -C $repo add -- spec.md" <<< "$clarification_prompt"
 grep -Fq "$HARNESS_BIN/harness-start $env_file" <<< "$clarification_prompt"
-[[ "$("$HARNESS_BIN/harness-show-clarififcation-request" "$env_file")" == "$clarification_prompt" ]]
 
 set +e
 printf 'must block review startup\n' > "$repo/untracked-before-start.txt"

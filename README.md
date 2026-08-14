@@ -1061,8 +1061,7 @@ harness-show-clarification-request /path/to/repository/harness.env
 The output includes the untruncated problem description, incompatible
 outcomes, missing decision, exact governing specification and repository,
 amendment checklist, clean commit instructions, and the correct relaunch
-command. The historical misspelling `harness-show-clarififcation-request` is
-accepted as an alias.
+command.
 
 Raw unified state transitions:
 
