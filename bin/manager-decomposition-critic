@@ -79,6 +79,8 @@ PREFERRED_WORKER_ROUTE=$HARNESS_PREFERRED_WORKER_ROUTE. Optimize explicitly for 
 
 Decompose deeply enough that Luna can execute deterministically, but do not create microscopic handoffs. A Luna-ready node should normally own one cohesive implementation concern, one to five implementation files, and the largest useful deterministic focused validation that still fits within three worker turns. Do not split an already Luna-ready concern merely to inflate the route percentage; every extra leaf incurs a manager review.
 
+For each node, perform an authority-closure check: ask whether a plausible failure of its acceptance evidence or focused validation could require a production correction outside allowed_paths while still remaining inside the governing specification. If so, the node is not authority-closed. Split it before registration—for example, a public-header contract node may own compile/layout evidence, while a dependent implementation or integration node owns the source paths and executable runtime smoke. Do not give a header-only or test-only node an acceptance boundary whose ordinary repair authority belongs to another node. Validation may read or execute outside allowed_paths, but every ordinary implementation area that the node could legitimately need to correct must either be in its allowed_paths or belong to an explicit prerequisite/dependent node with its own acceptance boundary.
+
 Also produce SPECIFICATION_COVERAGE_FILE with exactly this tab-separated header:
 
 obligation_id<TAB>node_ids<TAB>evidence_plan

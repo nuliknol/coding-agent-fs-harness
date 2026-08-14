@@ -1,0 +1,178 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE CANDIDATE_DAG REVISED_ROOT_ASSIGNMENT RESOLUTION_NOTE_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 4 ]] || usage
+load_harness_env "$1"
+candidate_dag="$2"
+candidate_assignment="$3"
+resolution_note="$4"
+ensure_project
+(( HARNESS_DECOMPOSITION_V2 == 1 )) || die 'active-node revision requires HARNESS_DECOMPOSITION_V2=1'
+project_plan_uses_dag || die 'active-node revision requires an existing decomposition DAG'
+project_completion_recorded && die 'a completed project cannot revise an active plan node'
+env_has_running_processes && die 'stop this harness and wait for active children to exit before revising its active node'
+[[ -s "$candidate_dag" ]] || die "candidate DAG is missing or empty: $candidate_dag"
+[[ -s "$candidate_assignment" ]] || die "revised root assignment is missing or empty: $candidate_assignment"
+[[ -s "$resolution_note" ]] || die "architecture resolution note is missing or empty: $resolution_note"
+
+dir="$(project_dir)"
+dag="$(project_decomposition_plan_file)"
+state="$(project_plan_state_file)"
+typed_header=$'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tleaf_type\tcomplexity_class\tworker_route'
+active_item="$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" {print $1}' "$state")"
+active_count="$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" {count++} END {print count + 0}' "$state")"
+(( active_count == 1 )) || die "active-node revision requires exactly one ACTIVE plan item; found $active_count"
+root="$(project_plan_item_root "$active_item")"
+[[ -n "$root" && "$root" != - ]] || die "active plan item has no task root: $active_item"
+root_assignment="$(task_root_assignment_file "$root")"
+marker="$(task_root_architecture_reassessment_file "$root")"
+[[ -f "$root_assignment" ]] || die "active root assignment is missing: $root_assignment"
+[[ -f "$marker" ]] || die "active root does not require architecture reassessment: $root"
+
+old_header="$(sed -n '1p' "$dag")"
+new_header="$(sed -n '1p' "$candidate_dag")"
+[[ "$old_header" == "$typed_header" ]] || die 'active-node revision supports only a typed eleven-column DAG'
+[[ "$new_header" == "$typed_header" ]] || die "candidate DAG header must be: $typed_header"
+[[ "$(awk 'END {print NR - 1}' "$dag")" == "$(awk 'END {print NR - 1}' "$candidate_dag")" ]] ||
+	die 'candidate DAG must preserve the node count'
+
+old_active="$(awk -F '\t' -v item="$active_item" '$1 == item {print; exit}' "$dag")"
+new_active="$(awk -F '\t' -v item="$active_item" '$1 == item {print; exit}' "$candidate_dag")"
+[[ -n "$old_active" && -n "$new_active" ]] || die "candidate DAG must preserve active node: $active_item"
+[[ "$(awk -F '\t' -v item="$active_item" 'NR == 1 || $1 != item' "$dag")" == \
+	"$(awk -F '\t' -v item="$active_item" 'NR == 1 || $1 != item' "$candidate_dag")" ]] ||
+	die 'candidate DAG changed a non-active node; only the active node may be revised'
+
+IFS=$'\t' read -r old_id old_parent old_deps old_deliverable old_evidence old_validation \
+	old_paths old_symbols old_type old_complexity old_route <<< "$old_active"
+IFS=$'\t' read -r new_id new_parent new_deps new_deliverable new_evidence new_validation \
+	new_paths new_symbols new_type new_complexity new_route new_extra <<< "$new_active"
+[[ -z "${new_extra:-}" ]] || die 'candidate active node has more than eleven fields'
+[[ "$new_id" == "$old_id" && "$new_parent" == "$old_parent" && "$new_deps" == "$old_deps" ]] ||
+	die 'candidate must preserve active node identity, parent, and dependencies'
+[[ "$new_deliverable" == "$old_deliverable" ]] || die 'candidate must preserve the active deliverable'
+[[ "$new_evidence" == "$old_evidence" ]] || die 'candidate must preserve active acceptance evidence'
+[[ "$new_validation" == "$old_validation" ]] || die 'candidate must preserve active focused validation'
+[[ -n "$new_paths" && "$new_paths" != - ]] || die 'revised active node requires explicit allowed paths'
+[[ -n "$new_symbols" ]] || die "revised active node requires symbols or '-'"
+[[ "$new_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]] ||
+	die "invalid revised leaf type: $new_type"
+[[ "$new_complexity" =~ ^(LOW|MEDIUM|HIGH)$ ]] || die "invalid revised complexity: $new_complexity"
+[[ "$new_route" =~ ^(LUNA|TERRA)$ ]] || die "invalid revised route: $new_route"
+if [[ "$new_route" == LUNA ]]; then
+	[[ "$new_complexity" == LOW ]] || die 'a revised Luna node must have LOW complexity'
+	[[ "$new_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]] ||
+		die "revised Luna node has Terra-only type: $new_type"
+fi
+
+list_is_subset()
+{
+	local subset="$1" superset="$2" entry candidate found
+	local -a subset_entries=() superset_entries=()
+	[[ "$subset" == - ]] && return 0
+	IFS=',' read -r -a subset_entries <<< "${subset//;/,}"
+	IFS=',' read -r -a superset_entries <<< "${superset//;/,}"
+	for entry in "${subset_entries[@]}"; do
+		entry="$(trim_surrounding_whitespace "$entry")"
+		[[ -n "$entry" ]] || continue
+		found=0
+		for candidate in "${superset_entries[@]}"; do
+			candidate="$(trim_surrounding_whitespace "$candidate")"
+			[[ "$entry" == "$candidate" ]] && { found=1; break; }
+		done
+		(( found == 1 )) || return 1
+	done
+}
+
+list_is_subset "$old_paths" "$new_paths" || die 'revised allowed paths may expand but must not remove original authority'
+list_is_subset "$old_symbols" "$new_symbols" || die 'revised required symbols may expand but must not remove original symbols'
+[[ "$old_active" != "$new_active" ]] || die 'candidate DAG does not revise the active node'
+
+[[ "$(require_single_metadata_value "$candidate_assignment" Task-ID 'revised root assignment')" == "$root" ]] ||
+	die 'revised root assignment Task-ID does not match the active root'
+[[ "$(require_single_metadata_value "$candidate_assignment" Task-Root 'revised root assignment')" == "$root" ]] ||
+	die 'revised root assignment Task-Root does not match the active root'
+[[ "$(require_single_metadata_value "$candidate_assignment" Project-Plan-Item-ID 'revised root assignment')" == "$active_item" ]] ||
+	die 'revised root assignment Project-Plan-Item-ID does not match the active node'
+[[ "$(require_single_metadata_value "$candidate_assignment" Goal-Success-Evidence 'revised root assignment')" == "$new_evidence" ]] ||
+	die 'revised root assignment Goal-Success-Evidence does not match the revised DAG'
+[[ "$(require_single_metadata_value "$candidate_assignment" Focused-Validation 'revised root assignment')" == "$new_validation" ]] ||
+	die 'revised root assignment Focused-Validation does not match the revised DAG'
+[[ "$(require_single_metadata_value "$candidate_assignment" Allowed-Scope 'revised root assignment')" == "$new_paths" ]] ||
+	die 'revised root assignment Allowed-Scope does not match the revised DAG'
+[[ "$(require_single_metadata_value "$candidate_assignment" Deliverable 'revised root assignment')" == "$new_deliverable" ]] ||
+	die 'revised root assignment Deliverable does not match the revised DAG'
+[[ "$(require_single_metadata_value "$candidate_assignment" Required-Symbols 'revised root assignment')" == "$new_symbols" ]] ||
+	die 'revised root assignment Required-Symbols does not match the revised DAG'
+[[ "$(require_single_metadata_value "$candidate_assignment" Leaf-Type 'revised root assignment')" == "$new_type" ]] ||
+	die 'revised root assignment Leaf-Type does not match the revised DAG'
+[[ "$(require_single_metadata_value "$candidate_assignment" Complexity-Class 'revised root assignment')" == "$new_complexity" ]] ||
+	die 'revised root assignment Complexity-Class does not match the revised DAG'
+[[ "$(require_single_metadata_value "$candidate_assignment" Worker-Route 'revised root assignment')" == "$new_route" ]] ||
+	die 'revised root assignment Worker-Route does not match the revised DAG'
+[[ "$(require_single_metadata_value "$candidate_assignment" Depends-On 'revised root assignment')" == "$new_deps" ]] ||
+	die 'revised root assignment Depends-On does not match the revised DAG'
+
+old_criteria="$(awk -F': ' '$1 == "Root-Criterion" {print $2}' "$root_assignment")"
+new_criteria="$(awk -F': ' '$1 == "Root-Criterion" {print $2}' "$candidate_assignment")"
+[[ -n "$old_criteria" && "$new_criteria" == "$old_criteria" ]] ||
+	die 'revised root assignment must preserve every Root-Criterion in its original order'
+
+if specification_ir_available; then
+	validate_specification_coverage_file "$(specification_coverage_file)" "$candidate_dag"
+fi
+architecture_require_scoped_validation "revised plan node $active_item focused_validation" "$new_validation"
+
+acquire_project_lock
+env_has_running_processes && die 'a harness process appeared while acquiring the active-node revision lock'
+stamp="$(timestamp_compact_utc)"
+archive_dir="$dir/archive/plan-node-revisions/$active_item/$stamp"
+mkdir -p "$archive_dir"
+chmod 700 "$dir/archive/plan-node-revisions" "$dir/archive/plan-node-revisions/$active_item" "$archive_dir"
+install -m 600 "$dag" "$archive_dir/project-decomposition-v2.before.tsv"
+install -m 600 "$root_assignment" "$archive_dir/root-assignment.before.md"
+install -m 600 "$marker" "$archive_dir/architecture-reassessment.md"
+install -m 600 "$resolution_note" "$archive_dir/resolution.md"
+
+dag_tmp="$dag.tmp.$$"
+assignment_tmp="$root_assignment.tmp.$$"
+install -m 600 "$candidate_dag" "$dag_tmp"
+install -m 600 "$candidate_assignment" "$assignment_tmp"
+mv "$dag_tmp" "$dag"
+mv "$assignment_tmp" "$root_assignment"
+if ! ( architecture_validate_against_plan ); then
+	install -m 600 "$archive_dir/project-decomposition-v2.before.tsv" "$dag"
+	install -m 600 "$archive_dir/root-assignment.before.md" "$root_assignment"
+	die 'revised active node conflicts with architecture registries; original DAG and root assignment were restored'
+fi
+rm -f "$marker" "$(task_root_replan_file "$root")" "$(task_root_replanning_file "$root")"
+record_root_convergence_baseline "$root"
+record_root_replan_baseline "$root"
+{
+	printf 'project=%s\n' "$PROJECT"
+	printf 'active_plan_item=%s\n' "$active_item"
+	printf 'task_root=%s\n' "$root"
+	printf 'revised_at=%s\n' "$(timestamp_utc)"
+	printf 'old_allowed_paths=%s\n' "$old_paths"
+	printf 'new_allowed_paths=%s\n' "$new_paths"
+	printf 'old_leaf_type=%s\n' "$old_type"
+	printf 'new_leaf_type=%s\n' "$new_type"
+	printf 'old_worker_route=%s\n' "$old_route"
+	printf 'new_worker_route=%s\n' "$new_route"
+	printf 'resolution_note=%s\n' "$archive_dir/resolution.md"
+} > "$archive_dir/revision.env"
+chmod 600 "$archive_dir/revision.env"
+log_event "ACTIVE_PLAN_NODE_REVISED item=$active_item root=$root old_paths=$(printf '%q' "$old_paths") new_paths=$(printf '%q' "$new_paths") archive=$archive_dir"
+trace_event ACTIVE_PLAN_NODE_REVISED "item=$active_item" "root=$root" "archive=$archive_dir"
+printf 'Revised active plan node %s for root %s.\n' "$active_item" "$root"
+printf 'Preserved criteria: %s\n' "$(awk -F': ' '$1 == "Root-Criterion" {count++} END {print count + 0}' "$root_assignment")"
+printf 'Revision archive: %s\n' "$archive_dir"

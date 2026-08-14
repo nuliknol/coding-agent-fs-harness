@@ -883,6 +883,17 @@ After the architecture or dependency authority is repaired, an operator records
 the explicit decision with `harness-resolve-architecture-reassessment ENV_FILE
 TASK_ROOT RESOLUTION_NOTE_FILE`.
 
+When reassessment proves that the active DAG node itself omitted legitimate
+repair authority, stop the harness and use
+`harness-revise-active-plan-node ENV_FILE CANDIDATE_DAG
+REVISED_ROOT_ASSIGNMENT RESOLUTION_NOTE_FILE`. The command permits only the
+active node to change, preserves its identity, dependencies, deliverable,
+acceptance evidence, focused validation, and ordered root criteria, and permits
+only additive path and symbol authority. It validates the revised assignment,
+archives the old DAG, assignment, pause marker, and resolution, then clears the
+pause atomically. Merely clearing an immutable-authority marker without revising
+the conflicting authority will cause the same pause to recur.
+
 The automatic strategy turn resumes the persistent project-scoped manager.
 Durable plan, progress, criteria, checkpoint, and replan files override older
 conversation context. For an oversized legacy root, the manager first installs
@@ -1148,6 +1159,8 @@ bash tests/test-autostart.sh
 bash tests/test-codex-exec-jsonl.sh
 bash tests/test-git-dependency.sh
 bash tests/test-specification-review.sh
+bash tests/test-root-liveness.sh
+bash tests/test-active-plan-revision.sh
 ```
 
 The leaf-goal test covers assignment validation, code-only continuation,
