@@ -397,6 +397,23 @@ grep -Fq 'repository has staged, unstaged, or non-ignored untracked files' \
 	"$TEST_ROOT/dirty-start.err"
 test ! -e "$TEST_ROOT/state/mock-counts/bootstrap"
 rm -f "$TEST_ROOT/repo/untracked-before-start.txt"
+
+bash -c 'while true; do sleep 1; done' \
+	"$HARNESS_BIN/manager-review-specification" "$TEST_ROOT/harness.env" &
+overlap_pid=$!
+sleep 0.2
+if "$HARNESS_BIN/harness-start" "$TEST_ROOT/harness.env" \
+	>"$TEST_ROOT/overlap-start.out" 2>"$TEST_ROOT/overlap-start.err"; then
+	printf 'harness-start accepted an agent process without a live supervisor\n' >&2
+	kill "$overlap_pid" 2>/dev/null || true
+	exit 1
+fi
+kill "$overlap_pid" 2>/dev/null || true
+wait "$overlap_pid" 2>/dev/null || true
+grep -Fq 'refusing duplicate harness-start while no project supervisor owns these processes' \
+	"$TEST_ROOT/overlap-start.err"
+test ! -e "$TEST_ROOT/state/mock-counts/bootstrap"
+
 "$HARNESS_BIN/harness-start" "$TEST_ROOT/harness.env" >/dev/null
 
 # A manager review that returns without a durable action must be invoked once

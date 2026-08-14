@@ -19,14 +19,25 @@ ensure_project
 require_goal_mode_clean_boundary
 dir="$(project_dir)"
 
-processes_running=0
-env_has_running_processes && processes_running=1
-if (( processes_running == 0 )); then
+supervisors_running=0
+for supervisor_pid_file in "$dir/control/supervisor.pid" "$dir/control/worker-supervisor.pid"; do
+	[[ -f "$supervisor_pid_file" ]] || continue
+	supervisor_pid="$(<"$supervisor_pid_file")"
+	if [[ "$supervisor_pid" =~ ^[1-9][0-9]*$ ]] && kill -0 "$supervisor_pid" 2>/dev/null; then
+		supervisors_running=1
+		break
+	fi
+done
+if (( supervisors_running == 0 )); then
 	require_clean_repository_start_state
 fi
 
-if (( processes_running == 1 )); then
+if (( supervisors_running == 1 )); then
 	printf 'Harness processes already reference this environment; preserving all state and progress.\n'
+elif env_has_running_processes; then
+	printf 'Active startup or agent processes still reference %s:\n' "$HARNESS_ENV_FILE" >&2
+	env_process_lines >&2
+	die 'refusing duplicate harness-start while no project supervisor owns these processes'
 else
 	"$HARNESS_BIN/harness-recover" "$HARNESS_ENV_FILE" --reset-orphaned
 fi
