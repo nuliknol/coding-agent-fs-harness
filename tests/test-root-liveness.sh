@@ -136,4 +136,27 @@ grep -Fqx 'Consumer-Plan-Item: CONSUMER' "$invalidation"
 grep -Fq 'Project progress: 0% (0/2 plan items complete)' \
 	< <("$HARNESS_BIN/harness-status" --machine "$TEST_ROOT/harness.env")
 
+# Replanning and diagnostic checkpoints cannot reset this monotonic boundary.
+# Only a checkpoint containing a completed root criterion resets the count.
+printf 'export HARNESS_MAX_ROOT_REVIEWS_WITHOUT_CRITERION="3"\n' >> "$TEST_ROOT/harness.env"
+cat > "$project/control/progress/livenessproj-task-criterionless.root-assignment.md" <<'MD'
+Task-ID: criterionless
+Task-Root: criterionless
+Root-Criterion: criterionless.acceptance
+MD
+cat > "$project/control/progress/livenessproj-task-criterionless.history.tsv" <<'TSV'
+updated_at	task_id	decision	progress_percent	improvement_percent	review_sha256
+2026-01-01T00:00:00Z	criterionless	CHECKPOINT	0	0	-
+2026-01-01T00:01:00Z	criterionless-revision-01	REJECT	0	0	-
+2026-01-01T00:02:00Z	criterionless-revision-02	CHECKPOINT	0	0	-
+TSV
+cat > "$project/control/progress/livenessproj-task-criterionless.checkpoints.tsv" <<'TSV'
+checkpointed_at	task_id	criterion_count	increment_count	progress_percent	improvement_percent	review_sha256	artifact_directory
+2026-01-01T00:00:00Z	criterionless	0	1	0	0	-	-
+2026-01-01T00:02:00Z	criterionless-revision-02	0	1	0	0	-	-
+TSV
+criterionless_marker="$("$HARNESS_BIN/harness-audit-root-liveness" "$TEST_ROOT/harness.env" criterionless)"
+grep -Fqx 'Category: NO_CRITERION_PROGRESS' "$criterionless_marker"
+grep -Fqx 'Reviews-Without-Criterion: 3' "$criterionless_marker"
+
 printf 'root liveness and dependency invalidation tests passed\n'

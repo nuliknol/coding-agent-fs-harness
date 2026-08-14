@@ -613,9 +613,11 @@ export HARNESS_WAIT_SECONDS="300"
 export HARNESS_STALE_SECONDS="900"
 export HARNESS_USE_INOTIFY="1"
 export WORKER_HEARTBEAT_SECONDS="60"
-export HARNESS_CODEX_WALL_TIMEOUT_SECONDS="0"
+export HARNESS_CODEX_WALL_TIMEOUT_SECONDS="1800"
 export HARNESS_CODEX_IDLE_TIMEOUT_SECONDS="0"
 export HARNESS_CODEX_KILL_GRACE_SECONDS="15"
+export HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION="80"
+export HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION="2000000"
 ```
 
 The manager and worker may use the same `CODEX_HOME`, but separate account directories make account selection explicit.
@@ -852,6 +854,7 @@ export HARNESS_MAX_ZERO_GAIN_WINDOW="3"
 export HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION="4"
 export HARNESS_MAX_TOTAL_ROOT_REVIEWS="24"
 export HARNESS_MAX_TOTAL_ROOT_REPLANS="8"
+export HARNESS_MAX_ROOT_REVIEWS_WITHOUT_CRITERION="10"
 export HARNESS_MAX_ROOT_CHILD_CRITERIA="32"
 export HARNESS_MAX_CRITERION_DEPTH="8"
 export HARNESS_MAX_ROOT_LIFETIME_SECONDS="21600"
@@ -862,6 +865,12 @@ When any threshold is reached, the just-reviewed result is archived first and
 the root enters `NEEDS_REPLAN`. The repository, checkpoint artifacts, criterion
 ledger, review history, and live workspace remain intact. By default the
 manager supervisor consumes this marker automatically:
+
+`HARNESS_MAX_ROOT_REVIEWS_WITHOUT_CRITERION` is stricter: its count survives
+automatic replans and resets only when a declared root criterion is durably
+checkpointed. Reaching it requires architecture/human reassessment, so changing
+diagnostic text or accumulating local increments cannot keep a dead-end root
+alive indefinitely.
 
 ```bash
 export HARNESS_AUTO_REPLAN_ENABLED="1"
@@ -1186,11 +1195,12 @@ The worker launcher runs a local heartbeat subprocess while Codex is active. The
 
 `HARNESS_STALE_SECONDS=900` means a running worker is considered stale only after 900 seconds without a heartbeat. It is not a task-duration limit.
 
-Non-interactive Codex wall and idle watchdogs default to `0` (disabled), so a
-correctly progressing turn is not killed because it is slow. Set
-`HARNESS_CODEX_WALL_TIMEOUT_SECONDS` or
-`HARNESS_CODEX_IDLE_TIMEOUT_SECONDS` to a nonzero value only when an operator
-intentionally wants such a watchdog.
+The non-interactive Codex wall watchdog defaults to 1800 seconds; the idle
+watchdog defaults to `0` (disabled). A live invocation is also bounded to 80
+started agent items. At turn completion, a processed-token delta above
+2,000,000 trips the same durable resource guard. A trip terminates the process
+tree, preserves workspace changes and logs, and pauses the root in
+`NEEDS_HUMAN` instead of retrying it.
 
 ## Prototype validation and revisions
 
@@ -1260,6 +1270,8 @@ Configure it in the environment file:
 export HARNESS_PROVIDER_RETRY_SECONDS="60"
 export HARNESS_QUOTA_RETRY_SECONDS="300"
 export HARNESS_AGENT_MIN_INTERVAL_SECONDS="60"
+export HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION="80"
+export HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION="2000000"
 ```
 
 `HARNESS_AGENT_MIN_INTERVAL_SECONDS` is a project-wide launch throttle shared

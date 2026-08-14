@@ -148,6 +148,7 @@ load_harness_env()
 	unset HARNESS_MAX_ROOT_ATTEMPTS HARNESS_MAX_ZERO_GAIN_WINDOW
 	unset HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION
 	unset HARNESS_MAX_TOTAL_ROOT_REVIEWS HARNESS_MAX_TOTAL_ROOT_REPLANS
+	unset HARNESS_MAX_ROOT_REVIEWS_WITHOUT_CRITERION
 	unset HARNESS_MAX_ROOT_CHILD_CRITERIA HARNESS_MAX_CRITERION_DEPTH
 	unset HARNESS_MAX_ROOT_LIFETIME_SECONDS HARNESS_MAX_ROOT_PROCESSED_TOKENS
 	unset HARNESS_AUTO_REPLAN_ENABLED HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN
@@ -167,6 +168,7 @@ load_harness_env()
 	unset HARNESS_PREFERRED_WORKER_ROUTE HARNESS_AGENT_COMMITS_ENABLED
 	unset HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
 	unset HARNESS_AGENT_MIN_INTERVAL_SECONDS
+	unset HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION
 	unset HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
 	unset HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_KILL_GRACE_SECONDS
 	unset MANAGER_FALLBACK_MODEL WORKER_FALLBACK_MODEL ORACLE_FALLBACK_MODEL
@@ -230,6 +232,10 @@ load_harness_env()
 	# manufacture local evidence indefinitely without completing the root.
 	HARNESS_MAX_TOTAL_ROOT_REVIEWS="${HARNESS_MAX_TOTAL_ROOT_REVIEWS:-24}"
 	HARNESS_MAX_TOTAL_ROOT_REPLANS="${HARNESS_MAX_TOTAL_ROOT_REPLANS:-8}"
+	# This plan-level budget is deliberately not reset by an automatic replan,
+	# a diagnostic checkpoint, a source edit, or a changing blocker string. It
+	# resets only when a declared root criterion is durably checkpointed.
+	HARNESS_MAX_ROOT_REVIEWS_WITHOUT_CRITERION="${HARNESS_MAX_ROOT_REVIEWS_WITHOUT_CRITERION:-10}"
 	HARNESS_MAX_ROOT_CHILD_CRITERIA="${HARNESS_MAX_ROOT_CHILD_CRITERIA:-32}"
 	HARNESS_MAX_CRITERION_DEPTH="${HARNESS_MAX_CRITERION_DEPTH:-8}"
 	HARNESS_MAX_ROOT_LIFETIME_SECONDS="${HARNESS_MAX_ROOT_LIFETIME_SECONDS:-21600}"
@@ -326,13 +332,17 @@ load_harness_env()
 	# clock. This bounds token loss when any manager, worker, or oracle event
 	# accidentally livelocks while preserving independent project parallelism.
 	HARNESS_AGENT_MIN_INTERVAL_SECONDS="${HARNESS_AGENT_MIN_INTERVAL_SECONDS:-60}"
+	# A Codex process can perform many internal model/tool steps before returning
+	# usage accounting. Bound that live stream as well as its final token delta.
+	HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION="${HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION:-80}"
+	HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION="${HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION:-2000000}"
 	# Retained only for backwards-compatible environment parsing. Provider
 	# retries are intentionally unlimited regardless of this legacy value.
 	HARNESS_CAPACITY_RETRY_SECONDS="$HARNESS_PROVIDER_RETRY_SECONDS"
 	HARNESS_CAPACITY_MAX_RETRIES="${HARNESS_CAPACITY_MAX_RETRIES:-0}"
-	# Correctly progressing tasks are allowed to run without an arbitrary turn
-	# deadline. Operators may opt back into either watchdog with a nonzero value.
-	HARNESS_CODEX_WALL_TIMEOUT_SECONDS="${HARNESS_CODEX_WALL_TIMEOUT_SECONDS:-0}"
+	# A bounded leaf should not need an unbounded provider process. Long builds
+	# still have thirty minutes; workspace changes survive watchdog termination.
+	HARNESS_CODEX_WALL_TIMEOUT_SECONDS="${HARNESS_CODEX_WALL_TIMEOUT_SECONDS:-1800}"
 	HARNESS_CODEX_IDLE_TIMEOUT_SECONDS="${HARNESS_CODEX_IDLE_TIMEOUT_SECONDS:-0}"
 	HARNESS_CODEX_KILL_GRACE_SECONDS="${HARNESS_CODEX_KILL_GRACE_SECONDS:-15}"
 	WORKER_HEARTBEAT_SECONDS="${WORKER_HEARTBEAT_SECONDS:-60}"
@@ -434,6 +444,7 @@ load_harness_env()
 	[[ "$HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION" =~ ^[0-9]+$ ]] || die 'HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION must be a nonnegative integer'
 	[[ "$HARNESS_MAX_TOTAL_ROOT_REVIEWS" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_TOTAL_ROOT_REVIEWS must be a positive integer'
 	[[ "$HARNESS_MAX_TOTAL_ROOT_REPLANS" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_TOTAL_ROOT_REPLANS must be a positive integer'
+	[[ "$HARNESS_MAX_ROOT_REVIEWS_WITHOUT_CRITERION" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_ROOT_REVIEWS_WITHOUT_CRITERION must be a positive integer'
 	[[ "$HARNESS_MAX_ROOT_CHILD_CRITERIA" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_ROOT_CHILD_CRITERIA must be a positive integer'
 	[[ "$HARNESS_MAX_CRITERION_DEPTH" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_CRITERION_DEPTH must be a positive integer'
 	[[ "$HARNESS_MAX_ROOT_LIFETIME_SECONDS" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_ROOT_LIFETIME_SECONDS must be a positive integer'
@@ -494,6 +505,8 @@ load_harness_env()
 	[[ "$HARNESS_QUOTA_RETRY_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_QUOTA_RETRY_SECONDS must be an integer'
 	(( HARNESS_QUOTA_RETRY_SECONDS > 0 )) || die 'HARNESS_QUOTA_RETRY_SECONDS must be greater than zero'
 	[[ "$HARNESS_AGENT_MIN_INTERVAL_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_AGENT_MIN_INTERVAL_SECONDS must be a non-negative integer'
+	[[ "$HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION must be a positive integer'
+	[[ "$HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION must be a positive integer'
 	[[ "$HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS" =~ ^[0-9]+$ ]] || die 'HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS must be a non-negative integer'
 	[[ "$HARNESS_START_MAX_AGENT_INVOCATIONS" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_START_MAX_AGENT_INVOCATIONS must be a positive integer'
 	[[ "$HARNESS_CAPACITY_MAX_RETRIES" =~ ^[0-9]+$ ]] || die 'HARNESS_CAPACITY_MAX_RETRIES must be an integer'
@@ -538,9 +551,11 @@ load_harness_env()
 	export HARNESS_RUNTIME_PATH_PREFIX HARNESS_BOOT_RECOVERY
 	export HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY HARNESS_MAX_IDENTICAL_BLOCKERS HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
 	export HARNESS_AGENT_MIN_INTERVAL_SECONDS
+	export HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION
 	export HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS HARNESS_START_MAX_AGENT_INVOCATIONS
 	export HARNESS_MAX_ROOT_ATTEMPTS HARNESS_MAX_ZERO_GAIN_WINDOW HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION
 	export HARNESS_MAX_TOTAL_ROOT_REVIEWS HARNESS_MAX_TOTAL_ROOT_REPLANS
+	export HARNESS_MAX_ROOT_REVIEWS_WITHOUT_CRITERION
 	export HARNESS_MAX_ROOT_CHILD_CRITERIA HARNESS_MAX_CRITERION_DEPTH
 	export HARNESS_MAX_ROOT_LIFETIME_SECONDS HARNESS_MAX_ROOT_PROCESSED_TOKENS
 	export HARNESS_AUTO_REPLAN_ENABLED HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN
@@ -1882,14 +1897,17 @@ record_root_agent_tokens()
 
 root_liveness_violation_reason()
 {
-	local root="$1" reviews replans children depth lifetime tokens
+	local root="$1" reviews criterionless_reviews replans children depth lifetime tokens
 	reviews="$(root_reviewed_attempt_count "$root")"
+	criterionless_reviews="$(root_reviews_without_criterion_completion "$root")"
 	replans="$(root_total_replan_count "$root")"
 	children="$(root_child_criterion_count "$root")"
 	depth="$(root_criterion_max_depth "$root")"
 	lifetime="$(root_lifetime_seconds "$root")"
 	tokens="$(root_processed_token_count "$root")"
-	if (( reviews >= HARNESS_MAX_TOTAL_ROOT_REVIEWS )); then
+	if (( criterionless_reviews >= HARNESS_MAX_ROOT_REVIEWS_WITHOUT_CRITERION )); then
+		printf 'NO_CRITERION_PROGRESS: reviews without a completed root criterion reached the monotonic limit (%s/%s)' "$criterionless_reviews" "$HARNESS_MAX_ROOT_REVIEWS_WITHOUT_CRITERION"
+	elif (( reviews >= HARNESS_MAX_TOTAL_ROOT_REVIEWS )); then
 		printf 'TOTAL_ROOT_REVIEWS: monotonic reviewed-result budget reached (%s/%s)' "$reviews" "$HARNESS_MAX_TOTAL_ROOT_REVIEWS"
 	elif (( replans >= HARNESS_MAX_TOTAL_ROOT_REPLANS )); then
 		printf 'TOTAL_ROOT_REPLANS: monotonic automatic-replan budget reached (%s/%s)' "$replans" "$HARNESS_MAX_TOTAL_ROOT_REPLANS"
@@ -1924,6 +1942,7 @@ mark_root_architecture_reassessment()
 			printf 'Reason: %s\n\n' "$reason"
 			printf 'Evidence: %s\n\n' "$evidence"
 			printf 'Total-Root-Reviews: %s\n' "$(root_reviewed_attempt_count "$root")"
+			printf 'Reviews-Without-Criterion: %s\n' "$(root_reviews_without_criterion_completion "$root")"
 			printf 'Total-Root-Replans: %s\n' "$(root_total_replan_count "$root")"
 			printf 'Child-Criteria: %s\n' "$(root_child_criterion_count "$root")"
 			printf 'Criterion-Depth: %s\n' "$(root_criterion_max_depth "$root")"
@@ -2009,6 +2028,25 @@ root_checkpoint_without_criterion_streak()
 	[[ ! -f "$baseline_file" ]] || baseline="$(kv_file_value "$baseline_file" checkpoint_rows 2>/dev/null || printf 0)"
 	[[ "$baseline" =~ ^[0-9]+$ ]] || baseline=0
 	awk -F '\t' -v baseline="$baseline" 'NR > 1 && NR > baseline + 1 {criteria[++n] = $3} END {for (i = n; i > 0 && criteria[i] == 0; i--) count++; print count + 0}' "$ledger"
+}
+
+root_reviews_without_criterion_completion()
+{
+	local root="$1" checkpoint_ledger history last_criterion_task
+	checkpoint_ledger="$(task_checkpoint_ledger_file "$root")"
+	history="$(task_progress_history_file "$root")"
+	[[ -f "$history" ]] || { printf '0\n'; return 0; }
+	last_criterion_task=""
+	if [[ -f "$checkpoint_ledger" ]]; then
+		last_criterion_task="$(awk -F '\t' 'NR > 1 && $3 + 0 > 0 {task=$2} END {print task}' "$checkpoint_ledger")"
+	fi
+	awk -F '\t' -v completed="$last_criterion_task" '
+		NR > 1 {
+			if (completed != "" && $2 == completed) count=0
+			else count++
+		}
+		END {print count + 0}
+	' "$history"
 }
 
 record_root_convergence_baseline()
@@ -3893,6 +3931,9 @@ write_manager_snapshot()
 		printf 'max_auto_replans_without_verified_gain=%s\n' "$HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN"
 		printf 'max_total_root_reviews=%s\n' "$HARNESS_MAX_TOTAL_ROOT_REVIEWS"
 		printf 'max_total_root_replans=%s\n' "$HARNESS_MAX_TOTAL_ROOT_REPLANS"
+		printf 'max_root_reviews_without_criterion=%s\n' "$HARNESS_MAX_ROOT_REVIEWS_WITHOUT_CRITERION"
+		printf 'max_agent_items_per_invocation=%s\n' "$HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION"
+		printf 'max_agent_processed_tokens_per_invocation=%s\n' "$HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION"
 		printf 'max_root_child_criteria=%s\n' "$HARNESS_MAX_ROOT_CHILD_CRITERIA"
 		printf 'max_criterion_depth=%s\n' "$HARNESS_MAX_CRITERION_DEPTH"
 		printf 'max_root_lifetime_seconds=%s\n' "$HARNESS_MAX_ROOT_LIFETIME_SECONDS"
@@ -3932,6 +3973,9 @@ write_worker_snapshot()
 		printf 'max_checkpoints_without_criterion=%s\n' "$HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION"
 		printf 'max_total_root_reviews=%s\n' "$HARNESS_MAX_TOTAL_ROOT_REVIEWS"
 		printf 'max_total_root_replans=%s\n' "$HARNESS_MAX_TOTAL_ROOT_REPLANS"
+		printf 'max_root_reviews_without_criterion=%s\n' "$HARNESS_MAX_ROOT_REVIEWS_WITHOUT_CRITERION"
+		printf 'max_agent_items_per_invocation=%s\n' "$HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION"
+		printf 'max_agent_processed_tokens_per_invocation=%s\n' "$HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION"
 		printf 'max_root_child_criteria=%s\n' "$HARNESS_MAX_ROOT_CHILD_CRITERIA"
 		printf 'max_criterion_depth=%s\n' "$HARNESS_MAX_CRITERION_DEPTH"
 		printf 'max_root_lifetime_seconds=%s\n' "$HARNESS_MAX_ROOT_LIFETIME_SECONDS"

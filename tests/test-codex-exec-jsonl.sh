@@ -41,6 +41,8 @@ case "${MOCK_MODE:?}" in
  network_stderr) printf 'stream disconnected: connection reset by peer\n' >&2; exit 1 ;;
  auth_code) printf '{"type":"turn.failed","error":{"code":"invalid_api_key","message":"bad credentials"}}\n'; exit 1 ;;
  success_warning) printf 'network error recovered\n' >&2; printf 'done\n' > "$last"; printf '{"type":"turn.completed"}\n' ;;
+	item_loop) for i in $(seq 1 10); do printf '{"type":"item.started","item":{"id":"%s"}}\n' "$i"; done; sleep 5 ;;
+	token_heavy) printf 'done\n' > "$last"; printf '{"type":"thread.started","thread_id":"budget-thread"}\n{"type":"turn.completed","usage":{"input_tokens":90,"output_tokens":20}}\n' ;;
 	stop_sentinel) while true; do sleep 1; done ;;
 esac
 MOCK
@@ -143,6 +145,36 @@ grep -q '^http_status=429$' "$TMP/rate_status.classification"
 run_case network_stderr provider_transient_error
 run_case auth_code terminal_authentication_error
 run_case success_warning success
+
+# A single still-running agent is stopped before it can hide an unbounded
+# internal loop behind one supervisor invocation. The root is durably paused
+# and the machine-readable classification records the tripped guard.
+resource_prompt="$TMP/resource-prompt"
+printf 'TASK_ID=resource-root\nTASK_ROOT=resource-root\n' > "$resource_prompt"
+cp "$TMP/env" "$TMP/env-resource"
+printf 'export HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION="3"\n' >> "$TMP/env-resource"
+set +e
+MOCK_MODE=item_loop "$ROOT/bin/codex-exec-jsonl" "$TMP/env-resource" worker gpt-5.5 \
+	"$resource_prompt" "$TMP/item-loop.jsonl" "$TMP/item-loop.stderr" "$TMP/item-loop.last"
+item_status=$?
+set -e
+(( item_status != 0 ))
+grep -q '^classification=agent_item_budget_exceeded$' "$TMP/item-loop.classification"
+grep -q '^resource_guard=ITEM_LIMIT$' "$TMP/item-loop.classification"
+grep -q 'agent invocation resource circuit breaker: live item-start budget reached' \
+	"$TMP/state/projects/jsonltest/control/progress/jsonltest-task-resource-root.needs-human.md"
+
+printf 'TASK_ID=token-root\nTASK_ROOT=token-root\n' > "$resource_prompt"
+printf 'export HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION="100"\n' >> "$TMP/env-resource"
+set +e
+MOCK_MODE=token_heavy "$ROOT/bin/codex-exec-jsonl" "$TMP/env-resource" worker gpt-5.5 \
+	"$resource_prompt" "$TMP/token-heavy.jsonl" "$TMP/token-heavy.stderr" "$TMP/token-heavy.last"
+token_status=$?
+set -e
+(( token_status != 0 ))
+grep -q '^classification=agent_token_budget_exceeded$' "$TMP/token-heavy.classification"
+grep -q '^invocation_processed_delta=110$' "$TMP/token-heavy.classification"
+grep -q '^resource_guard=TOKEN_LIMIT$' "$TMP/token-heavy.classification"
 
 # One harness-start transaction has a hard process budget independent of the
 # time-based limiter. Exhaustion must fail before the model executable starts.

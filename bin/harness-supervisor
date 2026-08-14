@@ -145,7 +145,7 @@ process_results()
 	shopt -s nullglob
 	for file in "$dir/results/$PROJECT-task-"*.result.md; do
 		task_id="$(task_id_from_filename "$file")"
-		if task_root_needs_architecture_reassessment "$task_id"; then
+		if task_root_is_paused "$task_id"; then
 			continue
 		fi
 		base="$(task_base "$task_id")"

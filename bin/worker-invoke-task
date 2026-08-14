@@ -429,6 +429,13 @@ while true; do
 	fi
 	classification="$(kv_file_value "${json_log%.jsonl}.classification" classification 2>/dev/null || true)"
 	record_root_agent_tokens "$task_id" "$execution_role" "${json_log%.jsonl}.classification"
+	if task_root_needs_human "$task_root" && [[ "$(kv_file_value "${json_log%.jsonl}.classification" resource_guard 2>/dev/null || printf -)" != - ]]; then
+		cleanup_heartbeat
+		log_event "WORKER_RESOURCE_GUARD_PAUSED task=$task_id root=$task_root classification=${classification:-unknown}"
+		printf 'Worker task %s exceeded an invocation resource guard; workspace changes are preserved and the root requires human review.\n' "$task_id" >&2
+		(( status != 0 )) || status=75
+		exit "$status"
+	fi
 	if (( goal_mode == 1 )); then
 		goal_turns="$(kv_file_value "$goal_state" process_turns 2>/dev/null || printf 0)"
 		goal_input="$(kv_file_value "$goal_state" cumulative_input_tokens 2>/dev/null || printf 0)"

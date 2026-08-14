@@ -103,6 +103,7 @@ printf 'Monotonic root liveness: reviews=%s replans=%s child-criteria=%s depth=%
 	"$HARNESS_MAX_TOTAL_ROOT_REVIEWS" "$HARNESS_MAX_TOTAL_ROOT_REPLANS" \
 	"$HARNESS_MAX_ROOT_CHILD_CRITERIA" "$HARNESS_MAX_CRITERION_DEPTH" \
 	"$HARNESS_MAX_ROOT_LIFETIME_SECONDS" "$HARNESS_MAX_ROOT_PROCESSED_TOKENS"
+printf 'No-criterion-progress circuit breaker: %s reviewed outcomes\n' "$HARNESS_MAX_ROOT_REVIEWS_WITHOUT_CRITERION"
 if (( HARNESS_AUTO_REPLAN_ENABLED == 1 )); then
 	printf 'Automatic persistent-manager replanning: enabled (%s strategy change(s) without durable verified gain)\n' \
 		"$HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN"
@@ -132,6 +133,8 @@ fi
 printf 'Transient provider retry seconds: %s (retries unlimited)\n' "$HARNESS_PROVIDER_RETRY_SECONDS"
 printf 'Quota retry seconds: %s (retries unlimited)\n' "$HARNESS_QUOTA_RETRY_SECONDS"
 printf 'Minimum interval between agent launches: %s seconds (project-wide)\n' "$HARNESS_AGENT_MIN_INTERVAL_SECONDS"
+printf 'Per-agent circuit breaker: %s item starts, %s processed tokens\n' \
+	"$HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION" "$HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION"
 printf 'Codex wall timeout seconds: %s (0 means unlimited)\n' "$HARNESS_CODEX_WALL_TIMEOUT_SECONDS"
 printf 'Codex idle timeout seconds: %s (0 means unlimited)\n' "$HARNESS_CODEX_IDLE_TIMEOUT_SECONDS"
 printf 'Task lifecycle: verified increments are checkpointed; broad criteria may gain append-only children; roots resume by first-unmet leaf; leaf-goal CONTINUE receipts remain worker-internal; verified gain resets bounded automatic-replan escalation\n'

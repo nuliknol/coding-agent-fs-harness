@@ -371,7 +371,7 @@ ENV
 chmod 600 "$TEST_ROOT/harness.env"
 
 "$HARNESS_BIN/harness-check-env" "$TEST_ROOT/harness.env" > "$TEST_ROOT/check-env.out"
-grep -q 'Codex wall timeout seconds: 0 (0 means unlimited)' "$TEST_ROOT/check-env.out"
+grep -q 'Codex wall timeout seconds: 1800 (0 means unlimited)' "$TEST_ROOT/check-env.out"
 grep -q 'Codex idle timeout seconds: 0 (0 means unlimited)' "$TEST_ROOT/check-env.out"
 grep -q 'Deterministic blocker circuit breaker: disabled' "$TEST_ROOT/check-env.out"
 grep -q 'Root-attempt replanning guard: 12 reviewed attempts' "$TEST_ROOT/check-env.out"

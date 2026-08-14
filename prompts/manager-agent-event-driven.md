@@ -487,6 +487,11 @@ or frozen-baseline restriction when a bounded repair preserves observable
 product behavior and public contracts. Use `LOCAL_SCOPE_PREREQUISITE`; the
 manager acts as integration owner and the harness records the affected paths
 as baseline-remediation provenance separate from the feature-owned delta.
+This exception applies only to manager-authored leaf restrictions. A path
+frozen or excluded by the governing human specification or accepted project
+DAG is a semantic-authority boundary: do not spend another implementation turn
+trying to override it. Request specification clarification or architecture
+reassessment instead.
 
 When `CLOSURE_MODE_ELIGIBLE_ON_REJECTION=1`, the next assignment must state
 `Closure-Mode: ENABLED`, name exactly one focused root acceptance smoke, and

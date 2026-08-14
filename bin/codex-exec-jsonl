@@ -10,6 +10,8 @@ usage() { printf 'Usage: %s ENV_FILE ROLE MODEL PROMPT JSONL STDERR LAST_MESSAGE
 [[ $# -ge 7 && $# -le 9 ]] || usage
 env_file="$1" role="$2" model="$3" prompt="$4" json_log="$5" stderr_log="$6" last_message="$7"
 shift 7
+resume_requested=0
+[[ $# -ne 2 || "$1" != resume ]] || resume_requested=1
 load_harness_env "$env_file"
 [[ -f "$prompt" ]] || die "prompt file does not exist: $prompt"
 umask 077
@@ -138,6 +140,39 @@ fi
 # total runtime or stream inactivity; both are unlimited by default.
 idle_timed_out=0
 stop_requested=0
+resource_guard_tripped=0
+resource_guard_kind=""
+resource_guard_reason=""
+agent_item_count=0
+
+prompt_value()
+{
+	local key="$1"
+	awk -F= -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' "$prompt"
+}
+
+resource_task_id="$(prompt_value TASK_ID)"
+resource_task_root="$(prompt_value TASK_ROOT)"
+[[ -n "$resource_task_root" ]] || resource_task_root="$(prompt_value ACTIVE_TASK_ROOT)"
+[[ -n "$resource_task_id" ]] || resource_task_id="${resource_task_root:-agent-invocation}"
+
+record_resource_guard()
+{
+	local alarm marker="-"
+	if [[ -n "$resource_task_root" && "$resource_task_root" != - ]]; then
+		mkdir -p "$(project_dir)/control/progress"
+		chmod 700 "$(project_dir)/control/progress"
+		marker="$(mark_root_needs_human "$resource_task_root" "$resource_task_id" \
+			"agent invocation resource circuit breaker: $resource_guard_reason" \
+			"" "The bounded agent process exceeded a machine-enforced resource limit; inspect its JSONL, token accounting, and preserved workspace before explicitly resuming.")"
+	fi
+	alarm="$(project_dir)/logs/agent-resource-alarms.log"
+	printf '%s\tproject=%s\troot=%s\ttask=%s\trole=%s\tmodel=%s\tkind=%s\treason=%q\tjsonl=%s\tmarker=%s\n' \
+		"$(timestamp_utc)" "$PROJECT" "${resource_task_root:--}" "$resource_task_id" "$role" "$model" \
+		"$resource_guard_kind" "$resource_guard_reason" "$json_log" "$marker" >> "$alarm"
+	chmod 600 "$alarm"
+	log_event "AGENT_RESOURCE_CIRCUIT_BREAKER root=${resource_task_root:--} task=$resource_task_id role=$role kind=$resource_guard_kind reason=$(printf '%q' "$resource_guard_reason") jsonl=$json_log"
+}
 
 process_tree_pids()
 {
@@ -190,6 +225,15 @@ while kill -0 "$pid" 2>/dev/null; do
 		terminate_process_tree "$pid"
 		break
 	fi
+	agent_item_count="$(grep -Ec '"type"[[:space:]]*:[[:space:]]*"item[.]started"' "$json_log" 2>/dev/null || true)"
+	[[ "$agent_item_count" =~ ^[0-9]+$ ]] || agent_item_count=0
+	if (( agent_item_count >= HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION )); then
+		resource_guard_tripped=1
+		resource_guard_kind=ITEM_LIMIT
+		resource_guard_reason="live item-start budget reached ($agent_item_count/$HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION)"
+		terminate_process_tree "$pid"
+		break
+	fi
  now="$(date +%s)"
  newest="$last_activity"
  for file in "$json_log" "$stderr_log"; do
@@ -210,6 +254,50 @@ git_state_changed=0
 if [[ -n "$git_state_before" ]]; then
 	git_state_after="$(git -C "$REPOSITORY" status --porcelain=v1 | sha256sum | awk '{print $1}')"
 	[[ "$git_state_before" == "$git_state_after" ]] || git_state_changed=1
+fi
+
+if (( resource_guard_tripped == 0 && idle_timed_out == 1 )); then
+	resource_guard_tripped=1
+	resource_guard_kind=IDLE_LIMIT
+	resource_guard_reason="stream inactivity reached ${HARNESS_CODEX_IDLE_TIMEOUT_SECONDS}s"
+elif (( resource_guard_tripped == 0 && status == 124 )); then
+	resource_guard_tripped=1
+	resource_guard_kind=WALL_LIMIT
+	resource_guard_reason="wall-clock budget reached ${HARNESS_CODEX_WALL_TIMEOUT_SECONDS}s"
+fi
+
+usage_input="$(codex_usage_value_from_jsonl "$json_log" input_tokens)"
+usage_cached="$(codex_usage_value_from_jsonl "$json_log" cached_input_tokens)"
+usage_output="$(codex_usage_value_from_jsonl "$json_log" output_tokens)"
+usage_thread="$(codex_thread_id_from_jsonl "$json_log" 2>/dev/null || true)"
+invocation_processed_delta=0
+invocation_delta_known=0
+if [[ "$usage_input" =~ ^[0-9]+$ && "$usage_output" =~ ^[0-9]+$ ]]; then
+	usage_processed=$((usage_input + usage_output))
+	if (( resume_requested == 0 )); then
+		invocation_processed_delta="$usage_processed"
+		invocation_delta_known=1
+	elif [[ -n "$usage_thread" ]]; then
+		thread_key="$(printf '%s' "$usage_thread" | sha256sum | awk '{print $1}')"
+		thread_state="$(project_dir)/control/agent-token-thread-state/$thread_key.env"
+		if [[ -f "$thread_state" ]]; then
+			prior_processed="$(kv_file_value "$thread_state" processed_tokens 2>/dev/null || printf 0)"
+			[[ "$prior_processed" =~ ^[0-9]+$ ]] || prior_processed=0
+			if (( usage_processed > prior_processed )); then
+				invocation_processed_delta=$((usage_processed - prior_processed))
+			fi
+			invocation_delta_known=1
+		fi
+	fi
+fi
+if (( resource_guard_tripped == 0 && invocation_delta_known == 1 && invocation_processed_delta > HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION )); then
+	resource_guard_tripped=1
+	resource_guard_kind=TOKEN_LIMIT
+	resource_guard_reason="processed-token delta exceeded ($invocation_processed_delta/$HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION)"
+fi
+if (( resource_guard_tripped == 1 )); then
+	record_resource_guard
+	(( status != 0 )) || status=75
 fi
 
 classification="success"
@@ -239,7 +327,9 @@ failure_signal=0
 if (( status != 0 )) || ! jq -e 'select(.type == "turn.completed")' "$json_log" >/dev/null 2>&1; then
 	failure_signal=1
 fi
-if (( stop_requested )); then classification="harness_stop_requested"
+if [[ "$resource_guard_kind" == ITEM_LIMIT ]]; then classification="agent_item_budget_exceeded"
+elif [[ "$resource_guard_kind" == TOKEN_LIMIT ]]; then classification="agent_token_budget_exceeded"
+elif (( stop_requested )); then classification="harness_stop_requested"
 elif (( idle_timed_out )); then classification="idle_timeout"
 elif (( status == 124 )); then classification="wall_clock_timeout"
 elif (( status != 0 && git_state_changed )); then classification="partial_edit_failure"
@@ -258,13 +348,10 @@ elif ! jq -e 'select(.type == "turn.completed")' "$json_log" >/dev/null 2>&1; th
 elif [[ ! -s "$last_message" ]]; then classification="empty_final_output"
 fi
 classification_file="${json_log%.jsonl}.classification"
-usage_input="$(codex_usage_value_from_jsonl "$json_log" input_tokens)"
-usage_cached="$(codex_usage_value_from_jsonl "$json_log" cached_input_tokens)"
-usage_output="$(codex_usage_value_from_jsonl "$json_log" output_tokens)"
-usage_thread="$(codex_thread_id_from_jsonl "$json_log" 2>/dev/null || true)"
-printf 'classification=%s\nprovider_code=%s\nhttp_status=%s\nexit_status=%s\nidle_timeout=%s\nstop_requested=%s\npartial_edits=%s\nrole=%s\nmodel=%s\nthread_id=%s\ninput_tokens=%s\ncached_input_tokens=%s\noutput_tokens=%s\njsonl=%s\nstderr=%s\nlast_message=%s\n' \
+printf 'classification=%s\nprovider_code=%s\nhttp_status=%s\nexit_status=%s\nidle_timeout=%s\nstop_requested=%s\npartial_edits=%s\nrole=%s\nmodel=%s\nthread_id=%s\ninput_tokens=%s\ncached_input_tokens=%s\noutput_tokens=%s\ninvocation_processed_delta=%s\ninvocation_delta_known=%s\nitem_started_count=%s\nresource_guard=%s\njsonl=%s\nstderr=%s\nlast_message=%s\n' \
 	"$classification" "$error_code" "$http_status" "$status" "$idle_timed_out" "$stop_requested" "$git_state_changed" \
 	"$role" "$model" "$usage_thread" "$usage_input" "$usage_cached" "$usage_output" \
+	"$invocation_processed_delta" "$invocation_delta_known" "$agent_item_count" "${resource_guard_kind:--}" \
 	"$json_log" "$stderr_log" "$last_message" > "$classification_file"
 printf 'CODEX_CLASSIFICATION=%s\nCODEX_STDERR_LOG=%s\nCODEX_CLASSIFICATION_FILE=%s\n' "$classification" "$stderr_log" "$classification_file" >&2
 exit "$status"
