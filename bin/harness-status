@@ -76,6 +76,9 @@ if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )); then
 	if specification_renormalization_stall_matches_current_inputs; then
 		specification_review_status='NORMALIZATION_STALLED'
 		specification_normalization_stall_report="$(kv_file_value "$(specification_renormalization_stall_file)" report)"
+	elif specification_review_is_accepted; then
+		specification_review_status='ACCEPTED'
+		specification_review_report="$(specification_review_report_relative_path)"
 	elif specification_review_matches_current_inputs; then
 		specification_review_status="$(specification_review_state_value status UNKNOWN)"
 		specification_review_report="$(specification_review_report_relative_path)"

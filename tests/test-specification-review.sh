@@ -429,7 +429,14 @@ grep -Fqx $'manager_cached_tokens\t100' <<< "$token_output"
 grep -Fqx $'manager_output_tokens\t20' <<< "$token_output"
 grep -Fqx $'worker_luna_input_tokens\t40' <<< "$token_output"
 grep -Fqx $'worker_terra_input_tokens\t20' <<< "$token_output"
+
+# A normal implementation commit advances HEAD after DAG registration without
+# invalidating the accepted review whose baseline remains an ancestor.
+printf 'int post_review_commit(void) { return 1; }\n' > "$repo/src/post-review.c"
+git -C "$repo" add src/post-review.c
+git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm post-review-implementation
 status_output="$("$HARNESS_BIN/harness-status" --full "$env_file")"
+grep -Fq 'Specification review: ACCEPTED (' <<< "$status_output"
 grep -Fq 'Specification IR: obligations=2 relations=5 domain-profiles=test-contract' <<< "$status_output"
 grep -Fq 'Specification coverage: mapped=2/2 verified=0/2' <<< "$status_output"
 grep -Fq 'Manager [gpt-5.6-terra]: input=150 cached=100 output=20 processed=170' <<< "$status_output"
@@ -449,6 +456,7 @@ if grep -Fq 'Agent token usage' <<< "$concise_status" || grep -Fq 'PLAN ITEM' <<
 fi
 
 info_output="$("$HARNESS_BIN/harness-info" "$env_file")"
+grep -Fq '  Review: ACCEPTED' <<< "$info_output"
 grep -Fq 'Obligations / relations: 2 / 5' <<< "$info_output"
 grep -Fq 'DAG nodes: 2 (0 complete)' <<< "$info_output"
 grep -Fq 'Routes: Luna=2 Terra=0' <<< "$info_output"
