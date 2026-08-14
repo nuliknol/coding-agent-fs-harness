@@ -15,6 +15,7 @@ usage()
 [[ $# -eq 1 ]] || usage
 load_harness_env "$1"
 ensure_project
+"$HARNESS_BIN/harness-migrate-state" "$HARNESS_ENV_FILE" >/dev/null
 trace_init manager_supervisor
 trace_script_start "$@"
 dir="$(project_dir)"

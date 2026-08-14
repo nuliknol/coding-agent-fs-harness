@@ -97,6 +97,11 @@ else
 	"$HARNESS_BIN/harness-recover" "$HARNESS_ENV_FILE" --reset-orphaned
 fi
 
+# State produced by releases before 5.11 classified token circuit breakers as
+# NEEDS_HUMAN. Convert only that exact legacy reason into the dedicated,
+# evidence-preserving TOKEN_USAGE_ANOMALY interlock before any agent can launch.
+"$HARNESS_BIN/harness-migrate-state" "$HARNESS_ENV_FILE" >/dev/null
+
 # Record the operator's intent before any long planning/bootstrap call. If the
 # machine dies during that first call, boot recovery can safely resume it.
 if (( HARNESS_BOOT_RECOVERY == 1 )) && [[ "${HARNESS_AUTOSTART_INTERNAL:-0}" != 1 ]]; then

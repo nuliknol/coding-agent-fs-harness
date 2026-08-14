@@ -662,6 +662,15 @@ harness-resolve-token-usage-anomaly project.env TASK_ROOT resolution.md
 harness-start project.env
 ```
 
+`harness-start` automatically migrates pre-5.11 token circuit breakers that
+were recorded as `NEEDS_HUMAN`; the original marker is archived and the exact
+root becomes `TOKEN_USAGE_ANOMALY`. The migration can also be run explicitly
+and is idempotent:
+
+```bash
+harness-migrate-state project.env
+```
+
 Specification normalization retains its separately configured authoritative
 post-turn allowance for very large imported specifications, but it remains
 subject to the lower live-estimated circuit breaker.

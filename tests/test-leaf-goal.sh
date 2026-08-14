@@ -430,6 +430,19 @@ NOTE
 [[ ! -e "$resource_anomaly" ]]
 grep -q 'TOKEN_USAGE_ANOMALY_RESOLVED root=001' "$resource_project/logs/events.log"
 
+# Releases before 5.11 mislabeled token fuses as NEEDS_HUMAN. The state
+# migration is exact, evidence-preserving, and idempotent; unrelated human
+# authority markers must not be touched.
+legacy_human="$(bash -c 'source "$1"; load_harness_env "$2"; mark_root_needs_human 001 001 "agent invocation resource circuit breaker: processed-token delta exceeded (5000001/2000000; phase=ordinary)" "" "legacy token guard"' _ "$HARNESS_HOME/lib/harness-common.sh" "$RESOURCE_ROOT/harness.env")"
+[[ -f "$legacy_human" ]]
+grep -Fqx 'Legacy token-limit markers migrated: 1' < <("$HARNESS_BIN/harness-migrate-state" "$RESOURCE_ROOT/harness.env")
+[[ ! -e "$legacy_human" ]]
+[[ -f "$resource_anomaly" ]]
+grep -Fq 'migrated_from=' "$resource_anomaly"
+[[ -f "$resource_project/archive/token-usage-anomalies/goalresource-task-001.legacy-needs-human.md" ]]
+grep -q 'LEGACY_TOKEN_LIMIT_MARKER_MIGRATED root=001' "$resource_project/logs/events.log"
+grep -Fqx 'Legacy token-limit markers migrated: 0' < <("$HARNESS_BIN/harness-migrate-state" "$RESOURCE_ROOT/harness.env")
+
 # A continuation committed by 5.9.x is adopted at restart and receives the
 # semantic review before any new worker context is launched.
 RECOVERY_ROOT="$TEST_ROOT/semantic-recovery"

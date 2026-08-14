@@ -2076,6 +2076,44 @@ mark_root_token_usage_anomaly()
 	printf '%s\n' "$marker"
 }
 
+migrate_legacy_token_limit_human_markers()
+{
+	local human name root trigger reason archive_dir archive token_marker migrated=0 nullglob_was_set=0
+	shopt -q nullglob && nullglob_was_set=1
+	shopt -s nullglob
+	for human in "$(project_dir)/control/progress/$PROJECT-task-"*.needs-human.md; do
+		[[ -f "$human" ]] || continue
+		reason="$(awk '/^Reason: / {sub(/^Reason: /, ""); print; exit}' "$human")"
+		case "$reason" in
+			"agent invocation resource circuit breaker: processed-token delta exceeded ("*) ;;
+			*) continue ;;
+		esac
+		name="${human##*/}"
+		root="${name#${PROJECT}-task-}"
+		root="${root%.needs-human.md}"
+		trigger="$(awk -F': ' '$1 == "Triggered-By" {print $2; exit}' "$human")"
+		[[ -n "$trigger" ]] || trigger="$root"
+		archive_dir="$(project_dir)/archive/token-usage-anomalies"
+		mkdir -p "$archive_dir"
+		chmod 700 "$archive_dir"
+		archive="$archive_dir/$PROJECT-task-$root.legacy-needs-human.md"
+		if [[ -f "$archive" ]] && ! cmp -s "$human" "$archive"; then
+			archive="$archive_dir/$PROJECT-task-$root.$(timestamp_compact_utc).legacy-needs-human.md"
+		fi
+		[[ -f "$archive" ]] || install -m 600 "$human" "$archive"
+		token_marker="$(task_root_token_usage_anomaly_file "$root")"
+		if [[ ! -f "$token_marker" ]]; then
+			mark_root_token_usage_anomaly "$trigger" "$reason" \
+				"migrated_from=$archive legacy_state=NEEDS_HUMAN" >/dev/null
+		fi
+		rm -f "$human"
+		log_event "LEGACY_TOKEN_LIMIT_MARKER_MIGRATED root=$root trigger=$trigger source=$human archive=$archive marker=$token_marker"
+		migrated=$((migrated + 1))
+	done
+	(( nullglob_was_set == 1 )) || shopt -u nullglob
+	printf '%s\n' "$migrated"
+}
+
 enforce_root_liveness_or_reassess()
 {
 	local task_id="$1" reason category
