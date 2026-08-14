@@ -2792,27 +2792,42 @@ release_env_command_lock()
 
 env_process_lines()
 {
-	local ignore_pids pid ppid
-	ignore_pids=""
+	local pid ppid proc arg has_harness_path has_env_file
+	local -a argv
+	local -A ignore_pid
 	pid="${BASHPID:-$$}"
 	while [[ -n "$pid" && "$pid" =~ ^[0-9]+$ && "$pid" -gt 1 ]]; do
-		ignore_pids+="${ignore_pids:+,}$pid"
+		ignore_pid["$pid"]=1
 		ppid="$(ps -o ppid= -p "$pid" | tr -d '[:space:]')"
 		[[ -n "$ppid" && "$ppid" != "$pid" ]] || break
 		pid="$ppid"
 	done
 
-	ps -eo pid=,comm=,args= | awk -v env="$HARNESS_ENV_FILE" -v bin="$HARNESS_BIN/" -v ignore="$ignore_pids" '
-		BEGIN {
-			split(ignore, list, ",")
-			for (i in list) {
-				if (list[i] != "") {
-					skip[list[i]] = 1
-				}
-			}
-		}
-		($2 == "bash" || $2 == "sh") && index($0, bin) && index($0, env) && !($1 in skip) { print }
-	'
+	# Inspect argv boundaries from procfs. Searching flattened `ps` output makes
+	# an orchestration shell look like every harness named inside its command
+	# text, which can falsely reject otherwise independent detached starts.
+	for proc in /proc/[0-9]*; do
+		pid="${proc##*/}"
+		[[ -z "${ignore_pid[$pid]:-}" && -r "$proc/cmdline" ]] || continue
+		argv=()
+		while IFS= read -r -d '' arg; do
+			argv+=("$arg")
+		done < "$proc/cmdline" || true
+		(( ${#argv[@]} > 0 )) || continue
+		case "${argv[0]##*/}" in
+			bash|sh) ;;
+			*) continue ;;
+		esac
+		has_harness_path=0
+		has_env_file=0
+		for arg in "${argv[@]}"; do
+			[[ "$arg" == "$HARNESS_BIN/"* ]] && has_harness_path=1
+			[[ "$arg" == "$HARNESS_ENV_FILE" ]] && has_env_file=1
+		done
+		if (( has_harness_path == 1 && has_env_file == 1 )); then
+			ps -o pid=,comm=,args= -p "$pid"
+		fi
+	done
 }
 
 env_has_running_processes()

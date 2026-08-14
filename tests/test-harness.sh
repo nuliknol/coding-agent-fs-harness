@@ -398,6 +398,24 @@ grep -Fq 'repository has staged, unstaged, or non-ignored untracked files' \
 test ! -e "$TEST_ROOT/state/mock-counts/bootstrap"
 rm -f "$TEST_ROOT/repo/untracked-before-start.txt"
 
+# A parent orchestration shell may mention several harness commands and
+# environment paths in one command string. Those strings are not active
+# environment-bound harness argv entries and must not block detached starts.
+bash -lc "sleep 30 # $HARNESS_BIN/harness-start --background $TEST_ROOT/harness.env" &
+orchestrator_pid=$!
+sleep 0.2
+if bash -c '
+	source "$1/lib/harness-common.sh"
+	load_harness_env "$2"
+	env_has_running_processes
+' bash "$HARNESS_HOME" "$TEST_ROOT/harness.env"; then
+	printf 'orchestration command text was mistaken for a live harness process\n' >&2
+	kill "$orchestrator_pid" 2>/dev/null || true
+	exit 1
+fi
+kill "$orchestrator_pid" 2>/dev/null || true
+wait "$orchestrator_pid" 2>/dev/null || true
+
 bash -c 'while true; do sleep 1; done' \
 	"$HARNESS_BIN/manager-review-specification" "$TEST_ROOT/harness.env" &
 overlap_pid=$!
