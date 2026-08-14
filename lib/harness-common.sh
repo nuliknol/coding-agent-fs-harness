@@ -1396,6 +1396,20 @@ repository_workspace_fingerprint()
 	fi
 }
 
+require_clean_repository_start_state()
+{
+	local changes
+	git -C "$REPOSITORY" rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
+		die "repository is not a Git working tree: $REPOSITORY"
+	git -C "$REPOSITORY" rev-parse --verify 'HEAD^{commit}' >/dev/null 2>&1 ||
+		die "repository does not have a valid HEAD commit: $REPOSITORY"
+	changes="$(git -C "$REPOSITORY" status --porcelain=v1 --untracked-files=all)"
+	if [[ -n "$changes" ]]; then
+		printf '%s\n' "$changes" >&2
+		die 'repository has staged, unstaged, or non-ignored untracked files; commit or clean it before harness-start'
+	fi
+}
+
 worker_thread_state_file()
 {
 	local root

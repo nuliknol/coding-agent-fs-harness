@@ -131,6 +131,13 @@ while commands and watchers display only the repository-relative report name.
 Revise and commit the governing specification or repository evidence, then run
 `harness-start` again to obtain a fresh review.
 
+For a stopped Full project, `harness-start` requires `REPOSITORY` to be a Git
+worktree with a valid `HEAD` and no staged, unstaged, or non-ignored untracked
+files. It prints the exact porcelain-status entries and exits before recovery
+or any agent invocation when this preflight fails. Ignored build products are
+not considered dirty. A redundant start against supervisors that are already
+running remains idempotent and does not apply this stopped-project preflight.
+
 An accepted review also installs a normalized Specification IR: independently
 testable obligations, typed semantic relations, a bounded repository inventory,
 and authority-qualified repository facts. The decomposition critic must provide

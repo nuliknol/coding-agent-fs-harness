@@ -19,6 +19,7 @@ EOF
 git -C "$repo" init -q
 git -C "$repo" add spec.md src/a.c .harness/domain-profiles/test-contract.tsv
 git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm seed
+printf '/spec-review/\n' >> "$repo/.git/info/exclude"
 
 env_file="$TEST_ROOT/configs/spec-review.env"
 cat > "$env_file" <<ENV
@@ -102,6 +103,16 @@ record_output="$("$HARNESS_BIN/manager-record-specification-review" "$env_file" 
 [[ "$record_output" =~ ^spec-review/specification-review-.*\.md$ ]]
 [[ -f "$repo/$record_output" ]]
 grep -Fqx 'status=SPEC_CLARIFICATION_REQUIRED' "$project_dir/control/specification-review.env"
+
+set +e
+printf 'must block review startup\n' > "$repo/untracked-before-start.txt"
+dirty_start_output="$("$HARNESS_BIN/harness-start" "$env_file" 2>&1)"
+dirty_start_status=$?
+rm -f "$repo/untracked-before-start.txt"
+set -e
+(( dirty_start_status == 1 ))
+grep -Fq '?? untracked-before-start.txt' <<< "$dirty_start_output"
+grep -Fq 'repository has staged, unstaged, or non-ignored untracked files' <<< "$dirty_start_output"
 
 set +e
 start_output="$("$HARNESS_BIN/harness-start" "$env_file" 2>&1)"

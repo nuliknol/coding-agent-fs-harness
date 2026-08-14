@@ -19,7 +19,13 @@ ensure_project
 require_goal_mode_clean_boundary
 dir="$(project_dir)"
 
-if env_has_running_processes; then
+processes_running=0
+env_has_running_processes && processes_running=1
+if (( processes_running == 0 )); then
+	require_clean_repository_start_state
+fi
+
+if (( processes_running == 1 )); then
 	printf 'Harness processes already reference this environment; preserving all state and progress.\n'
 else
 	"$HARNESS_BIN/harness-recover" "$HARNESS_ENV_FILE" --reset-orphaned

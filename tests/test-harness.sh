@@ -18,6 +18,9 @@ trap cleanup EXIT
 
 mkdir -p "$TEST_ROOT/repo" "$TEST_ROOT/manager-home" "$TEST_ROOT/worker-home"
 printf 'test specification\n' > "$TEST_ROOT/repo/spec.md"
+git -C "$TEST_ROOT/repo" init -q
+git -C "$TEST_ROOT/repo" add spec.md
+git -C "$TEST_ROOT/repo" -c user.name=test -c user.email=test@example.invalid commit -qm baseline
 ARGS_LOG="$TEST_ROOT/mock-codex-args.log"
 export ARGS_LOG
 
@@ -383,6 +386,17 @@ grep -q 'Transient provider retry seconds: 1 (retries unlimited)' "$TEST_ROOT/ch
 grep -q 'Quota retry seconds: 1 (retries unlimited)' "$TEST_ROOT/check-env.out"
 "$HARNESS_BIN/harness-init" "$TEST_ROOT/harness.env" >/dev/null
 [[ -d "/tmp/testproj" ]]
+printf 'must block startup\n' > "$TEST_ROOT/repo/untracked-before-start.txt"
+if "$HARNESS_BIN/harness-start" "$TEST_ROOT/harness.env" \
+	>"$TEST_ROOT/dirty-start.out" 2>"$TEST_ROOT/dirty-start.err"; then
+	printf 'harness-start accepted a non-ignored untracked file\n' >&2
+	exit 1
+fi
+grep -Fq '?? untracked-before-start.txt' "$TEST_ROOT/dirty-start.err"
+grep -Fq 'repository has staged, unstaged, or non-ignored untracked files' \
+	"$TEST_ROOT/dirty-start.err"
+test ! -e "$TEST_ROOT/state/mock-counts/bootstrap"
+rm -f "$TEST_ROOT/repo/untracked-before-start.txt"
 "$HARNESS_BIN/harness-start" "$TEST_ROOT/harness.env" >/dev/null
 
 # A manager review that returns without a durable action must be invoked once
@@ -1768,6 +1782,9 @@ grep -q $'^broad.parent\tbroad.parse\t' "$decomp_file"
 ACTIVE_ROOT="$TEST_ROOT/active"
 mkdir -p "$ACTIVE_ROOT/repo" "$ACTIVE_ROOT/manager-home" "$ACTIVE_ROOT/worker-home"
 printf 'test specification\n' > "$ACTIVE_ROOT/repo/spec.md"
+git -C "$ACTIVE_ROOT/repo" init -q
+git -C "$ACTIVE_ROOT/repo" add spec.md
+git -C "$ACTIVE_ROOT/repo" -c user.name=test -c user.email=test@example.invalid commit -qm baseline
 cat > "$ACTIVE_ROOT/harness.env" <<ENV
 export PROJECT="activeproj"
 export REPOSITORY="$ACTIVE_ROOT/repo"
