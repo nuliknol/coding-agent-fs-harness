@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE VERDICT_MD FACTS_TSV ISSUES_TSV\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 4 ]] || usage
+load_harness_env "$1"
+verdict_file="$2"
+facts_file="$3"
+issues_file="$4"
+ensure_project
+require_manager_configuration
+(( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )) || die 'specification review is disabled'
+project_plan_exists && die 'cannot replace specification acceptance after DAG registration'
+[[ -f "$verdict_file" && -f "$facts_file" && -f "$issues_file" ]] ||
+	die 'specification review requires verdict, facts, and issues files'
+acquire_project_lock
+
+decision="$(awk -F': ' '$1 == "Decision" {print $2; exit}' "$verdict_file")"
+review_spec_sha="$(awk -F': ' '$1 == "Specification-SHA256" {print $2; exit}' "$verdict_file")"
+review_baseline="$(awk -F': ' '$1 == "Repository-Baseline" {print $2; exit}' "$verdict_file")"
+[[ "$decision" =~ ^(ACCEPT|SPEC_CLARIFICATION_REQUIRED)$ ]] ||
+	die 'specification verdict Decision must be ACCEPT or SPEC_CLARIFICATION_REQUIRED'
+current_spec_sha="$(specification_sha256)"
+current_baseline="$(specification_review_repository_baseline)"
+[[ "$review_spec_sha" == "$current_spec_sha" ]] || die 'specification verdict SHA does not match the current specification'
+[[ "$review_baseline" == "$current_baseline" ]] || die 'specification verdict baseline does not match repository HEAD'
+if [[ "$decision" == ACCEPT ]] && specification_review_requires_clarification; then
+	die 'cannot accept unchanged inputs after SPEC_CLARIFICATION_REQUIRED; revise the specification or repository baseline first'
+fi
+
+facts_header=$'fact_id\tkind\tsubject\tvalue\tevidence\tauthority\tconfidence'
+IFS= read -r header < "$facts_file" || die 'repository facts file is empty'
+[[ "$header" == "$facts_header" ]] || die "repository facts header must be: $facts_header"
+declare -A facts_seen=()
+observed_facts=0
+while IFS=$'\t' read -r fact_id kind subject value evidence authority confidence extra; do
+	[[ -n "${fact_id:-}${kind:-}${subject:-}${value:-}${evidence:-}${authority:-}${confidence:-}${extra:-}" ]] || continue
+	[[ -z "${extra:-}" ]] || die "repository fact has more than seven fields: $fact_id"
+	[[ "$fact_id" =~ ^FACT-[A-Za-z0-9._-]+$ ]] || die "invalid repository fact ID: $fact_id"
+	[[ -z "${facts_seen[$fact_id]:-}" ]] || die "duplicate repository fact ID: $fact_id"
+	facts_seen[$fact_id]=1
+	[[ "$kind" =~ ^(BASELINE|PATH|SYMBOL|PRODUCER|CONSUMER|PUBLIC_CONTRACT|BUILD_TARGET|TEST_TARGET|EXISTING_BEHAVIOR|DEPENDENCY)$ ]] ||
+		die "invalid repository fact kind for $fact_id: $kind"
+	[[ -n "$subject" && -n "$value" && -n "$evidence" ]] || die "repository fact $fact_id has empty required fields"
+	[[ "$authority" =~ ^(OBSERVED|INFERRED|PLANNING_HINT)$ ]] || die "invalid repository fact authority for $fact_id: $authority"
+	[[ "$confidence" =~ ^(HIGH|MEDIUM|LOW)$ ]] || die "invalid repository fact confidence for $fact_id: $confidence"
+	if [[ "$authority" == OBSERVED ]]; then
+		observed_facts=$((observed_facts + 1))
+		[[ "$evidence" != - ]] || die "observed repository fact $fact_id requires evidence"
+		case "$evidence" in
+			git:HEAD|specification:*) ;;
+			*)
+				evidence_path="${evidence%%:*}"
+				[[ "$evidence_path" != /* && "$evidence_path" != .. && "$evidence_path" != ../* && "$evidence_path" != */../* ]] ||
+					die "repository fact $fact_id has unsafe evidence path: $evidence"
+				[[ -e "$REPOSITORY/$evidence_path" ]] || die "repository fact $fact_id evidence does not exist: $evidence_path"
+				;;
+		esac
+	fi
+done < <(tail -n +2 "$facts_file")
+(( observed_facts > 0 )) || die 'repository facts require at least one OBSERVED row'
+
+issues_header=$'issue_id\tclass\trequirement_ids\tsource_locations\toutcome_a\toutcome_b\tevidence_checked\tmissing_decision\tminimal_question'
+IFS= read -r header < "$issues_file" || die 'specification issues file is empty'
+[[ "$header" == "$issues_header" ]] || die "specification issues header must be: $issues_header"
+declare -A issues_seen=()
+issue_count=0
+while IFS=$'\t' read -r issue_id issue_class requirement_ids source_locations outcome_a outcome_b evidence_checked missing_decision minimal_question extra; do
+	[[ -n "${issue_id:-}${issue_class:-}${requirement_ids:-}${source_locations:-}${outcome_a:-}${outcome_b:-}${evidence_checked:-}${missing_decision:-}${minimal_question:-}${extra:-}" ]] || continue
+	[[ -z "${extra:-}" ]] || die "specification issue has more than nine fields: $issue_id"
+	[[ "$issue_id" =~ ^SPEC-[A-Za-z0-9._-]+$ ]] || die "invalid specification issue ID: $issue_id"
+	[[ -z "${issues_seen[$issue_id]:-}" ]] || die "duplicate specification issue ID: $issue_id"
+	issues_seen[$issue_id]=1
+	[[ "$issue_class" =~ ^(CONTRADICTORY_REQUIREMENTS|OBSERVABLE_CONTRACT_AMBIGUITY|MISSING_ACCEPTANCE_AUTHORITY|MISSING_REQUIRED_PRODUCER|UNDEFINED_COMPATIBILITY|UNDEFINED_COMPLETION_BOUNDARY|UNAVAILABLE_EXTERNAL_AUTHORITY)$ ]] ||
+		die "invalid specification issue class for $issue_id: $issue_class"
+	[[ -n "$requirement_ids" && -n "$source_locations" && -n "$outcome_a" && -n "$outcome_b" &&
+		-n "$evidence_checked" && -n "$missing_decision" && -n "$minimal_question" ]] ||
+		die "specification issue $issue_id has empty required fields"
+	[[ "$outcome_a" != "$outcome_b" ]] || die "specification issue $issue_id must identify incompatible outcomes"
+	issue_count=$((issue_count + 1))
+done < <(tail -n +2 "$issues_file")
+if [[ "$decision" == ACCEPT ]]; then
+	(( issue_count == 0 )) || die 'an accepted specification review cannot contain clarification issues'
+	state_status=ACCEPTED
+else
+	(( issue_count > 0 )) || die 'SPEC_CLARIFICATION_REQUIRED requires at least one structured issue'
+	state_status=SPEC_CLARIFICATION_REQUIRED
+fi
+
+spec_short="${current_spec_sha:0:12}"
+baseline_short="${current_baseline:0:12}"
+review_dir="$(specification_review_repository_dir)"
+mkdir -p "$review_dir"
+chmod 700 "$review_dir"
+report_name="specification-review-$spec_short-$baseline_short.md"
+facts_name="repository-facts-$spec_short-$baseline_short.tsv"
+issues_name="specification-clarifications-$spec_short-$baseline_short.tsv"
+install -m 600 "$verdict_file" "$review_dir/$report_name.tmp.$$"
+install -m 600 "$facts_file" "$review_dir/$facts_name.tmp.$$"
+install -m 600 "$issues_file" "$review_dir/$issues_name.tmp.$$"
+mv "$review_dir/$report_name.tmp.$$" "$review_dir/$report_name"
+mv "$review_dir/$facts_name.tmp.$$" "$review_dir/$facts_name"
+mv "$review_dir/$issues_name.tmp.$$" "$review_dir/$issues_name"
+
+report_relative="spec-review/$report_name"
+facts_relative="spec-review/$facts_name"
+issues_relative="spec-review/$issues_name"
+state="$(specification_review_state_file)"
+state_tmp="$state.tmp.$$"
+{
+	printf 'status=%s\n' "$state_status"
+	printf 'specification_sha256=%s\n' "$current_spec_sha"
+	printf 'repository_baseline=%s\n' "$current_baseline"
+	printf 'report=%s\n' "$report_relative"
+	printf 'facts=%s\n' "$facts_relative"
+	printf 'issues=%s\n' "$issues_relative"
+	printf 'issue_count=%s\n' "$issue_count"
+	printf 'reviewed_at=%s\n' "$(timestamp_utc)"
+} > "$state_tmp"
+chmod 600 "$state_tmp"
+mv "$state_tmp" "$state"
+log_event "SPECIFICATION_REVIEW_RECORDED status=$state_status report=$report_relative facts=$facts_relative issues=$issues_relative issue_count=$issue_count"
+printf '%s\n' "$report_relative"

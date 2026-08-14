@@ -23,6 +23,16 @@ manager_plan_structural_error="$dir/control/manager-plan-structural-error.md"
 manager_plan_stalled="$dir/control/manager-plan-stalled.md"
 manager_plan_failed="$dir/control/manager-plan-failed.md"
 manager_review_stalled="$(find "$dir/control" -maxdepth 1 -type f -name "$PROJECT-task-*.manager-review-stalled.md" -print 2>/dev/null | sort | head -n 1)"
+specification_review_status='DISABLED'
+specification_review_report=''
+if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )); then
+	if specification_review_matches_current_inputs; then
+		specification_review_status="$(specification_review_state_value status UNKNOWN)"
+		specification_review_report="$(specification_review_report_relative_path)"
+	else
+		specification_review_status='PENDING'
+	fi
+fi
 if project_plan_exists; then
 	printf -v project_progress_line 'Project progress: %s%% (%s/%s plan items complete)' \
 		"$(project_plan_progress_percent)" "$(project_plan_complete_count)" "$(project_plan_total_count)"
@@ -52,6 +62,33 @@ status_kv_value()
 	printf '%s' "$value"
 }
 
+token_metric_value()
+{
+	local report="$1" metric="$2"
+	awk -F '\t' -v metric="$metric" '$1 == metric {print $2; exit}' <<< "$report"
+}
+
+processed_token_ratio()
+{
+	local left="$1" right="$2"
+	if (( left == 0 && right == 0 )); then
+		printf 'N/A'
+	elif (( right == 0 )); then
+		printf 'infinite'
+	else
+		awk -v left="$left" -v right="$right" 'BEGIN {printf "%.2f:1", left / right}'
+	fi
+}
+
+higher_token_consumer()
+{
+	local left_name="$1" left="$2" right_name="$3" right="$4"
+	if (( left > right )); then printf '%s' "$left_name"
+	elif (( right > left )); then printf '%s' "$right_name"
+	else printf 'equal'
+	fi
+}
+
 printf 'Environment file: %s\n' "$HARNESS_ENV_FILE"
 printf 'Project: %s\n' "$PROJECT"
 printf 'Harness mode: %s\n' "$HARNESS_MODE"
@@ -70,12 +107,26 @@ fi
 printf 'Manager supervisor: %s\n' "$manager_supervisor"
 printf 'Worker supervisor: %s\n' "$worker_supervisor"
 printf 'Worker leaf-goal mode: %s\n' "$([[ "$HARNESS_WORKER_GOAL_MODE" == 1 ]] && printf enabled || printf disabled)"
+if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )); then
+	if [[ -n "$specification_review_report" ]]; then
+		printf 'Specification review: %s (%s)\n' "$specification_review_status" "$specification_review_report"
+	else
+		printf 'Specification review: %s\n' "$specification_review_status"
+	fi
+else
+	printf 'Specification review: disabled\n'
+fi
 if (( HARNESS_ARCHITECTURE_GUARDS == 1 )); then
-	architecture_require_registered
-	printf 'Architecture guards: enabled (%s)\n' "$(architecture_dir)"
-	printf 'Architecture profile: %s\n' "$(architecture_profile)"
-	printf 'Architecture health: critical-debt=%s expired-debt=%s missing-gates=%s\n' \
-		"$(architecture_open_critical_debt_count)" "$(architecture_expired_debt_count)" "$(architecture_missing_health_gate_count)"
+	if architecture_registered; then
+		printf 'Architecture guards: enabled (%s)\n' "$(architecture_dir)"
+		printf 'Architecture profile: %s\n' "$(architecture_profile)"
+		printf 'Architecture health: critical-debt=%s expired-debt=%s missing-gates=%s\n' \
+			"$(architecture_open_critical_debt_count)" "$(architecture_expired_debt_count)" "$(architecture_missing_health_gate_count)"
+	elif ! project_plan_exists; then
+		printf 'Architecture guards: pending specification acceptance and DAG registration\n'
+	else
+		architecture_require_registered
+	fi
 else
 	printf 'Architecture guards: disabled\n'
 fi
@@ -96,6 +147,61 @@ if oracle_enabled; then
 elif [[ "$MAX_ORACLE_RUNS" == 0 ]]; then
 	printf 'Oracle audit: disabled (MAX_ORACLE_RUNS=0)\n'
 fi
+
+token_report="$("$HARNESS_BIN/harness-agent-token-usage" "$HARNESS_ENV_FILE")"
+manager_token_input="$(token_metric_value "$token_report" manager_input_tokens)"
+manager_token_cached="$(token_metric_value "$token_report" manager_cached_tokens)"
+manager_token_output="$(token_metric_value "$token_report" manager_output_tokens)"
+luna_worker_token_input="$(token_metric_value "$token_report" worker_luna_input_tokens)"
+luna_worker_token_cached="$(token_metric_value "$token_report" worker_luna_cached_tokens)"
+luna_worker_token_output="$(token_metric_value "$token_report" worker_luna_output_tokens)"
+terra_worker_token_input="$(token_metric_value "$token_report" worker_terra_input_tokens)"
+terra_worker_token_cached="$(token_metric_value "$token_report" worker_terra_cached_tokens)"
+terra_worker_token_output="$(token_metric_value "$token_report" worker_terra_output_tokens)"
+unknown_worker_token_input="$(token_metric_value "$token_report" worker_unknown_input_tokens)"
+unknown_worker_token_cached="$(token_metric_value "$token_report" worker_unknown_cached_tokens)"
+unknown_worker_token_output="$(token_metric_value "$token_report" worker_unknown_output_tokens)"
+oracle_token_input="$(token_metric_value "$token_report" oracle_input_tokens)"
+oracle_token_cached="$(token_metric_value "$token_report" oracle_cached_tokens)"
+oracle_token_output="$(token_metric_value "$token_report" oracle_output_tokens)"
+for token_variable in manager_token_input manager_token_cached manager_token_output \
+	luna_worker_token_input luna_worker_token_cached luna_worker_token_output \
+	terra_worker_token_input terra_worker_token_cached terra_worker_token_output \
+	unknown_worker_token_input unknown_worker_token_cached unknown_worker_token_output \
+	oracle_token_input oracle_token_cached oracle_token_output; do
+	[[ "${!token_variable}" =~ ^[0-9]+$ ]] || printf -v "$token_variable" '%s' 0
+done
+manager_processed_tokens=$((manager_token_input + manager_token_output))
+worker_processed_tokens=$((luna_worker_token_input + luna_worker_token_output +
+	terra_worker_token_input + terra_worker_token_output +
+	unknown_worker_token_input + unknown_worker_token_output))
+luna_processed_tokens=$(( $(token_metric_value "$token_report" luna_input_tokens) + $(token_metric_value "$token_report" luna_output_tokens) ))
+terra_processed_tokens=$(( $(token_metric_value "$token_report" terra_input_tokens) + $(token_metric_value "$token_report" terra_output_tokens) ))
+printf '\nAgent token usage (cached input is included in input):\n'
+printf '  Manager [%s]: input=%s cached=%s output=%s processed=%s\n' \
+	"$MANAGER_MODEL" "$manager_token_input" "$manager_token_cached" "$manager_token_output" "$manager_processed_tokens"
+printf '  Luna worker [%s]: input=%s cached=%s output=%s processed=%s\n' \
+	"$LUNA_WORKER_MODEL" "$luna_worker_token_input" "$luna_worker_token_cached" "$luna_worker_token_output" \
+	"$((luna_worker_token_input + luna_worker_token_output))"
+printf '  Terra worker [%s]: input=%s cached=%s output=%s processed=%s\n' \
+	"$TERRA_WORKER_MODEL" "$terra_worker_token_input" "$terra_worker_token_cached" "$terra_worker_token_output" \
+	"$((terra_worker_token_input + terra_worker_token_output))"
+if (( unknown_worker_token_input + unknown_worker_token_output > 0 )); then
+	printf '  Unclassified legacy worker: input=%s cached=%s output=%s processed=%s\n' \
+		"$unknown_worker_token_input" "$unknown_worker_token_cached" "$unknown_worker_token_output" \
+		"$((unknown_worker_token_input + unknown_worker_token_output))"
+fi
+if (( oracle_token_input + oracle_token_output > 0 )); then
+	printf '  Oracle [%s]: input=%s cached=%s output=%s processed=%s\n' \
+		"$ORACLE_MODEL" "$oracle_token_input" "$oracle_token_cached" "$oracle_token_output" \
+		"$((oracle_token_input + oracle_token_output))"
+fi
+printf '  Role ratio manager/worker: %s (higher: %s)\n' \
+	"$(processed_token_ratio "$manager_processed_tokens" "$worker_processed_tokens")" \
+	"$(higher_token_consumer manager "$manager_processed_tokens" worker "$worker_processed_tokens")"
+printf '  Model ratio Luna/Terra: %s (higher: %s)\n' \
+	"$(processed_token_ratio "$luna_processed_tokens" "$terra_processed_tokens")" \
+	"$(higher_token_consumer Luna "$luna_processed_tokens" Terra "$terra_processed_tokens")"
 if project_plan_exists; then
 	printf '\n%-24s %-18s %-16s %s\n' 'PLAN ITEM' 'STATE' 'TASK ROOT' 'TITLE'
 	printf '%-24s %-18s %-16s %s\n' '------------------------' '------------------' '----------------' '-----'
@@ -281,7 +387,9 @@ else
 	done
 fi
 
-if project_completion_recorded && project_plan_all_complete; then
+if [[ "$specification_review_status" == SPEC_CLARIFICATION_REQUIRED ]]; then
+	project_status_line="Project status: SPEC_CLARIFICATION_REQUIRED. Review $specification_review_report before DAG registration."
+elif project_completion_recorded && project_plan_all_complete; then
 	if [[ -f "$oracle_limit_marker" ]]; then
 		project_status_line='Project status: COMPLETE_WITH_ORACLE_LIMIT. Every project-plan item is accepted; no final Oracle PASS was recorded after the configured audit cap.'
 	else

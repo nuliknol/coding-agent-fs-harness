@@ -18,6 +18,13 @@ trap 'trace_script_exit $?' EXIT
 dir="$(project_dir)"
 prompt="$dir/control/manager-decomposition-critic.prompt.md"
 last_message="$dir/logs/manager-decomposition-critic-last-message.md"
+specification_review_report='-'
+repository_facts_file='-'
+if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )); then
+	specification_review_is_accepted || die 'decomposition requires an accepted current specification review'
+	specification_review_report="$REPOSITORY/$(specification_review_state_value report)"
+	repository_facts_file="$REPOSITORY/$(specification_review_state_value facts)"
+fi
 cat > "$prompt.tmp.$$" <<PROMPT
 You are the fresh decomposition planner and critic for a filesystem-backed coding harness. Do not edit the repository.
 
@@ -26,11 +33,13 @@ HARNESS_BIN=$HARNESS_BIN
 PROJECT=$PROJECT
 REPOSITORY=$REPOSITORY
 SPECIFICATION=$SPECIFICATION
+SPECIFICATION_REVIEW_REPORT=$specification_review_report
+REPOSITORY_FACTS_FILE=$repository_facts_file
 PROJECT_TMP_DIR=$PROJECT_TMP_DIR
 ARCHITECTURE_GUARDS=$HARNESS_ARCHITECTURE_GUARDS
 MAX_LUNA_ALLOWED_PATHS=$HARNESS_MAX_LUNA_ALLOWED_PATHS
 
-Read the complete specification, applicable repository development policy, and enough current repository structure to identify real dependencies and existing contracts. Produce a topologically ordered decomposition DAG with this exact tab-separated header:
+Read the complete specification, accepted specification review and repository facts when present, applicable repository development policy, and enough current repository structure to verify real dependencies and existing contracts. Treat OBSERVED repository facts as evidence, INFERRED facts as hypotheses to verify, and PLANNING_HINT facts as advisory only; none can silently add product requirements. Produce a topologically ordered decomposition DAG with this exact tab-separated header:
 
 node_id<TAB>parent_id<TAB>depends_on<TAB>deliverable<TAB>acceptance_evidence<TAB>focused_validation<TAB>allowed_paths<TAB>required_symbols<TAB>leaf_type<TAB>complexity_class<TAB>worker_route
 

@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 1 ]] || { printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+require_manager_configuration
+require_manager_codex
+(( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )) || exit 0
+project_plan_exists && exit 0
+
+if specification_review_matches_current_inputs; then
+	status="$(specification_review_state_value status)"
+	if [[ "$status" =~ ^(ACCEPTED|SPEC_CLARIFICATION_REQUIRED)$ ]]; then
+		printf '%s\n' "$(specification_review_report_relative_path)"
+		exit 0
+	fi
+fi
+
+trace_init manager_specification_review
+trace_script_start "$@"
+trap 'trace_script_exit $?' EXIT
+dir="$(project_dir)"
+spec_sha="$(specification_sha256)"
+repository_baseline="$(specification_review_repository_baseline)"
+prompt="$dir/control/manager-specification-review.prompt.md"
+cat > "$prompt.tmp.$$" <<PROMPT
+You are the independent pre-acceptance specification reviewer for a filesystem-backed coding harness. Do not edit repository source, tests, specifications, build outputs, or harness state directly. This review occurs before the execution DAG exists.
+
+ENV_FILE=$HARNESS_ENV_FILE
+HARNESS_BIN=$HARNESS_BIN
+PROJECT=$PROJECT
+REPOSITORY=$REPOSITORY
+SPECIFICATION=$SPECIFICATION
+SPECIFICATION_SHA256=$spec_sha
+REPOSITORY_BASELINE=$repository_baseline
+PROJECT_TMP_DIR=$PROJECT_TMP_DIR
+
+Read the complete specification, every mandatory document it references, the applicable development policy, and enough repository source, public interfaces, build definitions, tests, and history to establish real producers, consumers, contracts, symbols, paths, validation targets, and existing behavior. Repository observations reduce the burden on the specification author but never invent product authority.
+
+Decide whether the specification is sufficiently precise for the harness to accept an implementation commitment. Use SPEC_CLARIFICATION_REQUIRED only for a demonstrated pre-acceptance defect in one of these classes:
+
+CONTRADICTORY_REQUIREMENTS
+OBSERVABLE_CONTRACT_AMBIGUITY
+MISSING_ACCEPTANCE_AUTHORITY
+MISSING_REQUIRED_PRODUCER
+UNDEFINED_COMPATIBILITY
+UNDEFINED_COMPLETION_BOUNDARY
+UNAVAILABLE_EXTERNAL_AUTHORITY
+
+Do not request clarification for coding difficulty, repository size, unknown implementation details, paths or symbols discoverable from the repository, missing tests that can be implemented, local build/integration defects, file ownership, decomposition complexity, or an architecture choice explicitly delegated to the implementer. Those are automatic engineering work. Every clarification issue must identify two distinct incompatible observable outcomes, the governing sources and repository evidence checked, the missing authoritative decision, and one minimal question. If repository or governing evidence resolves the question, accept it and record that evidence as a fact.
+
+Write three files under PROJECT_TMP_DIR.
+
+VERDICT_FILE must contain:
+
+# Specification Review
+
+Project: $PROJECT
+Specification-SHA256: $spec_sha
+Repository-Baseline: $repository_baseline
+Decision: ACCEPT or SPEC_CLARIFICATION_REQUIRED
+
+## Review summary
+Concise reasoning and the completeness boundary examined.
+
+## Repository grounding
+Name the important observed contracts, producers, consumers, tests, and build entry points without embedding large source excerpts.
+
+## Conclusion
+State why implementation commitment is safe or why the structured clarification issues prevent it.
+
+FACTS_FILE must use exactly this tab-separated header:
+
+fact_id<TAB>kind<TAB>subject<TAB>value<TAB>evidence<TAB>authority<TAB>confidence
+
+Kinds: BASELINE, PATH, SYMBOL, PRODUCER, CONSUMER, PUBLIC_CONTRACT, BUILD_TARGET, TEST_TARGET, EXISTING_BEHAVIOR, DEPENDENCY.
+Authority: OBSERVED, INFERRED, or PLANNING_HINT. Confidence: HIGH, MEDIUM, or LOW.
+Use stable FACT-... IDs. OBSERVED rows require repository-relative path[:line], git:HEAD, or specification:SOURCE evidence. Record enough semantic facts to let the later planner derive paths, symbols, producers, consumers, and focused validation without asking the specification author to enumerate repository structure. Do not claim inferred facts as product requirements.
+
+ISSUES_FILE must use exactly this tab-separated header:
+
+issue_id<TAB>class<TAB>requirement_ids<TAB>source_locations<TAB>outcome_a<TAB>outcome_b<TAB>evidence_checked<TAB>missing_decision<TAB>minimal_question
+
+Use stable SPEC-... IDs. For ACCEPT, write only the header. For SPEC_CLARIFICATION_REQUIRED, write at least one complete row. Keep every TSV field on one physical line and do not put tab characters inside field values.
+
+After writing all three files, call exactly:
+
+$HARNESS_BIN/manager-record-specification-review "$HARNESS_ENV_FILE" VERDICT_FILE FACTS_FILE ISSUES_FILE
+
+After that command succeeds, terminate. Do not create a DAG or publish a task.
+PROMPT
+chmod 600 "$prompt.tmp.$$"
+mv "$prompt.tmp.$$" "$prompt"
+
+attempt=1
+while true; do
+	stamp="$(timestamp_compact_utc)"
+	json="$dir/logs/manager-specification-review-$stamp-attempt-$(printf '%03d' "$attempt").jsonl"
+	stderr="$dir/logs/manager-specification-review-$stamp-attempt-$(printf '%03d' "$attempt").stderr.log"
+	message="$dir/logs/manager-specification-review-$stamp-attempt-$(printf '%03d' "$attempt").md"
+	set +e
+	"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" manager_plan "$MANAGER_MODEL" "$prompt" "$json" "$stderr" "$message"
+	status=$?
+	set -e
+	if specification_review_matches_current_inputs; then
+		recorded_status="$(specification_review_state_value status)"
+		if [[ "$recorded_status" =~ ^(ACCEPTED|SPEC_CLARIFICATION_REQUIRED)$ ]]; then
+			printf '%s\n' "$(specification_review_report_relative_path)"
+			exit 0
+		fi
+	fi
+	classification="$(kv_file_value "${json%.jsonl}.classification" classification 2>/dev/null || true)"
+	retry_kind="$(codex_provider_retry_kind "$classification" 2>/dev/null || true)"
+	if [[ -n "$retry_kind" ]]; then
+		delay="$(codex_provider_retry_delay "$classification")"
+		printf 'Specification reviewer provider retry in %s seconds (%s).\n' "$delay" "$retry_kind" >&2
+		sleep "$delay"
+		attempt=$((attempt + 1))
+		continue
+	fi
+	(( status == 0 )) && die 'specification reviewer exited without recording a verdict'
+	die "specification reviewer failed with status $status; see $json"
+done

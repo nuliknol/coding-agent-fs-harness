@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 1 ]] || { printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+dir="$(project_dir)"
+usage_cache_dir="$dir/control/agent-token-usage-cache"
+mkdir -p "$usage_cache_dir"
+chmod 700 "$usage_cache_dir"
+
+declare -A worker_log_route=() seen_log=()
+declare -A usage_input=() usage_cached=() usage_output=() usage_model=() usage_keys=()
+shopt -s nullglob
+
+for assignment in "$dir"/archive/"$PROJECT-task-"*.assignment.md; do
+	task_id="${assignment##*/}"
+	task_id="${task_id#${PROJECT}-task-}"
+	task_id="${task_id%.assignment.md}"
+	route="$(metadata_value "$assignment" Worker-Route)"
+	[[ "$route" =~ ^(LUNA|TERRA)$ ]] || route=UNKNOWN
+	for json in "$dir"/logs/worker-task-"$task_id"-*.jsonl; do
+		[[ -f "$json" ]] || continue
+		worker_log_route[$json]="$route"
+	done
+done
+
+usage_add_log()
+{
+	local json="$1" fallback_bucket="$2" fallback_model="$3"
+	local classification role model thread input cached output bucket key
+	local cache cache_tmp cache_size cache_mtime source_size source_mtime usage_row
+	local parsed_thread parsed_input parsed_cached parsed_output
+	[[ -f "$json" ]] || return 0
+	[[ -z "${seen_log[$json]:-}" ]] || return 0
+	seen_log[$json]=1
+	classification="${json%.jsonl}.classification"
+	role=""; model=""; thread=""; input=""; cached=""; output=""
+	if [[ -f "$classification" ]]; then
+		role="$(kv_file_value "$classification" role)"
+		model="$(kv_file_value "$classification" model)"
+		thread="$(kv_file_value "$classification" thread_id)"
+		input="$(kv_file_value "$classification" input_tokens)"
+		cached="$(kv_file_value "$classification" cached_input_tokens)"
+		output="$(kv_file_value "$classification" output_tokens)"
+	fi
+	if [[ -z "$thread" || ! "$input" =~ ^[0-9]+$ || ! "$cached" =~ ^[0-9]+$ || ! "$output" =~ ^[0-9]+$ ]]; then
+		cache="$usage_cache_dir/${json##*/}.usage"
+		source_size="$(stat -c %s "$json" 2>/dev/null || printf 0)"
+		source_mtime="$(stat -c %Y "$json" 2>/dev/null || printf 0)"
+		cache_size=""; cache_mtime=""
+		if [[ -f "$cache" ]]; then
+			cache_size="$(kv_file_value "$cache" source_size)"
+			cache_mtime="$(kv_file_value "$cache" source_mtime)"
+		fi
+		if [[ "$cache_size" == "$source_size" && "$cache_mtime" == "$source_mtime" ]]; then
+			thread="$(kv_file_value "$cache" thread_id)"
+			input="$(kv_file_value "$cache" input_tokens)"
+			cached="$(kv_file_value "$cache" cached_input_tokens)"
+			output="$(kv_file_value "$cache" output_tokens)"
+		elif command -v jq >/dev/null 2>&1; then
+			usage_row="$(jq -rs '
+				([.[] | select(.type == "thread.started") | .thread_id][0] // "") as $thread |
+				([.[] | select(.type == "turn.completed") | (.usage.input_tokens // 0)] | add // 0) as $input |
+				([.[] | select(.type == "turn.completed") | (.usage.cached_input_tokens // 0)] | add // 0) as $cached |
+				([.[] | select(.type == "turn.completed") | (.usage.output_tokens // 0)] | add // 0) as $output |
+				[$thread, $input, $cached, $output] | @tsv
+			' "$json" 2>/dev/null || true)"
+			IFS=$'\t' read -r parsed_thread parsed_input parsed_cached parsed_output <<< "$usage_row"
+			[[ -n "$thread" ]] || thread="$parsed_thread"
+			[[ "$input" =~ ^[0-9]+$ ]] || input="${parsed_input:-0}"
+			[[ "$cached" =~ ^[0-9]+$ ]] || cached="${parsed_cached:-0}"
+			[[ "$output" =~ ^[0-9]+$ ]] || output="${parsed_output:-0}"
+			cache_tmp="$cache.tmp.$$"
+			{
+				printf 'source_size=%s\n' "$source_size"
+				printf 'source_mtime=%s\n' "$source_mtime"
+				printf 'thread_id=%s\n' "$thread"
+				printf 'input_tokens=%s\n' "$input"
+				printf 'cached_input_tokens=%s\n' "$cached"
+				printf 'output_tokens=%s\n' "$output"
+			} > "$cache_tmp"
+			chmod 600 "$cache_tmp"
+			mv "$cache_tmp" "$cache"
+		else
+			[[ -n "$thread" ]] || thread="$(codex_thread_id_from_jsonl "$json" 2>/dev/null || true)"
+			[[ "$input" =~ ^[0-9]+$ ]] || input=0
+			[[ "$cached" =~ ^[0-9]+$ ]] || cached=0
+			[[ "$output" =~ ^[0-9]+$ ]] || output=0
+		fi
+	fi
+	[[ -n "$thread" ]] || thread="$json"
+	[[ -n "$model" ]] || model="$fallback_model"
+	case "$role" in
+		manager_*) bucket=manager ;;
+		worker_luna) bucket=worker_luna ;;
+		worker_terra) bucket=worker_terra ;;
+		worker) bucket="$fallback_bucket" ;;
+		oracle) bucket=oracle ;;
+		*) bucket="$fallback_bucket" ;;
+	esac
+	key="$bucket|$thread"
+	usage_keys[$key]=1
+	(( input > ${usage_input[$key]:-0} )) && usage_input[$key]="$input"
+	(( cached > ${usage_cached[$key]:-0} )) && usage_cached[$key]="$cached"
+	(( output > ${usage_output[$key]:-0} )) && usage_output[$key]="$output"
+	usage_model[$key]="$model"
+}
+
+for json in "$dir"/logs/manager-*.jsonl; do
+	usage_add_log "$json" manager "$MANAGER_MODEL"
+done
+for json in "$dir"/logs/oracle-*.jsonl; do
+	usage_add_log "$json" oracle "$ORACLE_MODEL"
+done
+for json in "$dir"/logs/worker-task-*.jsonl; do
+	case "${worker_log_route[$json]:-UNKNOWN}" in
+		LUNA) usage_add_log "$json" worker_luna "$LUNA_WORKER_MODEL" ;;
+		TERRA) usage_add_log "$json" worker_terra "$TERRA_WORKER_MODEL" ;;
+		*) usage_add_log "$json" worker_unknown "$WORKER_MODEL" ;;
+	esac
+done
+
+declare -A bucket_input=() bucket_cached=() bucket_output=()
+declare -A family_input=() family_cached=() family_output=()
+for key in "${!usage_keys[@]}"; do
+	[[ -n "$key" ]] || continue
+	bucket="${key%%|*}"
+	bucket_input[$bucket]=$(( ${bucket_input[$bucket]:-0} + ${usage_input[$key]:-0} ))
+	bucket_cached[$bucket]=$(( ${bucket_cached[$bucket]:-0} + ${usage_cached[$key]:-0} ))
+	bucket_output[$bucket]=$(( ${bucket_output[$bucket]:-0} + ${usage_output[$key]:-0} ))
+	model="${usage_model[$key]:-unknown}"
+	case "${model,,}" in
+		*luna*) family=luna ;;
+		*terra*) family=terra ;;
+		*sol*) family=sol ;;
+		*) family=other ;;
+	esac
+	family_input[$family]=$(( ${family_input[$family]:-0} + ${usage_input[$key]:-0} ))
+	family_cached[$family]=$(( ${family_cached[$family]:-0} + ${usage_cached[$key]:-0} ))
+	family_output[$family]=$(( ${family_output[$family]:-0} + ${usage_output[$key]:-0} ))
+done
+
+manager_input="${bucket_input[manager]:-0}"
+manager_cached="${bucket_cached[manager]:-0}"
+manager_output="${bucket_output[manager]:-0}"
+worker_luna_input="${bucket_input[worker_luna]:-0}"
+worker_luna_cached="${bucket_cached[worker_luna]:-0}"
+worker_luna_output="${bucket_output[worker_luna]:-0}"
+worker_terra_input="${bucket_input[worker_terra]:-0}"
+worker_terra_cached="${bucket_cached[worker_terra]:-0}"
+worker_terra_output="${bucket_output[worker_terra]:-0}"
+worker_unknown_input="${bucket_input[worker_unknown]:-0}"
+worker_unknown_cached="${bucket_cached[worker_unknown]:-0}"
+worker_unknown_output="${bucket_output[worker_unknown]:-0}"
+oracle_input="${bucket_input[oracle]:-0}"
+oracle_cached="${bucket_cached[oracle]:-0}"
+oracle_output="${bucket_output[oracle]:-0}"
+
+printf 'metric\tvalue\n'
+for metric in manager_input manager_cached manager_output \
+	worker_luna_input worker_luna_cached worker_luna_output \
+	worker_terra_input worker_terra_cached worker_terra_output \
+	worker_unknown_input worker_unknown_cached worker_unknown_output \
+	oracle_input oracle_cached oracle_output; do
+	printf '%s_tokens\t%s\n' "$metric" "${!metric}"
+done
+for family in luna terra sol other; do
+	printf '%s_input_tokens\t%s\n' "$family" "${family_input[$family]:-0}"
+	printf '%s_cached_input_tokens\t%s\n' "$family" "${family_cached[$family]:-0}"
+	printf '%s_output_tokens\t%s\n' "$family" "${family_output[$family]:-0}"
+done

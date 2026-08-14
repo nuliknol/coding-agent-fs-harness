@@ -16,6 +16,9 @@ usage()
 load_harness_env "$1"
 plan_file="$2"
 ensure_project
+if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )) && ! specification_review_is_accepted; then
+	die 'project DAG registration requires an accepted current specification review'
+fi
 trace_init manager_init_project_plan
 trace_script_start "$@"
 trap 'trace_script_exit $?' EXIT

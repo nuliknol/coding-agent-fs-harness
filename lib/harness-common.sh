@@ -156,6 +156,7 @@ load_harness_env()
 	unset HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS HARNESS_GOAL_PROCESS_MAX_FIXES
 	unset HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS
 	unset HARNESS_DECOMPOSITION_V2 HARNESS_DECOMPOSITION_CRITIC_ENABLED
+	unset HARNESS_SPECIFICATION_REVIEW_ENABLED
 	unset HARNESS_MAX_LUNA_STRATEGY_FAILURES HARNESS_MAX_LUNA_ALLOWED_PATHS HARNESS_MIN_LUNA_NODE_PERCENT
 	unset HARNESS_MIN_LUNA_CODING_NODE_PERCENT HARNESS_ARCHITECTURE_GUARDS
 	unset HARNESS_PREFERRED_WORKER_ROUTE HARNESS_AGENT_COMMITS_ENABLED
@@ -259,6 +260,10 @@ load_harness_env()
 	# Luna-ready leaf contracts, context capsules, and per-leaf model routing.
 	HARNESS_DECOMPOSITION_V2="${HARNESS_DECOMPOSITION_V2:-0}"
 	HARNESS_DECOMPOSITION_CRITIC_ENABLED="${HARNESS_DECOMPOSITION_CRITIC_ENABLED:-$HARNESS_DECOMPOSITION_V2}"
+	# Fresh v2 projects must establish that their governing specification is
+	# complete enough to accept before the execution DAG is registered. Existing
+	# plans are already across that boundary and remain migration-compatible.
+	HARNESS_SPECIFICATION_REVIEW_ENABLED="${HARNESS_SPECIFICATION_REVIEW_ENABLED:-$HARNESS_DECOMPOSITION_V2}"
 	HARNESS_MAX_LUNA_STRATEGY_FAILURES="${HARNESS_MAX_LUNA_STRATEGY_FAILURES:-3}"
 	# Allowed-Scope includes source, build registration, fixtures, and focused
 	# validation paths. Keep the implementation-file budget at five, but permit
@@ -425,10 +430,13 @@ load_harness_env()
 		die 'HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS must be at least HARNESS_GOAL_PROCESS_MAX_FIXES'
 	[[ "$HARNESS_DECOMPOSITION_V2" =~ ^[01]$ ]] || die 'HARNESS_DECOMPOSITION_V2 must be 0 or 1'
 	[[ "$HARNESS_DECOMPOSITION_CRITIC_ENABLED" =~ ^[01]$ ]] || die 'HARNESS_DECOMPOSITION_CRITIC_ENABLED must be 0 or 1'
+	[[ "$HARNESS_SPECIFICATION_REVIEW_ENABLED" =~ ^[01]$ ]] || die 'HARNESS_SPECIFICATION_REVIEW_ENABLED must be 0 or 1'
 	(( HARNESS_DECOMPOSITION_V2 == 0 || HARNESS_WORKER_GOAL_MODE == 1 )) ||
 		die 'HARNESS_DECOMPOSITION_V2=1 requires HARNESS_WORKER_GOAL_MODE=1'
 	(( HARNESS_DECOMPOSITION_CRITIC_ENABLED == 0 || HARNESS_DECOMPOSITION_V2 == 1 )) ||
 		die 'HARNESS_DECOMPOSITION_CRITIC_ENABLED=1 requires HARNESS_DECOMPOSITION_V2=1'
+	(( HARNESS_SPECIFICATION_REVIEW_ENABLED == 0 || HARNESS_DECOMPOSITION_V2 == 1 )) ||
+		die 'HARNESS_SPECIFICATION_REVIEW_ENABLED=1 requires HARNESS_DECOMPOSITION_V2=1'
 	[[ "$HARNESS_MAX_LUNA_STRATEGY_FAILURES" =~ ^[1-9][0-9]*$ ]] ||
 		die 'HARNESS_MAX_LUNA_STRATEGY_FAILURES must be a positive integer'
 	[[ "$HARNESS_MAX_LUNA_ALLOWED_PATHS" =~ ^[1-9][0-9]*$ ]] ||
@@ -504,7 +512,8 @@ load_harness_env()
 	export HARNESS_WORKER_GOAL_MODE HARNESS_GOAL_MAX_IDENTICAL_ITERATIONS
 	export HARNESS_GOAL_CONTEXT_ROTATION_ITERATIONS HARNESS_GOAL_PROCESS_MAX_FIXES
 	export HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS
-	export HARNESS_DECOMPOSITION_V2 HARNESS_DECOMPOSITION_CRITIC_ENABLED HARNESS_MAX_LUNA_STRATEGY_FAILURES
+	export HARNESS_DECOMPOSITION_V2 HARNESS_DECOMPOSITION_CRITIC_ENABLED HARNESS_SPECIFICATION_REVIEW_ENABLED
+	export HARNESS_MAX_LUNA_STRATEGY_FAILURES
 	export HARNESS_MAX_LUNA_ALLOWED_PATHS
 	export HARNESS_MIN_LUNA_NODE_PERCENT HARNESS_MIN_LUNA_CODING_NODE_PERCENT HARNESS_ARCHITECTURE_GUARDS
 	export HARNESS_PREFERRED_WORKER_ROUTE HARNESS_AGENT_COMMITS_ENABLED
@@ -2357,6 +2366,66 @@ project_block_file()
 	printf '%s/control/project.blocked.md' "$(project_dir)"
 }
 
+specification_review_state_file()
+{
+	printf '%s/control/specification-review.env' "$(project_dir)"
+}
+
+specification_review_repository_dir()
+{
+	printf '%s/spec-review' "$REPOSITORY"
+}
+
+specification_sha256()
+{
+	[[ -n "$SPECIFICATION" && -f "$SPECIFICATION" ]] || { printf 'missing\n'; return 0; }
+	sha256sum "$SPECIFICATION" | awk '{print $1}'
+}
+
+specification_review_repository_baseline()
+{
+	git -C "$REPOSITORY" rev-parse HEAD 2>/dev/null || printf 'unversioned\n'
+}
+
+specification_review_state_value()
+{
+	local key="$1" fallback="${2:-}" state value=""
+	state="$(specification_review_state_file)"
+	if [[ -f "$state" ]]; then
+		value="$(awk -F= -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' "$state")"
+	fi
+	[[ -n "$value" ]] || value="$fallback"
+	printf '%s' "$value"
+}
+
+specification_review_matches_current_inputs()
+{
+	local state
+	state="$(specification_review_state_file)"
+	[[ -f "$state" ]] || return 1
+	[[ "$(specification_review_state_value specification_sha256)" == "$(specification_sha256)" ]] || return 1
+	[[ "$(specification_review_state_value repository_baseline)" == "$(specification_review_repository_baseline)" ]]
+}
+
+specification_review_is_accepted()
+{
+	(( HARNESS_SPECIFICATION_REVIEW_ENABLED == 0 )) && return 0
+	specification_review_matches_current_inputs || return 1
+	[[ "$(specification_review_state_value status)" == ACCEPTED ]]
+}
+
+specification_review_requires_clarification()
+{
+	(( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )) || return 1
+	specification_review_matches_current_inputs || return 1
+	[[ "$(specification_review_state_value status)" == SPEC_CLARIFICATION_REQUIRED ]]
+}
+
+specification_review_report_relative_path()
+{
+	specification_review_state_value report
+}
+
 project_is_blocked()
 {
 	[[ -f "$(project_block_file)" ]]
@@ -2974,6 +3043,7 @@ write_project_snapshot()
 		printf 'repository=%s\n' "$REPOSITORY"
 		printf 'harness_mode=%s\n' "$HARNESS_MODE"
 		printf 'decomposition_v2=%s\n' "$HARNESS_DECOMPOSITION_V2"
+		printf 'specification_review_enabled=%s\n' "$HARNESS_SPECIFICATION_REVIEW_ENABLED"
 		printf 'architecture_guards=%s\n' "$HARNESS_ARCHITECTURE_GUARDS"
 		printf 'harness_home=%s\n' "$HARNESS_HOME"
 		printf 'harness_bin=%s\n' "$HARNESS_BIN"
@@ -3043,6 +3113,7 @@ write_worker_snapshot()
 		printf 'goal_process_max_smoke_runs=%s\n' "$HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS"
 		printf 'decomposition_v2=%s\n' "$HARNESS_DECOMPOSITION_V2"
 		printf 'decomposition_critic_enabled=%s\n' "$HARNESS_DECOMPOSITION_CRITIC_ENABLED"
+		printf 'specification_review_enabled=%s\n' "$HARNESS_SPECIFICATION_REVIEW_ENABLED"
 		printf 'max_luna_strategy_failures=%s\n' "$HARNESS_MAX_LUNA_STRATEGY_FAILURES"
 		printf 'max_luna_allowed_paths=%s\n' "$HARNESS_MAX_LUNA_ALLOWED_PATHS"
 		printf 'min_luna_node_percent=%s\n' "$HARNESS_MIN_LUNA_NODE_PERCENT"

@@ -136,6 +136,7 @@ probe_env()
 full_plan_count()
 {
 	local file="$1" wanted="${2:-}"
+	[[ -f "$file" ]] || { printf '0\n'; return 0; }
 	awk -F '\t' -v wanted="$wanted" '$0 !~ /^#/ && NF >= 4 && (wanted == "" || $2 == wanted) {n++} END {print n+0}' "$file" 2>/dev/null
 }
 
@@ -162,7 +163,7 @@ wrap_description() { printf '%s\n' "$1" | fold -s -w "$2"; }
 status_requires_attention()
 {
 	case "$1" in
-		paused|waiting|failed|dead-end|'config err'|'config error'|uninit|unknown) return 0 ;;
+		paused|waiting|failed|dead-end|clarify|'config err'|'config error'|uninit|unknown) return 0 ;;
 		*) return 1 ;;
 	esac
 }
@@ -269,7 +270,13 @@ while IFS= read -r -d '' env_file; do
 	if [[ -d "$dir/control/dependencies" ]]; then
 		waiting_request="$(find "$dir/control/dependencies" -maxdepth 1 -type f -name '*.waiting.md' -print 2>/dev/null | sort | awk 'NR == 1 {first=$0} END {print first}')"
 	fi
-	if [[ -f "$dir/control/project.complete" ]]; then display_status=done; completion="$complete/$total"; description=''
+	if [[ "$project_status" == SPEC_CLARIFICATION_REQUIRED.* ]]; then
+		display_status=clarify
+		completion='-'
+		review_report="${project_status#*Review }"
+		review_report="${review_report%% before DAG registration.*}"
+		description="SPEC_CLARIFICATION_REQUIRED: ${review_report:-spec-review report}."
+	elif [[ -f "$dir/control/project.complete" ]]; then display_status=done; completion="$complete/$total"; description=''
 	elif [[ -f "$dir/control/project.blocked.md" ]]; then display_status=paused; description="NEEDS HUMAN: $(markdown_summary "$dir/control/project.blocked.md")"
 	elif [[ "$project_status" == NEEDS_HUMAN.* ]]; then display_status=paused; description="$project_status"
 	elif [[ "$project_status" == PLANNING_STALLED.* ]]; then

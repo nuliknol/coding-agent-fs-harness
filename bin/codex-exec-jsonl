@@ -225,6 +225,13 @@ elif ! jq -e 'select(.type == "turn.completed")' "$json_log" >/dev/null 2>&1; th
 elif [[ ! -s "$last_message" ]]; then classification="empty_final_output"
 fi
 classification_file="${json_log%.jsonl}.classification"
-printf 'classification=%s\nprovider_code=%s\nhttp_status=%s\nexit_status=%s\nidle_timeout=%s\nstop_requested=%s\npartial_edits=%s\njsonl=%s\nstderr=%s\nlast_message=%s\n' "$classification" "$error_code" "$http_status" "$status" "$idle_timed_out" "$stop_requested" "$git_state_changed" "$json_log" "$stderr_log" "$last_message" > "$classification_file"
+usage_input="$(codex_usage_value_from_jsonl "$json_log" input_tokens)"
+usage_cached="$(codex_usage_value_from_jsonl "$json_log" cached_input_tokens)"
+usage_output="$(codex_usage_value_from_jsonl "$json_log" output_tokens)"
+usage_thread="$(codex_thread_id_from_jsonl "$json_log" 2>/dev/null || true)"
+printf 'classification=%s\nprovider_code=%s\nhttp_status=%s\nexit_status=%s\nidle_timeout=%s\nstop_requested=%s\npartial_edits=%s\nrole=%s\nmodel=%s\nthread_id=%s\ninput_tokens=%s\ncached_input_tokens=%s\noutput_tokens=%s\njsonl=%s\nstderr=%s\nlast_message=%s\n' \
+	"$classification" "$error_code" "$http_status" "$status" "$idle_timed_out" "$stop_requested" "$git_state_changed" \
+	"$role" "$model" "$usage_thread" "$usage_input" "$usage_cached" "$usage_output" \
+	"$json_log" "$stderr_log" "$last_message" > "$classification_file"
 printf 'CODEX_CLASSIFICATION=%s\nCODEX_STDERR_LOG=%s\nCODEX_CLASSIFICATION_FILE=%s\n' "$classification" "$stderr_log" "$classification_file" >&2
 exit "$status"

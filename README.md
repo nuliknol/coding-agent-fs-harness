@@ -107,6 +107,7 @@ Full v2 additionally uses:
 export HARNESS_WORKER_GOAL_MODE="1"
 export HARNESS_DECOMPOSITION_V2="1"
 export HARNESS_DECOMPOSITION_CRITIC_ENABLED="1"
+export HARNESS_SPECIFICATION_REVIEW_ENABLED="1"
 export HARNESS_MAX_LUNA_STRATEGY_FAILURES="3"
 export HARNESS_MAX_LUNA_ALLOWED_PATHS="8"
 export HARNESS_MIN_LUNA_NODE_PERCENT="80"
@@ -116,6 +117,18 @@ export HARNESS_ARCHITECTURE_GUARDS="1"
 export LUNA_WORKER_MODEL="gpt-5.6-luna"
 export TERRA_WORKER_MODEL="gpt-5.6-terra"
 ```
+
+When pre-acceptance review is enabled, `harness-start` first grounds the
+specification against current repository contracts, symbols, producers,
+consumers, build targets, tests, and history. It records authority-qualified
+facts for the decomposition planner. A demonstrated contradiction or missing
+observable product decision stops before DAG registration with
+`SPEC_CLARIFICATION_REQUIRED`; coding difficulty and repository details that
+can be discovered locally are not clarification reasons. The complete report,
+facts, and structured questions are written under `$REPOSITORY/spec-review/`,
+while commands and watchers display only the repository-relative report name.
+Revise and commit the governing specification or repository evidence, then run
+`harness-start` again to obtain a fresh review.
 
 `templates/project-plan-template.tsv` documents the exact DAG schema and
 `templates/leaf-goal-task-template.md` documents the routed leaf contract.
@@ -127,6 +140,9 @@ quality signals such as route counts, terminal leaf success, zero-gain turns,
 replans, verified items, Luna's share of coding assignments, Terra decision
 versus coding assignments, and manager/worker tokens per verified item. Token
 accounting deduplicates resumed threads by taking their latest cumulative usage.
+`bin/harness-status ENV_FILE` also reports manager, Luna-worker, Terra-worker,
+and Oracle token totals plus manager/worker and Luna/Terra processed-token
+ratios. Cached input is shown separately but remains part of input tokens.
 Run `bin/harness-decomposition-tree ENV_FILE` to display the immutable DAG as a
 terminal tree with node state, complexity, configured worker route,
 dependencies, deliverable, and active task route. `--compact` shows one line
@@ -516,6 +532,7 @@ export TERRA_WORKER_REASONING_EFFORT="high"
 export HARNESS_WORKER_GOAL_MODE="1"
 export HARNESS_DECOMPOSITION_V2="1"
 export HARNESS_DECOMPOSITION_CRITIC_ENABLED="1"
+export HARNESS_SPECIFICATION_REVIEW_ENABLED="1"
 export HARNESS_MAX_LUNA_STRATEGY_FAILURES="3"
 export HARNESS_MAX_LUNA_ALLOWED_PATHS="8"
 export HARNESS_MIN_LUNA_NODE_PERCENT="80"

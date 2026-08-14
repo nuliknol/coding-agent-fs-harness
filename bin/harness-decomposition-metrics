@@ -43,8 +43,6 @@ architecture_debt_open=0
 architecture_debt_critical=0
 architecture_debt_expired=0
 architecture_profile_name=disabled
-declare -A worker_thread_input=() worker_thread_output=()
-declare -A manager_thread_input=() manager_thread_output=()
 
 shopt -s nullglob
 for assignment in "$dir"/archive/"$PROJECT-task-"*.assignment.md; do
@@ -90,26 +88,19 @@ for ledger in "$dir"/control/progress/*.replans.tsv; do
 	[[ -f "$ledger" ]] || continue
 	replans=$((replans + $(awk 'NR > 1 {count++} END {print count + 0}' "$ledger")))
 done
-for json in "$dir"/logs/worker-task-*.jsonl; do
-	thread="$(codex_thread_id_from_jsonl "$json" 2>/dev/null || true)"
-	[[ -n "$thread" ]] || thread="$json"
-	input="$(codex_usage_value_from_jsonl "$json" input_tokens)"
-	output="$(codex_usage_value_from_jsonl "$json" output_tokens)"
-	(( input > ${worker_thread_input[$thread]:-0} )) && worker_thread_input[$thread]="$input"
-	(( output > ${worker_thread_output[$thread]:-0} )) && worker_thread_output[$thread]="$output"
-done
-for thread in "${!worker_thread_input[@]}"; do worker_input=$((worker_input + worker_thread_input[$thread])); done
-for thread in "${!worker_thread_output[@]}"; do worker_output=$((worker_output + worker_thread_output[$thread])); done
-for json in "$dir"/logs/manager-*.jsonl; do
-	thread="$(codex_thread_id_from_jsonl "$json" 2>/dev/null || true)"
-	[[ -n "$thread" ]] || thread="$json"
-	input="$(codex_usage_value_from_jsonl "$json" input_tokens)"
-	output="$(codex_usage_value_from_jsonl "$json" output_tokens)"
-	(( input > ${manager_thread_input[$thread]:-0} )) && manager_thread_input[$thread]="$input"
-	(( output > ${manager_thread_output[$thread]:-0} )) && manager_thread_output[$thread]="$output"
-done
-for thread in "${!manager_thread_input[@]}"; do manager_input=$((manager_input + manager_thread_input[$thread])); done
-for thread in "${!manager_thread_output[@]}"; do manager_output=$((manager_output + manager_thread_output[$thread])); done
+
+token_report="$("$HARNESS_BIN/harness-agent-token-usage" "$HARNESS_ENV_FILE")"
+token_metric()
+{
+	local metric="$1"
+	awk -F '\t' -v metric="$metric" '$1 == metric {print $2; found=1; exit} END {if (!found) print 0}' <<< "$token_report"
+}
+manager_input="$(token_metric manager_input_tokens)"
+manager_output="$(token_metric manager_output_tokens)"
+worker_input=$(( $(token_metric worker_luna_input_tokens) + $(token_metric worker_terra_input_tokens) +
+	$(token_metric worker_unknown_input_tokens) ))
+worker_output=$(( $(token_metric worker_luna_output_tokens) + $(token_metric worker_terra_output_tokens) +
+	$(token_metric worker_unknown_output_tokens) ))
 
 if (( HARNESS_ARCHITECTURE_GUARDS == 1 )); then
 	architecture_require_registered
