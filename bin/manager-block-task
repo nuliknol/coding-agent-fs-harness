@@ -134,6 +134,10 @@ if hard_block_class_is_local "$blocker_class"; then
 		"$dir/control/$base.worker-failed.md" "$dir/control/$base.worker-supervisor-failed.md"
 	record_root_hard_block "$task_id" "$blocker_class" MANAGER_REMEDIATION \
 		"$remediation_scope" "$reason"
+	if ! enforce_root_liveness_or_reassess "$task_id"; then
+		printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
+		exit 0
+	fi
 	replan_marker="$(mark_root_needs_replan "$task_id" "$reason" HARD_BLOCKED_LOCAL \
 		"$blocker_class" "$remediation_scope")"
 	log_event "TASK_HARD_BLOCK_ROUTED_MANAGER_REMEDIATION task=$task_id root=$root blocker_class=$blocker_class remediation_scope=$(printf '%q' "$remediation_scope") reason=$(printf '%q' "$reason")"

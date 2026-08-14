@@ -24,7 +24,12 @@ validate_task_id "$root"
 (( HARNESS_AUTO_REPLAN_ENABLED == 1 )) || exit 0
 replan_marker="$(task_root_replan_file "$root")"
 [[ -f "$replan_marker" ]] || exit 0
-if task_root_is_blocked "$root" || task_root_needs_human "$root"; then
+if task_root_is_blocked "$root" || task_root_needs_human "$root" ||
+	task_root_needs_architecture_reassessment "$root"; then
+	exit 0
+fi
+if ! enforce_root_liveness_or_reassess "$root"; then
+	printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
 	exit 0
 fi
 
@@ -225,7 +230,8 @@ task_published()
 		-f "$project_path/results/$base.result.md" ||
 		-f "$project_path/archive/$base.accepted.md" ||
 		-f "$project_path/archive/$base.checkpointed.md" ||
-		-f "$project_path/archive/$base.rejected.md" ]]
+		-f "$project_path/archive/$base.rejected.md" ||
+		-f "$(task_root_architecture_reassessment_file "$root")" ]]
 }
 
 attempt=1
@@ -247,6 +253,7 @@ while true; do
 	status=$?
 	set -e
 	classification="$(kv_file_value "${json_log%.jsonl}.classification" classification 2>/dev/null || true)"
+	record_root_agent_tokens "$root" manager_replan "${json_log%.jsonl}.classification"
 	if task_published; then
 		log_event "MANAGER_REPLAN_COMMITTED root=$root task=$expected_task_id recovery_mode=$recovery_mode attempt=$attempt"
 		trace_event MANAGER_REPLAN_COMMITTED "root=$root" "task_id=$expected_task_id" "recovery_mode=$recovery_mode" "attempt=$attempt"

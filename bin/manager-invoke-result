@@ -38,6 +38,7 @@ checkpointed="$project_path/archive/$base.checkpointed.md"
 rejected="$project_path/archive/$base.rejected.md"
 blocked="$project_path/archive/$base.blocked.md"
 superseded="$project_path/archive/$base.superseded.md"
+architecture_reassessment="$(task_root_architecture_reassessment_file "$task_id")"
 pending_exit_status=3
 [[ -f "$result" ]] || die "result file does not exist: $result"
 [[ ! -e "$running" ]] || die "result is not committed; running assignment still exists: $running"
@@ -136,12 +137,13 @@ DECOMPOSITION_V2=$HARNESS_DECOMPOSITION_V2
 ARCHITECTURE_GUARDS=$HARNESS_ARCHITECTURE_GUARDS
 ARCHITECTURE_DIR=$(architecture_dir)
 MANAGER_ARCHITECTURE_REVISION_COMMAND=$HARNESS_BIN/manager-revise-architecture
+MANAGER_DEPENDENCY_INVALIDATION_COMMAND=$HARNESS_BIN/manager-invalidate-plan-dependency
 LUNA_STRATEGY_FAILURES=$(root_luna_strategy_failure_count "$task_root")
 MAX_LUNA_STRATEGY_FAILURES=$HARNESS_MAX_LUNA_STRATEGY_FAILURES
 PREFERRED_WORKER_ROUTE=$HARNESS_PREFERRED_WORKER_ROUTE
 REVIEW_STATE_CHANGED=$review_state_changed
 
-Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and follow it. Read DEVELOPMENT_POLICY_FILE when present, then PROJECT_PLAN_FILE, PROJECT_PLAN_STATE_FILE, ROOT_ASSIGNMENT_FILE, PROGRESS_FILE, CRITERIA_DEFINITION_FILE, CRITERION_DECOMPOSITION_FILE, and CRITERION_LEDGER_FILE when present before reviewing this result. When SPECIFICATION_OBLIGATIONS_FILE is present, independently verify every ALLOCATED_SPECIFICATION_OBLIGATIONS row, its typed relations, and its coverage evidence plan before accepting the node. When REVIEW_STATE_CHANGED=1, stable control state changed after a prior pending review: re-read the architecture registry, dependency state, plan state, and repository HEAD, then perform a fresh review; do not dismiss the event as a duplicate. Reconcile cumulative root progress and project progress against the actual repository; do not reset completed work after a restart. Write any review note and any next or revision task file under PROJECT_TMP_DIR. Every harness command must receive ENV_FILE as its first argument. Checkpoint a correct verified increment that does not complete the root; this includes a non-regressive correction that removes the prior first failure, advances the focused execution to a later boundary, or adds truthful structured evidence isolating that boundary, even when the leaf and final smoke remain failing or the worker assessment says BLOCKED. Use a stable Verified-Increment ID for that smaller gain. Accept only when the entire root passes; reject only a faulty, regressive, out-of-scope, or independently unverified increment. Any ordinary continuation must set Target-Criterion to FIRST_UNMET_CRITERION. Inspect the command's returned path and do not publish a continuation when it ends in .needs-replan.md, .needs-human.md, or .blocked.md; the supervisor owns automatic replanning. When closure mode is eligible, author the continuation for the bounded multi-attempt closure policy rather than imposing an exactly-once smoke restriction. Acceptance completes only the current project-plan item; if project items remain, publish exactly one task for the next item. If an otherwise valid review is blocked only by a defective architecture registry, create a complete corrected registry copy and factual revision note under PROJECT_TMP_DIR, run MANAGER_ARCHITECTURE_REVISION_COMMAND ENV_FILE TASK_ID CORRECTED_REGISTRY_DIR REVISION_NOTE_FILE, then retry the terminal review action in the same turn. Do not weaken an acceptance condition merely to make it pass. Then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or call manager-wait-result.
+Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and follow it. Read DEVELOPMENT_POLICY_FILE when present, then PROJECT_PLAN_FILE, PROJECT_PLAN_STATE_FILE, ROOT_ASSIGNMENT_FILE, PROGRESS_FILE, CRITERIA_DEFINITION_FILE, CRITERION_DECOMPOSITION_FILE, and CRITERION_LEDGER_FILE when present before reviewing this result. When SPECIFICATION_OBLIGATIONS_FILE is present, independently verify every ALLOCATED_SPECIFICATION_OBLIGATIONS row, its typed relations, and its coverage evidence plan before accepting the node. When REVIEW_STATE_CHANGED=1, stable control state changed after a prior pending review: re-read the architecture registry, dependency state, plan state, and repository HEAD, then perform a fresh review; do not dismiss the event as a duplicate. Reconcile cumulative root progress and project progress against the actual repository; do not reset completed work after a restart. Write any review note and any next or revision task file under PROJECT_TMP_DIR. Every harness command must receive ENV_FILE as its first argument. Checkpoint a correct verified increment that does not complete the root; this includes a non-regressive correction that removes the prior first failure, advances the focused execution to a later boundary, or adds truthful structured evidence isolating that boundary, even when the leaf and final smoke remain failing or the worker assessment says BLOCKED. Use a stable Verified-Increment ID for that smaller gain. Accept only when the entire root passes; reject only a faulty, regressive, out-of-scope, or independently unverified increment. Any ordinary continuation must set Target-Criterion to FIRST_UNMET_CRITERION. Inspect the command's returned path and do not publish a continuation when it ends in .needs-replan.md, .needs-human.md, .blocked.md, or .architecture-reassessment-required.md; the supervisor owns automatic recovery. When a consumer disproves an accepted dependency, write a factual note and run MANAGER_DEPENDENCY_INVALIDATION_COMMAND ENV_FILE TASK_ID DEPENDENCY_PLAN_ITEM NOTE_FILE. Do not repair an upstream architectural contract by silently expanding this root. When closure mode is eligible, author the continuation for the bounded multi-attempt closure policy rather than imposing an exactly-once smoke restriction. Acceptance completes only the current project-plan item; if project items remain, publish exactly one task for the next item. If an otherwise valid review is blocked only by a defective architecture registry, create a complete corrected registry copy and factual revision note under PROJECT_TMP_DIR, run MANAGER_ARCHITECTURE_REVISION_COMMAND ENV_FILE TASK_ID CORRECTED_REGISTRY_DIR REVISION_NOTE_FILE, then retry the terminal review action in the same turn. Do not weaken an acceptance condition merely to make it pass. Then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or call manager-wait-result.
 PROMPT
 if (( goal_mode == 1 )); then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
@@ -206,7 +208,8 @@ commit_fresh_manager_context()
 
 manager_action_committed()
 {
-	[[ -f "$accepted" || -f "$checkpointed" || -f "$rejected" || -f "$blocked" || -f "$superseded" ]]
+	[[ -f "$accepted" || -f "$checkpointed" || -f "$rejected" || -f "$blocked" ||
+		-f "$superseded" || -f "$architecture_reassessment" ]]
 }
 
 while true; do
@@ -234,6 +237,7 @@ while true; do
 		review_thread_id="$started_thread_id"
 	fi
 	classification="$(kv_file_value "${json_log%.jsonl}.classification" classification 2>/dev/null || true)"
+	record_root_agent_tokens "$task_id" manager_review "${json_log%.jsonl}.classification"
 	trace_event CODEX_EXEC_END "role=manager_review" "task_id=$task_id" "attempt=$attempt" "status=$status" "json_log=$json_log" "last_message=$last_message"
 
 	if (( status == 0 )); then

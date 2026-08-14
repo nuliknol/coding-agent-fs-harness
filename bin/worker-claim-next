@@ -26,7 +26,14 @@ while true; do
 	ready_name=""
 	{
 		acquire_project_lock
-		ready_name="$(find "$dir/tasks" -maxdepth 1 -type f -name "$PROJECT-task-*.ready.md" -printf '%f\n' | LC_ALL=C sort | head -n 1 || true)"
+		while IFS= read -r candidate_name; do
+			candidate_task="$(task_id_from_filename "$candidate_name")"
+			if task_root_needs_architecture_reassessment "$candidate_task"; then
+				continue
+			fi
+			ready_name="$candidate_name"
+			break
+		done < <(find "$dir/tasks" -maxdepth 1 -type f -name "$PROJECT-task-*.ready.md" -printf '%f\n' | LC_ALL=C sort)
 		if [[ -n "$ready_name" ]]; then
 			task_id="$(task_id_from_filename "$ready_name")"
 			base="$(task_base "$task_id")"

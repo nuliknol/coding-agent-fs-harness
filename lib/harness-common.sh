@@ -147,6 +147,9 @@ load_harness_env()
 	unset HARNESS_MAX_IDENTICAL_BLOCKERS
 	unset HARNESS_MAX_ROOT_ATTEMPTS HARNESS_MAX_ZERO_GAIN_WINDOW
 	unset HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION
+	unset HARNESS_MAX_TOTAL_ROOT_REVIEWS HARNESS_MAX_TOTAL_ROOT_REPLANS
+	unset HARNESS_MAX_ROOT_CHILD_CRITERIA HARNESS_MAX_CRITERION_DEPTH
+	unset HARNESS_MAX_ROOT_LIFETIME_SECONDS HARNESS_MAX_ROOT_PROCESSED_TOKENS
 	unset HARNESS_AUTO_REPLAN_ENABLED HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN
 	unset HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION
 	unset HARNESS_REUSE_WORKER_THREADS HARNESS_WORKER_THREAD_MAX_REJECTIONS
@@ -222,6 +225,15 @@ load_harness_env()
 	HARNESS_MAX_ROOT_ATTEMPTS="${HARNESS_MAX_ROOT_ATTEMPTS:-12}"
 	HARNESS_MAX_ZERO_GAIN_WINDOW="${HARNESS_MAX_ZERO_GAIN_WINDOW:-3}"
 	HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION="${HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION:-4}"
+	# These monotonic plan-item budgets never reset after a checkpoint or an
+	# automatic replan. They bound decomposition treadmills that can otherwise
+	# manufacture local evidence indefinitely without completing the root.
+	HARNESS_MAX_TOTAL_ROOT_REVIEWS="${HARNESS_MAX_TOTAL_ROOT_REVIEWS:-24}"
+	HARNESS_MAX_TOTAL_ROOT_REPLANS="${HARNESS_MAX_TOTAL_ROOT_REPLANS:-8}"
+	HARNESS_MAX_ROOT_CHILD_CRITERIA="${HARNESS_MAX_ROOT_CHILD_CRITERIA:-32}"
+	HARNESS_MAX_CRITERION_DEPTH="${HARNESS_MAX_CRITERION_DEPTH:-8}"
+	HARNESS_MAX_ROOT_LIFETIME_SECONDS="${HARNESS_MAX_ROOT_LIFETIME_SECONDS:-21600}"
+	HARNESS_MAX_ROOT_PROCESSED_TOKENS="${HARNESS_MAX_ROOT_PROCESSED_TOKENS:-100000000}"
 	# A convergence pause is normally recovered without an operator. The
 	# recovery turn resumes the persistent manager, starts a fresh worker
 	# strategy, may install a durable criterion decomposition for a legacy root,
@@ -420,6 +432,12 @@ load_harness_env()
 	[[ "$HARNESS_MAX_ROOT_ATTEMPTS" =~ ^[0-9]+$ ]] || die 'HARNESS_MAX_ROOT_ATTEMPTS must be a nonnegative integer'
 	[[ "$HARNESS_MAX_ZERO_GAIN_WINDOW" =~ ^[0-9]+$ ]] || die 'HARNESS_MAX_ZERO_GAIN_WINDOW must be a nonnegative integer'
 	[[ "$HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION" =~ ^[0-9]+$ ]] || die 'HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION must be a nonnegative integer'
+	[[ "$HARNESS_MAX_TOTAL_ROOT_REVIEWS" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_TOTAL_ROOT_REVIEWS must be a positive integer'
+	[[ "$HARNESS_MAX_TOTAL_ROOT_REPLANS" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_TOTAL_ROOT_REPLANS must be a positive integer'
+	[[ "$HARNESS_MAX_ROOT_CHILD_CRITERIA" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_ROOT_CHILD_CRITERIA must be a positive integer'
+	[[ "$HARNESS_MAX_CRITERION_DEPTH" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_CRITERION_DEPTH must be a positive integer'
+	[[ "$HARNESS_MAX_ROOT_LIFETIME_SECONDS" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_ROOT_LIFETIME_SECONDS must be a positive integer'
+	[[ "$HARNESS_MAX_ROOT_PROCESSED_TOKENS" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_ROOT_PROCESSED_TOKENS must be a positive integer'
 	[[ "$HARNESS_AUTO_REPLAN_ENABLED" =~ ^[01]$ ]] || die 'HARNESS_AUTO_REPLAN_ENABLED must be 0 or 1'
 	[[ "$HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN" =~ ^[1-9][0-9]*$ ]] ||
 		die 'HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN must be a positive integer'
@@ -522,6 +540,9 @@ load_harness_env()
 	export HARNESS_AGENT_MIN_INTERVAL_SECONDS
 	export HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS HARNESS_START_MAX_AGENT_INVOCATIONS
 	export HARNESS_MAX_ROOT_ATTEMPTS HARNESS_MAX_ZERO_GAIN_WINDOW HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION
+	export HARNESS_MAX_TOTAL_ROOT_REVIEWS HARNESS_MAX_TOTAL_ROOT_REPLANS
+	export HARNESS_MAX_ROOT_CHILD_CRITERIA HARNESS_MAX_CRITERION_DEPTH
+	export HARNESS_MAX_ROOT_LIFETIME_SECONDS HARNESS_MAX_ROOT_PROCESSED_TOKENS
 	export HARNESS_AUTO_REPLAN_ENABLED HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN
 	export HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION
 	export HARNESS_REUSE_WORKER_THREADS HARNESS_WORKER_THREAD_MAX_REJECTIONS
@@ -825,6 +846,31 @@ task_root_human_file()
 	printf '%s/control/progress/%s-task-%s.needs-human.md' "$(project_dir)" "$PROJECT" "$root"
 }
 
+task_root_architecture_reassessment_file()
+{
+	local root
+	root="$(task_root_id "$1")"
+	printf '%s/control/progress/%s-task-%s.architecture-reassessment-required.md' \
+		"$(project_dir)" "$PROJECT" "$root"
+}
+
+plan_dependency_invalidation_dir()
+{
+	printf '%s/control/plan-invalidations' "$(project_dir)"
+}
+
+plan_dependency_invalidation_file()
+{
+	local dependency="$1" consumer="${2:-}"
+	[[ "$dependency" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]] || die "invalid plan item ID: $dependency"
+	if [[ -n "$consumer" ]]; then
+		validate_task_id "$consumer"
+		printf '%s/%s--%s.invalidated.md' "$(plan_dependency_invalidation_dir)" "$dependency" "$consumer"
+	else
+		printf '%s/%s.invalidated.md' "$(plan_dependency_invalidation_dir)" "$dependency"
+	fi
+}
+
 task_root_waiting_dependency_file()
 {
 	local root
@@ -1025,6 +1071,13 @@ task_hard_block_ledger_file()
 	local root
 	root="$(task_root_id "$1")"
 	printf '%s/control/progress/%s-task-%s.hard-blocks.tsv' "$(project_dir)" "$PROJECT" "$root"
+}
+
+task_root_token_ledger_file()
+{
+	local root
+	root="$(task_root_id "$1")"
+	printf '%s/control/progress/%s-task-%s.tokens.tsv' "$(project_dir)" "$PROJECT" "$root"
 }
 
 task_replan_baseline_file()
@@ -1569,6 +1622,11 @@ task_root_needs_human()
 	[[ -f "$(task_root_human_file "$1")" ]]
 }
 
+task_root_needs_architecture_reassessment()
+{
+	[[ -f "$(task_root_architecture_reassessment_file "$1")" ]]
+}
+
 task_root_waiting_dependency()
 {
 	[[ -f "$(task_root_waiting_dependency_file "$1")" ]]
@@ -1583,7 +1641,8 @@ task_root_is_paused()
 {
 	task_root_is_blocked "$1" || task_root_needs_replan "$1" ||
 		task_root_needs_human "$1" || task_root_is_replanning "$1" ||
-		task_root_waiting_dependency "$1"
+		task_root_waiting_dependency "$1" ||
+		task_root_needs_architecture_reassessment "$1"
 }
 
 task_progress_percent()
@@ -1710,6 +1769,194 @@ root_reviewed_attempt_count()
 		fi
 	done
 	printf '%s\n' "$count"
+}
+
+root_total_replan_count()
+{
+	local ledger rows
+	ledger="$(task_replan_ledger_file "$1")"
+	[[ -f "$ledger" ]] || { printf '0\n'; return 0; }
+	rows="$(( $(wc -l < "$ledger") - 1 ))"
+	(( rows >= 0 )) || rows=0
+	printf '%s\n' "$rows"
+}
+
+root_child_criterion_count()
+{
+	local file rows
+	file="$(task_criterion_decomposition_file "$1")"
+	[[ -f "$file" ]] || { printf '0\n'; return 0; }
+	rows="$(( $(wc -l < "$file") - 1 ))"
+	(( rows >= 0 )) || rows=0
+	printf '%s\n' "$rows"
+}
+
+root_criterion_max_depth()
+{
+	local file
+	file="$(task_criterion_decomposition_file "$1")"
+	[[ -f "$file" ]] || { printf '0\n'; return 0; }
+	awk -F '\t' '
+		NR > 1 {
+			value = depth[$1] + 1
+			if (value > depth[$2]) depth[$2] = value
+			if (value > maximum) maximum = value
+		}
+		END {print maximum + 0}
+	' "$file"
+}
+
+root_lifetime_seconds()
+{
+	local assignment started now
+	assignment="$(task_root_assignment_file "$1")"
+	[[ -f "$assignment" ]] || { printf '0\n'; return 0; }
+	started="$(stat -c %Y "$assignment" 2>/dev/null || printf 0)"
+	now="$(epoch_now)"
+	[[ "$started" =~ ^[0-9]+$ ]] || started="$now"
+	(( now >= started )) || started="$now"
+	printf '%s\n' "$((now - started))"
+}
+
+root_processed_token_count()
+{
+	local ledger
+	ledger="$(task_root_token_ledger_file "$1")"
+	[[ -f "$ledger" ]] || { printf '0\n'; return 0; }
+	awk -F '\t' 'NR > 1 {total += $7} END {printf "%.0f\n", total + 0}' "$ledger"
+}
+
+record_root_agent_tokens()
+{
+	local task_id="$1" role="$2" classification="$3" root thread input output current
+	local token_dir thread_key thread_state prior delta ledger tmp
+	[[ -f "$classification" ]] || return 0
+	root="$(task_root_id "$task_id")"
+	thread="$(kv_file_value "$classification" thread_id 2>/dev/null || true)"
+	input="$(kv_file_value "$classification" input_tokens 2>/dev/null || true)"
+	output="$(kv_file_value "$classification" output_tokens 2>/dev/null || true)"
+	[[ -n "$thread" && "$input" =~ ^[0-9]+$ && "$output" =~ ^[0-9]+$ ]] || return 0
+	current=$((input + output))
+	token_dir="$(project_dir)/control/agent-token-thread-state"
+	mkdir -p "$token_dir"
+	chmod 700 "$token_dir"
+	# Codex usage is cumulative per thread. Key only by thread so alternating
+	# manager review/replan roles cannot charge the same cumulative context twice.
+	thread_key="$(printf '%s' "$thread" | sha256sum | awk '{print $1}')"
+	thread_state="$token_dir/$thread_key.env"
+	exec 7>"$(project_dir)/control/agent-token-accounting.lock"
+	flock -x 7
+	prior=0
+	[[ ! -f "$thread_state" ]] || prior="$(kv_file_value "$thread_state" processed_tokens 2>/dev/null || printf 0)"
+	[[ "$prior" =~ ^[0-9]+$ ]] || prior=0
+	if (( current > prior )); then
+		if (( prior == 0 )) && [[ "$role" == manager* ]]; then
+			# A persistent manager thread may predate this release or this root.
+			# Establish its baseline without charging historical context to the
+			# currently active plan item.
+			delta=0
+		else
+			delta=$((current - prior))
+		fi
+		tmp="$thread_state.tmp.$$"
+		{
+			printf 'role=%s\n' "$role"
+			printf 'thread_id=%s\n' "$thread"
+			printf 'processed_tokens=%s\n' "$current"
+			printf 'updated_at=%s\n' "$(timestamp_utc)"
+		} > "$tmp"
+		chmod 600 "$tmp"
+		mv "$tmp" "$thread_state"
+		if (( delta > 0 )); then
+			ledger="$(task_root_token_ledger_file "$root")"
+			if [[ ! -f "$ledger" ]]; then
+				printf 'recorded_at\ttask_id\trole\tthread_id\tinput_tokens\toutput_tokens\tprocessed_delta\n' > "$ledger"
+				chmod 600 "$ledger"
+			fi
+			printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(timestamp_utc)" "$task_id" \
+				"$role" "$thread" "$input" "$output" "$delta" >> "$ledger"
+		fi
+	fi
+	flock -u 7
+}
+
+root_liveness_violation_reason()
+{
+	local root="$1" reviews replans children depth lifetime tokens
+	reviews="$(root_reviewed_attempt_count "$root")"
+	replans="$(root_total_replan_count "$root")"
+	children="$(root_child_criterion_count "$root")"
+	depth="$(root_criterion_max_depth "$root")"
+	lifetime="$(root_lifetime_seconds "$root")"
+	tokens="$(root_processed_token_count "$root")"
+	if (( reviews >= HARNESS_MAX_TOTAL_ROOT_REVIEWS )); then
+		printf 'TOTAL_ROOT_REVIEWS: monotonic reviewed-result budget reached (%s/%s)' "$reviews" "$HARNESS_MAX_TOTAL_ROOT_REVIEWS"
+	elif (( replans >= HARNESS_MAX_TOTAL_ROOT_REPLANS )); then
+		printf 'TOTAL_ROOT_REPLANS: monotonic automatic-replan budget reached (%s/%s)' "$replans" "$HARNESS_MAX_TOTAL_ROOT_REPLANS"
+	elif (( children >= HARNESS_MAX_ROOT_CHILD_CRITERIA )); then
+		printf 'ROOT_CHILD_CRITERIA: append-only child budget reached (%s/%s)' "$children" "$HARNESS_MAX_ROOT_CHILD_CRITERIA"
+	elif (( depth >= HARNESS_MAX_CRITERION_DEPTH )); then
+		printf 'CRITERION_DEPTH: decomposition depth budget reached (%s/%s)' "$depth" "$HARNESS_MAX_CRITERION_DEPTH"
+	elif (( lifetime >= HARNESS_MAX_ROOT_LIFETIME_SECONDS )); then
+		printf 'ROOT_LIFETIME: active root lifetime budget reached (%ss/%ss)' "$lifetime" "$HARNESS_MAX_ROOT_LIFETIME_SECONDS"
+	elif (( tokens >= HARNESS_MAX_ROOT_PROCESSED_TOKENS )); then
+		printf 'ROOT_TOKENS: processed-token budget reached (%s/%s)' "$tokens" "$HARNESS_MAX_ROOT_PROCESSED_TOKENS"
+	else
+		return 1
+	fi
+}
+
+mark_root_architecture_reassessment()
+{
+	local task_id="$1" category="$2" reason="$3" evidence="${4:--}"
+	local root marker tmp alarm created=0
+	root="$(task_root_id "$task_id")"
+	marker="$(task_root_architecture_reassessment_file "$root")"
+	if [[ ! -f "$marker" ]]; then
+		tmp="$marker.tmp.$$"
+		{
+			printf '# Architecture Reassessment Required\n\n'
+			printf 'Project: %s\n\n' "$PROJECT"
+			printf 'Task-Root: %s\n\n' "$root"
+			printf 'Triggered-By: %s\n\n' "$task_id"
+			printf 'Category: %s\n\n' "$category"
+			printf 'Paused-At: %s\n\n' "$(timestamp_utc)"
+			printf 'Reason: %s\n\n' "$reason"
+			printf 'Evidence: %s\n\n' "$evidence"
+			printf 'Total-Root-Reviews: %s\n' "$(root_reviewed_attempt_count "$root")"
+			printf 'Total-Root-Replans: %s\n' "$(root_total_replan_count "$root")"
+			printf 'Child-Criteria: %s\n' "$(root_child_criterion_count "$root")"
+			printf 'Criterion-Depth: %s\n' "$(root_criterion_max_depth "$root")"
+			printf 'Root-Lifetime-Seconds: %s\n' "$(root_lifetime_seconds "$root")"
+			printf 'Root-Processed-Tokens: %s\n\n' "$(root_processed_token_count "$root")"
+			printf 'No further worker, manager-review, or automatic-replan task may launch for this root. Verified source, commits, checkpoints, and diagnostic evidence are preserved. Resolve the governing architecture or dependency authority, then use harness-resolve-architecture-reassessment with an explicit resolution record.\n'
+		} > "$tmp"
+		chmod 600 "$tmp"
+		mv "$tmp" "$marker"
+		created=1
+	fi
+	rm -f "$(task_root_replan_file "$root")" "$(task_root_replanning_file "$root")"
+	clear_worker_thread_for_root "$root" architecture-reassessment
+	if (( created == 1 )); then
+		alarm="$(project_dir)/logs/root-liveness-alarms.log"
+		printf '%s\tproject=%s\troot=%s\ttrigger=%s\tcategory=%s\treason=%q\tevidence=%q\n' \
+			"$(timestamp_utc)" "$PROJECT" "$root" "$task_id" "$category" "$reason" "$evidence" >> "$alarm"
+		chmod 600 "$alarm"
+		log_event "ARCHITECTURE_REASSESSMENT_REQUIRED root=$root trigger=$task_id category=$category reason=$(printf '%q' "$reason") marker=$marker"
+	fi
+	printf '%s\n' "$marker"
+}
+
+enforce_root_liveness_or_reassess()
+{
+	local task_id="$1" reason category
+	if reason="$(root_liveness_violation_reason "$(task_root_id "$task_id")")"; then
+		category="${reason%%:*}"
+		mark_root_architecture_reassessment "$task_id" "$category" "${reason#*: }" \
+			'monotonic plan-item liveness budget; local checkpoints do not reset this limit' >/dev/null
+		return 1
+	fi
+	return 0
 }
 
 root_reviewed_attempts_since_replan()
@@ -3076,18 +3323,22 @@ project_plan_total_count()
 
 project_plan_complete_count()
 {
-	local file
+	local file item_id status count=0
 	file="$(project_plan_state_file)"
 	[[ -f "$file" ]] || { printf '0\n'; return 0; }
-	awk -F '\t' '!/^#/ && $2 == "COMPLETE" {count++} END {print count + 0}' "$file"
+	while IFS=$'\t' read -r item_id status _; do
+		[[ -n "$item_id" && "$item_id" != \#* && "$status" == COMPLETE ]] || continue
+		project_plan_item_is_invalidated "$item_id" || count=$((count + 1))
+	done < "$file"
+	printf '%s\n' "$count"
 }
 
 project_plan_pending_count()
 {
-	local file
-	file="$(project_plan_state_file)"
-	[[ -f "$file" ]] || { printf '0\n'; return 0; }
-	awk -F '\t' '!/^#/ && $2 != "COMPLETE" {count++} END {print count + 0}' "$file"
+	local total complete
+	total="$(project_plan_total_count)"
+	complete="$(project_plan_complete_count)"
+	printf '%s\n' "$((total - complete))"
 }
 
 project_plan_progress_percent()
@@ -3102,9 +3353,20 @@ project_plan_progress_percent()
 	fi
 }
 
+project_plan_item_is_invalidated()
+{
+	local item_id="$1"
+	compgen -G "$(plan_dependency_invalidation_dir)/$item_id--*.invalidated.md" >/dev/null ||
+		[[ -f "$(plan_dependency_invalidation_file "$item_id")" ]]
+}
+
 project_plan_item_status()
 {
 	local item_id="$1"
+	if project_plan_item_is_invalidated "$item_id"; then
+		printf 'INVALIDATED\n'
+		return 0
+	fi
 	awk -F '\t' -v item="$item_id" '!/^#/ && $1 == item {print $2; exit}' "$(project_plan_state_file)"
 }
 
@@ -3629,6 +3891,12 @@ write_manager_snapshot()
 		printf 'runtime_path_prefix=%s\n' "$HARNESS_RUNTIME_PATH_PREFIX"
 		printf 'auto_replan_enabled=%s\n' "$HARNESS_AUTO_REPLAN_ENABLED"
 		printf 'max_auto_replans_without_verified_gain=%s\n' "$HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN"
+		printf 'max_total_root_reviews=%s\n' "$HARNESS_MAX_TOTAL_ROOT_REVIEWS"
+		printf 'max_total_root_replans=%s\n' "$HARNESS_MAX_TOTAL_ROOT_REPLANS"
+		printf 'max_root_child_criteria=%s\n' "$HARNESS_MAX_ROOT_CHILD_CRITERIA"
+		printf 'max_criterion_depth=%s\n' "$HARNESS_MAX_CRITERION_DEPTH"
+		printf 'max_root_lifetime_seconds=%s\n' "$HARNESS_MAX_ROOT_LIFETIME_SECONDS"
+		printf 'max_root_processed_tokens=%s\n' "$HARNESS_MAX_ROOT_PROCESSED_TOKENS"
 		printf 'preferred_worker_route=%s\n' "$HARNESS_PREFERRED_WORKER_ROUTE"
 		printf 'agent_commits_enabled=%s\n' "$HARNESS_AGENT_COMMITS_ENABLED"
 		printf 'min_luna_node_percent=%s\n' "$HARNESS_MIN_LUNA_NODE_PERCENT"
@@ -3662,6 +3930,12 @@ write_worker_snapshot()
 		printf 'max_root_attempts=%s\n' "$HARNESS_MAX_ROOT_ATTEMPTS"
 		printf 'max_zero_gain_window=%s\n' "$HARNESS_MAX_ZERO_GAIN_WINDOW"
 		printf 'max_checkpoints_without_criterion=%s\n' "$HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION"
+		printf 'max_total_root_reviews=%s\n' "$HARNESS_MAX_TOTAL_ROOT_REVIEWS"
+		printf 'max_total_root_replans=%s\n' "$HARNESS_MAX_TOTAL_ROOT_REPLANS"
+		printf 'max_root_child_criteria=%s\n' "$HARNESS_MAX_ROOT_CHILD_CRITERIA"
+		printf 'max_criterion_depth=%s\n' "$HARNESS_MAX_CRITERION_DEPTH"
+		printf 'max_root_lifetime_seconds=%s\n' "$HARNESS_MAX_ROOT_LIFETIME_SECONDS"
+		printf 'max_root_processed_tokens=%s\n' "$HARNESS_MAX_ROOT_PROCESSED_TOKENS"
 		printf 'closure_mode_enabled=%s\n' "$HARNESS_CLOSURE_MODE_ENABLED"
 		printf 'closure_min_progress=%s\n' "$HARNESS_CLOSURE_MODE_MIN_PROGRESS"
 		printf 'closure_max_fixes=%s\n' "$HARNESS_CLOSURE_MODE_MAX_FIXES"

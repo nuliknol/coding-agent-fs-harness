@@ -428,6 +428,7 @@ while true; do
 		fi
 	fi
 	classification="$(kv_file_value "${json_log%.jsonl}.classification" classification 2>/dev/null || true)"
+	record_root_agent_tokens "$task_id" "$execution_role" "${json_log%.jsonl}.classification"
 	if (( goal_mode == 1 )); then
 		goal_turns="$(kv_file_value "$goal_state" process_turns 2>/dev/null || printf 0)"
 		goal_input="$(kv_file_value "$goal_state" cumulative_input_tokens 2>/dev/null || printf 0)"

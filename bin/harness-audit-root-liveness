@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 2 ]] || { printf 'Usage: %s ENV_FILE TASK_ROOT\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+root="$2"
+ensure_project
+validate_task_id "$root"
+[[ "$(task_root_id "$root")" == "$root" ]] || die 'TASK_ROOT must not be a revision ID'
+acquire_project_lock
+if enforce_root_liveness_or_reassess "$root"; then
+	printf 'Root %s is within all monotonic liveness budgets.\n' "$root"
+else
+	printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
+fi

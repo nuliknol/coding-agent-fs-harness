@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TASK_ROOT RESOLUTION_NOTE_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 3 ]] || usage
+load_harness_env "$1"
+root="$2"
+note_file="$3"
+ensure_project
+validate_task_id "$root"
+[[ "$(task_root_id "$root")" == "$root" ]] || die 'TASK_ROOT must not be a revision ID'
+[[ -s "$note_file" ]] || die "architecture resolution note is missing or empty: $note_file"
+acquire_project_lock
+
+marker="$(task_root_architecture_reassessment_file "$root")"
+[[ -f "$marker" ]] || die "root does not require architecture reassessment: $root"
+archive_dir="$(project_dir)/archive/architecture-reassessments"
+mkdir -p "$archive_dir"
+chmod 700 "$archive_dir"
+stamp="$(timestamp_compact_utc)"
+archive="$archive_dir/$PROJECT-task-$root.$stamp.resolved.md"
+{
+	cat "$marker"
+	printf '\n## Explicit resolution\n\n'
+	cat "$note_file"
+	printf '\n\nResolved-At: %s\n' "$(timestamp_utc)"
+} > "$archive.tmp.$$"
+chmod 600 "$archive.tmp.$$"
+mv "$archive.tmp.$$" "$archive"
+
+if [[ -d "$(plan_dependency_invalidation_dir)" ]]; then
+	invalid_archive="$archive_dir/plan-invalidations"
+	mkdir -p "$invalid_archive"
+	chmod 700 "$invalid_archive"
+	while IFS= read -r invalidation; do
+		[[ -f "$invalidation" ]] || continue
+		[[ "$(metadata_value "$invalidation" Consumer-Root)" == "$root" ]] || continue
+		mv "$invalidation" "$invalid_archive/${invalidation##*/}.$stamp.resolved"
+	done < <(find "$(plan_dependency_invalidation_dir)" -maxdepth 1 -type f -name '*.invalidated.md' -print)
+fi
+rm -f "$marker"
+record_root_convergence_baseline "$root"
+record_root_replan_baseline "$root"
+log_event "ARCHITECTURE_REASSESSMENT_RESOLVED root=$root resolution=$archive"
+printf '%s\n' "$archive"

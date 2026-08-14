@@ -318,7 +318,7 @@ Goal-ID: goal.001.validation
 Target-Criterion: goal.validation
 Goal-Success-Evidence: the focused validation of goal-output.txt passes
 Focused-Validation: test -s goal-output.txt
-Allowed-Scope: goal-output.txt validation only
+Allowed-Scope: goal-output.txt
 Baseline-Boundary: behavior-checkpointed-validation-unreviewed
 Hard-Block-Conditions: explicit specification conflict or unavailable required external authority
 

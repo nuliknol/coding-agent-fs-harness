@@ -34,6 +34,7 @@ if (( status_detail == 0 )); then
 		/^Architecture health: / ||
 		/^Oracle audit: / ||
 		/^Active root evidence: / ||
+		/^Root liveness: / ||
 		/^First unmet leaf criterion: / ||
 		/^Active worker goal: / ||
 		/^Goal task \/ target: / ||
@@ -283,6 +284,7 @@ replan_count=0
 human_count=0
 waiting_dependency_count=0
 replanning_count=0
+architecture_reassessment_count=0
 manager_remediation_active_count=0
 task_rows=()
 
@@ -425,6 +427,18 @@ for file in "$dir/control/progress/$PROJECT-task-"*.needs-human.md; do
 	task_rows+=("$task_row")
 done
 
+for file in "$dir/control/progress/$PROJECT-task-"*.architecture-reassessment-required.md; do
+	found=1
+	architecture_reassessment_count=$((architecture_reassessment_count + 1))
+	name="${file##*/}"
+	task_id="${name#${PROJECT}-task-}"
+	task_id="${task_id%.architecture-reassessment-required.md}"
+	progress="$(task_progress_percent "$task_id")%"
+	category="$(metadata_value "$file" Category)"
+	printf -v task_row '%-32s %-12s %-13s %-10s %-28s %-10s' "$task_id" 'ARCH_REVIEW' 'HUMAN' "$progress" "${category:--}" '-'
+	task_rows+=("$task_row")
+done
+
 for file in "$dir/control/progress/$PROJECT-task-"*.waiting-dependency.md; do
 	found=1
 	waiting_dependency_count=$((waiting_dependency_count + 1))
@@ -457,6 +471,8 @@ elif project_completion_recorded && project_plan_all_complete; then
 	else
 		project_status_line='Project status: COMPLETE. Every project-plan item is accepted.'
 	fi
+elif (( architecture_reassessment_count > 0 )); then
+	project_status_line='Project status: ARCHITECTURE_REASSESSMENT_REQUIRED. The monotonic root liveness, immutable authority, or accepted-dependency boundary was reached; verified work is preserved and further agent launches are suppressed.'
 elif (( waiting_dependency_count > 0 )); then
 	project_status_line='Project status: WAITING_DEPENDENCY. Exact cross-harness prerequisites are recorded; no agent runs or review-cycle gain accrues until they validate.'
 elif (( human_count > 0 )); then
@@ -554,6 +570,13 @@ if [[ -n "$active_status_root" ]]; then
 	replans_without_gain="$(root_auto_replans_without_verified_gain "$active_status_root")"
 	printf '\nActive root evidence: %s verified item(s); %s automatic replan(s) since the latest durable gain.\n' \
 		"$verified_items" "$replans_without_gain"
+	printf 'Root liveness: reviews=%s/%s replans=%s/%s children=%s/%s depth=%s/%s age=%ss/%ss tokens=%s/%s\n' \
+		"$(root_reviewed_attempt_count "$active_status_root")" "$HARNESS_MAX_TOTAL_ROOT_REVIEWS" \
+		"$(root_total_replan_count "$active_status_root")" "$HARNESS_MAX_TOTAL_ROOT_REPLANS" \
+		"$(root_child_criterion_count "$active_status_root")" "$HARNESS_MAX_ROOT_CHILD_CRITERIA" \
+		"$(root_criterion_max_depth "$active_status_root")" "$HARNESS_MAX_CRITERION_DEPTH" \
+		"$(root_lifetime_seconds "$active_status_root")" "$HARNESS_MAX_ROOT_LIFETIME_SECONDS" \
+		"$(root_processed_token_count "$active_status_root")" "$HARNESS_MAX_ROOT_PROCESSED_TOKENS"
 	[[ -z "$active_leaf" ]] || printf 'First unmet leaf criterion: %s\n' "$active_leaf"
 fi
 

@@ -126,7 +126,9 @@ if [[ -f "$checkpointed" ]]; then
 	goal_record_manager_decision "$task_id" CHECKPOINTED
 	retain_worker_thread_for_checkpoint "$task_id"
 	trace_event TASK_CHECKPOINT_IDEMPOTENT "task_id=$task_id" "checkpoint_file=$checkpointed"
-	if [[ -f "$result_archive" &&
+	if ! enforce_root_liveness_or_reassess "$task_id"; then
+		printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
+	elif [[ -f "$result_archive" &&
 		"$(metadata_value "$result_archive" Goal-Outcome)" == NEEDS_DECOMPOSITION ]]; then
 		mark_checkpoint_decomposition_replan
 	else
@@ -342,7 +344,9 @@ rm -f "$dir/control/$base.lease" "$dir/control/$base.abort.md" \
 log_event "TASK_CHECKPOINTED task=$task_id root=$root criteria=${#verified_criteria[@]} increments=${#verified_increments[@]} artifact=$artifact_dir"
 trace_event TASK_CHECKPOINTED "task_id=$task_id" "task_root=$root" "checkpoint_file=$checkpointed" "artifact_dir=$artifact_dir"
 
-if [[ "$goal_outcome" == NEEDS_DECOMPOSITION ]]; then
+if ! enforce_root_liveness_or_reassess "$task_id"; then
+	printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
+elif [[ "$goal_outcome" == NEEDS_DECOMPOSITION ]]; then
 	replan_marker="$(mark_checkpoint_decomposition_replan)"
 	printf '%s\n' "$replan_marker"
 elif replan_marker="$(maybe_mark_root_needs_replan "$task_id" CHECKPOINT)"; then

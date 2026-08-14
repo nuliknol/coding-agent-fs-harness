@@ -90,7 +90,9 @@ if [[ -f "$rejected" ]]; then
 	goal_record_manager_decision "$task_id" REJECTED
 	retain_worker_thread_for_rejection "$task_id"
 	trace_event TASK_REJECT_IDEMPOTENT "task_id=$task_id" "rejected_file=$rejected"
-	if [[ -f "$result_archive" &&
+	if ! enforce_root_liveness_or_reassess "$task_id"; then
+		printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
+	elif [[ -f "$result_archive" &&
 		"$(metadata_value "$result_archive" Goal-Outcome)" == NEEDS_DECOMPOSITION ]]; then
 		mark_root_needs_replan "$task_id" \
 			'worker leaf goal requested criterion decomposition or a materially different strategy' \
@@ -123,7 +125,9 @@ goal_record_manager_decision "$task_id" REJECTED
 retain_worker_thread_for_rejection "$task_id"
 log_event "TASK_REJECTED task=$task_id"
 trace_event TASK_REJECTED "task_id=$task_id" "rejected_file=$rejected" "result_archive=$result_archive" "note_file=$note_file"
-if (( circuit_breaker_recovery == 1 )); then
+if ! enforce_root_liveness_or_reassess "$task_id"; then
+	printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
+elif (( circuit_breaker_recovery == 1 )); then
 	replan_marker="$(mark_root_needs_replan "$task_id" \
 		"identical local blocker fingerprint $blocking_fingerprint reached limit $HARNESS_MAX_IDENTICAL_BLOCKERS; manager remediation is required" \
 		DETERMINISTIC_BLOCKER)"

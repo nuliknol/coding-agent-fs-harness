@@ -850,6 +850,12 @@ project settings configure the convergence signals:
 export HARNESS_MAX_ROOT_ATTEMPTS="12"
 export HARNESS_MAX_ZERO_GAIN_WINDOW="3"
 export HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION="4"
+export HARNESS_MAX_TOTAL_ROOT_REVIEWS="24"
+export HARNESS_MAX_TOTAL_ROOT_REPLANS="8"
+export HARNESS_MAX_ROOT_CHILD_CRITERIA="32"
+export HARNESS_MAX_CRITERION_DEPTH="8"
+export HARNESS_MAX_ROOT_LIFETIME_SECONDS="21600"
+export HARNESS_MAX_ROOT_PROCESSED_TOKENS="100000000"
 ```
 
 When any threshold is reached, the just-reviewed result is archived first and
@@ -864,6 +870,18 @@ export HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN="1"
 
 `HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION` remains a compatibility alias for
 existing environment files, but now has the verified-gain semantics above.
+
+The six monotonic root limits do not reset after an automatic replan or a local
+diagnostic checkpoint. Reaching one creates
+`ARCHITECTURE_REASSESSMENT_REQUIRED`, suppresses further worker, review, and
+replan agent launches for that root, and records a durable alarm under the
+project log directory. Revision assignments inherit the original root's scope,
+architecture-decision authority, and expected file/turn bounds. A manager that
+discovers an accepted dependency was wrong must record that fact with
+`manager-invalidate-plan-dependency`; it may not silently expand the consumer.
+After the architecture or dependency authority is repaired, an operator records
+the explicit decision with `harness-resolve-architecture-reassessment ENV_FILE
+TASK_ROOT RESOLUTION_NOTE_FILE`.
 
 The automatic strategy turn resumes the persistent project-scoped manager.
 Durable plan, progress, criteria, checkpoint, and replan files override older

@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE CONSUMER_TASK_ID DEPENDENCY_PLAN_ITEM EVIDENCE_NOTE_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 4 ]] || usage
+load_harness_env "$1"
+consumer_task="$2"
+dependency_item="$3"
+note_file="$4"
+ensure_project
+validate_task_id "$consumer_task"
+[[ "$dependency_item" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]] || die "invalid dependency plan item: $dependency_item"
+[[ -s "$note_file" ]] || die "dependency invalidation evidence note is missing or empty: $note_file"
+acquire_project_lock
+
+consumer_root="$(task_root_id "$consumer_task")"
+consumer_item="$(project_plan_item_for_root "$consumer_root")"
+[[ -n "$consumer_item" ]] || die "consumer root is not mapped to the project plan: $consumer_root"
+[[ "$(project_plan_item_status "$consumer_item")" == ACTIVE ]] ||
+	die "consumer plan item is not active: $consumer_item"
+[[ "$(project_plan_item_status "$dependency_item")" == COMPLETE ]] ||
+	die "only an accepted COMPLETE dependency can be invalidated: $dependency_item"
+dependencies="$(project_plan_node_value "$consumer_item" depends_on)"
+case ",$dependencies," in
+	*,"$dependency_item",*) ;;
+	*) die "$dependency_item is not a direct dependency of consumer $consumer_item" ;;
+esac
+
+mkdir -p "$(plan_dependency_invalidation_dir)"
+chmod 700 "$(plan_dependency_invalidation_dir)"
+marker="$(plan_dependency_invalidation_file "$dependency_item" "$consumer_root")"
+tmp="$marker.tmp.$$"
+{
+	printf '# Accepted Dependency Invalidated by Consumer Evidence\n\n'
+	printf 'Project: %s\n\n' "$PROJECT"
+	printf 'Dependency-Plan-Item: %s\n\n' "$dependency_item"
+	printf 'Dependency-Task-Root: %s\n\n' "$(project_plan_item_root "$dependency_item")"
+	printf 'Consumer-Plan-Item: %s\n\n' "$consumer_item"
+	printf 'Consumer-Root: %s\n\n' "$consumer_root"
+	printf 'Consumer-Task: %s\n\n' "$consumer_task"
+	printf 'Invalidated-At: %s\n\n' "$(timestamp_utc)"
+	printf '## Evidence\n\n'
+	cat "$note_file"
+	printf '\n'
+} > "$tmp"
+chmod 600 "$tmp"
+mv "$tmp" "$marker"
+reassessment="$(mark_root_architecture_reassessment "$consumer_task" ACCEPTED_DEPENDENCY_INVALIDATED \
+	"consumer evidence disproved accepted dependency $dependency_item; upstream authority must be repaired or explicitly reaffirmed" \
+	"$marker")"
+log_event "PLAN_DEPENDENCY_INVALIDATED dependency=$dependency_item consumer_item=$consumer_item consumer_root=$consumer_root task=$consumer_task marker=$marker"
+printf '%s\n' "$reassessment"

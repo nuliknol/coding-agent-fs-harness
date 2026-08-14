@@ -352,6 +352,10 @@ terminal_project_state()
 		printf 'PAUSED_HUMAN_INTERVENTION'
 		return 0
 	fi
+	if compgen -G "$dir/control/progress/$PROJECT-task-*.architecture-reassessment-required.md" >/dev/null; then
+		printf 'PAUSED_ARCHITECTURE_REASSESSMENT'
+		return 0
+	fi
 	if (( HARNESS_AUTO_REPLAN_ENABLED == 0 )) &&
 		compgen -G "$dir/control/progress/$PROJECT-task-*.needs-replan.md" >/dev/null; then
 		printf 'PAUSED_REPLAN'
@@ -390,6 +394,9 @@ print_terminal_exit()
 			;;
 		PAUSED_REPLAN)
 			printf '\nWatcher exiting: project paused for replanning; verified checkpoints are preserved.\n'
+			;;
+		PAUSED_ARCHITECTURE_REASSESSMENT)
+			printf '\nWatcher exiting: project paused for architecture reassessment; verified work and diagnostics are preserved.\n'
 			;;
 	esac
 }

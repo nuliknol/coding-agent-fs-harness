@@ -184,6 +184,7 @@ task_published()
 		compgen -G "$project_path/running/$PROJECT-task-*.running.md" >/dev/null ||
 		compgen -G "$project_path/results/$PROJECT-task-*.result.md" >/dev/null ||
 		compgen -G "$project_path/control/dependencies/*.waiting.md" >/dev/null ||
+		compgen -G "$project_path/control/progress/$PROJECT-task-*.architecture-reassessment-required.md" >/dev/null ||
 		{ [[ -z "$active_item_before" ]] && awk -F '\t' '!/^#/ && $2 == "ACTIVE" {found=1} END {exit found ? 0 : 1}' "$plan_state"; }
 }
 
@@ -205,6 +206,9 @@ while true; do
 	status=$?
 	set -e
 	classification="$(kv_file_value "${json_log%.jsonl}.classification" classification 2>/dev/null || true)"
+	if [[ -n "$active_root_before" ]]; then
+		record_root_agent_tokens "$active_root_before" manager_plan "${json_log%.jsonl}.classification"
+	fi
 	if task_published; then
 		log_event "MANAGER_PLAN_COMMITTED attempt=$attempt"
 		trace_event MANAGER_PLAN_COMMITTED "attempt=$attempt" "status=$status"

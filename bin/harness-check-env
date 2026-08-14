@@ -99,6 +99,10 @@ if (( HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION == 0 )); then
 else
 	printf 'Checkpoint convergence guard: %s verified increments without a completed criterion\n' "$HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION"
 fi
+printf 'Monotonic root liveness: reviews=%s replans=%s child-criteria=%s depth=%s lifetime=%ss processed-tokens=%s\n' \
+	"$HARNESS_MAX_TOTAL_ROOT_REVIEWS" "$HARNESS_MAX_TOTAL_ROOT_REPLANS" \
+	"$HARNESS_MAX_ROOT_CHILD_CRITERIA" "$HARNESS_MAX_CRITERION_DEPTH" \
+	"$HARNESS_MAX_ROOT_LIFETIME_SECONDS" "$HARNESS_MAX_ROOT_PROCESSED_TOKENS"
 if (( HARNESS_AUTO_REPLAN_ENABLED == 1 )); then
 	printf 'Automatic persistent-manager replanning: enabled (%s strategy change(s) without durable verified gain)\n' \
 		"$HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN"

@@ -262,8 +262,13 @@ while IFS= read -r -d '' env_file; do
 	fi
 	harness_root="$(awk -F': ' '$1=="Harness root" {print $2; exit}' <<< "$status_output")"
 	dir="$harness_root/projects/$project"; plan="$dir/control/project-plan-state.tsv"
-	total="$(full_plan_count "$plan")"; complete="$(full_plan_count "$plan" COMPLETE)"
-	if (( total > 0 )); then percent=$((complete * 100 / total)); completion="${complete}/${total}"$'\n'"${percent}%"; else completion=$'pending\nplan'; fi
+	project_progress="$(awk -F': ' '$1=="Project progress" {print $2; exit}' <<< "$status_output")"
+	if [[ "$project_progress" =~ ^([0-9]+)%[[:space:]]+\(([0-9]+)/([0-9]+)[[:space:]] ]]; then
+		percent="${BASH_REMATCH[1]}"; complete="${BASH_REMATCH[2]}"; total="${BASH_REMATCH[3]}"
+	else
+		total="$(full_plan_count "$plan")"; complete="$(full_plan_count "$plan" COMPLETE)"; percent=0
+	fi
+	if (( total > 0 )); then completion="${complete}/${total}"$'\n'"${percent}%"; else completion=$'pending\nplan'; fi
 	cycle="$(find "$dir/archive" -maxdepth 1 -type f \( -name '*.accepted.md' -o -name '*.checkpointed.md' -o -name '*.rejected.md' \) -printf '.\n' 2>/dev/null | wc -l | tr -d ' ')"
 	manager="$(awk -F': ' '$1=="Manager supervisor" {print $2; exit}' <<< "$status_output")"; worker="$(awk -F': ' '$1=="Worker supervisor" {print $2; exit}' <<< "$status_output")"
 	project_status="$(awk -F': ' '$1=="Project status" {print $2; exit}' <<< "$status_output")"
@@ -284,6 +289,10 @@ while IFS= read -r -d '' env_file; do
 		review_report="${project_status#*Review }"
 		review_report="${review_report%% before DAG registration.*}"
 		description="SPEC_CLARIFICATION_REQUIRED: ${review_report:-spec-review report}."
+	elif [[ "$project_status" == ARCHITECTURE_REASSESSMENT_REQUIRED.* ]]; then
+		display_status=paused
+		reassessment_alert="$(find "$dir/control/progress" -maxdepth 1 -type f -name "$project-task-*.architecture-reassessment-required.md" -print 2>/dev/null | sort | head -n 1)"
+		description="ARCHITECTURE_REASSESSMENT_REQUIRED: $(markdown_summary "$reassessment_alert")"
 	elif [[ -f "$dir/control/project.complete" ]]; then display_status=done; completion="$complete/$total"; description=''
 	elif [[ -f "$dir/control/project.blocked.md" ]]; then display_status=paused; description="NEEDS HUMAN: $(markdown_summary "$dir/control/project.blocked.md")"
 	elif [[ "$project_status" == NEEDS_HUMAN.* ]]; then display_status=paused; description="$project_status"
