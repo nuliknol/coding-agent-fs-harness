@@ -179,6 +179,35 @@ grep -q '^classification=agent_item_budget_exceeded$' "$TMP/goal-item-loop.class
 grep -q 'task=goal-resource.*kind=ITEM_LIMIT' \
 	"$TMP/state/projects/jsonltest/logs/agent-resource-alarms.log"
 
+# Usage is authoritative only at turn completion, so a live transcript/context
+# amplification estimate must stop a looping process before that event exists.
+cp "$TMP/env" "$TMP/env-estimated-token"
+printf 'export HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION="100"\n' >> "$TMP/env-estimated-token"
+printf 'export HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION="1"\n' >> "$TMP/env-estimated-token"
+estimated_prompt="$TMP/estimated-token-prompt"
+printf 'TASK_ID=estimated-root\nTASK_ROOT=estimated-root\nWORKER_GOAL_MODE=1\n' > "$estimated_prompt"
+set +e
+MOCK_MODE=item_loop "$ROOT/bin/codex-exec-jsonl" "$TMP/env-estimated-token" worker gpt-5.5 \
+	"$estimated_prompt" "$TMP/estimated-token.jsonl" "$TMP/estimated-token.stderr" "$TMP/estimated-token.last"
+estimated_status=$?
+set -e
+(( estimated_status != 0 ))
+grep -q '^classification=agent_estimated_token_budget_exceeded$' "$TMP/estimated-token.classification"
+grep -q '^resource_guard=ESTIMATED_TOKEN_LIMIT$' "$TMP/estimated-token.classification"
+grep -Eq '^estimated_processed_tokens=[1-9][0-9]*$' "$TMP/estimated-token.classification"
+[[ -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-estimated-root.token-usage-anomaly.md" ]]
+[[ ! -e "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-estimated-root.needs-human.md" ]]
+set +e
+MOCK_MODE=success "$ROOT/bin/codex-exec-jsonl" "$TMP/env-estimated-token" manager_review gpt-5.5 \
+	"$prompt" "$TMP/anomaly-interlock.jsonl" "$TMP/anomaly-interlock.stderr" "$TMP/anomaly-interlock.last" \
+	>"$TMP/anomaly-interlock.out" 2>"$TMP/anomaly-interlock-command.err"
+interlock_status=$?
+set -e
+(( interlock_status != 0 ))
+grep -q 'project has an unresolved TOKEN_USAGE_ANOMALY' "$TMP/anomaly-interlock-command.err"
+test ! -s "$TMP/anomaly-interlock.jsonl"
+rm -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-estimated-root.token-usage-anomaly.md"
+
 printf 'TASK_ID=token-root\nTASK_ROOT=token-root\n' > "$resource_prompt"
 printf 'export HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION="100"\n' >> "$TMP/env-resource"
 set +e
@@ -190,6 +219,8 @@ set -e
 grep -q '^classification=agent_token_budget_exceeded$' "$TMP/token-heavy.classification"
 grep -q '^invocation_processed_delta=110$' "$TMP/token-heavy.classification"
 grep -q '^resource_guard=TOKEN_LIMIT$' "$TMP/token-heavy.classification"
+[[ -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-token-root.token-usage-anomaly.md" ]]
+rm -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-token-root.token-usage-anomaly.md"
 
 # The named specification-normalization phase has a separate bounded allowance
 # while ordinary manager/worker turns retain the lower default limit.

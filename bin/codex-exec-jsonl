@@ -144,6 +144,8 @@ resource_guard_tripped=0
 resource_guard_kind=""
 resource_guard_reason=""
 agent_item_count=0
+agent_last_estimated_item_count=0
+agent_estimated_processed_tokens=$(( ($(stat -c %s "$prompt" 2>/dev/null || printf 0) + 3) / 4 ))
 
 prompt_value()
 {
@@ -156,19 +158,25 @@ resource_task_root="$(prompt_value TASK_ROOT)"
 resource_agent_phase="$(prompt_value AGENT_PHASE)"
 resource_goal_mode="$(prompt_value WORKER_GOAL_MODE)"
 resource_processed_token_limit="$HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION"
+resource_estimated_token_limit="$HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION"
 if [[ "$resource_agent_phase" == specification_review ]]; then
 	resource_processed_token_limit="$HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION"
 fi
 [[ -n "$resource_task_root" ]] || resource_task_root="$(prompt_value ACTIVE_TASK_ROOT)"
 [[ -n "$resource_task_id" ]] || resource_task_id="${resource_task_root:-agent-invocation}"
+require_no_project_token_usage_anomaly
 
 record_resource_guard()
 {
 	local alarm marker="-"
-	# A leaf-goal resource fuse closes only the current implementation episode.
+	if [[ -n "$resource_task_root" && "$resource_task_root" != - ]] &&
+		[[ "$resource_guard_kind" =~ ^(TOKEN_LIMIT|ESTIMATED_TOKEN_LIMIT)$ ]]; then
+		marker="$(mark_root_token_usage_anomaly "$resource_task_root" "$resource_guard_reason" \
+			"role=$role model=$model jsonl=$json_log estimated_processed_tokens=$agent_estimated_processed_tokens")"
+	# A non-token leaf-goal fuse closes only the current implementation episode.
 	# worker-invoke-task converts it into a preserved NEEDS_DECOMPOSITION handoff,
 	# so it is not a genuine human authority/secret/external-state dependency.
-	if [[ -n "$resource_task_root" && "$resource_task_root" != - ]] &&
+	elif [[ -n "$resource_task_root" && "$resource_task_root" != - ]] &&
 		! { [[ "$role" =~ ^worker ]] && [[ "$resource_goal_mode" == 1 ]]; }; then
 		mkdir -p "$(project_dir)/control/progress"
 		chmod 700 "$(project_dir)/control/progress"
@@ -237,6 +245,19 @@ while kill -0 "$pid" 2>/dev/null; do
 	fi
 	agent_item_count="$(grep -Ec '"type"[[:space:]]*:[[:space:]]*"item[.]started"' "$json_log" 2>/dev/null || true)"
 	[[ "$agent_item_count" =~ ^[0-9]+$ ]] || agent_item_count=0
+	if (( agent_item_count > agent_last_estimated_item_count )); then
+		context_bytes=$(( $(stat -c %s "$prompt" 2>/dev/null || printf 0) + $(stat -c %s "$json_log" 2>/dev/null || printf 0) ))
+		new_item_count=$((agent_item_count - agent_last_estimated_item_count))
+		agent_estimated_processed_tokens=$((agent_estimated_processed_tokens + new_item_count * ((context_bytes + 3) / 4) ))
+		agent_last_estimated_item_count="$agent_item_count"
+	fi
+	if (( agent_estimated_processed_tokens >= resource_estimated_token_limit )); then
+		resource_guard_tripped=1
+		resource_guard_kind=ESTIMATED_TOKEN_LIMIT
+		resource_guard_reason="live estimated context-amplification budget reached ($agent_estimated_processed_tokens/$resource_estimated_token_limit)"
+		terminate_process_tree "$pid"
+		break
+	fi
 	if (( agent_item_count >= HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION )); then
 		resource_guard_tripped=1
 		resource_guard_kind=ITEM_LIMIT
@@ -338,6 +359,7 @@ if (( status != 0 )) || ! jq -e 'select(.type == "turn.completed")' "$json_log" 
 	failure_signal=1
 fi
 if [[ "$resource_guard_kind" == ITEM_LIMIT ]]; then classification="agent_item_budget_exceeded"
+elif [[ "$resource_guard_kind" == ESTIMATED_TOKEN_LIMIT ]]; then classification="agent_estimated_token_budget_exceeded"
 elif [[ "$resource_guard_kind" == TOKEN_LIMIT ]]; then classification="agent_token_budget_exceeded"
 elif (( stop_requested )); then classification="harness_stop_requested"
 elif (( idle_timed_out )); then classification="idle_timeout"
@@ -358,11 +380,11 @@ elif ! jq -e 'select(.type == "turn.completed")' "$json_log" >/dev/null 2>&1; th
 elif [[ ! -s "$last_message" ]]; then classification="empty_final_output"
 fi
 classification_file="${json_log%.jsonl}.classification"
-printf 'classification=%s\nprovider_code=%s\nhttp_status=%s\nexit_status=%s\nidle_timeout=%s\nstop_requested=%s\npartial_edits=%s\nrole=%s\nmodel=%s\nthread_id=%s\ninput_tokens=%s\ncached_input_tokens=%s\noutput_tokens=%s\ninvocation_processed_delta=%s\ninvocation_delta_known=%s\nitem_started_count=%s\nresource_guard=%s\nagent_phase=%s\nprocessed_token_limit=%s\njsonl=%s\nstderr=%s\nlast_message=%s\n' \
+printf 'classification=%s\nprovider_code=%s\nhttp_status=%s\nexit_status=%s\nidle_timeout=%s\nstop_requested=%s\npartial_edits=%s\nrole=%s\nmodel=%s\nthread_id=%s\ninput_tokens=%s\ncached_input_tokens=%s\noutput_tokens=%s\ninvocation_processed_delta=%s\ninvocation_delta_known=%s\nitem_started_count=%s\nestimated_processed_tokens=%s\nresource_guard=%s\nagent_phase=%s\nprocessed_token_limit=%s\nestimated_token_limit=%s\njsonl=%s\nstderr=%s\nlast_message=%s\n' \
 	"$classification" "$error_code" "$http_status" "$status" "$idle_timed_out" "$stop_requested" "$git_state_changed" \
 	"$role" "$model" "$usage_thread" "$usage_input" "$usage_cached" "$usage_output" \
-	"$invocation_processed_delta" "$invocation_delta_known" "$agent_item_count" "${resource_guard_kind:--}" \
-	"${resource_agent_phase:-ordinary}" "$resource_processed_token_limit" \
+	"$invocation_processed_delta" "$invocation_delta_known" "$agent_item_count" "$agent_estimated_processed_tokens" "${resource_guard_kind:--}" \
+	"${resource_agent_phase:-ordinary}" "$resource_processed_token_limit" "$resource_estimated_token_limit" \
 	"$json_log" "$stderr_log" "$last_message" > "$classification_file"
 printf 'CODEX_CLASSIFICATION=%s\nCODEX_STDERR_LOG=%s\nCODEX_CLASSIFICATION_FILE=%s\n' "$classification" "$stderr_log" "$classification_file" >&2
 exit "$status"

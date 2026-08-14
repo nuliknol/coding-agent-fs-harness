@@ -288,6 +288,7 @@ human_count=0
 waiting_dependency_count=0
 replanning_count=0
 architecture_reassessment_count=0
+token_usage_anomaly_count=0
 manager_remediation_active_count=0
 task_rows=()
 
@@ -442,6 +443,18 @@ for file in "$dir/control/progress/$PROJECT-task-"*.architecture-reassessment-re
 	task_rows+=("$task_row")
 done
 
+for file in "$dir/control/progress/$PROJECT-task-"*.token-usage-anomaly.md; do
+	found=1
+	token_usage_anomaly_count=$((token_usage_anomaly_count + 1))
+	name="${file##*/}"
+	task_id="${name#${PROJECT}-task-}"
+	task_id="${task_id%.token-usage-anomaly.md}"
+	progress="$(task_progress_percent "$task_id")%"
+	trigger="$(metadata_value "$file" Triggered-By)"
+	printf -v task_row '%-32s %-12s %-13s %-10s %-28s %-10s' "$task_id" 'TOKEN_ANOMALY' 'OPERATOR' "$progress" "${trigger:--}" '-'
+	task_rows+=("$task_row")
+done
+
 for file in "$dir/control/progress/$PROJECT-task-"*.waiting-dependency.md; do
 	found=1
 	waiting_dependency_count=$((waiting_dependency_count + 1))
@@ -468,6 +481,8 @@ elif specification_ir_registered && { ! specification_ir_available || { project_
 	project_status_line='Project status: SPECIFICATION_IR_INVALID. Execution is stopped because accepted semantic authority, repository history, or obligation coverage no longer matches.'
 elif [[ "$specification_review_status" == SPEC_CLARIFICATION_REQUIRED ]]; then
 	project_status_line="Project status: SPEC_CLARIFICATION_REQUIRED. Review $specification_review_report before DAG registration."
+elif (( token_usage_anomaly_count > 0 )); then
+	project_status_line='Project status: TOKEN_USAGE_ANOMALY. Irregular per-episode or cumulative leaf token consumption was detected; all further project agent launches are suppressed pending an explicit corrective resolution.'
 elif project_completion_recorded && project_plan_all_complete; then
 	if [[ -f "$oracle_limit_marker" ]]; then
 		project_status_line='Project status: COMPLETE_WITH_ORACLE_LIMIT. Every project-plan item is accepted; no final Oracle PASS was recorded after the configured audit cap.'

@@ -637,8 +637,34 @@ export HARNESS_CODEX_WALL_TIMEOUT_SECONDS="1800"
 export HARNESS_CODEX_IDLE_TIMEOUT_SECONDS="0"
 export HARNESS_CODEX_KILL_GRACE_SECONDS="15"
 export HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION="80"
-export HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION="2000000"
+export HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION="500000"
+export HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION="500000"
+export HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS="500000"
 ```
+
+The live estimate is an intentionally conservative context-amplification
+circuit breaker. It samples prompt and JSONL transcript growth at agent item
+boundaries, so an invocation can be terminated before Codex emits authoritative
+usage at turn completion. The authoritative per-invocation check applies after
+completion, and the cumulative worker-task check prevents several individually
+bounded episodes from quietly making one immutable leaf pathological.
+
+Any token circuit breaker creates a `TOKEN_USAGE_ANOMALY` pause attributed to
+the affected root. Source edits, commits, reports, and checkpoints are
+preserved, but the project-wide launch interlock prevents every worker, manager,
+and Oracle process until the cause is inspected. Resolve it with a Markdown
+note containing nonempty
+`## Cause`, `## Corrective action`, and `## Safe continuation boundary`
+sections:
+
+```bash
+harness-resolve-token-usage-anomaly project.env TASK_ROOT resolution.md
+harness-start project.env
+```
+
+Specification normalization retains its separately configured authoritative
+post-turn allowance for very large imported specifications, but it remains
+subject to the lower live-estimated circuit breaker.
 
 The manager and worker may use the same `CODEX_HOME`, but separate account directories make account selection explicit.
 
@@ -1306,7 +1332,9 @@ export HARNESS_PROVIDER_RETRY_SECONDS="60"
 export HARNESS_QUOTA_RETRY_SECONDS="300"
 export HARNESS_AGENT_MIN_INTERVAL_SECONDS="60"
 export HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION="80"
-export HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION="2000000"
+export HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION="500000"
+export HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION="500000"
+export HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS="500000"
 ```
 
 `HARNESS_AGENT_MIN_INTERVAL_SECONDS` is a project-wide launch throttle shared

@@ -46,6 +46,7 @@ fingerprint()
 process_tasks()
 {
 	local file task_id base marker current previous status alert tmp
+	project_has_token_usage_anomaly && return 0
 	shopt -s nullglob
 	for file in "$dir/tasks/$PROJECT-task-"*.ready.md; do
 		task_id="$(task_id_from_filename "$file")"
@@ -96,6 +97,7 @@ process_tasks()
 handle_project_completion()
 {
 	local completion_file completed_task
+	project_has_token_usage_anomaly && return 1
 	completion_file="$(project_complete_file)"
 	[[ -f "$completion_file" ]] || return 1
 	if ! project_plan_all_complete; then

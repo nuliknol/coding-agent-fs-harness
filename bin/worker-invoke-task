@@ -499,6 +499,27 @@ while true; do
 	classification="$(kv_file_value "${json_log%.jsonl}.classification" classification 2>/dev/null || true)"
 	record_root_agent_tokens "$task_id" "$execution_role" "${json_log%.jsonl}.classification"
 	resource_guard="$(kv_file_value "${json_log%.jsonl}.classification" resource_guard 2>/dev/null || printf -)"
+	worker_task_tokens="$(worker_task_processed_token_count "$task_id")"
+	[[ "$worker_task_tokens" =~ ^[0-9]+$ ]] || worker_task_tokens=0
+	if (( worker_task_tokens >= HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS )) && [[ "$resource_guard" == - ]]; then
+		mark_root_token_usage_anomaly "$task_id" \
+			"worker task processed-token budget reached ($worker_task_tokens/$HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS)" \
+			"classification=${json_log%.jsonl}.classification jsonl=$json_log" >/dev/null
+		if (( goal_mode == 1 )); then
+			if publish_goal_decomposition_handoff \
+				"The cumulative worker usage for this immutable leaf reached $worker_task_tokens processed tokens; the harness stopped before authorizing another episode." \
+				"Inspect the token anomaly record and split, correct, or explicitly justify the continuation boundary before resolving the pause."; then
+				cleanup_heartbeat
+				log_event "WORKER_TASK_TOKEN_BUDGET_PAUSED task=$task_id root=$task_root processed_tokens=$worker_task_tokens limit=$HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS"
+				printf 'Worker goal %s reached its cumulative token anomaly limit and paused.\n' "$goal_id"
+				exit 0
+			fi
+			die 'failed to publish cumulative token-anomaly handoff'
+		fi
+		cleanup_heartbeat
+		log_event "WORKER_TASK_TOKEN_BUDGET_PAUSED task=$task_id root=$task_root processed_tokens=$worker_task_tokens limit=$HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS legacy=1"
+		exit 75
+	fi
 	if (( goal_mode == 1 )) && [[ "$resource_guard" != - ]]; then
 		if publish_goal_decomposition_handoff \
 			"The implementation episode reached the emergency $resource_guard resource fuse; this limits one context, not the amount of work allowed for the goal." \

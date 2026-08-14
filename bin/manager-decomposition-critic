@@ -61,6 +61,8 @@ Terminate immediately after it succeeds. Ask only the minimal product question. 
 
 For every alleged omitted registry/list item, inspect the complete fenced source region with two independent EOF-safe methods before challenging: one structured parser and one direct literal search that includes the final line even when the extracted text has no trailing newline. Never infer omission from a regex that requires a trailing newline character, from a truncated slice, or from an item count alone.
 
+Repeat the adversarial satisfiability and observability pass independently. For each authoritative behavior, identify a reachable input/state witness, its expected observable result, and validation evidence that can reach that witness. Challenge the specification when overlapping requirements demand incompatible results for the same witness, or when mandatory acceptance data cannot exercise the behavior they claim to prove. Do not defer such a contradiction or unreachable acceptance boundary into the DAG, and do not manufacture a conflict when the statements can coexist or the implementer is authorized to add the missing validation partition.
+
 2. If the governing sources are sufficiently clear but the accepted facts, obligations, or relations omit, distort, or contradict those clear sources or repository evidence, write RENORMALIZATION_REASON beginning with `# Specification Renormalization Request`, identify the exact source-to-IR mismatch, and call:
 
 $HARNESS_BIN/manager-request-specification-renormalization "$HARNESS_ENV_FILE" RENORMALIZATION_REASON

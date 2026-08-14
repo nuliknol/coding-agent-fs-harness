@@ -170,6 +170,8 @@ load_harness_env()
 	unset HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
 	unset HARNESS_AGENT_MIN_INTERVAL_SECONDS
 	unset HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION
+	unset HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION
+	unset HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS
 	unset HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION
 	unset HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
 	unset HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_KILL_GRACE_SECONDS
@@ -343,7 +345,15 @@ load_harness_env()
 	# A Codex process can perform many internal model/tool steps before returning
 	# usage accounting. Bound that live stream as well as its final token delta.
 	HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION="${HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION:-80}"
-	HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION="${HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION:-2000000}"
+	HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION="${HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION:-500000}"
+	# Codex reports authoritative usage only when a turn ends. Estimate live
+	# context amplification from prompt/transcript size at every tool boundary so
+	# an internally looping process can be interrupted before final accounting.
+	HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION="${HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION:-500000}"
+	# Multiple individually bounded episodes must not quietly make one leaf
+	# pathological. This budget counts only implementation-worker usage for one
+	# immutable task/revision; manager and Oracle scaffolding remain separate.
+	HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS="${HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS:-500000}"
 	# Normalizing a large, imported specification can legitimately emit hundreds
 	# of obligations and relations in one atomic transaction. Keep it bounded,
 	# but give that named startup phase a separate budget from ordinary turns.
@@ -521,6 +531,8 @@ load_harness_env()
 	[[ "$HARNESS_AGENT_MIN_INTERVAL_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_AGENT_MIN_INTERVAL_SECONDS must be a non-negative integer'
 	[[ "$HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION must be a positive integer'
 	[[ "$HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION must be a positive integer'
+	[[ "$HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION must be a positive integer'
+	[[ "$HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS must be a positive integer'
 	[[ "$HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION must be a positive integer'
 	[[ "$HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS" =~ ^[0-9]+$ ]] || die 'HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS must be a non-negative integer'
 	[[ "$HARNESS_START_MAX_AGENT_INVOCATIONS" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_START_MAX_AGENT_INVOCATIONS must be a positive integer'
@@ -567,6 +579,8 @@ load_harness_env()
 	export HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY HARNESS_MAX_IDENTICAL_BLOCKERS HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
 	export HARNESS_AGENT_MIN_INTERVAL_SECONDS
 	export HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION
+	export HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION
+	export HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS
 	export HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION
 	export HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS HARNESS_START_MAX_AGENT_INVOCATIONS
 	export HARNESS_MAX_ROOT_ATTEMPTS HARNESS_MAX_ZERO_GAIN_WINDOW HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION
@@ -883,6 +897,14 @@ task_root_architecture_reassessment_file()
 	local root
 	root="$(task_root_id "$1")"
 	printf '%s/control/progress/%s-task-%s.architecture-reassessment-required.md' \
+		"$(project_dir)" "$PROJECT" "$root"
+}
+
+task_root_token_usage_anomaly_file()
+{
+	local root
+	root="$(task_root_id "$1")"
+	printf '%s/control/progress/%s-task-%s.token-usage-anomaly.md' \
 		"$(project_dir)" "$PROJECT" "$root"
 }
 
@@ -1666,6 +1688,22 @@ task_root_needs_architecture_reassessment()
 	[[ -f "$(task_root_architecture_reassessment_file "$1")" ]]
 }
 
+task_root_has_token_usage_anomaly()
+{
+	[[ -f "$(task_root_token_usage_anomaly_file "$1")" ]]
+}
+
+project_has_token_usage_anomaly()
+{
+	compgen -G "$(project_dir)/control/progress/$PROJECT-task-*.token-usage-anomaly.md" >/dev/null
+}
+
+require_no_project_token_usage_anomaly()
+{
+	project_has_token_usage_anomaly || return 0
+	die 'project has an unresolved TOKEN_USAGE_ANOMALY; inspect and resolve it before launching another agent process'
+}
+
 task_root_waiting_dependency()
 {
 	[[ -f "$(task_root_waiting_dependency_file "$1")" ]]
@@ -1680,8 +1718,9 @@ task_root_is_paused()
 {
 	task_root_is_blocked "$1" || task_root_needs_replan "$1" ||
 		task_root_needs_human "$1" || task_root_is_replanning "$1" ||
-		task_root_waiting_dependency "$1" ||
-		task_root_needs_architecture_reassessment "$1"
+	task_root_waiting_dependency "$1" ||
+		task_root_needs_architecture_reassessment "$1" ||
+		task_root_has_token_usage_anomaly "$1"
 }
 
 task_progress_percent()
@@ -1865,6 +1904,16 @@ root_processed_token_count()
 	awk -F '\t' 'NR > 1 {total += $7} END {printf "%.0f\n", total + 0}' "$ledger"
 }
 
+worker_task_processed_token_count()
+{
+	local task_id="$1" ledger
+	ledger="$(task_root_token_ledger_file "$(task_root_id "$task_id")")"
+	[[ -f "$ledger" ]] || { printf '0\n'; return 0; }
+	awk -F '\t' -v task="$task_id" \
+		'NR > 1 && $2 == task && $3 ~ /^worker/ {total += $7} END {printf "%.0f\n", total + 0}' \
+		"$ledger"
+}
+
 record_root_agent_tokens()
 {
 	local task_id="$1" role="$2" classification="$3" root thread input output current
@@ -1986,6 +2035,43 @@ mark_root_architecture_reassessment()
 			"$(timestamp_utc)" "$PROJECT" "$root" "$task_id" "$category" "$reason" "$evidence" >> "$alarm"
 		chmod 600 "$alarm"
 		log_event "ARCHITECTURE_REASSESSMENT_REQUIRED root=$root trigger=$task_id category=$category reason=$(printf '%q' "$reason") marker=$marker"
+	fi
+	printf '%s\n' "$marker"
+}
+
+mark_root_token_usage_anomaly()
+{
+	local task_id="$1" reason="$2" evidence="${3:--}"
+	local root marker tmp alarm created=0
+	root="$(task_root_id "$task_id")"
+	marker="$(task_root_token_usage_anomaly_file "$root")"
+	if [[ ! -f "$marker" ]]; then
+		tmp="$marker.tmp.$$"
+		{
+			printf '# Token Usage Anomaly\n\n'
+			printf 'Project: %s\n\n' "$PROJECT"
+			printf 'Task-Root: %s\n\n' "$root"
+			printf 'Triggered-By: %s\n\n' "$task_id"
+			printf 'Paused-At: %s\n\n' "$(timestamp_utc)"
+			printf 'Reason: %s\n\n' "$reason"
+			printf 'Evidence: %s\n\n' "$evidence"
+			printf 'Worker-Task-Processed-Tokens: %s\n' "$(worker_task_processed_token_count "$task_id")"
+			printf 'Worker-Task-Token-Limit: %s\n' "$HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS"
+			printf 'Root-Processed-Tokens: %s\n\n' "$(root_processed_token_count "$root")"
+			printf 'No further worker, manager-review, or automatic-replan task may launch for this root. Source changes, commits, receipts, JSONL, and verified checkpoints are preserved. Inspect the offending episode and record a corrective resolution with harness-resolve-token-usage-anomaly before restarting work.\n'
+		} > "$tmp"
+		chmod 600 "$tmp"
+		mv "$tmp" "$marker"
+		created=1
+	fi
+	rm -f "$(task_root_replan_file "$root")" "$(task_root_replanning_file "$root")"
+	clear_worker_thread_for_root "$root" token-usage-anomaly
+	if (( created == 1 )); then
+		alarm="$(project_dir)/logs/token-usage-alarms.log"
+		printf '%s\tproject=%s\troot=%s\ttask=%s\treason=%q\tevidence=%q\tmarker=%s\n' \
+			"$(timestamp_utc)" "$PROJECT" "$root" "$task_id" "$reason" "$evidence" "$marker" >> "$alarm"
+		chmod 600 "$alarm"
+		log_event "TOKEN_USAGE_ANOMALY root=$root trigger=$task_id reason=$(printf '%q' "$reason") evidence=$(printf '%q' "$evidence") marker=$marker"
 	fi
 	printf '%s\n' "$marker"
 }
@@ -3999,6 +4085,8 @@ write_manager_snapshot()
 		printf 'max_root_reviews_without_criterion=%s\n' "$HARNESS_MAX_ROOT_REVIEWS_WITHOUT_CRITERION"
 		printf 'max_agent_items_per_invocation=%s\n' "$HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION"
 		printf 'max_agent_processed_tokens_per_invocation=%s\n' "$HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION"
+		printf 'max_agent_estimated_processed_tokens_per_invocation=%s\n' "$HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION"
+		printf 'max_worker_task_processed_tokens=%s\n' "$HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS"
 		printf 'max_specification_review_processed_tokens_per_invocation=%s\n' "$HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION"
 		printf 'max_root_child_criteria=%s\n' "$HARNESS_MAX_ROOT_CHILD_CRITERIA"
 		printf 'max_criterion_depth=%s\n' "$HARNESS_MAX_CRITERION_DEPTH"
@@ -4043,6 +4131,8 @@ write_worker_snapshot()
 		printf 'max_root_reviews_without_criterion=%s\n' "$HARNESS_MAX_ROOT_REVIEWS_WITHOUT_CRITERION"
 		printf 'max_agent_items_per_invocation=%s\n' "$HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION"
 		printf 'max_agent_processed_tokens_per_invocation=%s\n' "$HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION"
+		printf 'max_agent_estimated_processed_tokens_per_invocation=%s\n' "$HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION"
+		printf 'max_worker_task_processed_tokens=%s\n' "$HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS"
 		printf 'max_specification_review_processed_tokens_per_invocation=%s\n' "$HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION"
 		printf 'max_root_child_criteria=%s\n' "$HARNESS_MAX_ROOT_CHILD_CRITERIA"
 		printf 'max_criterion_depth=%s\n' "$HARNESS_MAX_CRITERION_DEPTH"

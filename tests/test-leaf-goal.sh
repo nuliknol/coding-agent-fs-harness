@@ -392,7 +392,8 @@ export MANAGER_CODEX_HOME="$RESOURCE_ROOT/manager-home"
 export MANAGER_CODEX_BIN="$TEST_ROOT/mock-codex"
 export WORKER_CODEX_HOME="$RESOURCE_ROOT/worker-home"
 export WORKER_CODEX_BIN="$TEST_ROOT/mock-codex"
-export HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION="50"
+export HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION="1000"
+export HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS="50"
 export HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED="1"
 ENV
 chmod 600 "$RESOURCE_ROOT/harness.env"
@@ -405,7 +406,29 @@ resource_project="$RESOURCE_ROOT/state/projects/goalresource"
 resource_result="$resource_project/results/goalresource-task-001.result.md"
 grep -Fqx 'Goal-Outcome: NEEDS_DECOMPOSITION' "$resource_result"
 [[ ! -e "$resource_project/control/progress/goalresource-task-001.needs-human.md" ]]
-grep -q 'WORKER_GOAL_RESOURCE_EPISODE_CLOSED task=001.*guard=TOKEN_LIMIT' "$resource_project/logs/events.log"
+resource_anomaly="$resource_project/control/progress/goalresource-task-001.token-usage-anomaly.md"
+[[ -f "$resource_anomaly" ]]
+grep -q 'worker task processed-token budget reached (110/50)' "$resource_anomaly"
+grep -q 'WORKER_TASK_TOKEN_BUDGET_PAUSED task=001.*processed_tokens=110 limit=50' "$resource_project/logs/events.log"
+"$HARNESS_BIN/harness-status" "$RESOURCE_ROOT/harness.env" > "$RESOURCE_ROOT/status.out"
+grep -Fq 'Project status: TOKEN_USAGE_ANOMALY.' "$RESOURCE_ROOT/status.out"
+cat > "$RESOURCE_ROOT/token-resolution.md" <<'NOTE'
+## Cause
+
+The simulated worker exceeded the deliberately tiny cumulative leaf budget.
+
+## Corrective action
+
+The test records a decomposition handoff and does not resume the same context.
+
+## Safe continuation boundary
+
+Any continuation must be published as a new bounded leaf.
+NOTE
+"$HARNESS_BIN/harness-resolve-token-usage-anomaly" "$RESOURCE_ROOT/harness.env" 001 \
+	"$RESOURCE_ROOT/token-resolution.md" >/dev/null
+[[ ! -e "$resource_anomaly" ]]
+grep -q 'TOKEN_USAGE_ANOMALY_RESOLVED root=001' "$resource_project/logs/events.log"
 
 # A continuation committed by 5.9.x is adopted at restart and receives the
 # semantic review before any new worker context is launched.

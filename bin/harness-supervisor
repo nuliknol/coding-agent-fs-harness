@@ -277,7 +277,8 @@ project_has_active_task()
 		compgen -G "$dir/control/progress/$PROJECT-task-*.needs-human.md" >/dev/null ||
 		compgen -G "$dir/control/progress/$PROJECT-task-*.waiting-dependency.md" >/dev/null ||
 		compgen -G "$dir/control/progress/$PROJECT-task-*.replanning.md" >/dev/null ||
-		compgen -G "$dir/control/progress/$PROJECT-task-*.architecture-reassessment-required.md" >/dev/null
+		compgen -G "$dir/control/progress/$PROJECT-task-*.architecture-reassessment-required.md" >/dev/null ||
+		compgen -G "$dir/control/progress/$PROJECT-task-*.token-usage-anomaly.md" >/dev/null
 }
 
 process_dependency_requests()
@@ -470,6 +471,7 @@ process_planning_gap()
 handle_project_completion()
 {
 	local completion_file completed_task oracle_status pending_file pending_fingerprint alert tmp
+	project_has_token_usage_anomaly && return 1
 	if project_is_blocked; then
 		log_event "SUPERVISOR_PROJECT_BLOCKED file=$(project_block_file)"
 		return 1
