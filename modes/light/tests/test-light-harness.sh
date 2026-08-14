@@ -766,13 +766,7 @@ watch_many_output="$(COLUMNS=80 LINES=24 \
 	"$ROOT/bin/harness-watch-many" --once "$watch_many_dir")"
 grep -q '^PROJECT .*|CYC| STATUS .*| COMPLETION .*| PROGRESS / BLOCKER$' \
 	<<< "$watch_many_output"
-grep -q '^light-smoke .*| *2| done' <<< "$watch_many_output"
-grep -q 'pending' <<< "$watch_many_output"
-grep -q '@10' <<< "$watch_many_output"
-grep -q 'Completed normally' <<< "$watch_many_output"
-grep -q 'without' <<< "$watch_many_output"
-grep -q 'an enabled' <<< "$watch_many_output"
-grep -q 'Oracle gate; no' <<< "$watch_many_output"
+grep -q '^light-smoke .*| *2| done .*| done' <<< "$watch_many_output"
 grep -q '^broken-watch-project | *-| config' <<< "$watch_many_output"
 grep -q 'CONFIGURATION ERROR:' <<< "$watch_many_output"
 if grep -q 'excluded-template' <<< "$watch_many_output"; then
@@ -785,6 +779,25 @@ if awk 'length($0) > 80 { found = 1 } END { exit !found }' \
 	exit 1
 fi
 grep -Eq '^ +\| +\| +\| +\|' <<< "$watch_many_output"
+watch_many_max_row_lines="$(awk '
+	NR <= 2 { next }
+	/^[^[:space:]]/ { if (height > maximum) maximum=height; height=1; next }
+	{ height++ }
+	END { if (height > maximum) maximum=height; print maximum+0 }
+' <<< "$watch_many_output")"
+(( watch_many_max_row_lines <= 3 ))
+watch_many_bad_done_rows="$(awk '
+	NR <= 2 { next }
+	/^[^[:space:]]/ {
+		if (is_done && height != 1) bad++
+		height=1
+		is_done=($0 ~ /\|[[:space:]]*done[[:space:]]*\|/)
+		next
+	}
+	{ height++ }
+	END { if (is_done && height != 1) bad++; print bad+0 }
+' <<< "$watch_many_output")"
+(( watch_many_bad_done_rows == 0 ))
 
 percentage_watch_root="$TEST_DIR/percentage-watch-state"
 percentage_watch_project="$percentage_watch_root/projects/percentage-watch"

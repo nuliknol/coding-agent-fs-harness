@@ -382,6 +382,13 @@ printf 'operator decision required\n' > \
 human_watch="$(COLUMNS=100 LINES=24 "$HARNESS_BIN/harness-watch-many" --once "$TEST_ROOT/watch-mixed")"
 grep -Eq '^decompv2 +\| *0\| paused' <<< "$human_watch"
 ! grep -q $'\033\[' <<< "$human_watch"
+human_watch_max_row_lines="$(awk '
+	NR <= 2 { next }
+	/^[^[:space:]]/ { if (height > maximum) maximum=height; height=1; next }
+	{ height++ }
+	END { if (height > maximum) maximum=height; print maximum+0 }
+' <<< "$human_watch")"
+(( human_watch_max_row_lines <= 3 ))
 human_watch_color="$(HARNESS_WATCH_COLOR=always COLUMNS=100 LINES=24 \
 	"$HARNESS_BIN/harness-watch-many" --once "$TEST_ROOT/watch-mixed")"
 grep -Eq $'^\033\[7mdecompv2 +\| *0\| paused' <<< "$human_watch_color"
@@ -394,5 +401,22 @@ rm -f -- "$project_dir/control/progress/decompv2-task-n1.needs-human.md"
 light_watch="$(COLUMNS=100 LINES=24 "$HARNESS_BIN/harness-watch-many" --once "$TEST_ROOT/watch-light")"
 grep -q '^dispatchlight ' <<< "$light_watch"
 ! grep -q 'CONFIGURATION ERROR' <<< "$light_watch"
+
+printf 'task_id=decompv2-task-n2\n' > "$project_dir/control/project.complete"
+done_watch="$(COLUMNS=100 LINES=200 "$HARNESS_BIN/harness-watch-many" --once "$TEST_ROOT/watch-mixed")"
+grep -Eq '^decompv2 +\| *0\| done +\| [0-9]+/2 +\| *$' <<< "$done_watch"
+done_watch_bad_rows="$(awk '
+	NR <= 2 { next }
+	/^[^[:space:]]/ {
+		if (is_done && height != 1) bad++
+		height=1
+		is_done=($0 ~ /\|[[:space:]]*done[[:space:]]*\|/)
+		next
+	}
+	{ height++ }
+	END { if (is_done && height != 1) bad++; print bad+0 }
+' <<< "$done_watch")"
+(( done_watch_bad_rows == 0 ))
+rm -f -- "$project_dir/control/project.complete"
 
 printf 'decomposition v2 tests passed\n'

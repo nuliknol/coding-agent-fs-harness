@@ -222,7 +222,7 @@ done < <(find "$config_dir" -maxdepth 1 -type f -name '*.env' -print0 | sort -z)
 cycle_width=3; status_width=9; completion_width=10
 description_width=$((columns - project_width - cycle_width - status_width - completion_width - 10)); (( description_width >= 1 )) || description_width=1
 (( eligible_count > 0 )) || eligible_count=1
-row_line_limit=$(((screen_lines - 4) / eligible_count)); (( row_line_limit >= 2 )) || row_line_limit=2; (( row_line_limit <= 8 )) || row_line_limit=8
+row_line_limit=$(((screen_lines - 4) / eligible_count)); (( row_line_limit >= 2 )) || row_line_limit=2; (( row_line_limit <= 3 )) || row_line_limit=3
 printf '%-*s |%*s| %-*s | %-*s | %s\n' "$project_width" PROJECT "$cycle_width" CYC "$status_width" STATUS "$completion_width" COMPLETION 'PROGRESS / BLOCKER'
 printf '%*s\n' "$columns" '' | tr ' ' '-'
 
@@ -247,7 +247,7 @@ while IFS= read -r -d '' env_file; do
 		cycle="$(awk -F': ' '$1=="Worker/review cycle" {print $2; exit}' <<< "$status_output")"; [[ "$cycle" =~ ^[0-9]+$ ]] || cycle='-'
 		supervisor="$(awk -F': ' '$1=="Supervisor" {print $2; exit}' <<< "$status_output")"
 		case "$state" in
-			COMPLETE) display_status=done; completion=done; description='Completed normally; no blocker remains.' ;;
+			COMPLETE) display_status=done; completion=done; description='' ;;
 			PAUSED) display_status=paused; completion=pending; description="Light harness paused in $phase. Inspect its operator report." ;;
 			FAILED|DEAD_END) display_status=failed; completion='-'; description="Light harness entered $state in $phase." ;;
 			*) role=h; [[ "$phase" == WORKER_* ]] && role=w; [[ "$phase" == REVIEW_* || "$phase" == CONVERGENCE_* || "$phase" == GOAL_* ]] && role=m; [[ "$phase" == ORACLE_* ]] && role=o
@@ -269,7 +269,7 @@ while IFS= read -r -d '' env_file; do
 	if [[ -d "$dir/control/dependencies" ]]; then
 		waiting_request="$(find "$dir/control/dependencies" -maxdepth 1 -type f -name '*.waiting.md' -print 2>/dev/null | sort | awk 'NR == 1 {first=$0} END {print first}')"
 	fi
-	if [[ -f "$dir/control/project.complete" ]]; then display_status=done; description='Completed normally. Every dependency-DAG node is accepted.'
+	if [[ -f "$dir/control/project.complete" ]]; then display_status=done; completion="$complete/$total"; description=''
 	elif [[ -f "$dir/control/project.blocked.md" ]]; then display_status=paused; description="NEEDS HUMAN: $(markdown_summary "$dir/control/project.blocked.md")"
 	elif [[ "$project_status" == NEEDS_HUMAN.* ]]; then display_status=paused; description="$project_status"
 	elif [[ "$project_status" == PLANNING_STALLED.* ]]; then
@@ -287,16 +287,16 @@ while IFS= read -r -d '' env_file; do
 		request_id="$(awk -F': ' '$1=="Request-ID" {print $2; exit}' "$waiting_request")"
 		failures="$(awk '/^```text$/ {inside=1; next} inside && /^```$/ {exit} inside && NF {print}' "$waiting_request" | paste -sd';' -)"
 		description="WAITING_DEPENDENCY ${request_id:-unknown}: ${failures:-see $waiting_request}."
-	elif [[ -n "$active" && "$active" == */results/* ]]; then [[ "$manager" == running* ]] && display_status='m/running' || display_status='m/stopped'; description='Manager is reviewing a completed leaf.'
+	elif [[ -n "$active" && "$active" == */results/* ]]; then [[ "$manager" == running* ]] && display_status='m/running' || display_status='m/stopped'; description='Reviewing completed leaf.'
 	elif [[ -n "$active" ]]; then
 		[[ "$worker" == running* ]] && display_status='w/running' || display_status='w/stopped'
 		task="${active##*/}"; task="${task#${project}-task-}"; task="${task%.ready.md}"; task="${task%.running.md}"
 		route="$(awk -F': ' '$1=="Worker-Route" {print $2; exit}' "$active" 2>/dev/null || true)"
-		description="Worker leaf $task is active${route:+ via $route}."
-	else [[ "$manager" == running* ]] && display_status='m/running' || display_status='m/stopped'; description="Manager is planning the next dependency-ready leaf. Plan progress: $complete/$total."
+		description="$task${route:+ [$route]} is active."
+	else [[ "$manager" == running* ]] && display_status='m/running' || display_status='m/stopped'; description="Planning next dependency-ready leaf ($complete/$total)."
 	fi
 	trace="$(latest_trace "$dir")"
-	if [[ -n "$trace" && -f "$trace" ]]; then age=$(( $(date +%s) - $(stat -c %Y "$trace") )); (( age >= 0 )) || age=0; action="$(latest_trace_action "$trace")"; description+=$'\n'"Latest activity was updated $(human_duration "$age") ago."; [[ -z "$action" ]] || description+=$'\n'"$action"; fi
+	if [[ "$display_status" != done && -n "$trace" && -f "$trace" ]]; then age=$(( $(date +%s) - $(stat -c %Y "$trace") )); (( age >= 0 )) || age=0; action="$(latest_trace_action "$trace")"; description+=$'\n'"Activity $(human_duration "$age") ago."; [[ -z "$action" ]] || description+=$'\n'"$action"; fi
 	print_row "$project" "$cycle" "$display_status" "$completion" "$description"
 done < <(find "$config_dir" -maxdepth 1 -type f -name '*.env' -print0 | sort -z)
 
