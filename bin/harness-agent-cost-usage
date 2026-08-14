@@ -1,0 +1,197 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 1 ]] || { printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+
+dir="$(project_dir)"
+pricing_file="${HARNESS_MODEL_PRICING_FILE:-$HARNESS_HOME/model-pricing.tsv}"
+[[ -r "$pricing_file" ]] || die "model pricing table is not readable: $pricing_file"
+
+usage_cache_dir="$dir/control/agent-token-usage-cache"
+mkdir -p "$usage_cache_dir"
+chmod 700 "$usage_cache_dir"
+
+records="$(mktemp)"
+deltas="$(mktemp)"
+trap 'rm -f "$records" "$deltas"' EXIT
+
+declare -A worker_log_route=() seen_log=()
+shopt -s nullglob
+
+for assignment in "$dir"/archive/"$PROJECT-task-"*.assignment.md \
+	"$dir"/control/"$PROJECT-task-"*.assignment.md; do
+	[[ -f "$assignment" ]] || continue
+	task_id="${assignment##*/}"
+	task_id="${task_id#${PROJECT}-task-}"
+	task_id="${task_id%.assignment.md}"
+	route="$(metadata_value "$assignment" Worker-Route)"
+	[[ "$route" =~ ^(LUNA|TERRA)$ ]] || route=UNKNOWN
+	for json in "$dir"/logs/worker-task-"$task_id"-*.jsonl; do
+		[[ -f "$json" ]] || continue
+		worker_log_route[$json]="$route"
+	done
+done
+
+log_phase()
+{
+	local name="${1##*/}"
+	case "$name" in
+		manager-specification-review-*) printf '10\tspecification-review\tscaffolding' ;;
+		manager-decomposition-critic-*) printf '20\tdecomposition-critic\tscaffolding' ;;
+		manager-bootstrap-*) printf '30\tdecomposition-bootstrap\tscaffolding' ;;
+		manager-plan-*) printf '40\ttask-planning\tscaffolding' ;;
+		manager-replan-*) printf '50\troot-replanning\tscaffolding' ;;
+		manager-review-*) printf '60\timplementation-review\tscaffolding' ;;
+		manager-pending-reclassification-*) printf '70\troute-reclassification\tscaffolding' ;;
+		oracle-*) printf '80\toracle-validation\tscaffolding' ;;
+		manager-*) printf '90\tmanager-other\tscaffolding' ;;
+		worker-task-*) printf '100\tworker-implementation\timplementation' ;;
+		*) printf '999\tunclassified\tunknown' ;;
+	esac
+}
+
+log_timestamp()
+{
+	local name="${1##*/}"
+	if [[ "$name" =~ ([0-9]{8}T[0-9]{6}Z) ]]; then
+		printf '%s' "${BASH_REMATCH[1]}"
+	else
+		printf '%020d' "$(stat -c %Y "$1" 2>/dev/null || printf 0)"
+	fi
+}
+
+usage_record_log()
+{
+	local json="$1" fallback_role="$2" fallback_model="$3"
+	local classification role model thread input cached output cache cache_tmp
+	local source_size source_mtime cache_size cache_mtime usage_row
+	local parsed_thread parsed_input parsed_cached parsed_output timestamp phase_row order phase scope
+	[[ -f "$json" ]] || return 0
+	[[ -z "${seen_log[$json]:-}" ]] || return 0
+	seen_log[$json]=1
+
+	classification="${json%.jsonl}.classification"
+	role=""; model=""; thread=""; input=""; cached=""; output=""
+	if [[ -f "$classification" ]]; then
+		role="$(kv_file_value "$classification" role)"
+		model="$(kv_file_value "$classification" model)"
+		thread="$(kv_file_value "$classification" thread_id)"
+		input="$(kv_file_value "$classification" input_tokens)"
+		cached="$(kv_file_value "$classification" cached_input_tokens)"
+		output="$(kv_file_value "$classification" output_tokens)"
+	fi
+	if [[ -z "$thread" || ! "$input" =~ ^[0-9]+$ || ! "$cached" =~ ^[0-9]+$ || ! "$output" =~ ^[0-9]+$ ]]; then
+		cache="$usage_cache_dir/${json##*/}.usage"
+		source_size="$(stat -c %s "$json" 2>/dev/null || printf 0)"
+		source_mtime="$(stat -c %Y "$json" 2>/dev/null || printf 0)"
+		cache_size=""; cache_mtime=""
+		if [[ -f "$cache" ]]; then
+			cache_size="$(kv_file_value "$cache" source_size)"
+			cache_mtime="$(kv_file_value "$cache" source_mtime)"
+		fi
+		if [[ "$cache_size" == "$source_size" && "$cache_mtime" == "$source_mtime" ]]; then
+			thread="$(kv_file_value "$cache" thread_id)"
+			input="$(kv_file_value "$cache" input_tokens)"
+			cached="$(kv_file_value "$cache" cached_input_tokens)"
+			output="$(kv_file_value "$cache" output_tokens)"
+		elif command -v jq >/dev/null 2>&1; then
+			usage_row="$(jq -rs '
+				([.[] | select(.type == "thread.started") | .thread_id][0] // "") as $thread |
+				([.[] | select(.type == "turn.completed") | (.usage.input_tokens // 0)] | add // 0) as $input |
+				([.[] | select(.type == "turn.completed") | (.usage.cached_input_tokens // 0)] | add // 0) as $cached |
+				([.[] | select(.type == "turn.completed") | (.usage.output_tokens // 0)] | add // 0) as $output |
+				[$thread, $input, $cached, $output] | @tsv
+			' "$json" 2>/dev/null || true)"
+			IFS=$'\t' read -r parsed_thread parsed_input parsed_cached parsed_output <<< "$usage_row"
+			[[ -n "$thread" ]] || thread="$parsed_thread"
+			[[ "$input" =~ ^[0-9]+$ ]] || input="${parsed_input:-0}"
+			[[ "$cached" =~ ^[0-9]+$ ]] || cached="${parsed_cached:-0}"
+			[[ "$output" =~ ^[0-9]+$ ]] || output="${parsed_output:-0}"
+			cache_tmp="$cache.tmp.$$"
+			{
+				printf 'source_size=%s\n' "$source_size"
+				printf 'source_mtime=%s\n' "$source_mtime"
+				printf 'thread_id=%s\n' "$thread"
+				printf 'input_tokens=%s\n' "$input"
+				printf 'cached_input_tokens=%s\n' "$cached"
+				printf 'output_tokens=%s\n' "$output"
+			} > "$cache_tmp"
+			chmod 600 "$cache_tmp"
+			mv "$cache_tmp" "$cache"
+		else
+			[[ -n "$thread" ]] || thread="$(codex_thread_id_from_jsonl "$json" 2>/dev/null || true)"
+			[[ "$input" =~ ^[0-9]+$ ]] || input=0
+			[[ "$cached" =~ ^[0-9]+$ ]] || cached=0
+			[[ "$output" =~ ^[0-9]+$ ]] || output=0
+		fi
+	fi
+
+	[[ -n "$thread" ]] || thread="$json"
+	[[ -n "$role" ]] || role="$fallback_role"
+	[[ -n "$model" ]] || model="$fallback_model"
+	timestamp="$(log_timestamp "$json")"
+	phase_row="$(log_phase "$json")"
+	IFS=$'\t' read -r order phase scope <<< "$phase_row"
+	printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+		"$thread" "$timestamp" "$json" "$order" "$scope" "$phase" "$role" "$model" \
+		"${input:-0}" "${cached:-0}" "${output:-0}" >> "$records"
+}
+
+for json in "$dir"/logs/manager-*.jsonl; do
+	usage_record_log "$json" manager "$MANAGER_MODEL"
+done
+for json in "$dir"/logs/oracle-*.jsonl; do
+	usage_record_log "$json" oracle "$ORACLE_MODEL"
+done
+for json in "$dir"/logs/worker-task-*.jsonl; do
+	case "${worker_log_route[$json]:-UNKNOWN}" in
+		LUNA) usage_record_log "$json" worker_luna "$LUNA_WORKER_MODEL" ;;
+		TERRA) usage_record_log "$json" worker_terra "$TERRA_WORKER_MODEL" ;;
+		*) usage_record_log "$json" worker_unknown "$WORKER_MODEL" ;;
+	esac
+done
+
+# Provider usage is cumulative for a resumed thread. Attribute only each log's
+# increase to its phase; summing raw log totals would multiply-charge context.
+sort -t $'\t' -k1,1 -k2,2 -k3,3 "$records" | awk -F '\t' -v OFS='\t' '
+	{
+		thread=$1; input=$9+0; cached=$10+0; output=$11+0
+		di=(input >= prior_input[thread] ? input-prior_input[thread] : input)
+		dc=(cached >= prior_cached[thread] ? cached-prior_cached[thread] : cached)
+		do_=(output >= prior_output[thread] ? output-prior_output[thread] : output)
+		if (dc > di) dc=di
+		print $4, $5, $6, $7, $8, 1, di, dc, di-dc, do_
+		prior_input[thread]=input; prior_cached[thread]=cached; prior_output[thread]=output
+	}
+' > "$deltas"
+
+printf 'scope\tphase\trole\tmodel\tinvocations\tinput_tokens\tcached_input_tokens\tuncached_input_tokens\toutput_tokens\testimated_cost_usd\tpricing_status\n'
+awk -F '\t' -v OFS='\t' '
+	NR==FNR {
+		if (FNR == 1) next
+		input_rate[$1]=$4; cache_rate[$1]=$5; output_rate[$1]=$7
+		next
+	}
+	{
+		key=$1 SUBSEP $2 SUBSEP $3 SUBSEP $4 SUBSEP $5
+		inv[key]+=$6; input[key]+=$7; cached[key]+=$8; uncached[key]+=$9; output[key]+=$10
+	}
+	END {
+		for (key in inv) {
+			split(key, part, SUBSEP)
+			model=part[5]; status="priced"; cost=""
+			if (!(model in input_rate) || input_rate[model] == "-" || cache_rate[model] == "-" || output_rate[model] == "-") {
+				status="unpriced"
+			} else {
+				cost=(uncached[key]*input_rate[model] + cached[key]*cache_rate[model] + output[key]*output_rate[model])/1000000
+				cost=sprintf("%.8f", cost)
+			}
+			print part[2], part[3], part[4], model, inv[key], input[key], cached[key], uncached[key], output[key], cost, status, part[1]
+		}
+	}
+' "$pricing_file" "$deltas" | sort -t $'\t' -k12,12n -k1,1 -k2,2 -k4,4 | cut -f1-11

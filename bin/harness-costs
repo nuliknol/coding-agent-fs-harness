@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-mode.sh"
+harness_dispatch_mode "$SCRIPT_DIR/.." "${0##*/}" "$@"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+raw=0
+[[ "${1:-}" != --tsv ]] || { raw=1; shift; }
+[[ $# -eq 1 ]] || { printf 'Usage: %s [--tsv] ENV_FILE\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+
+cost_report="$("$HARNESS_BIN/harness-agent-cost-usage" "$HARNESS_ENV_FILE")"
+pricing_file="${HARNESS_MODEL_PRICING_FILE:-$HARNESS_HOME/model-pricing.tsv}"
+
+cost_summary="$(awk -F '\t' '
+	NR == 1 {next}
+	{
+		calls[$1]+=$5; input[$1]+=$6; cached[$1]+=$7; uncached[$1]+=$8; output[$1]+=$9
+		if ($11 == "priced") cost[$1]+=$10; else unknown[$1]=1
+		model_calls[$4]+=$5; model_input[$4]+=$6; model_cached[$4]+=$7
+		model_uncached[$4]+=$8; model_output[$4]+=$9
+		if ($11 == "priced") model_cost[$4]+=$10; else model_unknown[$4]=1
+	}
+	END {
+		for (scope in calls)
+			printf "scope\t%s\t%d\t%d\t%d\t%d\t%d\t%.8f\t%d\n", scope, calls[scope], input[scope], cached[scope], uncached[scope], output[scope], cost[scope], unknown[scope]+0
+		for (model in model_input)
+			printf "model\t%s\t%d\t%d\t%d\t%d\t%d\t%.8f\t%d\n", model, model_calls[model], model_input[model], model_cached[model], model_uncached[model], model_output[model], model_cost[model], model_unknown[model]+0
+	}
+' <<< "$cost_report")"
+
+if (( raw )); then
+	printf '%s\n' "$cost_report"
+	exit
+fi
+
+printf 'Harness costs: %s\n' "$PROJECT"
+printf '\nEstimated agent cost by phase (USD)\n'
+printf '  %-14s %-25s %-16s %4s %12s %12s %12s %10s %10s\n' \
+	'SCOPE' 'PHASE' 'MODEL' 'CALL' 'INPUT' 'CACHE-READ' 'UNCACHED' 'OUTPUT' 'COST'
+awk -F '\t' '
+	NR == 1 {next}
+	{
+		cost=($11 == "priced" ? sprintf("$%.4f", $10) : "N/A")
+		printf "  %-14s %-25s %-16s %4d %12d %12d %12d %10d %10s\n", \
+			$1, $2, $4, $5, $6, $7, $8, $9, cost
+	}
+' <<< "$cost_report"
+
+printf '\nCost summary\n'
+awk -F '\t' '$1 == "scope" {
+	cost=($9 ? "N/A" : sprintf("$%.4f", $8))
+	printf "  %-14s calls=%-4d input=%-12d cached=%-12d output=%-10d cost=%s\n", $2, $3, $4, $5, $7, cost
+}' <<< "$cost_summary"
+printf '  Scaffolding/implementation cost ratio: '
+awk -F '\t' '
+	$1 == "scope" && $2 == "scaffolding" {sc=$8; su=$9}
+	$1 == "scope" && $2 == "implementation" {im=$8; iu=$9}
+	END {
+		if (su || iu) print "N/A (unpriced model usage)"
+		else if (im == 0 && sc == 0) print "N/A"
+		else if (im == 0) print "infinite"
+		else printf "%.2f:1\n", sc/im
+	}
+' <<< "$cost_summary"
+
+printf '\nCost by model\n'
+awk -F '\t' '$1 == "model" {
+	cost=($9 ? "N/A" : sprintf("$%.4f", $8))
+	printf "  %-16s calls=%-4d input=%-12d cached=%-12d output=%-10d cost=%s\n", $2, $3, $4, $5, $7, cost
+}' <<< "$cost_summary" | sort
+
+printf '\nPricing basis (USD per 1M tokens)\n'
+printf '  %-16s %7s %7s %8s %8s %8s %8s\n' 'MODEL' 'CTX' 'OUTMAX' 'IN' 'CACHER' 'CACHEW' 'OUT'
+awk -F '\t' 'NR > 1 {
+	ctx=sprintf("%dK", $2/1000); outmax=sprintf("%dK", $3/1000)
+	printf "  %-16s %7s %7s %8s %8s %8s %8s\n", $1, ctx, outmax, "$" $4, ($5 == "-" ? "--" : "$" $5), ($6 == "-" ? "--" : "$" $6), "$" $7
+}' "$pricing_file"
+printf '  Cache-write tokens are not exposed by current Codex usage events and are excluded from estimates.\n'
+printf '  Scaffolding is manager and Oracle activity; implementation is every worker turn, including worker diagnosis and tests.\n'

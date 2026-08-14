@@ -206,8 +206,18 @@ accounting deduplicates resumed threads by taking their latest cumulative usage.
 `bin/harness-statistics ENV_FILE` reports manager, Luna-worker, Terra-worker,
 and Oracle token totals plus manager/worker and Luna/Terra processed-token
 ratios. It also groups decomposition quality, route share, delivery outcomes,
-zero-gain iterations, and verified Specification IR coverage. Cached input is
-part of input tokens. Use `--tsv` for machine-readable metrics.
+zero-gain iterations, and verified Specification IR coverage.
+In Full mode, `bin/harness-costs ENV_FILE` attributes resumed-thread token
+deltas to specification review, decomposition, bootstrap, planning, replanning,
+implementation review, Oracle validation, and worker implementation. Its report
+shows costs split between scaffolding and implementation and summarized by
+model. Cached input remains part of total input but is charged
+at the cache-read rate instead of the ordinary input rate. The bundled
+`model-pricing.tsv` contains the default USD-per-million rates and may be
+replaced with `HARNESS_MODEL_PRICING_FILE`. Cache writes are excluded because
+current Codex usage events do not expose cache-write token counts. Use `--tsv`
+for machine-readable cost records. `harness-statistics --tsv` remains the
+machine-readable delivery and raw-token report.
 Run `bin/harness-decomposition-tree ENV_FILE` to display the immutable DAG as a
 terminal tree with node state, complexity, configured worker route,
 dependencies, deliverable, and active task route. `--compact` shows one line
@@ -1107,6 +1117,14 @@ Cumulative delivery, decomposition-quality, and token statistics:
 
 ```bash
 harness-statistics /path/to/repository/harness.env
+```
+
+Model-aware estimated dollar cost by scaffolding phase, implementation route,
+and model:
+
+```bash
+harness-costs /path/to/repository/harness.env
+harness-costs --tsv /path/to/repository/harness.env
 ```
 
 Chronological implementation history:
