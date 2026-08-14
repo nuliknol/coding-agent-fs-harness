@@ -96,6 +96,7 @@ usage_add_log()
 	[[ -n "$model" ]] || model="$fallback_model"
 	case "$role" in
 		manager_*) bucket=manager ;;
+		decomposition) bucket=decomposition ;;
 		worker_luna) bucket=worker_luna ;;
 		worker_terra) bucket=worker_terra ;;
 		worker) bucket="$fallback_bucket" ;;
@@ -159,12 +160,16 @@ worker_unknown_output="${bucket_output[worker_unknown]:-0}"
 oracle_input="${bucket_input[oracle]:-0}"
 oracle_cached="${bucket_cached[oracle]:-0}"
 oracle_output="${bucket_output[oracle]:-0}"
+decomposition_input="${bucket_input[decomposition]:-0}"
+decomposition_cached="${bucket_cached[decomposition]:-0}"
+decomposition_output="${bucket_output[decomposition]:-0}"
 
 printf 'metric\tvalue\n'
 for metric in manager_input manager_cached manager_output \
 	worker_luna_input worker_luna_cached worker_luna_output \
 	worker_terra_input worker_terra_cached worker_terra_output \
 	worker_unknown_input worker_unknown_cached worker_unknown_output \
+	decomposition_input decomposition_cached decomposition_output \
 	oracle_input oracle_cached oracle_output; do
 	printf '%s_tokens\t%s\n' "$metric" "${!metric}"
 done

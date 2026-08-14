@@ -340,6 +340,9 @@ leaf_deliverable=""
 leaf_required_symbols=""
 leaf_context_paths=""
 leaf_architecture_decisions=""
+leaf_validation_class=""
+leaf_planner_model="$(decomposition_provenance_value planner_model "$DECOMPOSITION_MODEL" 2>/dev/null || printf '%s' "$DECOMPOSITION_MODEL")"
+leaf_planner_effort="$(decomposition_provenance_value planner_reasoning_effort "$DECOMPOSITION_REASONING_EFFORT" 2>/dev/null || printf '%s' "$DECOMPOSITION_REASONING_EFFORT")"
 leaf_expected_files=""
 leaf_expected_turns=""
 preferred_route_override=0
@@ -364,12 +367,19 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 		leaf_required_symbols="$(require_single_metadata_value "$task_file" Required-Symbols 'v2 leaf assignment')"
 		leaf_context_paths="$(require_single_metadata_value "$task_file" Context-Paths 'v2 leaf assignment')"
 		leaf_architecture_decisions="$(require_single_metadata_value "$task_file" Architecture-Decisions 'v2 leaf assignment')"
+		leaf_validation_class="$(metadata_value "$task_file" Validation-Class)"
+		[[ -n "$leaf_validation_class" ]] || leaf_validation_class=FOCUSED
 		leaf_expected_files="$(require_single_metadata_value "$task_file" Expected-Max-Implementation-Files 'v2 leaf assignment')"
 		leaf_expected_turns="$(require_single_metadata_value "$task_file" Expected-Max-Worker-Turns 'v2 leaf assignment')"
 		[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]] ||
 			die "invalid Leaf-Type: $leaf_type"
 		[[ "$leaf_complexity" =~ ^(LOW|MEDIUM|HIGH)$ ]] || die "invalid Complexity-Class: $leaf_complexity"
 		[[ "$leaf_worker_route" =~ ^(LUNA|TERRA)$ ]] || die "invalid Worker-Route: $leaf_worker_route"
+		[[ "$leaf_validation_class" =~ ^(FOCUSED|INCREMENTAL|CLEAN_GLOBAL)$ ]] || die "invalid Validation-Class: $leaf_validation_class"
+		if [[ "$leaf_validation_class" == CLEAN_GLOBAL ]]; then
+			[[ "$leaf_worker_route" == TERRA && "$leaf_type" == INTEGRATION ]] ||
+				die 'CLEAN_GLOBAL validation requires a Terra INTEGRATION leaf'
+		fi
 		[[ "$leaf_expected_files" =~ ^[1-9][0-9]*$ ]] || die 'Expected-Max-Implementation-Files must be positive'
 		[[ "$leaf_expected_turns" =~ ^[1-9][0-9]*$ ]] || die 'Expected-Max-Worker-Turns must be positive'
 		[[ "$leaf_context_paths" != / && "$leaf_context_paths" != . && "$leaf_context_paths" != '*' && "$leaf_context_paths" != '**' ]] ||
@@ -379,6 +389,7 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 			[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]] ||
 				die "Leaf-Type $leaf_type requires Terra"
 			[[ "$leaf_architecture_decisions" == NONE ]] || die 'Luna leaves must set Architecture-Decisions: NONE'
+			[[ "$leaf_validation_class" != CLEAN_GLOBAL ]] || die 'Luna leaves cannot use CLEAN_GLOBAL validation; publish a separate Terra INTEGRATION leaf'
 			(( leaf_expected_files <= 5 )) || die 'Luna leaves may expect at most five implementation files'
 			(( leaf_expected_turns <= 3 )) || die 'Luna leaves may expect at most three worker turns'
 			[[ "$goal_allowed_scope" != / && "$goal_allowed_scope" != . && "$goal_allowed_scope" != *'*'* ]] ||
@@ -688,6 +699,7 @@ if (( goal_mode == 1 )); then
 			printf 'Required-Symbols: %s\n' "$leaf_required_symbols"
 			printf 'Context-Paths: %s\n' "$leaf_context_paths"
 			printf 'Architecture-Decisions: %s\n' "$leaf_architecture_decisions"
+			printf 'Validation-Class: %s\n' "$leaf_validation_class"
 			if (( HARNESS_ARCHITECTURE_GUARDS == 1 )); then
 				printf 'Affected-Invariants: %s\n' "$(architecture_node_value "$plan_item_id" invariant_ids)"
 				printf 'Consumed-Decisions: %s\n' "$(architecture_node_value "$plan_item_id" consumes_decisions)"
@@ -760,6 +772,10 @@ if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 		printf 'Required-Symbols: %s\n' "$leaf_required_symbols"
 		printf 'Context-Paths: %s\n' "$leaf_context_paths"
 		printf 'Architecture-Decisions: %s\n' "$leaf_architecture_decisions"
+		printf 'Validation-Class: %s\n' "$leaf_validation_class"
+		printf 'Validation-Output-Policy: CAPTURE_SUMMARY\n'
+		printf 'Decomposition-Planner-Model: %s\n' "$leaf_planner_model"
+		printf 'Decomposition-Planner-Effort: %s\n' "$leaf_planner_effort"
 		printf 'Specification-Obligations: %s\n' "$context_specification_obligations"
 		if (( HARNESS_ARCHITECTURE_GUARDS == 1 )); then
 			printf 'Affected-Invariants: %s\n' "$(architecture_node_value "$plan_item_id" invariant_ids)"
@@ -780,10 +796,9 @@ if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 				printf -- '- %s: %s\n' "$dependency" "$(project_plan_item_status "$dependency")"
 			done
 		fi
-		printf '\n## Authoritative files\n\n'
-		printf -- '- Assignment: %s\n' "$ready"
-		printf -- '- Root assignment: %s\n' "$root_assignment"
-		printf -- '- Cumulative progress: %s\n' "$progress"
+		printf '\n## Context boundary\n\n'
+		printf -- '- The launcher embeds this capsule and the complete bounded assignment in the worker prompt.\n'
+		printf -- '- Manager policy, root history, progress ledgers, and global Specification IR are intentionally excluded.\n'
 		if [[ "$context_specification_obligations" != - ]]; then
 			printf '\n## Allocated proof obligations\n\n'
 			awk -F '\t' -v selected=",$context_specification_obligations," '
@@ -802,6 +817,13 @@ if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 		printf '\nThis capsule is intentionally narrow. Inspect other repository paths only when direct compiler, linker, or focused-validation evidence proves they are required by the declared leaf.\n'
 	} > "$context_capsule.tmp.$$"
 	chmod 600 "$context_capsule.tmp.$$"
+	if [[ "$leaf_worker_route" == LUNA ]] && decomposition_resource_contract_enabled; then
+		context_capsule_bytes="$(stat -c %s "$context_capsule.tmp.$$")"
+		(( context_capsule_bytes <= HARNESS_MAX_LUNA_CONTEXT_CAPSULE_BYTES )) || {
+			rm -f "$context_capsule.tmp.$$"
+			die "Luna context capsule is $context_capsule_bytes bytes; maximum is $HARNESS_MAX_LUNA_CONTEXT_CAPSULE_BYTES, so split the leaf or reduce unrelated context"
+		}
+	fi
 	mv "$context_capsule.tmp.$$" "$context_capsule"
 fi
 mv "$tmp" "$ready"
@@ -811,6 +833,6 @@ if (( recovery_publish == 1 )); then
 fi
 activate_project_plan_item "$plan_item_id" "$root"
 
-log_event "TASK_PUBLISHED task=$task_id root=$root plan_item=$plan_item_id starting_progress=$starting_progress target_criterion=${target_criterion:--} auto_replan=$auto_replan manager_remediation=$manager_remediation goal_mode=$goal_mode goal_id=${goal_id:--} worker_route=${leaf_worker_route:--} leaf_type=${leaf_type:--} preferred_route_override=$preferred_route_override file=$ready"
-trace_event TASK_PUBLISHED "task_id=$task_id" "task_root=$root" "plan_item=$plan_item_id" "starting_progress=$starting_progress" "target_criterion=${target_criterion:--}" "auto_replan=$auto_replan" "manager_remediation=$manager_remediation" "goal_mode=$goal_mode" "goal_id=${goal_id:-}" "worker_route=${leaf_worker_route:-}" "leaf_type=${leaf_type:-}" "preferred_route_override=$preferred_route_override" "source_file=$task_file" "ready_file=$ready" "progress_file=$progress"
+log_event "TASK_PUBLISHED task=$task_id root=$root plan_item=$plan_item_id starting_progress=$starting_progress target_criterion=${target_criterion:--} auto_replan=$auto_replan manager_remediation=$manager_remediation goal_mode=$goal_mode goal_id=${goal_id:--} worker_route=${leaf_worker_route:--} leaf_type=${leaf_type:--} validation_class=${leaf_validation_class:--} decomposition_model=$leaf_planner_model preferred_route_override=$preferred_route_override file=$ready"
+trace_event TASK_PUBLISHED "task_id=$task_id" "task_root=$root" "plan_item=$plan_item_id" "starting_progress=$starting_progress" "target_criterion=${target_criterion:--}" "auto_replan=$auto_replan" "manager_remediation=$manager_remediation" "goal_mode=$goal_mode" "goal_id=${goal_id:-}" "worker_route=${leaf_worker_route:-}" "leaf_type=${leaf_type:-}" "validation_class=${leaf_validation_class:-}" "decomposition_model=$leaf_planner_model" "preferred_route_override=$preferred_route_override" "source_file=$task_file" "ready_file=$ready" "progress_file=$progress"
 printf '%s\n' "$ready"

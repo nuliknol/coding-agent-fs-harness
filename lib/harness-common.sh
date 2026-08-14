@@ -165,6 +165,8 @@ load_harness_env()
 	unset HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS HARNESS_START_MAX_AGENT_INVOCATIONS
 	unset HARNESS_DOMAIN_PROFILES
 	unset HARNESS_MAX_LUNA_STRATEGY_FAILURES HARNESS_MAX_LUNA_ALLOWED_PATHS HARNESS_MIN_LUNA_NODE_PERCENT
+	unset HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF HARNESS_MAX_LUNA_CONTEXT_CAPSULE_BYTES
+	unset HARNESS_VALIDATION_OUTPUT_MAX_LINES HARNESS_VALIDATION_OUTPUT_MAX_BYTES
 	unset HARNESS_MIN_LUNA_CODING_NODE_PERCENT HARNESS_ARCHITECTURE_GUARDS
 	unset HARNESS_PREFERRED_WORKER_ROUTE HARNESS_AGENT_COMMITS_ENABLED
 	unset HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
@@ -173,9 +175,11 @@ load_harness_env()
 	unset HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION
 	unset HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS
 	unset HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION
+	unset HARNESS_MAX_DECOMPOSITION_PROCESSED_TOKENS_PER_INVOCATION
 	unset HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
 	unset HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_KILL_GRACE_SECONDS
 	unset MANAGER_FALLBACK_MODEL WORKER_FALLBACK_MODEL ORACLE_FALLBACK_MODEL
+	unset DECOMPOSITION_MODEL DECOMPOSITION_REASONING_EFFORT
 	unset ORACLE_MODEL ORACLE_REASONING_EFFORT ORACLE_SANDBOX ORACLE_CODEX_BIN ORACLE_CODEX_HOME ORACLE_CODEX_EXTRA_ARGS ORACLE_ENABLED MAX_ORACLE_RUNS
 	unset HARNESS_MANAGER_INVOKER HARNESS_MANAGER_PLAN_INVOKER HARNESS_MANAGER_REPLAN_INVOKER
 	unset HARNESS_WORKER_INVOKER HARNESS_ORACLE_INVOKER
@@ -310,6 +314,15 @@ load_harness_env()
 	# validation paths. Keep the implementation-file budget at five, but permit
 	# a bounded capsule to name a few related non-implementation paths.
 	HARNESS_MAX_LUNA_ALLOWED_PATHS="${HARNESS_MAX_LUNA_ALLOWED_PATHS:-8}"
+	# Cheap-worker leaves must be semantically bounded as well as path-bounded.
+	# A large obligation fan-in belongs in a decision/integration node or must be
+	# split before a Luna implementation leaf can be registered.
+	HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF="${HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF:-12}"
+	HARNESS_MAX_LUNA_CONTEXT_CAPSULE_BYTES="${HARNESS_MAX_LUNA_CONTEXT_CAPSULE_BYTES:-32768}"
+	# Build and test commands retain their complete output on disk. Only a
+	# bounded diagnostic summary is allowed back into an agent transcript.
+	HARNESS_VALIDATION_OUTPUT_MAX_LINES="${HARNESS_VALIDATION_OUTPUT_MAX_LINES:-200}"
+	HARNESS_VALIDATION_OUTPUT_MAX_BYTES="${HARNESS_VALIDATION_OUTPUT_MAX_BYTES:-32768}"
 	# Fresh v2 plans must put most independently executable nodes on the cheap
 	# worker route. Existing immutable DAGs are not rewritten by this setting.
 	HARNESS_MIN_LUNA_NODE_PERCENT="${HARNESS_MIN_LUNA_NODE_PERCENT:-80}"
@@ -358,6 +371,7 @@ load_harness_env()
 	# of obligations and relations in one atomic transaction. Keep it bounded,
 	# but give that named startup phase a separate budget from ordinary turns.
 	HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION="${HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION:-8000000}"
+	HARNESS_MAX_DECOMPOSITION_PROCESSED_TOKENS_PER_INVOCATION="${HARNESS_MAX_DECOMPOSITION_PROCESSED_TOKENS_PER_INVOCATION:-2000000}"
 	# Retained only for backwards-compatible environment parsing. Provider
 	# retries are intentionally unlimited regardless of this legacy value.
 	HARNESS_CAPACITY_RETRY_SECONDS="$HARNESS_PROVIDER_RETRY_SECONDS"
@@ -371,6 +385,11 @@ load_harness_env()
 
 	MANAGER_MODEL="${MANAGER_MODEL:-gpt-5.6-terra}"
 	MANAGER_REASONING_EFFORT="${MANAGER_REASONING_EFFORT:-high}"
+	# Global specification normalization and DAG decomposition are performed by
+	# a separate, fresh high-capability role. Routine planning and review remain
+	# on the less expensive persistent manager.
+	DECOMPOSITION_MODEL="${DECOMPOSITION_MODEL:-gpt-5.6-sol}"
+	DECOMPOSITION_REASONING_EFFORT="${DECOMPOSITION_REASONING_EFFORT:-high}"
 	MANAGER_SANDBOX="${MANAGER_SANDBOX:-workspace-write}"
 	WORKER_MODEL="${WORKER_MODEL:-gpt-5.6-luna}"
 	WORKER_REASONING_EFFORT="${WORKER_REASONING_EFFORT:-high}"
@@ -507,6 +526,14 @@ load_harness_env()
 		die 'HARNESS_MAX_LUNA_STRATEGY_FAILURES must be a positive integer'
 	[[ "$HARNESS_MAX_LUNA_ALLOWED_PATHS" =~ ^[1-9][0-9]*$ ]] ||
 		die 'HARNESS_MAX_LUNA_ALLOWED_PATHS must be a positive integer'
+	[[ "$HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF" =~ ^[1-9][0-9]*$ ]] ||
+		die 'HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF must be a positive integer'
+	[[ "$HARNESS_MAX_LUNA_CONTEXT_CAPSULE_BYTES" =~ ^[1-9][0-9]*$ ]] ||
+		die 'HARNESS_MAX_LUNA_CONTEXT_CAPSULE_BYTES must be a positive integer'
+	[[ "$HARNESS_VALIDATION_OUTPUT_MAX_LINES" =~ ^[1-9][0-9]*$ ]] ||
+		die 'HARNESS_VALIDATION_OUTPUT_MAX_LINES must be a positive integer'
+	[[ "$HARNESS_VALIDATION_OUTPUT_MAX_BYTES" =~ ^[1-9][0-9]*$ ]] ||
+		die 'HARNESS_VALIDATION_OUTPUT_MAX_BYTES must be a positive integer'
 	[[ "$HARNESS_MIN_LUNA_NODE_PERCENT" =~ ^(0|[1-9][0-9]*)$ ]] ||
 		die 'HARNESS_MIN_LUNA_NODE_PERCENT must be an integer from 0 through 100'
 	(( HARNESS_MIN_LUNA_NODE_PERCENT <= 100 )) ||
@@ -534,6 +561,7 @@ load_harness_env()
 	[[ "$HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION must be a positive integer'
 	[[ "$HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS must be a positive integer'
 	[[ "$HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION must be a positive integer'
+	[[ "$HARNESS_MAX_DECOMPOSITION_PROCESSED_TOKENS_PER_INVOCATION" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_DECOMPOSITION_PROCESSED_TOKENS_PER_INVOCATION must be a positive integer'
 	[[ "$HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS" =~ ^[0-9]+$ ]] || die 'HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS must be a non-negative integer'
 	[[ "$HARNESS_START_MAX_AGENT_INVOCATIONS" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_START_MAX_AGENT_INVOCATIONS must be a positive integer'
 	[[ "$HARNESS_CAPACITY_MAX_RETRIES" =~ ^[0-9]+$ ]] || die 'HARNESS_CAPACITY_MAX_RETRIES must be an integer'
@@ -541,6 +569,7 @@ load_harness_env()
 	[[ "$HARNESS_CODEX_IDLE_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_CODEX_IDLE_TIMEOUT_SECONDS must be an integer'
 	[[ "$HARNESS_CODEX_KILL_GRACE_SECONDS" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_CODEX_KILL_GRACE_SECONDS must be a positive integer'
 	[[ "$MANAGER_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid MANAGER_MODEL: $MANAGER_MODEL"
+	[[ "$DECOMPOSITION_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid DECOMPOSITION_MODEL: $DECOMPOSITION_MODEL"
 	[[ "$WORKER_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid WORKER_MODEL: $WORKER_MODEL"
 	[[ "$LUNA_WORKER_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid LUNA_WORKER_MODEL: $LUNA_WORKER_MODEL"
 	[[ "$TERRA_WORKER_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid TERRA_WORKER_MODEL: $TERRA_WORKER_MODEL"
@@ -553,6 +582,7 @@ load_harness_env()
 		[[ "$ORACLE_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid ORACLE_MODEL: $ORACLE_MODEL"
 	fi
 	[[ "$MANAGER_REASONING_EFFORT" =~ ^(none|minimal|low|medium|high|xhigh|max)$ ]] || die "invalid MANAGER_REASONING_EFFORT: $MANAGER_REASONING_EFFORT"
+	[[ "$DECOMPOSITION_REASONING_EFFORT" =~ ^(none|minimal|low|medium|high|xhigh|max)$ ]] || die "invalid DECOMPOSITION_REASONING_EFFORT: $DECOMPOSITION_REASONING_EFFORT"
 	[[ "$WORKER_REASONING_EFFORT" =~ ^(none|minimal|low|medium|high|xhigh|max)$ ]] || die "invalid WORKER_REASONING_EFFORT: $WORKER_REASONING_EFFORT"
 	[[ "$LUNA_WORKER_REASONING_EFFORT" =~ ^(none|minimal|low|medium|high|xhigh|max)$ ]] || die "invalid LUNA_WORKER_REASONING_EFFORT: $LUNA_WORKER_REASONING_EFFORT"
 	[[ "$TERRA_WORKER_REASONING_EFFORT" =~ ^(none|minimal|low|medium|high|xhigh|max)$ ]] || die "invalid TERRA_WORKER_REASONING_EFFORT: $TERRA_WORKER_REASONING_EFFORT"
@@ -582,6 +612,7 @@ load_harness_env()
 	export HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION
 	export HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS
 	export HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION
+	export HARNESS_MAX_DECOMPOSITION_PROCESSED_TOKENS_PER_INVOCATION
 	export HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS HARNESS_START_MAX_AGENT_INVOCATIONS
 	export HARNESS_MAX_ROOT_ATTEMPTS HARNESS_MAX_ZERO_GAIN_WINDOW HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION
 	export HARNESS_MAX_TOTAL_ROOT_REVIEWS HARNESS_MAX_TOTAL_ROOT_REPLANS
@@ -600,12 +631,15 @@ load_harness_env()
 	export HARNESS_DOMAIN_PROFILES
 	export HARNESS_MAX_LUNA_STRATEGY_FAILURES
 	export HARNESS_MAX_LUNA_ALLOWED_PATHS
+	export HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF HARNESS_MAX_LUNA_CONTEXT_CAPSULE_BYTES
+	export HARNESS_VALIDATION_OUTPUT_MAX_LINES HARNESS_VALIDATION_OUTPUT_MAX_BYTES
 	export HARNESS_MIN_LUNA_NODE_PERCENT HARNESS_MIN_LUNA_CODING_NODE_PERCENT HARNESS_ARCHITECTURE_GUARDS
 	export HARNESS_PREFERRED_WORKER_ROUTE HARNESS_AGENT_COMMITS_ENABLED
 	export HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
 	export HARNESS_CODEX_WALL_TIMEOUT_SECONDS HARNESS_CODEX_IDLE_TIMEOUT_SECONDS HARNESS_CODEX_KILL_GRACE_SECONDS
 	export WORKER_HEARTBEAT_SECONDS
 	export MANAGER_CODEX_BIN MANAGER_CODEX_HOME MANAGER_MODEL MANAGER_REASONING_EFFORT MANAGER_SANDBOX
+	export DECOMPOSITION_MODEL DECOMPOSITION_REASONING_EFFORT
 	export WORKER_CODEX_BIN WORKER_CODEX_HOME WORKER_MODEL WORKER_REASONING_EFFORT WORKER_SANDBOX
 	export LUNA_WORKER_MODEL LUNA_WORKER_REASONING_EFFORT TERRA_WORKER_MODEL TERRA_WORKER_REASONING_EFFORT
 	export MANAGER_FALLBACK_MODEL WORKER_FALLBACK_MODEL ORACLE_FALLBACK_MODEL
@@ -843,6 +877,24 @@ task_root_assignment_file()
 task_context_capsule_file()
 {
 	printf '%s/control/context-capsules/%s.md' "$(project_dir)" "$(task_base "$1")"
+}
+
+decomposition_provenance_file()
+{
+	printf '%s/control/decomposition-provenance.env' "$(project_dir)"
+}
+
+decomposition_provenance_value()
+{
+	local file
+	file="$(decomposition_provenance_file)"
+	[[ -f "$file" ]] || return 1
+	kv_file_value "$file" "$1" "${2:-}"
+}
+
+decomposition_resource_contract_enabled()
+{
+	[[ "$(decomposition_provenance_value resource_contract_version 0 2>/dev/null || printf 0)" =~ ^[1-9][0-9]*$ ]]
 }
 
 root_luna_strategy_failure_count()
@@ -2042,8 +2094,11 @@ mark_root_architecture_reassessment()
 mark_root_token_usage_anomaly()
 {
 	local task_id="$1" reason="$2" evidence="${3:--}"
-	local root marker tmp alarm created=0
+	local root marker tmp alarm created=0 plan_node planner_model planner_effort
 	root="$(task_root_id "$task_id")"
+	plan_node="$(project_plan_item_for_root "$root" 2>/dev/null || printf '-')"
+	planner_model="$(decomposition_provenance_value planner_model "$DECOMPOSITION_MODEL" 2>/dev/null || printf '%s' "$DECOMPOSITION_MODEL")"
+	planner_effort="$(decomposition_provenance_value planner_reasoning_effort "$DECOMPOSITION_REASONING_EFFORT" 2>/dev/null || printf '%s' "$DECOMPOSITION_REASONING_EFFORT")"
 	marker="$(task_root_token_usage_anomaly_file "$root")"
 	if [[ ! -f "$marker" ]]; then
 		tmp="$marker.tmp.$$"
@@ -2052,6 +2107,8 @@ mark_root_token_usage_anomaly()
 			printf 'Project: %s\n\n' "$PROJECT"
 			printf 'Task-Root: %s\n\n' "$root"
 			printf 'Triggered-By: %s\n\n' "$task_id"
+			printf 'Plan-Node: %s\n\n' "${plan_node:--}"
+			printf 'Decomposition-Planner: %s (%s)\n\n' "$planner_model" "$planner_effort"
 			printf 'Paused-At: %s\n\n' "$(timestamp_utc)"
 			printf 'Reason: %s\n\n' "$reason"
 			printf 'Evidence: %s\n\n' "$evidence"
@@ -2068,10 +2125,10 @@ mark_root_token_usage_anomaly()
 	clear_worker_thread_for_root "$root" token-usage-anomaly
 	if (( created == 1 )); then
 		alarm="$(project_dir)/logs/token-usage-alarms.log"
-		printf '%s\tproject=%s\troot=%s\ttask=%s\treason=%q\tevidence=%q\tmarker=%s\n' \
-			"$(timestamp_utc)" "$PROJECT" "$root" "$task_id" "$reason" "$evidence" "$marker" >> "$alarm"
+		printf '%s\tproject=%s\troot=%s\ttask=%s\tplan_node=%s\tplanner_model=%s\tplanner_effort=%s\treason=%q\tevidence=%q\tmarker=%s\n' \
+			"$(timestamp_utc)" "$PROJECT" "$root" "$task_id" "${plan_node:--}" "$planner_model" "$planner_effort" "$reason" "$evidence" "$marker" >> "$alarm"
 		chmod 600 "$alarm"
-		log_event "TOKEN_USAGE_ANOMALY root=$root trigger=$task_id reason=$(printf '%q' "$reason") evidence=$(printf '%q' "$evidence") marker=$marker"
+		log_event "TOKEN_USAGE_ANOMALY root=$root trigger=$task_id plan_node=${plan_node:--} planner_model=$planner_model planner_effort=$planner_effort reason=$(printf '%q' "$reason") evidence=$(printf '%q' "$evidence") marker=$marker"
 	fi
 	printf '%s\n' "$marker"
 }
@@ -3818,6 +3875,7 @@ initialize_project_plan_v2()
 	local node_id parent_id depends_on deliverable acceptance_evidence focused_validation field_index
 	local allowed_paths required_symbols leaf_type complexity_class worker_route dependency
 	local node_count luna_count luna_percent coding_count luna_coding_count luna_coding_percent has_leaf_type=0 route_column=11 type_column=9
+	local obligations_for_node provenance provenance_tmp
 	local -a fields=()
 	expected_header=$'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tleaf_type\tcomplexity_class\tworker_route'
 	legacy_header=$'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tcomplexity_class\tworker_route'
@@ -3943,6 +4001,21 @@ initialize_project_plan_v2()
 	if specification_ir_available; then
 		[[ -n "$coverage_source" ]] || die 'normalized specification DAG requires a coverage file'
 		validate_specification_coverage_file "$coverage_source" "$dag_tmp"
+		if (( has_leaf_type == 1 )); then
+			while IFS=$'\t' read -r -a fields; do
+				[[ "${fields[10]:-}" == LUNA ]] || continue
+				node_id="${fields[0]}"
+				obligations_for_node="$(awk -F '\t' -v wanted="$node_id" '
+					NR > 1 {
+						n=split($2, ids, ",")
+						for (i=1; i<=n; i++) if (ids[i] == wanted) {count++; break}
+					}
+					END {print count+0}
+				' "$coverage_source")"
+				(( obligations_for_node <= HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF )) ||
+					die "Luna node $node_id inherits $obligations_for_node obligations; maximum is $HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF, so split its semantic responsibility"
+			done < <(tail -n +2 "$dag_tmp")
+		fi
 		install -m 600 "$coverage_source" "$coverage_tmp"
 	elif [[ -n "$coverage_source" ]]; then
 		die 'coverage file supplied without normalized Specification IR'
@@ -3963,6 +4036,18 @@ initialize_project_plan_v2()
 		rm -f -- "$definition" "$state" "$dag" "$coverage"
 		die 'decomposition DAG conflicts with architecture registries; incomplete plan registration was rolled back'
 	fi
+	provenance="$(decomposition_provenance_file)"
+	provenance_tmp="$provenance.tmp.$$"
+	{
+		printf 'resource_contract_version=1\n'
+		printf 'planner_model=%s\n' "$DECOMPOSITION_MODEL"
+		printf 'planner_reasoning_effort=%s\n' "$DECOMPOSITION_REASONING_EFFORT"
+		printf 'max_luna_obligations_per_leaf=%s\n' "$HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF"
+		printf 'max_luna_context_capsule_bytes=%s\n' "$HARNESS_MAX_LUNA_CONTEXT_CAPSULE_BYTES"
+		printf 'created_at=%s\n' "$(timestamp_utc)"
+	} > "$provenance_tmp"
+	chmod 600 "$provenance_tmp"
+	mv "$provenance_tmp" "$provenance"
 	log_event "PROJECT_DECOMPOSITION_V2_INITIALIZED nodes=$(project_plan_total_count) file=$dag coverage=$([[ -f "$coverage" ]] && printf '%s' "$coverage" || printf disabled)"
 	trace_event PROJECT_DECOMPOSITION_V2_INITIALIZED "nodes=$(project_plan_total_count)" "dag_file=$dag"
 }
@@ -4112,6 +4197,8 @@ write_manager_snapshot()
 		printf 'specification=%s\n' "$SPECIFICATION"
 		printf 'model=%s\n' "$MANAGER_MODEL"
 		printf 'reasoning_effort=%s\n' "$MANAGER_REASONING_EFFORT"
+		printf 'decomposition_model=%s\n' "$DECOMPOSITION_MODEL"
+		printf 'decomposition_reasoning_effort=%s\n' "$DECOMPOSITION_REASONING_EFFORT"
 		printf 'sandbox=%s\n' "$MANAGER_SANDBOX"
 		printf 'codex_bin=%s\n' "$MANAGER_CODEX_BIN"
 		printf 'codex_home=%s\n' "$MANAGER_CODEX_HOME"
@@ -4126,6 +4213,7 @@ write_manager_snapshot()
 		printf 'max_agent_estimated_processed_tokens_per_invocation=%s\n' "$HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION"
 		printf 'max_worker_task_processed_tokens=%s\n' "$HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS"
 		printf 'max_specification_review_processed_tokens_per_invocation=%s\n' "$HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION"
+		printf 'max_decomposition_processed_tokens_per_invocation=%s\n' "$HARNESS_MAX_DECOMPOSITION_PROCESSED_TOKENS_PER_INVOCATION"
 		printf 'max_root_child_criteria=%s\n' "$HARNESS_MAX_ROOT_CHILD_CRITERIA"
 		printf 'max_criterion_depth=%s\n' "$HARNESS_MAX_CRITERION_DEPTH"
 		printf 'max_root_lifetime_seconds=%s\n' "$HARNESS_MAX_ROOT_LIFETIME_SECONDS"
@@ -4172,6 +4260,7 @@ write_worker_snapshot()
 		printf 'max_agent_estimated_processed_tokens_per_invocation=%s\n' "$HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION"
 		printf 'max_worker_task_processed_tokens=%s\n' "$HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS"
 		printf 'max_specification_review_processed_tokens_per_invocation=%s\n' "$HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION"
+		printf 'max_decomposition_processed_tokens_per_invocation=%s\n' "$HARNESS_MAX_DECOMPOSITION_PROCESSED_TOKENS_PER_INVOCATION"
 		printf 'max_root_child_criteria=%s\n' "$HARNESS_MAX_ROOT_CHILD_CRITERIA"
 		printf 'max_criterion_depth=%s\n' "$HARNESS_MAX_CRITERION_DEPTH"
 		printf 'max_root_lifetime_seconds=%s\n' "$HARNESS_MAX_ROOT_LIFETIME_SECONDS"
@@ -4193,6 +4282,10 @@ write_worker_snapshot()
 		printf 'domain_profiles_sha256=%s\n' "$(domain_profiles_sha256)"
 		printf 'max_luna_strategy_failures=%s\n' "$HARNESS_MAX_LUNA_STRATEGY_FAILURES"
 		printf 'max_luna_allowed_paths=%s\n' "$HARNESS_MAX_LUNA_ALLOWED_PATHS"
+		printf 'max_luna_obligations_per_leaf=%s\n' "$HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF"
+		printf 'max_luna_context_capsule_bytes=%s\n' "$HARNESS_MAX_LUNA_CONTEXT_CAPSULE_BYTES"
+		printf 'validation_output_max_lines=%s\n' "$HARNESS_VALIDATION_OUTPUT_MAX_LINES"
+		printf 'validation_output_max_bytes=%s\n' "$HARNESS_VALIDATION_OUTPUT_MAX_BYTES"
 		printf 'min_luna_node_percent=%s\n' "$HARNESS_MIN_LUNA_NODE_PERCENT"
 		printf 'min_luna_coding_node_percent=%s\n' "$HARNESS_MIN_LUNA_CODING_NODE_PERCENT"
 		printf 'architecture_guards=%s\n' "$HARNESS_ARCHITECTURE_GUARDS"

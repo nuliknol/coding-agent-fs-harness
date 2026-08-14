@@ -24,6 +24,7 @@ Deliverable: State the one independently useful artifact or behavior.
 Required-Symbols: exact_symbol,other_symbol
 Context-Paths: path/to/file.c,path/to/focused_test.c
 Architecture-Decisions: NONE
+Validation-Class: FOCUSED
 Affected-Invariants: INV-example
 Consumed-Decisions: ADR-example
 Produced-Decisions: -

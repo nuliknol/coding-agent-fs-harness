@@ -59,6 +59,8 @@ set -e
 ! grep -Fq 'command not found' "$TEST_ROOT/critic-prompt.err"
 grep -Fq 'regex that requires a trailing newline character' \
 	"$TEST_ROOT/state/projects/decompv2/control/manager-decomposition-critic.prompt.md"
+grep -R -Fqx 'role=decomposition' "$TEST_ROOT/state/projects/decompv2/logs"/*.classification
+grep -R -Fqx 'model=gpt-5.6-sol' "$TEST_ROOT/state/projects/decompv2/logs"/*.classification
 
 cat > "$TEST_ROOT/broad-plan.tsv" <<'PLAN'
 node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route
@@ -131,6 +133,47 @@ capsule="$project_dir/control/context-capsules/decompv2-task-001.md"
 grep -Fqx 'Worker-Route: LUNA' "$capsule"
 grep -Fqx 'Context-Paths: src/a.c' "$capsule"
 grep -Fqx 'Architecture-Decisions: NONE' "$capsule"
+grep -Fqx 'Validation-Class: FOCUSED' "$capsule"
+grep -Fqx 'Validation-Output-Policy: CAPTURE_SUMMARY' "$capsule"
+grep -Fqx 'Decomposition-Planner-Model: gpt-5.6-sol' "$capsule"
+grep -Fqx 'planner_model=gpt-5.6-sol' "$project_dir/control/decomposition-provenance.env"
+info_output="$("$HARNESS_BIN/harness-info" "$TEST_ROOT/harness.env")"
+grep -Fqx '  Decomposition: gpt-5.6-sol (high)' <<< "$info_output"
+
+# Verbose validation is retained completely on disk while only a bounded
+# diagnostic excerpt reaches the worker transcript.
+set +e
+logged_output="$("$HARNESS_BIN/harness-run-logged" "$TEST_ROOT/harness.env" 001 noisy-test -- \
+	bash -c 'for i in $(seq 1 2000); do printf "compiler error line %s with repeated diagnostic text\\n" "$i"; done; exit 7')"
+logged_status=$?
+set -e
+(( logged_status == 7 ))
+grep -Fq 'VALIDATION_LOG label=noisy-test exit=7 lines=2000' <<< "$logged_output"
+(( ${#logged_output} <= 40000 ))
+logged_path="$(awk -F'log=' '/^VALIDATION_LOG / {print $2; exit}' <<< "$logged_output")"
+test "$(wc -l < "$logged_path")" -eq 2000
+
+# Outlier ranking distinguishes authoritative and estimated worker episodes and
+# exposes command-output amplification without replaying command contents.
+cat > "$project_dir/logs/worker-task-synthetic-20260814T000000Z-attempt-001.jsonl" <<'JSON'
+{"type":"thread.started","thread_id":"synthetic-thread"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"type":"command_execution","command":"build"}}
+{"type":"item.completed","item":{"type":"command_execution","command":"build","aggregated_output":"1234567890","exit_code":0}}
+JSON
+cat > "$project_dir/logs/worker-task-synthetic-20260814T000000Z-attempt-001.classification" <<CLASS
+classification=agent_estimated_token_budget_exceeded
+role=worker_luna
+model=gpt-5.6-luna
+invocation_processed_delta=0
+estimated_processed_tokens=750000
+item_started_count=1
+resume_requested=0
+git_head_changed=0
+CLASS
+outliers="$("$HARNESS_BIN/harness-token-outliers" "$TEST_ROOT/harness.env" --role worker --limit 1)"
+grep -Fq $'750000\tdecompv2\tsynthetic\tworker_luna\tgpt-5.6-luna\testimated' <<< "$outliers"
+grep -Fq $'\t1\t1\t10\t10\t0\t0\tgpt-5.6-sol\t' <<< "$outliers"
 tree_output="$("$HARNESS_BIN/harness-decomposition-tree" --ascii "$TEST_ROOT/harness.env")"
 grep -Fqx 'Routes: LUNA=1 (50%)  TERRA=1 (50%)  configured Luna minimum=50%' <<< "$tree_output"
 grep -Fq '|-- n1 [ACTIVE] type=LOCAL_IMPLEMENTATION complexity=LOW route=LUNA' <<< "$tree_output"
@@ -177,6 +220,14 @@ sed \
 	-e 's/Goal-ID: n1.goal/Goal-ID: ws1.goal/' \
 	-e 's/Deliverable: Implement target_symbol locally/Deliverable: Implement whitespace-safe target/' \
 	"$TEST_ROOT/task.md" > "$TEST_ROOT/whitespace-task.md"
+sed '/^Architecture-Decisions:/a Validation-Class: CLEAN_GLOBAL' \
+	"$TEST_ROOT/whitespace-task.md" > "$TEST_ROOT/whitespace-global-task.md"
+if "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/whitespace-harness.env" ws1 \
+	"$TEST_ROOT/whitespace-global-task.md" ws1 >"$TEST_ROOT/whitespace-global.out" 2>&1; then
+	printf 'Luna leaf unexpectedly accepted CLEAN_GLOBAL validation\n' >&2
+	exit 1
+fi
+grep -Fq 'CLEAN_GLOBAL validation requires a Terra INTEGRATION leaf' "$TEST_ROOT/whitespace-global.out"
 "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/whitespace-harness.env" ws1 \
 	"$TEST_ROOT/whitespace-task.md" ws1 >/dev/null
 grep -Eq $'^ws1\tACTIVE\tws1\t' "$whitespace_dir/control/project-plan-state.tsv"

@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TASK_ID LABEL -- COMMAND [ARG...]\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -ge 5 ]] || usage
+load_harness_env "$1"
+task_id="$2"
+label="$3"
+shift 3
+[[ "$1" == -- ]] || usage
+shift
+(( $# > 0 )) || usage
+
+ensure_project
+validate_task_id "$task_id"
+[[ "$label" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "invalid validation label: $label"
+
+output_dir="$(project_dir)/logs/worker-command-output/$task_id"
+mkdir -p "$output_dir"
+chmod 700 "$(project_dir)/logs/worker-command-output" "$output_dir"
+stamp="$(timestamp_compact_utc)"
+log="$output_dir/$stamp-$label.log"
+
+set +e
+"$@" >"$log" 2>&1
+status=$?
+set -e
+chmod 600 "$log"
+
+lines="$(wc -l < "$log")"
+bytes="$(stat -c %s "$log")"
+printf 'VALIDATION_LOG label=%s exit=%s lines=%s bytes=%s log=%s\n' \
+	"$label" "$status" "$lines" "$bytes" "$log"
+
+summary="$(mktemp)"
+trap 'rm -f "$summary"' EXIT
+if (( status == 0 )); then
+	printf '%s\n' '--- bounded success tail ---' > "$summary"
+	tail -n "$((HARNESS_VALIDATION_OUTPUT_MAX_LINES / 4 + 1))" "$log" >> "$summary"
+else
+	printf '%s\n' '--- bounded failure diagnostics ---' > "$summary"
+	if command -v rg >/dev/null 2>&1; then
+		rg -n -m "$((HARNESS_VALIDATION_OUTPUT_MAX_LINES / 2))" \
+			'(^|[^[:alpha:]])(fatal|error|failed|failure|undefined reference|assert|timeout|segmentation fault)([^[:alpha:]]|$)' \
+			"$log" >> "$summary" 2>/dev/null || true
+	fi
+	printf '%s\n' '--- bounded failure tail ---' >> "$summary"
+	tail -n "$((HARNESS_VALIDATION_OUTPUT_MAX_LINES / 2))" "$log" >> "$summary"
+fi
+
+# Apply both independent bounds after assembling diagnostics. The complete log
+# remains on disk and is never truncated.
+tail -n "$HARNESS_VALIDATION_OUTPUT_MAX_LINES" "$summary" |
+	tail -c "$HARNESS_VALIDATION_OUTPUT_MAX_BYTES"
+exit "$status"

@@ -48,8 +48,11 @@ SPECIFICATION_RELATIONS_FILE=$specification_relations_file_path
 REPOSITORY_INVENTORY_FILE=$repository_inventory_file
 DOMAIN_PROFILE_MANIFEST=$domain_manifest_file
 PROJECT_TMP_DIR=$PROJECT_TMP_DIR
+AGENT_PHASE=decomposition
 ARCHITECTURE_GUARDS=$HARNESS_ARCHITECTURE_GUARDS
 MAX_LUNA_ALLOWED_PATHS=$HARNESS_MAX_LUNA_ALLOWED_PATHS
+MAX_LUNA_OBLIGATIONS_PER_LEAF=$HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF
+MAX_LUNA_CONTEXT_CAPSULE_BYTES=$HARNESS_MAX_LUNA_CONTEXT_CAPSULE_BYTES
 
 Before drafting a DAG, independently challenge the accepted review and normalized IR against the governing sources and repository evidence. There are exactly three outcomes:
 
@@ -77,11 +80,13 @@ node_id<TAB>parent_id<TAB>depends_on<TAB>deliverable<TAB>acceptance_evidence<TAB
 
 Use '-' for no parent, no dependencies, or no required symbols. Dependency IDs must precede each consumer. Every node must be independently acceptance-complete and monotonically useful. Separate contract decisions from implementation and integration. Never place public contract design, cross-component architecture, concurrency protocol design, ambiguous specification resolution, or unexplained final integration in a Luna node.
 
-A LUNA node is valid only when complexity_class is LOW, leaf_type is LOCAL_IMPLEMENTATION, TEST_IMPLEMENTATION, MECHANICAL_API, FOCUSED_BUG, or DOCUMENTATION, architecture is already decided, dependencies are verified before scheduling, one principal implementation concern remains, allowed paths contain at most MAX_LUNA_ALLOWED_PATHS bounded path groups, and one deterministic focused validation establishes completion. Use TEST_IMPLEMENTATION for focused unit tests, fixtures, test helpers, and test-only build registration that do not alter production contracts. A TERRA node must use CONTRACT_DESIGN, CROSS_COMPONENT_ARCHITECTURE, CONCURRENCY_PROTOCOL, AMBIGUOUS_SPECIFICATION, or INTEGRATION and must resolve a concrete decision or unexplained cross-boundary failure rather than perform routine coding.
+A LUNA node is valid only when complexity_class is LOW, leaf_type is LOCAL_IMPLEMENTATION, TEST_IMPLEMENTATION, MECHANICAL_API, FOCUSED_BUG, or DOCUMENTATION, architecture is already decided, dependencies are verified before scheduling, one principal implementation concern remains, allowed paths contain at most MAX_LUNA_ALLOWED_PATHS bounded path groups, no more than MAX_LUNA_OBLIGATIONS_PER_LEAF directly relevant obligations are allocated to it, its generated context can fit within MAX_LUNA_CONTEXT_CAPSULE_BYTES, and one deterministic focused or incremental validation establishes completion. Use TEST_IMPLEMENTATION for focused unit tests, fixtures, test helpers, and test-only build registration that do not alter production contracts. A clean whole-project build or global validation belongs in an explicit TERRA INTEGRATION node; do not hide it inside a Luna leaf. A TERRA node must use CONTRACT_DESIGN, CROSS_COMPONENT_ARCHITECTURE, CONCURRENCY_PROTOCOL, AMBIGUOUS_SPECIFICATION, or INTEGRATION and must resolve a concrete decision or unexplained cross-boundary failure rather than perform routine coding.
 
 PREFERRED_WORKER_ROUTE=$HARNESS_PREFERRED_WORKER_ROUTE. Optimize explicitly for cheap-worker execution. At least $HARNESS_MIN_LUNA_CODING_NODE_PERCENT percent of coding-eligible DAG nodes (LOCAL_IMPLEMENTATION, TEST_IMPLEMENTATION, MECHANICAL_API, FOCUSED_BUG, and DOCUMENTATION) must route to LUNA. Terra-only decision and integration nodes are excluded from this denominator. A Terra contract or architecture decision does not make its implementation descendants Terra work: depend bounded LOW/LUNA implementation nodes on that decision. Split broad local implementation, mechanical API propagation, focused tests or bug fixes, fixtures, and post-behavior documentation into Luna-ready nodes of at most five expected implementation files and one deterministic validation. When a concern mixes decision and coding, create a narrow Terra decision node followed by one or more Luna implementation nodes. Do not use Terra merely because the overall specification is large.
 
 Decompose deeply enough that Luna can execute deterministically, but do not create microscopic handoffs. A Luna-ready node should normally own one cohesive implementation concern, one to five implementation files, and the largest useful deterministic focused validation that still fits within three worker turns. Do not split an already Luna-ready concern merely to inflate the route percentage; every extra leaf incurs a manager review.
+
+Treat validation cost as part of decomposition. Distinguish FOCUSED validation of one owned test or symbol, INCREMENTAL validation using an existing configured build, and CLEAN_GLOBAL validation that configures or rebuilds broad dependencies. A Luna node may use only FOCUSED or INCREMENTAL validation. Ensure validation can retain complete output on disk while returning a bounded diagnostic summary to the worker.
 
 For each node, perform an authority-closure check: ask whether a plausible failure of its acceptance evidence or focused validation could require a production correction outside allowed_paths while still remaining inside the governing specification. If so, the node is not authority-closed. Split it before registration—for example, a public-header contract node may own compile/layout evidence, while a dependent implementation or integration node owns the source paths and executable runtime smoke. Do not give a header-only or test-only node an acceptance boundary whose ordinary repair authority belongs to another node. Validation may read or execute outside allowed_paths, but every ordinary implementation area that the node could legitimately need to correct must either be in its allowed_paths or belong to an explicit prerequisite/dependent node with its own acceptance boundary.
 
@@ -141,9 +146,9 @@ while true; do
 	message="$dir/logs/manager-decomposition-critic-$stamp-attempt-$(printf '%03d' "$attempt").md"
 	set +e
 	if [[ -n "$resume_thread" ]]; then
-		"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" manager_plan "$MANAGER_MODEL" "$prompt" "$json" "$stderr" "$message" resume "$resume_thread"
+		"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" decomposition "$DECOMPOSITION_MODEL" "$prompt" "$json" "$stderr" "$message" resume "$resume_thread"
 	else
-		"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" manager_plan "$MANAGER_MODEL" "$prompt" "$json" "$stderr" "$message"
+		"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" decomposition "$DECOMPOSITION_MODEL" "$prompt" "$json" "$stderr" "$message"
 	fi
 	status=$?
 	set -e

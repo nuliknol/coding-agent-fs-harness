@@ -33,6 +33,7 @@ printf 'Runtime PATH prefix: %s\n' "${HARNESS_RUNTIME_PATH_PREFIX:-(none)}"
 printf 'Manager Codex: %s\n' "$MANAGER_CODEX_BIN"
 printf 'Manager Codex home: %s\n' "$MANAGER_CODEX_HOME"
 printf 'Manager model: %s (%s)\n' "$MANAGER_MODEL" "$MANAGER_REASONING_EFFORT"
+printf 'Decomposition model: %s (%s)\n' "$DECOMPOSITION_MODEL" "$DECOMPOSITION_REASONING_EFFORT"
 printf 'Manager sandbox: %s\n' "$MANAGER_SANDBOX"
 printf 'Worker Codex: %s\n' "$WORKER_CODEX_BIN"
 printf 'Worker Codex home: %s\n' "$WORKER_CODEX_HOME"
@@ -140,6 +141,7 @@ printf 'Per-agent circuit breaker: %s item starts, %s live-estimated tokens, %s 
 	"$HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION" "$HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION" \
 	"$HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION"
 printf 'Per-worker-task processed-token anomaly limit: %s\n' "$HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS"
+printf 'Global decomposition processed-token limit: %s\n' "$HARNESS_MAX_DECOMPOSITION_PROCESSED_TOKENS_PER_INVOCATION"
 printf 'Codex wall timeout seconds: %s (0 means unlimited)\n' "$HARNESS_CODEX_WALL_TIMEOUT_SECONDS"
 printf 'Codex idle timeout seconds: %s (0 means unlimited)\n' "$HARNESS_CODEX_IDLE_TIMEOUT_SECONDS"
 printf 'Task lifecycle: verified increments are checkpointed; broad criteria may gain append-only children; roots resume by first-unmet leaf; leaf-goal CONTINUE receipts remain worker-internal; verified gain resets bounded automatic-replan escalation\n'

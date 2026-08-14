@@ -378,6 +378,37 @@ obligation_id	node_ids	evidence_plan
 REQ-1	n1	Focused negative and nonnegative target_symbol test
 PROFILE-negative-contract	n2	The downstream focused test proves profile compatibility
 EOF
+
+# Functional decomposition is insufficient when one cheap-worker leaf still
+# inherits too many normalized requirements. The relation-valid fixture below
+# maps two obligations to n1 while preserving the required n0 -> n1 ordering;
+# registration must reject it solely on the Luna semantic fan-in limit.
+cap_env="$TEST_ROOT/configs/spec-review-cap.env"
+sed \
+	-e "s|export HARNESS_ROOT=\"$state\"|export HARNESS_ROOT=\"$TEST_ROOT/cap-state\"|" \
+	-e '/export HARNESS_MIN_LUNA_CODING_NODE_PERCENT=/a export HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF="1"' \
+	"$env_file" > "$cap_env"
+chmod 600 "$cap_env"
+"$HARNESS_BIN/harness-init" "$cap_env" >/dev/null
+"$HARNESS_BIN/manager-record-specification-review" "$cap_env" "$verdict" "$facts" "$issues" \
+	"$obligations" "$relations" "$inventory" "$domain_manifest" >/dev/null
+cat > "$TEST_ROOT/cap-plan.tsv" <<'EOF'
+node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route
+n0	-	-	Implement the base contract	Base contract test passes	test -f src/a.c	src/a.c	target_symbol	TEST_IMPLEMENTATION	LOW	LUNA
+n1	-	n0	Verify contract compatibility	Compatibility test passes	test -f src/a.c	src/a.c	target_symbol	TEST_IMPLEMENTATION	LOW	LUNA
+EOF
+cat > "$TEST_ROOT/cap-coverage.tsv" <<'EOF'
+obligation_id	node_ids	evidence_plan
+REQ-1	n0,n1	Base and compatibility tests prove the specified contract
+PROFILE-negative-contract	n1	The downstream compatibility test proves the profile invariant
+EOF
+if "$HARNESS_BIN/manager-init-project-plan" "$cap_env" "$TEST_ROOT/cap-plan.tsv" \
+	"$TEST_ROOT/cap-coverage.tsv" >"$TEST_ROOT/cap-plan.out" 2>&1; then
+	printf 'DAG registration accepted excessive Luna obligation fan-in\n' >&2
+	exit 1
+fi
+grep -Fq 'Luna node n1 inherits 2 obligations; maximum is 1' "$TEST_ROOT/cap-plan.out"
+
 "$HARNESS_BIN/manager-init-project-plan" "$env_file" "$plan" "$coverage" >/dev/null
 grep -Fqx $'REQ-1\tn1\tFocused negative and nonnegative target_symbol test' "$project_dir/control/specification-coverage.tsv"
 
@@ -440,6 +471,7 @@ grep -Fq 'Specification review: ACCEPTED (' <<< "$status_output"
 grep -Fq 'Specification IR: obligations=2 relations=5 domain-profiles=test-contract' <<< "$status_output"
 grep -Fq 'Specification coverage: mapped=2/2 verified=0/2' <<< "$status_output"
 grep -Fq 'Manager [gpt-5.6-terra]: input=150 cached=100 output=20 processed=170' <<< "$status_output"
+grep -Fq 'Decomposition [gpt-5.6-sol]: input=0 cached=0 output=0 processed=0' <<< "$status_output"
 grep -Fq 'Luna worker [gpt-5.6-luna]: input=40 cached=30 output=10 processed=50' <<< "$status_output"
 grep -Fq 'Terra worker [gpt-5.6-terra]: input=20 cached=5 output=5 processed=25' <<< "$status_output"
 grep -Fq 'Role ratio manager/worker: 2.27:1 (higher: manager)' <<< "$status_output"
@@ -463,7 +495,7 @@ grep -Fq 'Routes: Luna=2 Terra=0' <<< "$info_output"
 
 statistics_output="$("$HARNESS_BIN/harness-statistics" "$env_file")"
 grep -Fq 'Nodes complete: 0/2' <<< "$statistics_output"
-grep -Fq 'Manager: 170; workers: 75; Oracle: 0' <<< "$statistics_output"
+grep -Fq 'Manager: 170; decomposition: 0; workers: 75; Oracle: 0' <<< "$statistics_output"
 grep -Fq 'Manager/worker ratio: 2.27:1' <<< "$statistics_output"
 
 cost_output="$("$HARNESS_BIN/harness-costs" "$env_file")"

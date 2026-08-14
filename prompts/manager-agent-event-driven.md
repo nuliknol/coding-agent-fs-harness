@@ -157,7 +157,8 @@ $HARNESS_BIN/manager-publish-task "$ENV_FILE" TASK_ID TASK_FILE PROJECT_PLAN_ITE
 When `DECOMPOSITION_V2=1`, every worker assignment must have exactly one value
 for `Leaf-Type`, `Complexity-Class`, `Worker-Route`, `Depends-On`, `Deliverable`,
 `Required-Symbols`, `Context-Paths`, `Architecture-Decisions`,
-`Expected-Max-Implementation-Files`, and `Expected-Max-Worker-Turns`, in
+`Validation-Class`, `Expected-Max-Implementation-Files`, and
+`Expected-Max-Worker-Turns`, in
 addition to the leaf-goal fields. For a new root, copy every DAG-backed value
 exactly when the DAG has the typed `leaf_type` schema. For a legacy untyped DAG,
 copy dependency, deliverable, evidence, validation, scope, and symbols exactly,
@@ -167,7 +168,8 @@ criterion is Luna-ready. The publisher permits that compatibility override.
 A Luna leaf must be `LOW`, require no unresolved architecture decision, use
 `LOCAL_IMPLEMENTATION`, `TEST_IMPLEMENTATION`, `MECHANICAL_API`, `FOCUSED_BUG`,
 or `DOCUMENTATION`, expect at most five implementation files and three worker
-turns, and have one deterministic focused validation. Use `TEST_IMPLEMENTATION`
+turns, and have one deterministic `FOCUSED` or `INCREMENTAL` validation. A
+`CLEAN_GLOBAL` validation requires a separate Terra `INTEGRATION` leaf. Use `TEST_IMPLEMENTATION`
 when the deliverable changes only unit tests, fixtures, test helpers, or their
 build registration and does not alter a production contract. Route contract design, cross-component
 architecture, concurrency protocols, ambiguous behavior, integration, and
@@ -188,7 +190,9 @@ expensive manager reviews without removing useful complexity.
 
 The generated context capsule is the worker's initial discovery boundary. Keep
 `Context-Paths`, `Allowed-Scope`, and `Required-Symbols` concise and sufficient;
-do not use the whole repository as a context placeholder.
+do not use the whole repository as a context placeholder. Allocate only the
+obligations directly proved by the leaf; inherited root obligations belong in
+their own nodes or later integration evidence.
 
 When the governing specification requires a local commit or named branch,
 include `Publish-Branch: NAME` and `Publish-Base: COMMIT_OR_REF` in the

@@ -20,6 +20,7 @@ mkdir -p "$(dirname "$json_log")" "$(dirname "$stderr_log")"
 
 case "$role" in
 	 manager_bootstrap|manager_review|manager_plan|manager_replan|manager_remediation) bin="$MANAGER_CODEX_BIN"; home="$MANAGER_CODEX_HOME"; sandbox="$MANAGER_SANDBOX"; effort="$MANAGER_REASONING_EFFORT"; extras=("${MANAGER_CODEX_EXTRA_ARGS[@]}") ;;
+	 decomposition) bin="$MANAGER_CODEX_BIN"; home="$MANAGER_CODEX_HOME"; sandbox="$MANAGER_SANDBOX"; effort="$DECOMPOSITION_REASONING_EFFORT"; extras=("${MANAGER_CODEX_EXTRA_ARGS[@]}") ;;
 	 worker) bin="$WORKER_CODEX_BIN"; home="$WORKER_CODEX_HOME"; sandbox="$WORKER_SANDBOX"; effort="$WORKER_REASONING_EFFORT"; extras=("${WORKER_CODEX_EXTRA_ARGS[@]}") ;;
 	 worker_luna) bin="$WORKER_CODEX_BIN"; home="$WORKER_CODEX_HOME"; sandbox="$WORKER_SANDBOX"; effort="$LUNA_WORKER_REASONING_EFFORT"; extras=("${WORKER_CODEX_EXTRA_ARGS[@]}") ;;
 	 worker_terra) bin="$WORKER_CODEX_BIN"; home="$WORKER_CODEX_HOME"; sandbox="$WORKER_SANDBOX"; effort="$TERRA_WORKER_REASONING_EFFORT"; extras=("${WORKER_CODEX_EXTRA_ARGS[@]}") ;;
@@ -131,8 +132,10 @@ cmd+=(-)
 # Keep only a hash of the pre-run Git state.  This lets failures report edits
 # made by the failed turn without logging filenames or proprietary diffs.
 git_state_before=""
+git_head_before=""
 if git -C "$REPOSITORY" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 	git_state_before="$(git -C "$REPOSITORY" status --porcelain=v1 | sha256sum | awk '{print $1}')"
+	git_head_before="$(git -C "$REPOSITORY" rev-parse HEAD 2>/dev/null || true)"
 fi
 
 # stdout is *only* Codex JSON Lines. stderr has its own log, so progress and
@@ -161,6 +164,10 @@ resource_processed_token_limit="$HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATI
 resource_estimated_token_limit="$HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION"
 if [[ "$resource_agent_phase" == specification_review ]]; then
 	resource_processed_token_limit="$HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION"
+	resource_estimated_token_limit="$HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION"
+elif [[ "$resource_agent_phase" == decomposition ]]; then
+	resource_processed_token_limit="$HARNESS_MAX_DECOMPOSITION_PROCESSED_TOKENS_PER_INVOCATION"
+	resource_estimated_token_limit="$HARNESS_MAX_DECOMPOSITION_PROCESSED_TOKENS_PER_INVOCATION"
 fi
 [[ -n "$resource_task_root" ]] || resource_task_root="$(prompt_value ACTIVE_TASK_ROOT)"
 [[ -n "$resource_task_id" ]] || resource_task_id="${resource_task_root:-agent-invocation}"
@@ -282,9 +289,12 @@ while kill -0 "$pid" 2>/dev/null; do
 done
 set +e; wait "$pid"; status=$?; set -e
 git_state_changed=0
+git_head_changed=0
 if [[ -n "$git_state_before" ]]; then
 	git_state_after="$(git -C "$REPOSITORY" status --porcelain=v1 | sha256sum | awk '{print $1}')"
 	[[ "$git_state_before" == "$git_state_after" ]] || git_state_changed=1
+	git_head_after="$(git -C "$REPOSITORY" rev-parse HEAD 2>/dev/null || true)"
+	[[ "$git_head_before" == "$git_head_after" ]] || git_head_changed=1
 fi
 
 if (( resource_guard_tripped == 0 && idle_timed_out == 1 )); then
@@ -380,9 +390,9 @@ elif ! jq -e 'select(.type == "turn.completed")' "$json_log" >/dev/null 2>&1; th
 elif [[ ! -s "$last_message" ]]; then classification="empty_final_output"
 fi
 classification_file="${json_log%.jsonl}.classification"
-printf 'classification=%s\nprovider_code=%s\nhttp_status=%s\nexit_status=%s\nidle_timeout=%s\nstop_requested=%s\npartial_edits=%s\nrole=%s\nmodel=%s\nthread_id=%s\ninput_tokens=%s\ncached_input_tokens=%s\noutput_tokens=%s\ninvocation_processed_delta=%s\ninvocation_delta_known=%s\nitem_started_count=%s\nestimated_processed_tokens=%s\nresource_guard=%s\nagent_phase=%s\nprocessed_token_limit=%s\nestimated_token_limit=%s\njsonl=%s\nstderr=%s\nlast_message=%s\n' \
+printf 'classification=%s\nprovider_code=%s\nhttp_status=%s\nexit_status=%s\nidle_timeout=%s\nstop_requested=%s\npartial_edits=%s\ngit_head_changed=%s\nresume_requested=%s\nrole=%s\nmodel=%s\nthread_id=%s\ninput_tokens=%s\ncached_input_tokens=%s\noutput_tokens=%s\ninvocation_processed_delta=%s\ninvocation_delta_known=%s\nitem_started_count=%s\nestimated_processed_tokens=%s\nresource_guard=%s\nagent_phase=%s\nprocessed_token_limit=%s\nestimated_token_limit=%s\njsonl=%s\nstderr=%s\nlast_message=%s\n' \
 	"$classification" "$error_code" "$http_status" "$status" "$idle_timed_out" "$stop_requested" "$git_state_changed" \
-	"$role" "$model" "$usage_thread" "$usage_input" "$usage_cached" "$usage_output" \
+	"$git_head_changed" "$resume_requested" "$role" "$model" "$usage_thread" "$usage_input" "$usage_cached" "$usage_output" \
 	"$invocation_processed_delta" "$invocation_delta_known" "$agent_item_count" "$agent_estimated_processed_tokens" "${resource_guard_kind:--}" \
 	"${resource_agent_phase:-ordinary}" "$resource_processed_token_limit" "$resource_estimated_token_limit" \
 	"$json_log" "$stderr_log" "$last_message" > "$classification_file"

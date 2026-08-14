@@ -102,9 +102,13 @@ fi
 progress_file="$(task_progress_file "$task_root")"
 root_assignment_file="$(task_root_assignment_file "$task_root")"
 starting_progress="$(task_progress_percent "$task_root")"
-development_policy_file="$REPOSITORY/design/development-policy.txt"
-[[ -f "$development_policy_file" ]] || development_policy_file=""
+development_policy_file=""
+if (( manager_remediation == 1 )) && [[ -f "$REPOSITORY/design/development-policy.txt" ]]; then
+	development_policy_file="$REPOSITORY/design/development-policy.txt"
+fi
 context_capsule_file="$(task_context_capsule_file "$task_id")"
+validation_class="$(metadata_value "$task_file" Validation-Class)"
+[[ -n "$validation_class" ]] || validation_class=FOCUSED
 if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 	[[ -f "$context_capsule_file" ]] || die "v2 context capsule is missing: $context_capsule_file"
 else
@@ -203,8 +207,10 @@ log_event "WORKER_CONTEXT_SELECTED task=$task_id root=$task_root mode=$worker_co
 trace_event WORKER_CONTEXT_SELECTED "task_id=$task_id" "task_root=$task_root" "mode=$worker_context_mode" "reason=$worker_context_reason" "thread_id=${worker_resume_thread_id:-}" "retained_rejections=$worker_thread_rejections" "closure_mode=$closure_mode" "goal_mode=$goal_mode" "goal_id=${goal_id:-}" "execution_mode=$execution_mode"
 
 prompt_file="$dir/control/$base.worker.prompt.md"
-cat > "$prompt_file.tmp.$$" <<PROMPT
-Read $HARNESS_HOME/prompts/worker-agent-event-driven.md and follow it.
+cp "$HARNESS_HOME/prompts/worker-agent-event-driven.md" "$prompt_file.tmp.$$"
+cat >> "$prompt_file.tmp.$$" <<PROMPT
+
+The worker protocol above is already loaded. Do not open or reread its source file.
 
 HARNESS_BIN=$HARNESS_BIN
 ENV_FILE=$HARNESS_ENV_FILE
@@ -241,8 +247,16 @@ GOAL_SUMMARY_FILE=$goal_summary
 GOAL_ITERATION_LEDGER_FILE=$goal_ledger
 GOAL_PROCESS_MAX_FIXES=$HARNESS_GOAL_PROCESS_MAX_FIXES
 GOAL_PROCESS_MAX_SMOKE_RUNS=$HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS
+VALIDATION_CLASS=$validation_class
+VALIDATION_OUTPUT_POLICY=CAPTURE_SUMMARY
 
-The task is already claimed by this launcher. Read DEVELOPMENT_POLICY_FILE when present, then CONTEXT_CAPSULE_FILE when present, ROOT_ASSIGNMENT_FILE, PROGRESS_FILE, and TASK_FILE completely. When SPECIFICATION_OBLIGATIONS_FILE is present, read the rows named by ALLOCATED_SPECIFICATION_OBLIGATIONS plus their typed relations and coverage evidence plan; these are the exact proof obligations owned by this DAG node. The current files are authoritative even when this turn resumes an earlier worker conversation. Preserve verified work and continue from STARTING_PROGRESS_PERCENT rather than reimplementing the root task from zero. Implement exactly the remaining bounded assignment, validate only the developed feature according to the prototype policy, then commit every task-owned source/source-related change with harness-commit-source before a terminal result. Use harness-publish-branch when Publish-Branch is declared. Never run direct Git index/history mutations. Generated output, object files, binaries, ignored files, and paths outside Allowed-Scope must remain uncommitted. Write scratch files and the result report under PROJECT_TMP_DIR, publish the result with worker-complete-task, and terminate. If an exact mandatory cross-harness Git ref is absent, use worker-wait-dependency with a precise requirements TSV and supplier note instead of repeating absence audits or claiming gain. Do not wait for another task.
+The task is already claimed by this launcher. For a v2 task, the complete bounded assignment and context capsule are embedded below. They are the worker's entire harness context: do not open DEVELOPMENT_POLICY_FILE, ROOT_ASSIGNMENT_FILE, PROGRESS_FILE, GOAL_SUMMARY_FILE, specification IR/coverage files, or other harness control files. Do not reread the embedded assignment or capsule through shell commands. Inspect only Context-Paths, Allowed-Scope, Required-Symbols, and repository files directly implicated by compiler/linker diagnostics. Legacy tasks without an embedded capsule may read their named task and progress files once.
+
+Preserve verified work and continue from STARTING_PROGRESS_PERCENT rather than reimplementing the root task from zero. Implement exactly the remaining bounded assignment. Run build and test validation through this command so complete output is retained on disk and only a bounded summary enters this transcript:
+
+$HARNESS_BIN/harness-run-logged "$HARNESS_ENV_FILE" "$task_id" LABEL -- COMMAND...
+
+Never invoke a potentially verbose build/test command directly. Validation-Class CLEAN_GLOBAL authorizes observation only in a Terra integration leaf; it never broadens implementation scope. Commit every task-owned source/source-related change with harness-commit-source before a terminal result. Use harness-publish-branch when Publish-Branch is declared. Never run direct Git index/history mutations. Generated output, object files, binaries, ignored files, and paths outside Allowed-Scope must remain uncommitted. Write scratch files and the result report under PROJECT_TMP_DIR, publish the result with worker-complete-task, and terminate. If an exact mandatory cross-harness Git ref is absent, use worker-wait-dependency with a precise requirements TSV and supplier note instead of repeating absence audits or claiming gain. Do not wait for another task.
 PROMPT
 if (( manager_remediation == 1 )); then
 	remediation_scope="$(require_single_metadata_value "$task_file" Remediation-Scope 'manager remediation assignment')"
@@ -263,7 +277,7 @@ if (( goal_mode == 1 )); then
 	goal_workspace="$(kv_file_value "$goal_state" last_workspace)"
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
 
-Leaf-goal execution is active. This is one logical goal for the independently verifiable criterion GOAL_TARGET_CRITERION, even if it requires several Codex turns. Read GOAL_SUMMARY_FILE and GOAL_ITERATION_LEDGER_FILE when they contain prior iterations. Continue diagnosing, implementing, and running focused validation until exactly one of these terminal outcomes is true:
+Leaf-goal execution is active. This is one logical goal for the independently verifiable criterion GOAL_TARGET_CRITERION, even if it requires several Codex turns. For a legacy task only, read GOAL_SUMMARY_FILE and GOAL_ITERATION_LEDGER_FILE once when they contain prior iterations. A v2 task already embeds the current bounded state and must not reread those harness files. Continue diagnosing, implementing, and running focused validation until exactly one of these terminal outcomes is true:
 
 - COMPLETE: the goal success evidence and focused validation in TASK_FILE pass.
 - NEEDS_DECOMPOSITION: the criterion is still too broad or repeated strategy attempts cannot make material movement.
@@ -299,6 +313,15 @@ if codex_model_requires_narrow_prompt "$execution_model"; then
 
 Context: authorized local development in my own repository. Task type: benign software engineering. Do not perform offensive security, credential extraction, vulnerability exploitation, malware behavior, unauthorized access, network scanning, or bypassing security controls. Use only the listed local project files needed for the requested implementation: TASK_FILE and the files explicitly referenced by that bounded assignment.
 PROMPT
+fi
+if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
+	{
+		printf '\n## Embedded bounded assignment\n\n'
+		cat "$task_file"
+		printf '\n## Embedded bounded context capsule\n\n'
+		cat "$context_capsule_file"
+		printf '\n## End embedded worker context\n'
+	} >> "$prompt_file.tmp.$$"
 fi
 chmod 600 "$prompt_file.tmp.$$"
 mv "$prompt_file.tmp.$$" "$prompt_file"
@@ -504,7 +527,7 @@ while true; do
 	if (( worker_task_tokens >= HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS )) && [[ "$resource_guard" == - ]]; then
 		mark_root_token_usage_anomaly "$task_id" \
 			"worker task processed-token budget reached ($worker_task_tokens/$HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS)" \
-			"classification=${json_log%.jsonl}.classification jsonl=$json_log" >/dev/null
+			"role=$execution_role model=$current_model classification=${json_log%.jsonl}.classification jsonl=$json_log" >/dev/null
 		if (( goal_mode == 1 )); then
 			if publish_goal_decomposition_handoff \
 				"The cumulative worker usage for this immutable leaf reached $worker_task_tokens processed tokens; the harness stopped before authorizing another episode." \

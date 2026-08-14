@@ -80,4 +80,4 @@ awk -F '\t' 'NR > 1 {
 	printf "  %-16s %7s %7s %8s %8s %8s %8s\n", $1, ctx, outmax, "$" $4, ($5 == "-" ? "--" : "$" $5), ($6 == "-" ? "--" : "$" $6), "$" $7
 }' "$pricing_file"
 printf '  Cache-write tokens are not exposed by current Codex usage events and are excluded from estimates.\n'
-printf '  Scaffolding is manager and Oracle activity; implementation is every worker turn, including worker diagnosis and tests.\n'
+printf '  Scaffolding is manager, Sol decomposition, and Oracle activity; implementation is every worker turn, including worker diagnosis and tests.\n'

@@ -76,6 +76,8 @@ if project_plan_uses_dag; then
 		printf '  Luna coding nodes: unavailable for legacy untyped DAG\n'
 	fi
 	printf '  Preferred route: %s\n' "$HARNESS_PREFERRED_WORKER_ROUTE"
+	printf '  Luna context bounds: obligations<=%s capsule<=%s bytes\n' \
+		"$HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF" "$HARNESS_MAX_LUNA_CONTEXT_CAPSULE_BYTES"
 	printf '  Tree: harness-decomposition-tree %s\n' "$HARNESS_ENV_FILE"
 elif project_plan_exists; then
 	printf '  Plan: legacy (%s items)\n' "$(project_plan_total_count)"
@@ -85,6 +87,7 @@ fi
 
 printf '\nAgent routing\n'
 printf '  Manager: %s (%s)\n' "$MANAGER_MODEL" "$MANAGER_REASONING_EFFORT"
+printf '  Decomposition: %s (%s)\n' "$DECOMPOSITION_MODEL" "$DECOMPOSITION_REASONING_EFFORT"
 printf '  Luna worker: %s (%s)\n' "$LUNA_WORKER_MODEL" "$LUNA_WORKER_REASONING_EFFORT"
 printf '  Terra worker: %s (%s)\n' "$TERRA_WORKER_MODEL" "$TERRA_WORKER_REASONING_EFFORT"
 if oracle_enabled; then

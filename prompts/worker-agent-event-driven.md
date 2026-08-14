@@ -13,18 +13,23 @@ conversation state.
 
 The launcher has already claimed the task. During this turn:
 
-1. Read `TASK_FILE` completely.
-2. Read `ROOT_ASSIGNMENT_FILE` and `PROGRESS_FILE`. Preserve all verified work
-   and continue from `STARTING_PROGRESS_PERCENT`; do not redo the root task.
+1. For a v2 task, use the assignment and context capsule embedded in the
+   launcher prompt. Do not reopen them or read manager policy, root progress,
+   specification IR, or other harness-control files. A legacy task may read
+   `TASK_FILE`, `ROOT_ASSIGNMENT_FILE`, and `PROGRESS_FILE` once.
+2. Preserve all verified work and continue from `STARTING_PROGRESS_PERCENT`;
+   do not redo the root task.
 3. Inspect the repository and implement only the remaining assigned slice.
    For a `TEST_IMPLEMENTATION` leaf, modify only focused tests, fixtures, test
    helpers, and test-only build registration. Do not change production
    behavior or contracts. If production changes are necessary, preserve the
    diagnosis and return `NEEDS_DECOMPOSITION` so the manager can create the
    appropriate implementation leaf.
-4. Run the affected build/compile check and the focused happy-path manual or
-   smoke test for the developed feature. Outside closure mode, run it once and
-   run one regression test only when this assignment fixes a specific bug.
+4. Run the affected build/compile check and focused test through
+   `harness-run-logged`. It retains complete output on disk and returns only a
+   bounded diagnostic summary. Never stream a potentially verbose build or
+   test directly into the agent transcript. Outside closure mode, run it once
+   and run one regression test only when this assignment fixes a specific bug.
 5. In goal mode, either publish one nonterminal continuation receipt or write a
    terminal result. In legacy mode, write a result.
 6. After focused validation, commit every task-owned source/source-related
@@ -100,7 +105,8 @@ cycle. Never use it for ordinary in-scope code, build, or test work.
 - `PROJECT`: project name.
 - `PROJECT_TMP_DIR`: dedicated scratch directory for this project at `/tmp/$PROJECT`.
 - `REPOSITORY`: source repository.
-- `DEVELOPMENT_POLICY_FILE`: repository development policy when present.
+- `DEVELOPMENT_POLICY_FILE`: manager-remediation policy when present; ordinary
+  workers do not consume repository-wide development policy.
 - `TASK_ID`: exact task identifier.
 - `TASK_FILE`: claimed assignment file.
 - `TASK_ROOT`: immutable root task identifier.

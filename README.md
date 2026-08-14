@@ -113,12 +113,16 @@ export HARNESS_START_MAX_AGENT_INVOCATIONS="4"
 export HARNESS_DOMAIN_PROFILES=""  # optional comma-separated profile IDs
 export HARNESS_MAX_LUNA_STRATEGY_FAILURES="3"
 export HARNESS_MAX_LUNA_ALLOWED_PATHS="8"
+export HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF="12"
+export HARNESS_MAX_LUNA_CONTEXT_CAPSULE_BYTES="32768"
 export HARNESS_MIN_LUNA_NODE_PERCENT="80"
 export HARNESS_MIN_LUNA_CODING_NODE_PERCENT="80"
 export HARNESS_PREFERRED_WORKER_ROUTE="LUNA"
 export HARNESS_ARCHITECTURE_GUARDS="1"
 export LUNA_WORKER_MODEL="gpt-5.6-luna"
 export TERRA_WORKER_MODEL="gpt-5.6-terra"
+export DECOMPOSITION_MODEL="gpt-5.6-sol"
+export DECOMPOSITION_REASONING_EFFORT="high"
 ```
 
 When pre-acceptance review is enabled, `harness-start` first grounds the
@@ -220,8 +224,10 @@ for machine-readable cost records. `harness-statistics --tsv` remains the
 machine-readable delivery and raw-token report.
 
 Every agent invocation has item, token, and wall-clock circuit breakers.
-Ordinary turns use `HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION` (two
-million by default). The atomic Specification IR compiler uses the separately
+Ordinary manager and worker turns use
+`HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION` (500,000 by default). The
+fresh Sol decomposition transaction has its own two-million-token bound. The
+atomic Specification IR compiler uses the separately
 bounded `HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION`
 (eight million by default) because one accepted review may normalize hundreds
 of imported obligations. A failed or resource-exceeded specification-review
@@ -237,7 +243,7 @@ current criterion tree. New typed v2 plans must meet
 only coding-eligible nodes; Terra contract, architecture, concurrency,
 ambiguity, and integration nodes do not dilute the Luna target.
 For a stopped, incomplete Full-v2 project, run
-`bin/manager-reclassify-project-plan ENV_FILE` to have a fresh Terra critic
+`bin/manager-reclassify-project-plan ENV_FILE` to have a fresh Sol critic
 reclassify only its `PENDING` nodes under the current Luna-first policy. The
 command refuses to run while harness processes are alive, preserves all DAG
 structure and every `ACTIVE` or `COMPLETE` route, validates the configured
@@ -598,6 +604,9 @@ export MANAGER_FALLBACK_MODEL="gpt-5.6-terra"
 export MANAGER_REASONING_EFFORT="high"
 export MANAGER_SANDBOX="workspace-write"
 
+export DECOMPOSITION_MODEL="gpt-5.6-sol"
+export DECOMPOSITION_REASONING_EFFORT="high"
+
 export WORKER_CODEX_HOME="$HOME/.codex/worker-account"
 export WORKER_CODEX_BIN="$HOME/.local/bin/codex"
 WORKER_CODEX_EXTRA_ARGS=(
@@ -623,6 +632,8 @@ export HARNESS_START_MAX_AGENT_INVOCATIONS="4"
 export HARNESS_DOMAIN_PROFILES=""
 export HARNESS_MAX_LUNA_STRATEGY_FAILURES="3"
 export HARNESS_MAX_LUNA_ALLOWED_PATHS="8"
+export HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF="12"
+export HARNESS_MAX_LUNA_CONTEXT_CAPSULE_BYTES="32768"
 export HARNESS_MIN_LUNA_NODE_PERCENT="80"
 export HARNESS_MIN_LUNA_CODING_NODE_PERCENT="80"
 export HARNESS_PREFERRED_WORKER_ROUTE="LUNA"
@@ -1171,6 +1182,18 @@ and model:
 harness-costs /path/to/repository/harness.env
 harness-costs --tsv /path/to/repository/harness.env
 ```
+
+Highest-consuming agent episodes, with worker-only and cross-project views:
+
+```bash
+harness-token-outliers /path/to/repository/harness.env
+harness-token-outliers /path/to/repository/harness.env --role worker --limit 10
+harness-token-outliers --all --role worker --limit 10
+```
+
+Build and test output from bounded workers is retained under the project log
+directory through `harness-run-logged`; only a size-limited diagnostic summary
+enters the model transcript.
 
 Chronological implementation history:
 

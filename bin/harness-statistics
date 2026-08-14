@@ -70,6 +70,7 @@ else
 fi
 
 manager=$(( $(metric "$token_report" manager_input_tokens) + $(metric "$token_report" manager_output_tokens) ))
+decomposition=$(( $(metric "$token_report" decomposition_input_tokens) + $(metric "$token_report" decomposition_output_tokens) ))
 worker_luna=$(( $(metric "$token_report" worker_luna_input_tokens) + $(metric "$token_report" worker_luna_output_tokens) ))
 worker_terra=$(( $(metric "$token_report" worker_terra_input_tokens) + $(metric "$token_report" worker_terra_output_tokens) ))
 worker_unknown=$(( $(metric "$token_report" worker_unknown_input_tokens) + $(metric "$token_report" worker_unknown_output_tokens) ))
@@ -78,7 +79,8 @@ worker=$((worker_luna + worker_terra + worker_unknown))
 luna=$(( $(metric "$token_report" luna_input_tokens) + $(metric "$token_report" luna_output_tokens) ))
 terra=$(( $(metric "$token_report" terra_input_tokens) + $(metric "$token_report" terra_output_tokens) ))
 printf '\nToken usage (input + output; cached input remains part of input)\n'
-printf '  Manager: %s; workers: %s; Oracle: %s\n' "$manager" "$worker" "$oracle"
+printf '  Manager: %s; decomposition: %s; workers: %s; Oracle: %s\n' \
+	"$manager" "$decomposition" "$worker" "$oracle"
 printf '  Luna workers: %s; Terra workers: %s; legacy/unclassified workers: %s\n' \
 	"$worker_luna" "$worker_terra" "$worker_unknown"
 printf '  Manager/worker ratio: %s\n' "$(ratio "$manager" "$worker")"

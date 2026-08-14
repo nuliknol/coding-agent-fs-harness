@@ -127,7 +127,7 @@ install_candidate()
 		printf 'pending_luna_coding_nodes=%s\n' "$pending_luna_coding"
 		printf 'pending_luna_coding_percent=%s\n' "$luna_coding_percent"
 		printf 'preferred_worker_route=%s\n' "$HARNESS_PREFERRED_WORKER_ROUTE"
-		printf 'manager_model=%s\n' "$MANAGER_MODEL"
+		printf 'decomposition_model=%s\n' "$DECOMPOSITION_MODEL"
 	} > "$report"
 	chmod 600 "$report"
 	log_event "PROJECT_PLAN_RECLASSIFIED pending=$pending luna=$pending_luna terra=$pending_terra luna_percent=$luna_percent backup=$backup report=$report"
@@ -158,6 +158,7 @@ ENV_FILE=$HARNESS_ENV_FILE
 PROJECT=$PROJECT
 REPOSITORY=$REPOSITORY
 SPECIFICATION=$SPECIFICATION
+AGENT_PHASE=decomposition
 INSTALLED_DAG=$dag
 PLAN_STATE=$state
 CANDIDATE_DAG=$candidate
@@ -186,9 +187,9 @@ while true; do
 	message="$dir/logs/manager-pending-reclassification-$stamp-attempt-$(printf '%03d' "$attempt").md"
 	set +e
 	if [[ -n "$resume_thread" ]]; then
-		"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" manager_plan "$MANAGER_MODEL" "$prompt" "$json" "$stderr" "$message" resume "$resume_thread"
+		"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" decomposition "$DECOMPOSITION_MODEL" "$prompt" "$json" "$stderr" "$message" resume "$resume_thread"
 	else
-		"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" manager_plan "$MANAGER_MODEL" "$prompt" "$json" "$stderr" "$message"
+		"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" decomposition "$DECOMPOSITION_MODEL" "$prompt" "$json" "$stderr" "$message"
 	fi
 	status=$?
 	set -e

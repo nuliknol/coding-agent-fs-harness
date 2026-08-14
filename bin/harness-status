@@ -214,6 +214,9 @@ token_report="$("$HARNESS_BIN/harness-agent-token-usage" "$HARNESS_ENV_FILE")"
 manager_token_input="$(token_metric_value "$token_report" manager_input_tokens)"
 manager_token_cached="$(token_metric_value "$token_report" manager_cached_tokens)"
 manager_token_output="$(token_metric_value "$token_report" manager_output_tokens)"
+decomposition_token_input="$(token_metric_value "$token_report" decomposition_input_tokens)"
+decomposition_token_cached="$(token_metric_value "$token_report" decomposition_cached_tokens)"
+decomposition_token_output="$(token_metric_value "$token_report" decomposition_output_tokens)"
 luna_worker_token_input="$(token_metric_value "$token_report" worker_luna_input_tokens)"
 luna_worker_token_cached="$(token_metric_value "$token_report" worker_luna_cached_tokens)"
 luna_worker_token_output="$(token_metric_value "$token_report" worker_luna_output_tokens)"
@@ -227,6 +230,7 @@ oracle_token_input="$(token_metric_value "$token_report" oracle_input_tokens)"
 oracle_token_cached="$(token_metric_value "$token_report" oracle_cached_tokens)"
 oracle_token_output="$(token_metric_value "$token_report" oracle_output_tokens)"
 for token_variable in manager_token_input manager_token_cached manager_token_output \
+	decomposition_token_input decomposition_token_cached decomposition_token_output \
 	luna_worker_token_input luna_worker_token_cached luna_worker_token_output \
 	terra_worker_token_input terra_worker_token_cached terra_worker_token_output \
 	unknown_worker_token_input unknown_worker_token_cached unknown_worker_token_output \
@@ -234,6 +238,7 @@ for token_variable in manager_token_input manager_token_cached manager_token_out
 	[[ "${!token_variable}" =~ ^[0-9]+$ ]] || printf -v "$token_variable" '%s' 0
 done
 manager_processed_tokens=$((manager_token_input + manager_token_output))
+decomposition_processed_tokens=$((decomposition_token_input + decomposition_token_output))
 worker_processed_tokens=$((luna_worker_token_input + luna_worker_token_output +
 	terra_worker_token_input + terra_worker_token_output +
 	unknown_worker_token_input + unknown_worker_token_output))
@@ -242,6 +247,9 @@ terra_processed_tokens=$(( $(token_metric_value "$token_report" terra_input_toke
 printf '\nAgent token usage (cached input is included in input):\n'
 printf '  Manager [%s]: input=%s cached=%s output=%s processed=%s\n' \
 	"$MANAGER_MODEL" "$manager_token_input" "$manager_token_cached" "$manager_token_output" "$manager_processed_tokens"
+printf '  Decomposition [%s]: input=%s cached=%s output=%s processed=%s\n' \
+	"$DECOMPOSITION_MODEL" "$decomposition_token_input" "$decomposition_token_cached" \
+	"$decomposition_token_output" "$decomposition_processed_tokens"
 printf '  Luna worker [%s]: input=%s cached=%s output=%s processed=%s\n' \
 	"$LUNA_WORKER_MODEL" "$luna_worker_token_input" "$luna_worker_token_cached" "$luna_worker_token_output" \
 	"$((luna_worker_token_input + luna_worker_token_output))"

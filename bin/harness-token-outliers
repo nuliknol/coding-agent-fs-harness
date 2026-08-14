@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-mode.sh"
+harness_dispatch_mode "$SCRIPT_DIR/.." "${0##*/}" "$@"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE [--role all|worker|manager|decomposition|oracle] [--limit N]\n' "${0##*/}" >&2
+	printf '       %s --all [--role all|worker|manager|decomposition|oracle] [--limit N]\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -ge 1 ]] || usage
+target="$1"
+shift
+role_filter=all
+limit=10
+while (( $# > 0 )); do
+	case "$1" in
+		--role) (( $# >= 2 )) || usage; role_filter="$2"; shift 2 ;;
+		--limit) (( $# >= 2 )) || usage; limit="$2"; shift 2 ;;
+		*) usage ;;
+	esac
+done
+[[ "$role_filter" =~ ^(all|worker|manager|decomposition|oracle)$ ]] || usage
+[[ "$limit" =~ ^[1-9][0-9]*$ ]] || usage
+command -v jq >/dev/null 2>&1 || die 'harness-token-outliers requires jq'
+
+records="$(mktemp)"
+trap 'rm -f "$records"' EXIT
+
+record_environment()
+{
+	local env_file="$1" dir json classification role model class delta estimated tokens source
+	local item_count resume head_changed metrics command_count file_changes output_bytes max_output task phase planner
+	load_harness_env "$env_file"
+	ensure_project
+	dir="$(project_dir)"
+	planner="$(decomposition_provenance_value planner_model "$DECOMPOSITION_MODEL" 2>/dev/null || printf '%s' "$DECOMPOSITION_MODEL")"
+	shopt -s nullglob
+	for json in "$dir"/logs/manager-*.jsonl "$dir"/logs/worker-task-*.jsonl "$dir"/logs/oracle-*.jsonl; do
+		[[ -f "$json" ]] || continue
+		classification="${json%.jsonl}.classification"
+		[[ -f "$classification" ]] || continue
+		role="$(kv_file_value "$classification" role 2>/dev/null || true)"
+		case "$role_filter:$role" in
+			all:*|worker:worker*|manager:manager_*|decomposition:decomposition|oracle:oracle) ;;
+			*) continue ;;
+		esac
+		model="$(kv_file_value "$classification" model 2>/dev/null || printf unknown)"
+		class="$(kv_file_value "$classification" classification 2>/dev/null || printf unknown)"
+		delta="$(kv_file_value "$classification" invocation_processed_delta 2>/dev/null || printf 0)"
+		estimated="$(kv_file_value "$classification" estimated_processed_tokens 2>/dev/null || printf 0)"
+		[[ "$delta" =~ ^[0-9]+$ ]] || delta=0
+		[[ "$estimated" =~ ^[0-9]+$ ]] || estimated=0
+		if (( delta > 0 )); then tokens="$delta"; source=actual; else tokens="$estimated"; source=estimated; fi
+		item_count="$(kv_file_value "$classification" item_started_count 2>/dev/null || printf 0)"
+		resume="$(kv_file_value "$classification" resume_requested 2>/dev/null || printf '?')"
+		head_changed="$(kv_file_value "$classification" git_head_changed 2>/dev/null || printf '?')"
+		metrics="$(jq -rs '
+			[.[] | select(.type=="item.completed" and .item.type=="command_execution") |
+			 ((.item.aggregated_output // .item.output // "") | tostring | length)] as $sizes |
+			[($sizes|length), ([.[] | select(.type=="item.started" and .item.type=="file_change")]|length),
+			 ($sizes|add // 0), ($sizes|max // 0)] | @tsv
+		' "$json" 2>/dev/null || printf '0\t0\t0\t0')"
+		IFS=$'\t' read -r command_count file_changes output_bytes max_output <<< "$metrics"
+		name="${json##*/}"
+		if [[ "$name" =~ ^worker-task-(.+)-[0-9]{8}T[0-9]{6}Z-attempt-[0-9]+[.]jsonl$ ]]; then
+			task="${BASH_REMATCH[1]}"; phase=worker
+		elif [[ "$name" =~ ^manager-review-(.+)-[0-9]{8}T[0-9]{6}Z-attempt-[0-9]+[.]jsonl$ ]]; then
+			task="${BASH_REMATCH[1]}"; phase=review
+		else
+			task=-; phase="${name%%-[0-9][0-9][0-9][0-9]*}"
+		fi
+		printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+			"$tokens" "$PROJECT" "$task" "$role" "$model" "$source" "$class" "${item_count:-0}" \
+			"${command_count:-0}" "${output_bytes:-0}" "${max_output:-0}" "$resume" "$head_changed" "$planner" "$json" >> "$records"
+	done
+}
+
+if [[ "$target" == --all ]]; then
+	state_root="${HARNESS_ROOT:-$HOME/.local/state/coding-harness-full}"
+	while IFS= read -r config; do
+		env_file="$(kv_file_value "$config" env_file 2>/dev/null || true)"
+		[[ -f "$env_file" ]] || continue
+		record_environment "$env_file"
+	done < <(find "$state_root/projects" -mindepth 2 -maxdepth 2 -type f -name project.conf 2>/dev/null | sort)
+else
+	record_environment "$target"
+fi
+
+printf 'TOKENS\tPROJECT\tTASK\tROLE\tMODEL\tUSAGE\tCLASSIFICATION\tITEMS\tCOMMANDS\tOUTPUT_B\tMAX_OUTPUT_B\tRESUMED\tHEAD_CHANGED\tPLANNER\tJSONL\n'
+sort -t $'\t' -k1,1nr "$records" | awk -v limit="$limit" 'NR <= limit'
