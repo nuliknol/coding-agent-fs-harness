@@ -54,6 +54,20 @@ else
 fi
 
 printf '\nDecomposition\n'
+if architecture_redesign_matches_current_inputs &&
+	[[ "$(architecture_redesign_state_value status)" == ARCHITECTURE_REDESIGN_REQUIRED ]]; then
+	if architecture_redesign_force_matches_current_inputs; then
+		printf '  Architecture fit: FORCE_DECOMPOSITION_AUTHORIZED\n'
+	else
+		printf '  Architecture fit: ARCHITECTURE_REDESIGN_REQUIRED\n'
+	fi
+	printf '  Redesign report: %s\n' "$(architecture_redesign_report_relative_path)"
+	printf '  Copy/paste request: harness-show-redesign-request %s\n' "$HARNESS_ENV_FILE"
+elif project_plan_exists; then
+	printf '  Architecture fit: ACCEPTED\n'
+else
+	printf '  Architecture fit: PENDING\n'
+fi
 if project_plan_uses_dag; then
 	dag="$(project_decomposition_plan_file)"
 	read -r nodes luna terra coding luna_coding typed < <(awk -F '\t' '

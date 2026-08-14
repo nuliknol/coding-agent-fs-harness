@@ -8,15 +8,22 @@ source "$SCRIPT_DIR/../lib/harness-common.sh"
 
 usage()
 {
-	printf 'Usage: %s [--background] ENV_FILE\n' "${0##*/}" >&2
+	printf 'Usage: %s [--background] [--force-decomposition] ENV_FILE\n' "${0##*/}" >&2
 	exit 2
 }
 
 background=0
-if [[ "${1:-}" == --background ]]; then
-	background=1
-	shift
-fi
+force_decomposition_requested=0
+while (( $# > 0 )); do
+	case "$1" in
+		--background) background=1; shift ;;
+		--force-decomposition) force_decomposition_requested=1; shift ;;
+		-h|--help) usage ;;
+		--) shift; break ;;
+		-*) usage ;;
+		*) break ;;
+	esac
+done
 [[ $# -eq 1 ]] || usage
 load_harness_env "$1"
 ensure_project
@@ -51,7 +58,7 @@ if (( background == 1 )); then
 	setsid "$HARNESS_HOME/lib/harness-start-background-runner" \
 		"$HARNESS_BIN/harness-start" "$HARNESS_ENV_FILE" \
 		"$background_pid_file" "$background_status" \
-		"$background_log" "$background_started" </dev/null >> "$background_log" 2>&1 &
+		"$background_log" "$background_started" "$force_decomposition_requested" </dev/null >> "$background_log" 2>&1 &
 	background_pid=$!
 	{
 		printf 'state=RUNNING\n'
@@ -137,6 +144,21 @@ while ! project_plan_exists; do
 		printf 'Specification accepted: %s\n' "$(specification_review_report_relative_path)"
 	fi
 
+	if architecture_redesign_requires_action; then
+		if (( force_decomposition_requested == 1 )); then
+			architecture_redesign_record_force_waiver
+			export HARNESS_FORCE_DECOMPOSITION=1
+			printf 'Architecture redesign finding retained under an auditable force-decomposition waiver: %s\n' \
+				"$(architecture_redesign_report_relative_path)"
+		else
+			printf 'Architecture redesign required: %s\n' "$(architecture_redesign_report_relative_path)"
+			printf 'Action request: harness-show-redesign-request %s\n' "$HARNESS_ENV_FILE"
+			exit 6
+		fi
+	elif architecture_redesign_force_matches_current_inputs; then
+		export HARNESS_FORCE_DECOMPOSITION=1
+	fi
+
 	if (( HARNESS_DECOMPOSITION_V2 == 1 && HARNESS_DECOMPOSITION_CRITIC_ENABLED == 1 )); then
 		set +e
 		"$HARNESS_BIN/manager-decomposition-critic" "$HARNESS_ENV_FILE"
@@ -158,6 +180,17 @@ while ! project_plan_exists; do
 			5)
 				stall_report="$(kv_file_value "$(specification_renormalization_stall_file)" report 2>/dev/null || true)"
 				die "specification normalization stalled without convergence; inspect ${stall_report:-the decomposition critic logs}"
+				;;
+			6)
+				if (( force_decomposition_requested == 1 )); then
+					architecture_redesign_record_force_waiver
+					export HARNESS_FORCE_DECOMPOSITION=1
+					printf 'Architecture redesign finding force-authorized; rerunning Sol to create prerequisite remediation nodes.\n'
+					continue
+				fi
+				printf 'Architecture redesign required: %s\n' "$(architecture_redesign_report_relative_path)"
+				printf 'Action request: harness-show-redesign-request %s\n' "$HARNESS_ENV_FILE"
+				exit 6
 				;;
 			*) exit "$critic_status" ;;
 		esac

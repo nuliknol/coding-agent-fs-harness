@@ -163,7 +163,7 @@ wrap_description() { printf '%s\n' "$1" | fold -s -w "$2"; }
 status_requires_attention()
 {
 	case "$1" in
-		paused|waiting|failed|dead-end|clarify|'config err'|'config error'|uninit|unknown) return 0 ;;
+		paused|waiting|failed|dead-end|clarify|redesign|'config err'|'config error'|uninit|unknown) return 0 ;;
 		*) return 1 ;;
 	esac
 }
@@ -289,6 +289,11 @@ while IFS= read -r -d '' env_file; do
 		review_report="${project_status#*Review }"
 		review_report="${review_report%% before DAG registration.*}"
 		description="SPEC_CLARIFICATION_REQUIRED: ${review_report:-spec-review report}."
+	elif [[ "$project_status" == ARCHITECTURE_REDESIGN_REQUIRED.* ]]; then
+		display_status=redesign
+		completion='-'
+		architecture_report="$(awk -F'[()]' '$1 ~ /^Architecture fit: ARCHITECTURE_REDESIGN_REQUIRED / {print $2; exit}' <<< "$status_output")"
+		description="ARCHITECTURE_REDESIGN_REQUIRED: ${architecture_report:-architecture-review report}."
 	elif [[ "$project_status" == TOKEN_USAGE_ANOMALY.* ]]; then
 		display_status=paused
 		token_alert="$(find "$dir/control/progress" -maxdepth 1 -type f -name "$project-task-*.token-usage-anomaly.md" -print 2>/dev/null | sort | head -n 1)"

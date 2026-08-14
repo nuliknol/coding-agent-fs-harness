@@ -1579,13 +1579,13 @@ require_clean_repository_start_state()
 		die "repository is not a Git working tree: $REPOSITORY"
 	git -C "$REPOSITORY" rev-parse --verify 'HEAD^{commit}' >/dev/null 2>&1 ||
 		die "repository does not have a valid HEAD commit: $REPOSITORY"
-	# spec-review/ is a harness-owned response channel written before a project
+	# spec-review/ and architecture-review/ are harness-owned response channels written before a project
 	# has an execution DAG. Its untracked artifacts must survive clarification
 	# and renormalization restarts without weakening the clean-source boundary.
 	# Tracked modifications, staged additions, deletions, renames, and every
 	# unrelated untracked path remain disallowed.
 	changes="$(git -C "$REPOSITORY" status --porcelain=v1 --untracked-files=all | awk '
-		substr($0, 1, 3) == "?? " && substr($0, 4) ~ /^spec-review\// {next}
+		substr($0, 1, 3) == "?? " && substr($0, 4) ~ /^(spec-review|architecture-review)\// {next}
 		{print}
 	')"
 	if [[ -n "$changes" ]]; then
@@ -2916,6 +2916,16 @@ specification_review_state_file()
 	printf '%s/control/specification-review.env' "$(project_dir)"
 }
 
+architecture_redesign_state_file()
+{
+	printf '%s/control/architecture-redesign-review.env' "$(project_dir)"
+}
+
+architecture_redesign_force_file()
+{
+	printf '%s/control/architecture-redesign-force.env' "$(project_dir)"
+}
+
 domain_profile_names()
 {
 	local value name
@@ -2993,6 +3003,11 @@ domain_profiles_sha256()
 specification_review_repository_dir()
 {
 	printf '%s/spec-review' "$REPOSITORY"
+}
+
+architecture_redesign_repository_dir()
+{
+	printf '%s/architecture-review' "$REPOSITORY"
 }
 
 specification_sha256()
@@ -3226,6 +3241,91 @@ specification_review_requires_clarification()
 specification_review_report_relative_path()
 {
 	specification_review_state_value report
+}
+
+architecture_redesign_state_value()
+{
+	local key="$1" fallback="${2:-}" state value=""
+	state="$(architecture_redesign_state_file)"
+	if [[ -f "$state" ]]; then
+		value="$(awk -F= -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' "$state")"
+	fi
+	[[ -n "$value" ]] || value="$fallback"
+	printf '%s' "$value"
+}
+
+architecture_redesign_matches_current_inputs()
+{
+	local state
+	state="$(architecture_redesign_state_file)"
+	[[ -f "$state" ]] || return 1
+	[[ "$(architecture_redesign_state_value specification_sha256)" == "$(specification_sha256)" ]] || return 1
+	[[ "$(architecture_redesign_state_value repository_baseline)" == "$(specification_review_repository_baseline)" ]] || return 1
+	[[ "$(architecture_redesign_state_value domain_profiles_sha256 none)" == "$(domain_profiles_sha256)" ]]
+}
+
+architecture_redesign_force_matches_current_inputs()
+{
+	local force report_relative report report_sha
+	force="$(architecture_redesign_force_file)"
+	[[ -f "$force" ]] || return 1
+	architecture_redesign_matches_current_inputs || return 1
+	[[ "$(kv_file_value "$force" specification_sha256)" == "$(specification_sha256)" ]] || return 1
+	[[ "$(kv_file_value "$force" repository_baseline)" == "$(specification_review_repository_baseline)" ]] || return 1
+	[[ "$(kv_file_value "$force" domain_profiles_sha256)" == "$(domain_profiles_sha256)" ]] || return 1
+	report_relative="$(architecture_redesign_state_value report)"
+	[[ -n "$report_relative" && "$report_relative" != /* ]] || return 1
+	report="$(realpath -m "$REPOSITORY/$report_relative")"
+	case "$report" in "$REPOSITORY"/*) ;; *) return 1 ;; esac
+	[[ -f "$report" ]] || return 1
+	report_sha="$(sha256sum "$report" | awk '{print $1}')"
+	[[ "$(kv_file_value "$force" report_sha256)" == "$report_sha" ]]
+}
+
+architecture_redesign_requires_action()
+{
+	project_plan_exists && return 1
+	architecture_redesign_matches_current_inputs || return 1
+	[[ "$(architecture_redesign_state_value status)" == ARCHITECTURE_REDESIGN_REQUIRED ]] || return 1
+	! architecture_redesign_force_matches_current_inputs
+}
+
+architecture_redesign_report_relative_path()
+{
+	architecture_redesign_state_value report
+}
+
+architecture_redesign_record_force_waiver()
+{
+	local force report_relative report report_sha tmp waiver_id
+	(( HARNESS_ARCHITECTURE_GUARDS == 1 )) || die '--force-decomposition requires HARNESS_ARCHITECTURE_GUARDS=1 so remediation dependencies and critical debt remain machine-enforced'
+	architecture_redesign_matches_current_inputs || die 'no current architecture redesign review matches the specification and repository baseline'
+	[[ "$(architecture_redesign_state_value status)" == ARCHITECTURE_REDESIGN_REQUIRED ]] ||
+		die 'the current architecture review does not require redesign'
+	architecture_redesign_force_matches_current_inputs && return 0
+	force="$(architecture_redesign_force_file)"
+	report_relative="$(architecture_redesign_state_value report)"
+	report="$(realpath -m "$REPOSITORY/$report_relative")"
+	[[ -f "$report" ]] || die "architecture redesign report is missing: $report"
+	report_sha="$(sha256sum "$report" | awk '{print $1}')"
+	waiver_id="$(printf '%s\n' "$PROJECT" "$(specification_sha256)" "$(specification_review_repository_baseline)" "$report_sha" "$(timestamp_utc)" "$UID" | sha256sum | awk '{print $1}')"
+	tmp="$force.tmp.$$"
+	{
+		printf 'status=FORCE_DECOMPOSITION_AUTHORIZED\n'
+		printf 'waiver_id=%s\n' "$waiver_id"
+		printf 'specification_sha256=%s\n' "$(specification_sha256)"
+		printf 'repository_baseline=%s\n' "$(specification_review_repository_baseline)"
+		printf 'domain_profiles_sha256=%s\n' "$(domain_profiles_sha256)"
+		printf 'report=%s\n' "$report_relative"
+		printf 'report_sha256=%s\n' "$report_sha"
+		printf 'operator_uid=%s\n' "$UID"
+		printf 'operator_name=%s\n' "$(id -un 2>/dev/null || printf unknown)"
+		printf 'authorized_at=%s\n' "$(timestamp_utc)"
+		printf 'authority=COMMAND_LINE_FORCE_DECOMPOSITION\n'
+	} > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$force"
+	log_event "ARCHITECTURE_REDESIGN_FORCE_AUTHORIZED waiver_id=$waiver_id report=$report_relative report_sha256=$report_sha operator_uid=$UID"
 }
 
 specification_obligations_file()
@@ -4027,6 +4127,7 @@ initialize_project_plan_v2()
 		architecture_initialize_minimal_test_profile "$dag_tmp" || true
 	fi
 	architecture_require_registered
+	architecture_validate_forced_redesign_plan "$dag_tmp" "${coverage_source:-$coverage_tmp}"
 	chmod 600 "$definition_tmp" "$state_tmp" "$dag_tmp"
 	mv "$definition_tmp" "$definition"
 	mv "$state_tmp" "$state"

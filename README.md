@@ -145,8 +145,9 @@ checks every source-declared dependency for fidelity.
 
 For a stopped Full project, `harness-start` requires `REPOSITORY` to be a Git
 worktree with a valid `HEAD` and no staged, unstaged, or non-ignored untracked
-files, except untracked files beneath the harness-owned `spec-review/` response
-directory. Tracked or staged changes under `spec-review/` are still rejected.
+files, except untracked files beneath the harness-owned `spec-review/` and
+`architecture-review/` response directories. Tracked or staged changes under
+either response directory are still rejected.
 It prints the exact porcelain-status entries and exits before recovery or any
 agent invocation when this preflight fails. Ignored build products are not
 considered dirty. A redundant start against a live manager or worker supervisor
@@ -164,7 +165,8 @@ The launcher performs the clean-repository and overlap preflight, starts a new
 session with closed standard input, redirects all startup output to a
 project-state log, writes a durable `harness-start-background.status` record,
 prints the PID/log/status paths, and returns immediately. Exit status `3` is
-recorded as `SPEC_CLARIFICATION_REQUIRED`; other nonzero exits are `FAILED`.
+recorded as `SPEC_CLARIFICATION_REQUIRED`, and exit status `6` is recorded as
+`ARCHITECTURE_REDESIGN_REQUIRED`; other nonzero exits are `FAILED`.
 Ordinary `harness-start ENV_FILE` remains synchronous for interactive use.
 
 An accepted review also installs a normalized Specification IR: independently
@@ -186,7 +188,36 @@ repeated compiler churn. The renormalization limit is durable across starts,
 and each startup transaction also has a hard provider-process budget. A
 non-converging compiler pass enters `SPECIFICATION_NORMALIZATION_STALLED`; an
 unchanged restart refuses further agent calls. Thus only missing human
-authority is bounced to the specification author.
+authority is bounced as specification clarification; structural fitness is
+handled by the separate architecture gate below.
+
+Before DAG registration, the same fresh Sol critic performs an evidence-backed
+architecture-fit review. If the accepted feature necessarily conflicts with a
+foundational ownership, transaction, migration, dependency-direction,
+contract-authority, observability, critical-invariant, or resource-lifetime
+boundary, it enters `ARCHITECTURE_REDESIGN_REQUIRED` instead of patching around
+the conflict. Reports, structured issues, and a requirements-only redesign
+brief are written beneath `$REPOSITORY/architecture-review/`. Optional cleanup,
+ordinary local refactoring, missing implementation, and architectural taste are
+not valid redesign blockers. Use the copy/paste report to prepare a separate
+redesign harness:
+
+```bash
+harness-show-redesign-request /path/to/repository/harness.env
+```
+
+After the redesign is integrated, the changed repository baseline causes a
+fresh specification and architecture-fit review. An operator can deliberately
+combine redesign and feature work with an auditable waiver:
+
+```bash
+harness-start --force-decomposition /path/to/repository/harness.env
+```
+
+Force does not dismiss the finding. Registration requires one prerequisite
+Terra `CROSS_COMPONENT_ARCHITECTURE` node and one open critical debt record per
+redesign issue, a focused critical health gate, and dependency ordering that
+keeps affected Luna work unavailable until remediation is accepted.
 
 Reusable domain theory is opt-in through `HARNESS_DOMAIN_PROFILES`. A profile
 resolves first from `$REPOSITORY/.harness/domain-profiles/NAME.tsv`, then from
@@ -725,10 +756,12 @@ supervisors.
 
 `harness-start` performs these operations:
 
-1. If v2 is enabled and no plan exists, run the fresh decomposition critic.
-2. If no manager thread exists, run one manager bootstrap turn.
-3. Start the manager result watcher.
-4. Start the worker task watcher and return to the shell.
+1. If enabled, review and normalize the specification.
+2. If v2 is enabled and no plan exists, run the fresh Sol architecture-fit and decomposition critic.
+3. Stop with a clarification or redesign report when implementation authority is unsafe.
+4. If no manager thread exists, run one manager bootstrap turn.
+5. Start the manager result watcher.
+6. Start the worker task watcher and return to the shell.
 
 After that, no manual prompt pushes are required.
 Bootstrap records every specification phase or acceptance gate in an immutable

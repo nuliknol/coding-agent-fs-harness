@@ -181,6 +181,77 @@ architecture_validate_new_validation_scope()
 	done < "$source_dir/health-gates.tsv"
 }
 
+architecture_validate_forced_redesign_plan()
+{
+	local dag="$1" coverage="$2" issues debt waiver_id issue_id requirement_ids
+	local debt_rows debt_id remediation severity expires status waiver node_type node_route gates gate critical_gate
+	local requirement node
+	local -a requirements=() nodes=() gate_ids=()
+	architecture_redesign_force_matches_current_inputs || return 0
+	[[ -f "$dag" && -f "$coverage" ]] || die 'forced decomposition requires a DAG and specification coverage'
+	issues="$(realpath -m "$REPOSITORY/$(architecture_redesign_state_value issues)")"
+	case "$issues" in "$REPOSITORY"/*) ;; *) die 'forced redesign issues path escapes the repository' ;; esac
+	debt="$(architecture_debt_file)"
+	[[ -f "$issues" && -f "$debt" ]] || die 'forced decomposition requires structured redesign issues and architecture debt'
+	waiver_id="$(kv_file_value "$(architecture_redesign_force_file)" waiver_id)"
+	while IFS=$'\t' read -r issue_id _ requirement_ids _; do
+		[[ "$issue_id" != issue_id && -n "$issue_id" ]] || continue
+		debt_rows="$(awk -F '\t' -v debt="DEBT-$issue_id" 'NR > 1 && $1 == debt {print}' "$debt")"
+		[[ "$(awk 'NF {n++} END {print n+0}' <<< "$debt_rows")" == 1 ]] ||
+			die "forced redesign issue $issue_id must have exactly one architecture debt row named DEBT-$issue_id"
+		IFS=$'\t' read -r debt_id _ _ _ _ consequence remediation severity expires status waiver <<< "$debt_rows"
+		[[ "$consequence" == *"$issue_id"* ]] || die "forced redesign debt $debt_id consequence must name $issue_id"
+		[[ "$severity" == CRITICAL && "$status" == OPEN ]] ||
+			die "forced redesign debt $debt_id for $issue_id must be OPEN and CRITICAL"
+		[[ "$waiver" == "COMMAND_LINE_FORCE_DECOMPOSITION:$waiver_id" ]] ||
+			die "forced redesign debt $debt_id has incorrect waiver authority"
+		[[ "$expires" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] ||
+			die "forced redesign debt $debt_id requires an expiration date"
+		node_type="$(awk -F '\t' -v node="$remediation" 'NR > 1 && $1 == node {print $9; exit}' "$dag")"
+		node_route="$(awk -F '\t' -v node="$remediation" 'NR > 1 && $1 == node {print $11; exit}' "$dag")"
+		[[ "$node_type" == CROSS_COMPONENT_ARCHITECTURE && "$node_route" == TERRA ]] ||
+			die "forced redesign debt $debt_id remediation node $remediation must be a Terra CROSS_COMPONENT_ARCHITECTURE node"
+		gates="$(awk -F '\t' -v node="$remediation" 'NR > 1 && $1 == node {print $6; exit}' "$(architecture_node_bindings_file)")"
+		[[ -n "$gates" && "$gates" != - ]] || die "forced redesign remediation node $remediation requires a bound health gate"
+		IFS=',' read -r -a gate_ids <<< "$gates"
+		critical_gate=0
+		for gate in "${gate_ids[@]}"; do
+			[[ "$(awk -F '\t' -v gate="$gate" 'NR > 1 && $1 == gate {print $5; exit}' "$(architecture_health_gates_file)")" == CRITICAL ]] && critical_gate=1
+		done
+		(( critical_gate == 1 )) || die "forced redesign remediation node $remediation requires a CRITICAL health gate"
+		IFS=',' read -r -a requirements <<< "$requirement_ids"
+		for requirement in "${requirements[@]}"; do
+			requirement="$(trim_surrounding_whitespace "$requirement")"
+			node="$(awk -F '\t' -v requirement="$requirement" 'NR > 1 && $1 == requirement {print $2; exit}' "$coverage")"
+			[[ -n "$node" ]] || die "forced redesign issue $issue_id requirement $requirement is absent from coverage"
+			IFS=',' read -r -a nodes <<< "$node"
+			for node in "${nodes[@]}"; do
+				node="$(trim_surrounding_whitespace "$node")"
+				[[ "$node" == "$remediation" ]] || awk -F '\t' -v node="$node" -v required="$remediation" '
+					NR > 1 {
+						n=split($3, deps, ",")
+						for (i=1; i<=n; i++) if (deps[i] != "-") reach[$1 SUBSEP deps[i]]=1
+					}
+					END {
+						do {
+							changed=0
+							for (left in reach) {
+								split(left, lp, SUBSEP)
+								for (right in reach) {
+									split(right, rp, SUBSEP)
+									if (lp[2] == rp[1] && !((lp[1] SUBSEP rp[2]) in reach)) {add[lp[1] SUBSEP rp[2]]=1; changed=1}
+								}
+							}
+							for (key in add) {reach[key]=1; delete add[key]}
+						} while (changed)
+						exit !((node SUBSEP required) in reach)
+					}
+				' "$dag" || die "coverage node $node for forced redesign issue $issue_id does not depend on remediation node $remediation"
+			done
+		done
+	done < <(tail -n +2 "$issues")
+}
+
 architecture_initialize()
 {
 	local source_dir="$1" dir file debt

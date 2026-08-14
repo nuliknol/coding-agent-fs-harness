@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-mode.sh"
+harness_dispatch_mode "$SCRIPT_DIR/.." "${0##*/}" "$@"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 1 ]] || { printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+architecture_redesign_matches_current_inputs ||
+	die 'no current architecture redesign request matches the specification and repository baseline; run harness-start to review current inputs'
+[[ "$(architecture_redesign_state_value status)" == ARCHITECTURE_REDESIGN_REQUIRED ]] ||
+	die 'the current architecture review does not require redesign'
+
+review_artifact()
+{
+	local relative="$1" label="$2" path
+	[[ -n "$relative" && "$relative" != /* ]] || die "invalid $label path in architecture review state: $relative"
+	path="$(realpath -m "$REPOSITORY/$relative")"
+	case "$path" in "$REPOSITORY"/*) ;; *) die "$label path escapes the repository: $relative" ;; esac
+	[[ -f "$path" ]] || die "$label file is missing: $path"
+	printf '%s\n' "$path"
+}
+
+report="$(review_artifact "$(architecture_redesign_state_value report)" 'redesign report')"
+issues="$(review_artifact "$(architecture_redesign_state_value issues)" 'redesign issues')"
+brief="$(review_artifact "$(architecture_redesign_state_value redesign_specification)" 'redesign specification')"
+
+printf '# Architecture Redesign Action Required\n\n'
+printf 'You are responsible for preparing the foundational redesign that must precede feature implementation. '
+printf 'Do not implement the blocked feature or patch around the architectural conflict.\n\n'
+printf 'Project: %s\n' "$PROJECT"
+printf 'Repository: %s\n' "$REPOSITORY"
+printf 'Blocked feature specification: %s\n' "$SPECIFICATION"
+printf 'Architecture report: %s\n' "$report"
+printf 'Structured architecture issues: %s\n' "$issues"
+printf 'Generated redesign requirements brief: %s\n' "$brief"
+printf 'Original harness environment: %s\n\n' "$HARNESS_ENV_FILE"
+
+printf '## Why implementation was refused\n\n'
+awk 'NR == 1 && /^# / {next} {print}' "$report"
+printf '\n## Proven architectural blockers\n\n'
+while IFS=$'\t' read -r issue_id issue_class requirement_ids source_locations architecture_evidence \
+	violated_boundary why_no_bounded_dag required_capability acceptance_evidence severity; do
+	[[ "$issue_id" != issue_id && -n "$issue_id" ]] || continue
+	printf '### %s — %s\n\n' "$issue_id" "$issue_class"
+	printf 'Affected requirements: %s\n\n' "$requirement_ids"
+	printf 'Governing evidence: %s\n\n' "$source_locations"
+	printf 'Current architecture evidence: %s\n\n' "$architecture_evidence"
+	printf 'Violated boundary: %s\n\n' "$violated_boundary"
+	printf 'Why feature decomposition is unsafe: %s\n\n' "$why_no_bounded_dag"
+	printf 'Required architectural capability: %s\n\n' "$required_capability"
+	printf 'Redesign acceptance evidence: %s\n\n' "$acceptance_evidence"
+	printf 'Severity: %s\n\n' "$severity"
+done < "$issues"
+
+printf '## Requirements-only redesign brief\n\n'
+cat "$brief"
+printf '\n## Required workflow\n\n'
+printf '1. Treat the generated brief as a minimum requirements document, not as authority to invent unrelated architecture changes.\n'
+printf '2. Create an authored redesign specification in the repository. It must trace every `ARCH-...` issue, preserve listed compatibility boundaries, define migration and rollback where applicable, and provide focused acceptance evidence.\n'
+printf '3. Commit that authored redesign specification cleanly. Do not commit generated `architecture-review/` files as a substitute for an authored specification.\n'
+printf '4. Configure and run a separate Full harness whose governing specification is the authored redesign specification. Do not run the blocked feature harness concurrently against the same repository.\n'
+printf '5. Complete and integrate the redesign harness. Its accepted evidence must satisfy every capability and acceptance boundary in the brief.\n'
+printf '6. After the redesign commits change the repository baseline, relaunch the original feature harness. Sol will reevaluate architecture fitness against the new baseline before creating its feature DAG.\n\n'
+
+printf 'The ordinary relaunch after redesign is:\n\n```bash\n'
+printf '%q --background %q\n' "$HARNESS_BIN/harness-start" "$HARNESS_ENV_FILE"
+printf '```\n\n'
+printf 'An operator may deliberately combine redesign and feature work only with an auditable force waiver:\n\n```bash\n'
+printf '%q --background --force-decomposition %q\n' "$HARNESS_BIN/harness-start" "$HARNESS_ENV_FILE"
+printf '```\n\n'
+printf 'Forced decomposition does not dismiss the findings: Sol must create prerequisite Terra architecture-remediation nodes and critical debt records before dependent feature implementation.\n'

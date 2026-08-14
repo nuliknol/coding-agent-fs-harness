@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 4 ]] || {
+	printf 'Usage: %s ENV_FILE REPORT_MD ISSUES_TSV REDESIGN_SPEC_MD\n' "${0##*/}" >&2
+	exit 2
+}
+load_harness_env "$1"
+report_file="$2"
+issues_file="$3"
+redesign_spec_file="$4"
+ensure_project
+require_manager_configuration
+project_plan_exists && die 'cannot require foundational redesign after DAG registration'
+specification_review_is_accepted || die 'architecture-fit review requires a current accepted specification review'
+if [[ "${HARNESS_FORCE_DECOMPOSITION:-0}" == 1 ]] && architecture_redesign_force_matches_current_inputs; then
+	die 'a matching force-decomposition waiver is active; convert every retained finding into prerequisite Terra remediation instead of emitting another redesign request'
+fi
+[[ -f "$report_file" && -f "$issues_file" && -f "$redesign_spec_file" ]] ||
+	die 'architecture redesign recording requires report, issues, and redesign specification files'
+acquire_project_lock
+
+IFS= read -r report_header < "$report_file" || die 'architecture redesign report is empty'
+[[ "$report_header" == '# Architecture Redesign Required' ]] ||
+	die 'architecture redesign report must begin with # Architecture Redesign Required'
+IFS= read -r redesign_header < "$redesign_spec_file" || die 'architecture redesign specification is empty'
+[[ "$redesign_header" == '# Architecture Redesign Specification' ]] ||
+	die 'redesign specification must begin with # Architecture Redesign Specification'
+
+current_spec_sha="$(specification_sha256)"
+current_baseline="$(specification_review_repository_baseline)"
+current_domain_sha="$(domain_profiles_sha256)"
+grep -Fqx "Project: $PROJECT" "$report_file" || die 'architecture redesign report Project does not match the environment'
+grep -Fqx "Specification-SHA256: $current_spec_sha" "$report_file" || die 'architecture redesign report specification hash is stale'
+grep -Fqx "Repository-Baseline: $current_baseline" "$report_file" || die 'architecture redesign report repository baseline is stale'
+grep -Fqx 'Decision: ARCHITECTURE_REDESIGN_REQUIRED' "$report_file" ||
+	die 'architecture redesign report must declare Decision: ARCHITECTURE_REDESIGN_REQUIRED'
+
+issues_header=$'issue_id\tclass\trequirement_ids\tsource_locations\tarchitecture_evidence\tviolated_boundary\twhy_no_bounded_dag\trequired_capability\tacceptance_evidence\tseverity'
+IFS= read -r header < "$issues_file" || die 'architecture redesign issues file is empty'
+[[ "$header" == "$issues_header" ]] ||
+	die "architecture redesign issues header must be: $issues_header"
+
+validate_evidence_locations()
+{
+	local issue_id="$1" label="$2" locations="$3" location path line absolute count=0
+	while IFS= read -r location; do
+		location="$(trim_surrounding_whitespace "$location")"
+		[[ "$location" =~ ^([^:]+):([1-9][0-9]*)$ ]] ||
+			die "$issue_id $label must use comma-separated repository-relative path:line evidence: $location"
+		path="${BASH_REMATCH[1]}"; line="${BASH_REMATCH[2]}"
+		[[ "$path" != /* && "$path" != .. && "$path" != ../* && "$path" != */../* ]] ||
+			die "$issue_id $label escapes the repository: $path"
+		absolute="$(realpath -m "$REPOSITORY/$path")"
+		case "$absolute" in "$REPOSITORY"/*) ;; *) die "$issue_id $label escapes the repository: $path" ;; esac
+		[[ -f "$absolute" ]] || die "$issue_id $label references a missing file: $path"
+		(( line <= $(wc -l < "$absolute") )) || die "$issue_id $label references a nonexistent line: $location"
+		count=$((count + 1))
+	done < <(printf '%s\n' "$locations" | tr ',' '\n')
+	(( count > 0 )) || die "$issue_id $label requires at least one evidence location"
+}
+
+obligations="$(specification_obligations_file)"
+declare -A known_obligations=() seen_issues=()
+while IFS=$'\t' read -r obligation_id _; do
+	[[ "$obligation_id" != obligation_id && -n "$obligation_id" ]] && known_obligations[$obligation_id]=1
+done < "$obligations"
+
+issue_count=0
+while IFS=$'\t' read -r issue_id issue_class requirement_ids source_locations architecture_evidence \
+	violated_boundary why_no_bounded_dag required_capability acceptance_evidence severity extra; do
+	[[ -n "${issue_id:-}${issue_class:-}${requirement_ids:-}${source_locations:-}${architecture_evidence:-}${violated_boundary:-}${why_no_bounded_dag:-}${required_capability:-}${acceptance_evidence:-}${severity:-}${extra:-}" ]] || continue
+	[[ -n "$issue_id" && -n "$issue_class" && -n "$requirement_ids" && -n "$source_locations" &&
+		-n "$architecture_evidence" && -n "$violated_boundary" && -n "$why_no_bounded_dag" &&
+		-n "$required_capability" && -n "$acceptance_evidence" && -n "$severity" && -z "${extra:-}" ]] ||
+		die "invalid architecture redesign issue: ${issue_id:-empty}"
+	[[ "$issue_id" =~ ^ARCH-[A-Za-z0-9._-]+$ ]] || die "invalid architecture redesign issue ID: $issue_id"
+	[[ -z "${seen_issues[$issue_id]:-}" ]] || die "duplicate architecture redesign issue ID: $issue_id"
+	seen_issues[$issue_id]=1
+	[[ "$issue_class" =~ ^(OWNERSHIP_MODEL_INCOMPATIBLE|TRANSACTION_MODEL_INSUFFICIENT|MIGRATION_PATH_ABSENT|DEPENDENCY_DIRECTION_CONFLICT|FOUNDATIONAL_CONTRACT_OUT_OF_SCOPE|OBSERVABILITY_SEAM_ABSENT|CRITICAL_INVARIANT_CONFLICT|RESOURCE_MODEL_INSUFFICIENT)$ ]] ||
+		die "invalid architecture redesign class for $issue_id: $issue_class"
+	[[ "$severity" == CRITICAL ]] || die "blocking architecture redesign issue $issue_id must have CRITICAL severity"
+	while IFS= read -r obligation_id; do
+		obligation_id="$(trim_surrounding_whitespace "$obligation_id")"
+		[[ -n "${known_obligations[$obligation_id]:-}" ]] ||
+			die "$issue_id references unknown specification obligation: $obligation_id"
+	done < <(printf '%s\n' "$requirement_ids" | tr ',' '\n')
+	validate_evidence_locations "$issue_id" source_locations "$source_locations"
+	validate_evidence_locations "$issue_id" architecture_evidence "$architecture_evidence"
+	grep -Fq "$issue_id" "$redesign_spec_file" ||
+		die "redesign specification does not trace required capability to $issue_id"
+	issue_count=$((issue_count + 1))
+done < <(tail -n +2 "$issues_file")
+(( issue_count > 0 )) || die 'ARCHITECTURE_REDESIGN_REQUIRED requires at least one structured issue'
+
+review_dir="$(architecture_redesign_repository_dir)"
+mkdir -p "$review_dir"
+chmod 700 "$review_dir"
+spec_short="${current_spec_sha:0:12}"
+baseline_short="${current_baseline:0:12}"
+stamp="$(timestamp_compact_utc)"
+report_name="architecture-redesign-$spec_short-$baseline_short-$stamp.md"
+issues_name="architecture-redesign-issues-$spec_short-$baseline_short-$stamp.tsv"
+redesign_name="architecture-redesign-specification-$spec_short-$baseline_short-$stamp.md"
+install -m 600 "$report_file" "$review_dir/$report_name.tmp.$$"
+install -m 600 "$issues_file" "$review_dir/$issues_name.tmp.$$"
+install -m 600 "$redesign_spec_file" "$review_dir/$redesign_name.tmp.$$"
+mv "$review_dir/$report_name.tmp.$$" "$review_dir/$report_name"
+mv "$review_dir/$issues_name.tmp.$$" "$review_dir/$issues_name"
+mv "$review_dir/$redesign_name.tmp.$$" "$review_dir/$redesign_name"
+
+report_relative="architecture-review/$report_name"
+issues_relative="architecture-review/$issues_name"
+redesign_relative="architecture-review/$redesign_name"
+state="$(architecture_redesign_state_file)"
+tmp="$state.tmp.$$"
+{
+	printf 'status=ARCHITECTURE_REDESIGN_REQUIRED\n'
+	printf 'specification_sha256=%s\n' "$current_spec_sha"
+	printf 'repository_baseline=%s\n' "$current_baseline"
+	printf 'domain_profiles_sha256=%s\n' "$current_domain_sha"
+	printf 'specification_review_report=%s\n' "$(specification_review_report_relative_path)"
+	printf 'report=%s\n' "$report_relative"
+	printf 'issues=%s\n' "$issues_relative"
+	printf 'redesign_specification=%s\n' "$redesign_relative"
+	printf 'issue_count=%s\n' "$issue_count"
+	printf 'reviewed_at=%s\n' "$(timestamp_utc)"
+} > "$tmp"
+chmod 600 "$tmp"
+mv "$tmp" "$state"
+rm -f "$(architecture_redesign_force_file)"
+log_event "ARCHITECTURE_REDESIGN_REQUIRED report=$report_relative issues=$issues_relative redesign_specification=$redesign_relative issue_count=$issue_count"
+printf '%s\n' "$report_relative"

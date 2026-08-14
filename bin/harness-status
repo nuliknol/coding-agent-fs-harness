@@ -31,6 +31,7 @@ if (( status_detail == 0 )); then
 		/^Specification review: / ||
 		/^Specification IR: / ||
 		/^Specification coverage: / ||
+		/^Architecture fit: / ||
 		/^Architecture health: / ||
 		/^Oracle audit: / ||
 		/^Active root evidence: / ||
@@ -84,6 +85,23 @@ if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )); then
 		specification_review_report="$(specification_review_report_relative_path)"
 	else
 		specification_review_status='PENDING'
+	fi
+fi
+architecture_fit_status='DISABLED'
+architecture_fit_report=''
+if (( HARNESS_DECOMPOSITION_V2 == 1 && HARNESS_DECOMPOSITION_CRITIC_ENABLED == 1 )); then
+	if project_plan_exists; then
+		architecture_fit_status='ACCEPTED'
+	elif architecture_redesign_matches_current_inputs &&
+		[[ "$(architecture_redesign_state_value status)" == ARCHITECTURE_REDESIGN_REQUIRED ]]; then
+		architecture_fit_report="$(architecture_redesign_report_relative_path)"
+		if architecture_redesign_force_matches_current_inputs; then
+			architecture_fit_status='FORCE_DECOMPOSITION_AUTHORIZED'
+		else
+			architecture_fit_status='ARCHITECTURE_REDESIGN_REQUIRED'
+		fi
+	else
+		architecture_fit_status='PENDING'
 	fi
 fi
 if project_plan_exists; then
@@ -177,6 +195,11 @@ if specification_ir_available; then
 		"$(specification_coverage_verified_count)" "$(specification_obligation_count)"
 elif specification_ir_registered; then
 	printf 'Specification IR: INVALID (authority, history, or installed artifacts no longer match)\n'
+fi
+if [[ -n "$architecture_fit_report" ]]; then
+	printf 'Architecture fit: %s (%s)\n' "$architecture_fit_status" "$architecture_fit_report"
+else
+	printf 'Architecture fit: %s\n' "$architecture_fit_status"
 fi
 if (( HARNESS_ARCHITECTURE_GUARDS == 1 )); then
 	if architecture_registered; then
@@ -489,6 +512,8 @@ elif specification_ir_registered && { ! specification_ir_available || { project_
 	project_status_line='Project status: SPECIFICATION_IR_INVALID. Execution is stopped because accepted semantic authority, repository history, or obligation coverage no longer matches.'
 elif [[ "$specification_review_status" == SPEC_CLARIFICATION_REQUIRED ]]; then
 	project_status_line="Project status: SPEC_CLARIFICATION_REQUIRED. Review $specification_review_report before DAG registration."
+elif [[ "$architecture_fit_status" == ARCHITECTURE_REDESIGN_REQUIRED ]]; then
+	project_status_line="Project status: ARCHITECTURE_REDESIGN_REQUIRED. Foundational architecture cannot safely support the accepted specification; review $architecture_fit_report before DAG registration."
 elif (( token_usage_anomaly_count > 0 )); then
 	project_status_line='Project status: TOKEN_USAGE_ANOMALY. Irregular per-episode or cumulative leaf token consumption was detected; all further project agent launches are suppressed pending an explicit corrective resolution.'
 elif project_completion_recorded && project_plan_all_complete; then

@@ -11,6 +11,10 @@ require_manager_configuration
 require_manager_codex
 (( HARNESS_DECOMPOSITION_V2 == 1 )) || die 'decomposition critic requires HARNESS_DECOMPOSITION_V2=1'
 project_plan_exists && { printf 'Decomposition DAG already exists.\n'; exit 0; }
+if architecture_redesign_requires_action && [[ "${HARNESS_FORCE_DECOMPOSITION:-0}" != 1 ]]; then
+	printf 'Architecture redesign required: %s\n' "$(architecture_redesign_report_relative_path)"
+	exit 6
+fi
 
 trace_init manager_decomposition_critic
 trace_script_start "$@"
@@ -53,8 +57,13 @@ ARCHITECTURE_GUARDS=$HARNESS_ARCHITECTURE_GUARDS
 MAX_LUNA_ALLOWED_PATHS=$HARNESS_MAX_LUNA_ALLOWED_PATHS
 MAX_LUNA_OBLIGATIONS_PER_LEAF=$HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF
 MAX_LUNA_CONTEXT_CAPSULE_BYTES=$HARNESS_MAX_LUNA_CONTEXT_CAPSULE_BYTES
+FORCE_DECOMPOSITION=${HARNESS_FORCE_DECOMPOSITION:-0}
+ARCHITECTURE_REDESIGN_REPORT=$(architecture_redesign_state_value report -)
+ARCHITECTURE_FORCE_WAIVER=$(architecture_redesign_force_file)
+ARCHITECTURE_FORCE_WAIVER_ID=$(kv_file_value "$(architecture_redesign_force_file)" waiver_id 2>/dev/null || printf '-')
+ARCHITECTURE_FORCE_DEBT_EXPIRES_AT=$(date -u -d '+30 days' +%Y-%m-%d)
 
-Before drafting a DAG, independently challenge the accepted review and normalized IR against the governing sources and repository evidence. There are exactly three outcomes:
+Before drafting a DAG, independently challenge the accepted review, normalized IR, and architectural fitness against the governing sources and repository evidence. There are exactly four outcomes:
 
 1. If a governing source contains a demonstrated unresolved product/specification defect in one of the supported clarification classes, write CHALLENGE_REPORT beginning with `# Specification Review Challenge` and CHALLENGE_ISSUES using the specification issues TSV schema, then call:
 
@@ -72,7 +81,25 @@ $HARNESS_BIN/manager-request-specification-renormalization "$HARNESS_ENV_FILE" R
 
 Terminate immediately after it succeeds. This is an automatic compiler correction and must not bounce a false clarification to the user. Use renormalization only when preserving all governing statements can produce a valid acyclic IR. Never request renormalization when the source itself must change or an authority must choose between incompatible dependency directions.
 
-3. Only when the accepted review and normalized IR survive this independent challenge may you register a DAG.
+3. If the specification and normalized IR are clear, but satisfying them on the current repository baseline necessarily violates a foundational ownership, transaction, migration, dependency-direction, contract-authority, observability, critical-invariant, or resource-lifetime boundary, refuse decomposition. This is not a preference for cleaner architecture and not ordinary feature-local refactoring. Use it only when cited current repository evidence proves that no authority-closed feature DAG can satisfy the accepted obligations without structural debt that the feature specification does not authorize.
+
+Write ARCHITECTURE_REPORT beginning with `# Architecture Redesign Required` and containing exact lines for Project, Specification-SHA256, Repository-Baseline, and Decision: ARCHITECTURE_REDESIGN_REQUIRED. Write ARCHITECTURE_ISSUES with this exact tab-separated header:
+
+issue_id<TAB>class<TAB>requirement_ids<TAB>source_locations<TAB>architecture_evidence<TAB>violated_boundary<TAB>why_no_bounded_dag<TAB>required_capability<TAB>acceptance_evidence<TAB>severity
+
+Use stable ARCH-... IDs. class must be OWNERSHIP_MODEL_INCOMPATIBLE, TRANSACTION_MODEL_INSUFFICIENT, MIGRATION_PATH_ABSENT, DEPENDENCY_DIRECTION_CONFLICT, FOUNDATIONAL_CONTRACT_OUT_OF_SCOPE, OBSERVABILITY_SEAM_ABSENT, CRITICAL_INVARIANT_CONFLICT, or RESOURCE_MODEL_INSUFFICIENT. requirement_ids must name normalized obligations. source_locations and architecture_evidence must each contain comma-separated, repository-relative path:line citations to existing files. severity must be CRITICAL. Explain why splitting, a normal Terra contract decision, or a bounded local refactor cannot resolve the issue inside this feature authority.
+
+Write REDESIGN_SPECIFICATION beginning with `# Architecture Redesign Specification`. It is a concise requirements-only brief, not a speculative implementation design. Trace every ARCH-... issue and state required capabilities, preserved invariants and compatibility boundaries, migration/rollback requirements where applicable, forbidden patch-around behavior, and deterministic acceptance evidence. Then call:
+
+$HARNESS_BIN/manager-record-architecture-redesign "$HARNESS_ENV_FILE" ARCHITECTURE_REPORT ARCHITECTURE_ISSUES REDESIGN_SPECIFICATION
+
+Terminate immediately after it succeeds. Do not register a DAG or architecture registry.
+
+Do not use ARCHITECTURE_REDESIGN_REQUIRED for code ugliness, missing local implementation, optional cleanup, unrelated technical debt, stale planning hints, absent documentation, or an architecture that is merely different from your preference. When the accepted feature specification explicitly authorizes the necessary architecture change and defines its acceptance boundary, create bounded Terra architecture-decision/remediation nodes instead of bouncing.
+
+When FORCE_DECOMPOSITION=1, a human has explicitly waived a matching redesign report. Do not emit another redesign request for those findings. The waiver does not erase them: create prerequisite Terra CROSS_COMPONENT_ARCHITECTURE nodes for every required capability, make all affected implementation nodes depend on them, and create one OPEN CRITICAL architecture debt row named DEBT-ARCH-... per ARCH-... issue. Each debt consequence must name its exact ARCH-... issue ID, remediation_node must be the corresponding Terra node, expires_at must be ARCHITECTURE_FORCE_DEBT_EXPIRES_AT, and waiver_authority must be COMMAND_LINE_FORCE_DECOMPOSITION:ARCHITECTURE_FORCE_WAIVER_ID. Bind at least one CRITICAL focused health gate to every remediation node. Every coverage node allocated an affected requirement must be that remediation node or depend transitively on it. Dependent Luna work must not become ready until those Terra nodes and their focused architecture gates are accepted. The manager must resolve each debt row only after accepting its remediation node and evidence.
+
+4. Only when the accepted review, normalized IR, and architecture-fit review survive this independent challenge—or a matching force waiver has converted every blocker into prerequisite remediation—may you register a DAG.
 
 Read the complete specification, accepted specification review, normalized obligations, typed semantic relations, repository inventory and facts, selected domain-profile manifest, applicable repository development policy, and enough current repository structure to verify real dependencies and existing contracts. Treat OBSERVED repository facts as evidence, INFERRED facts as hypotheses to verify, and PLANNING_HINT facts as advisory only; none can silently add product requirements. The repository inventory is a navigation aid and never limits necessary inspection. Produce a topologically ordered decomposition DAG with this exact tab-separated header:
 
@@ -165,6 +192,14 @@ while true; do
 		log_event "DECOMPOSITION_CRITIC_CLARIFICATION report=$(specification_review_report_relative_path) attempts=$attempt"
 		printf 'Specification clarification required: %s\n' "$(specification_review_report_relative_path)"
 		exit 3
+	fi
+	if architecture_redesign_matches_current_inputs &&
+		[[ "$(architecture_redesign_state_value status)" == ARCHITECTURE_REDESIGN_REQUIRED ]] &&
+		! architecture_redesign_force_matches_current_inputs; then
+		cp -f "$message" "$last_message" 2>/dev/null || true
+		log_event "DECOMPOSITION_CRITIC_REDESIGN report=$(architecture_redesign_report_relative_path) attempts=$attempt"
+		printf 'Architecture redesign required: %s\n' "$(architecture_redesign_report_relative_path)"
+		exit 6
 	fi
 	if specification_renormalization_stall_matches_current_inputs; then
 		cp -f "$message" "$last_message" 2>/dev/null || true

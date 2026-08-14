@@ -2,7 +2,7 @@
 
 set -Eeuo pipefail
 
-[[ $# -eq 6 ]] || { printf 'Usage: %s START_COMMAND ENV_FILE PID_FILE STATUS_FILE LOG_FILE STARTED_AT\n' "${0##*/}" >&2; exit 2; }
+[[ $# -eq 7 ]] || { printf 'Usage: %s START_COMMAND ENV_FILE PID_FILE STATUS_FILE LOG_FILE STARTED_AT FORCE_DECOMPOSITION\n' "${0##*/}" >&2; exit 2; }
 start_command="$1"
 shift
 env_file="$1"
@@ -10,6 +10,8 @@ pid_file="$2"
 status_file="$3"
 log_file="$4"
 started_at="$5"
+force_decomposition="$6"
+[[ "$force_decomposition" =~ ^(0|1)$ ]] || { printf 'invalid force-decomposition flag: %s\n' "$force_decomposition" >&2; exit 2; }
 
 runner_pid="${BASHPID:-$$}"
 for _ in $(seq 1 100); do
@@ -24,6 +26,7 @@ finish_background_start()
 	case "$exit_status" in
 		0) state=STARTED ;;
 		3) state=SPEC_CLARIFICATION_REQUIRED ;;
+		6) state=ARCHITECTURE_REDESIGN_REQUIRED ;;
 		*) state=FAILED ;;
 	esac
 	status_tmp="$status_file.tmp.$runner_pid"
@@ -45,4 +48,8 @@ trap 'finish_background_start $?' EXIT
 trap 'exit 143' TERM HUP
 trap 'exit 130' INT
 
-"$start_command" "$env_file"
+if (( force_decomposition == 1 )); then
+	"$start_command" --force-decomposition "$env_file"
+else
+	"$start_command" "$env_file"
+fi
