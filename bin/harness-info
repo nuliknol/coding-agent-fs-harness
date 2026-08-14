@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-mode.sh"
+harness_dispatch_mode "$SCRIPT_DIR/.." "${0##*/}" "$@"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 1 ]] || { printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+
+dir="$(project_dir)"
+version='unknown'
+[[ ! -f "$HARNESS_HOME/VERSION" ]] || version="$(<"$HARNESS_HOME/VERSION")"
+
+printf 'Project information\n'
+printf '  Project: %s\n' "$PROJECT"
+printf '  Harness version / mode: %s / %s\n' "$version" "$HARNESS_MODE"
+printf '  Environment: %s\n' "$HARNESS_ENV_FILE"
+printf '  Repository: %s\n' "$REPOSITORY"
+printf '  Specification: %s\n' "$SPECIFICATION"
+printf '  State: %s\n' "$dir"
+
+printf '\nSpecification model\n'
+if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )); then
+	if specification_review_matches_current_inputs; then
+		printf '  Review: %s\n' "$(specification_review_state_value status UNKNOWN)"
+		printf '  Report: %s\n' "$(specification_review_report_relative_path)"
+	else
+		printf '  Review: PENDING (current inputs do not match an accepted review)\n'
+	fi
+else
+	printf '  Review: disabled\n'
+fi
+if specification_ir_available; then
+	printf '  Obligations / relations: %s / %s\n' \
+		"$(specification_obligation_count)" "$(specification_review_state_value relation_count 0)"
+	printf '  Coverage mapped / verified: %s / %s\n' \
+		"$(specification_coverage_mapped_count)" "$(specification_coverage_verified_count)"
+	printf '  Domain profiles: %s\n' "${HARNESS_DOMAIN_PROFILES:-none}"
+elif specification_ir_registered; then
+	printf '  Specification IR: INVALID\n'
+else
+	printf '  Specification IR: not registered\n'
+fi
+
+printf '\nDecomposition\n'
+if project_plan_uses_dag; then
+	dag="$(project_decomposition_plan_file)"
+	read -r nodes luna terra coding luna_coding typed < <(awk -F '\t' '
+		NR == 1 {typed=($9 == "leaf_type"); next}
+		NR > 1 {
+			nodes++
+			route=typed ? $11 : $10
+			if (route == "LUNA") luna++; else if (route == "TERRA") terra++
+			if (typed && $9 ~ /^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$/) {
+				coding++; if (route == "LUNA") luna_coding++
+			}
+		}
+		END {print nodes+0, luna+0, terra+0, coding+0, luna_coding+0, typed+0}
+	' "$dag")
+	printf '  DAG nodes: %s (%s complete)\n' "$nodes" "$(project_plan_complete_count)"
+	printf '  Routes: Luna=%s Terra=%s\n' "$luna" "$terra"
+	if (( typed )); then
+		printf '  Luna coding nodes: %s/%s\n' "$luna_coding" "$coding"
+	else
+		printf '  Luna coding nodes: unavailable for legacy untyped DAG\n'
+	fi
+	printf '  Preferred route: %s\n' "$HARNESS_PREFERRED_WORKER_ROUTE"
+	printf '  Tree: harness-decomposition-tree %s\n' "$HARNESS_ENV_FILE"
+elif project_plan_exists; then
+	printf '  Plan: legacy (%s items)\n' "$(project_plan_total_count)"
+else
+	printf '  Plan: not registered\n'
+fi
+
+printf '\nAgent routing\n'
+printf '  Manager: %s (%s)\n' "$MANAGER_MODEL" "$MANAGER_REASONING_EFFORT"
+printf '  Luna worker: %s (%s)\n' "$LUNA_WORKER_MODEL" "$LUNA_WORKER_REASONING_EFFORT"
+printf '  Terra worker: %s (%s)\n' "$TERRA_WORKER_MODEL" "$TERRA_WORKER_REASONING_EFFORT"
+if oracle_enabled; then
+	printf '  Oracle: %s (%s)\n' "$ORACLE_MODEL" "$ORACLE_REASONING_EFFORT"
+else
+	printf '  Oracle: disabled\n'
+fi
+
+printf '\nArchitecture\n'
+if (( HARNESS_ARCHITECTURE_GUARDS == 1 )); then
+	if architecture_registered; then
+		printf '  Profile: %s\n' "$(architecture_profile)"
+		printf '  Open critical / expired debt: %s / %s\n' \
+			"$(architecture_open_critical_debt_count)" "$(architecture_expired_debt_count)"
+		printf '  Missing health gates: %s\n' "$(architecture_missing_health_gate_count)"
+	else
+		printf '  Registry: pending\n'
+	fi
+else
+	printf '  Guards: disabled\n'
+fi

@@ -168,9 +168,11 @@ quality signals such as route counts, terminal leaf success, zero-gain turns,
 replans, verified items, Luna's share of coding assignments, Terra decision
 versus coding assignments, and manager/worker tokens per verified item. Token
 accounting deduplicates resumed threads by taking their latest cumulative usage.
-`bin/harness-status ENV_FILE` also reports manager, Luna-worker, Terra-worker,
+`bin/harness-statistics ENV_FILE` reports manager, Luna-worker, Terra-worker,
 and Oracle token totals plus manager/worker and Luna/Terra processed-token
-ratios. Cached input is shown separately but remains part of input tokens.
+ratios. It also groups decomposition quality, route share, delivery outcomes,
+zero-gain iterations, and verified Specification IR coverage. Cached input is
+part of input tokens. Use `--tsv` for machine-readable metrics.
 Run `bin/harness-decomposition-tree ENV_FILE` to display the immutable DAG as a
 terminal tree with node state, complexity, configured worker route,
 dependencies, deliverable, and active task route. `--compact` shows one line
@@ -1003,13 +1005,43 @@ control state, not disposable logs.
 
 ## Monitoring
 
-Status:
+Concise operational status:
 
 ```bash
 /opt/coding-agent-fs-harness-v4.5/bin/harness-status /path/to/repository/harness.env
 ```
 
-Unified state transitions:
+The default view contains only current supervisors, specification state,
+progress, the active root/leaf, and the project status. Use
+`harness-status --full ENV_FILE` for the legacy diagnostic tables. Machine
+consumers should use `--machine`; `harness-watch-many` does this automatically.
+
+Project identity, accepted Specification IR counters, decomposition route
+summary, agent configuration, and architecture profile:
+
+```bash
+harness-info /path/to/repository/harness.env
+```
+
+Cumulative delivery, decomposition-quality, and token statistics:
+
+```bash
+harness-statistics /path/to/repository/harness.env
+```
+
+Chronological implementation history:
+
+```bash
+harness-implementation-log /path/to/repository/harness.env
+harness-implementation-log --follow /path/to/repository/harness.env
+```
+
+This timeline summarizes durable specification, DAG, routing, worker,
+manager, dependency, architecture, and Oracle transitions. `--all` includes
+low-level lifecycle events. Use `harness-watch-agents` when raw natural-language
+agent output is required.
+
+Raw unified state transitions:
 
 ```bash
 tail -F "$HOME/.local/state/coding-harness/projects/sample-project/logs/events.log"

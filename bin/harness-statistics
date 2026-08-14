@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-mode.sh"
+harness_dispatch_mode "$SCRIPT_DIR/.." "${0##*/}" "$@"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+raw=0
+[[ "${1:-}" != --tsv ]] || { raw=1; shift; }
+[[ $# -eq 1 ]] || { printf 'Usage: %s [--tsv] ENV_FILE\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+
+metric()
+{
+	local report="$1" name="$2" fallback="${3:-0}"
+	local value
+	value="$(awk -F '\t' -v name="$name" '$1 == name {print $2; exit}' <<< "$report")"
+	printf '%s' "${value:-$fallback}"
+}
+
+ratio()
+{
+	local left="$1" right="$2"
+	if (( left == 0 && right == 0 )); then printf 'N/A'
+	elif (( right == 0 )); then printf 'infinite'
+	else awk -v left="$left" -v right="$right" 'BEGIN {printf "%.2f:1", left / right}'
+	fi
+}
+
+token_report="$("$HARNESS_BIN/harness-agent-token-usage" "$HARNESS_ENV_FILE")"
+metrics_report=''
+if project_plan_uses_dag; then
+	metrics_report="$("$HARNESS_BIN/harness-decomposition-metrics" "$HARNESS_ENV_FILE")"
+fi
+if (( raw )); then
+	if [[ -n "$metrics_report" ]]; then
+		printf '%s\n' "$metrics_report"
+	else
+		printf 'metric\tvalue\nplan_registered\t0\n'
+	fi
+	awk -F '\t' 'NR > 1 {printf "agent_%s\t%s\n", $1, $2}' <<< "$token_report"
+	exit
+fi
+
+printf 'Harness statistics: %s\n' "$PROJECT"
+if specification_ir_available; then
+	printf '\nSpecification\n'
+	printf '  Obligations: %s; relations: %s\n' \
+		"$(specification_obligation_count)" "$(specification_review_state_value relation_count 0)"
+	printf '  Mapped: %s; verified: %s\n' \
+		"$(specification_coverage_mapped_count)" "$(specification_coverage_verified_count)"
+fi
+if [[ -n "$metrics_report" ]]; then
+	printf '\nDecomposition and delivery\n'
+	printf '  Nodes complete: %s/%s\n' "$(metric "$metrics_report" nodes_complete)" "$(metric "$metrics_report" nodes_total)"
+	printf '  Planned Luna coding share: %s%%\n' "$(metric "$metrics_report" planned_luna_coding_share_percent N/A)"
+	printf '  Actual Luna coding share: %s%%\n' "$(metric "$metrics_report" luna_coding_share_percent N/A)"
+	printf '  Luna / Terra assignments: %s / %s\n' \
+		"$(metric "$metrics_report" luna_assignments)" "$(metric "$metrics_report" terra_assignments)"
+	printf '  Luna terminal success: %s%%\n' "$(metric "$metrics_report" luna_terminal_success_percent N/A)"
+	printf '  Verified items / automatic replans: %s / %s\n' \
+		"$(metric "$metrics_report" verified_items)" "$(metric "$metrics_report" automatic_replans)"
+	printf '  Zero-gain iterations: %s/%s (%s%%)\n' \
+		"$(metric "$metrics_report" identical_zero_gain_iterations)" "$(metric "$metrics_report" goal_iterations)" \
+		"$(metric "$metrics_report" zero_gain_iteration_percent N/A)"
+else
+	printf '\nDecomposition and delivery\n  DAG statistics: pending plan registration\n'
+fi
+
+manager=$(( $(metric "$token_report" manager_input_tokens) + $(metric "$token_report" manager_output_tokens) ))
+worker_luna=$(( $(metric "$token_report" worker_luna_input_tokens) + $(metric "$token_report" worker_luna_output_tokens) ))
+worker_terra=$(( $(metric "$token_report" worker_terra_input_tokens) + $(metric "$token_report" worker_terra_output_tokens) ))
+worker_unknown=$(( $(metric "$token_report" worker_unknown_input_tokens) + $(metric "$token_report" worker_unknown_output_tokens) ))
+oracle=$(( $(metric "$token_report" oracle_input_tokens) + $(metric "$token_report" oracle_output_tokens) ))
+worker=$((worker_luna + worker_terra + worker_unknown))
+luna=$(( $(metric "$token_report" luna_input_tokens) + $(metric "$token_report" luna_output_tokens) ))
+terra=$(( $(metric "$token_report" terra_input_tokens) + $(metric "$token_report" terra_output_tokens) ))
+printf '\nToken usage (input + output; cached input remains part of input)\n'
+printf '  Manager: %s; workers: %s; Oracle: %s\n' "$manager" "$worker" "$oracle"
+printf '  Luna workers: %s; Terra workers: %s; legacy/unclassified workers: %s\n' \
+	"$worker_luna" "$worker_terra" "$worker_unknown"
+printf '  Manager/worker ratio: %s\n' "$(ratio "$manager" "$worker")"
+printf '  Luna/Terra model ratio: %s\n' "$(ratio "$luna" "$terra")"

@@ -111,7 +111,7 @@ set -e
 grep -Fqx "Specification clarification required: $record_output" <<< "$start_output"
 [[ ! -f "$project_dir/control/project-plan.tsv" ]]
 
-status_output="$("$HARNESS_BIN/harness-status" "$env_file")"
+status_output="$("$HARNESS_BIN/harness-status" --full "$env_file")"
 grep -Fq "Specification review: SPEC_CLARIFICATION_REQUIRED ($record_output)" <<< "$status_output"
 grep -Fq "Project status: SPEC_CLARIFICATION_REQUIRED. Review $record_output before DAG registration." <<< "$status_output"
 watch_output="$(HARNESS_WATCH_COLOR=always COLUMNS=120 LINES=30 "$HARNESS_BIN/harness-watch-many" --once "$TEST_ROOT/configs")"
@@ -248,10 +248,10 @@ grep -Fqx $'REQ-1\tn1\tFocused negative and nonnegative target_symbol test' "$pr
 printf 'int target_symbol_helper(void) { return 0; }\n' > "$repo/src/helper.c"
 git -C "$repo" add src/helper.c
 git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm advance-implementation
-post_commit_status="$("$HARNESS_BIN/harness-status" "$env_file")"
+post_commit_status="$("$HARNESS_BIN/harness-status" --full "$env_file")"
 grep -Fq 'Specification IR: obligations=2 relations=5 domain-profiles=test-contract' <<< "$post_commit_status"
 mv "$project_dir/control/specification-coverage.tsv" "$TEST_ROOT/preserved-coverage.tsv"
-invalid_status="$("$HARNESS_BIN/harness-status" "$env_file")"
+invalid_status="$("$HARNESS_BIN/harness-status" --full "$env_file")"
 grep -Fq 'Project status: SPECIFICATION_IR_INVALID.' <<< "$invalid_status"
 invalid_watch="$(HARNESS_WATCH_COLOR=always COLUMNS=120 LINES=30 "$HARNESS_BIN/harness-watch-many" --once "$TEST_ROOT/configs")"
 grep -Eq $'^\033\[7mspec-review-test +\| *0\| paused' <<< "$invalid_watch"
@@ -293,7 +293,7 @@ grep -Fqx $'manager_cached_tokens\t100' <<< "$token_output"
 grep -Fqx $'manager_output_tokens\t20' <<< "$token_output"
 grep -Fqx $'worker_luna_input_tokens\t40' <<< "$token_output"
 grep -Fqx $'worker_terra_input_tokens\t20' <<< "$token_output"
-status_output="$("$HARNESS_BIN/harness-status" "$env_file")"
+status_output="$("$HARNESS_BIN/harness-status" --full "$env_file")"
 grep -Fq 'Specification IR: obligations=2 relations=5 domain-profiles=test-contract' <<< "$status_output"
 grep -Fq 'Specification coverage: mapped=2/2 verified=0/2' <<< "$status_output"
 grep -Fq 'Manager [gpt-5.6-terra]: input=150 cached=100 output=20 processed=170' <<< "$status_output"
@@ -301,5 +301,29 @@ grep -Fq 'Luna worker [gpt-5.6-luna]: input=40 cached=30 output=10 processed=50'
 grep -Fq 'Terra worker [gpt-5.6-terra]: input=20 cached=5 output=5 processed=25' <<< "$status_output"
 grep -Fq 'Role ratio manager/worker: 2.27:1 (higher: manager)' <<< "$status_output"
 grep -Fq 'Model ratio Luna/Terra: 0.26:1 (higher: Terra)' <<< "$status_output"
+
+concise_status="$("$HARNESS_BIN/harness-status" "$env_file")"
+grep -Fq 'Project: spec-review-test' <<< "$concise_status"
+grep -Fq 'Specification IR: obligations=2 relations=5 domain-profiles=test-contract' <<< "$concise_status"
+grep -Fq 'Project progress:' <<< "$concise_status"
+grep -Fq 'Project status:' <<< "$concise_status"
+if grep -Fq 'Agent token usage' <<< "$concise_status" || grep -Fq 'PLAN ITEM' <<< "$concise_status"; then
+	printf 'concise status unexpectedly included detailed reporting tables\n' >&2
+	exit 1
+fi
+
+info_output="$("$HARNESS_BIN/harness-info" "$env_file")"
+grep -Fq 'Obligations / relations: 2 / 5' <<< "$info_output"
+grep -Fq 'DAG nodes: 2 (0 complete)' <<< "$info_output"
+grep -Fq 'Routes: Luna=2 Terra=0' <<< "$info_output"
+
+statistics_output="$("$HARNESS_BIN/harness-statistics" "$env_file")"
+grep -Fq 'Nodes complete: 0/2' <<< "$statistics_output"
+grep -Fq 'Manager: 170; workers: 75; Oracle: 0' <<< "$statistics_output"
+grep -Fq 'Manager/worker ratio: 2.27:1' <<< "$statistics_output"
+
+implementation_output="$("$HARNESS_BIN/harness-implementation-log" "$env_file")"
+grep -Fq 'Specification ACCEPTED; obligations=2, relations=5' <<< "$implementation_output"
+grep -Fq 'Decomposition DAG registered; nodes=2' <<< "$implementation_output"
 
 printf 'specification review and token usage tests passed\n'

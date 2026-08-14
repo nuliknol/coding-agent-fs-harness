@@ -237,7 +237,9 @@ while IFS= read -r -d '' env_file; do
 	[[ -n "$specification" ]] || continue
 	found=1
 	status_command="${probe_bin:-$SCRIPT_DIR}/harness-status"
-	status_output="$("$status_command" "$env_file" 2>&1)" || {
+	status_args=("$env_file")
+	[[ "$selected_mode" != full ]] || status_args=(--machine "$env_file")
+	status_output="$("$status_command" "${status_args[@]}" 2>&1)" || {
 		error="$(tail -n 2 <<< "$status_output" | tr '\n' ' ')"
 		print_row "${project:-${env_file##*/}}" '-' 'config err' '-' "CONFIGURATION ERROR: ${error:-status unavailable}."
 		continue

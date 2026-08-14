@@ -8,11 +8,42 @@ source "$SCRIPT_DIR/../lib/harness-common.sh"
 
 usage()
 {
-	printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2
+	printf 'Usage: %s [--full|--machine] ENV_FILE\n' "${0##*/}" >&2
 	exit 2
 }
 
+status_detail=0
+case "${1:-}" in
+	--full|--machine) status_detail=1; shift ;;
+	--help|-h) usage ;;
+esac
 [[ $# -eq 1 ]] || usage
+
+# Keep the default operational view deliberately small. The detailed renderer
+# remains the compatibility interface for machine consumers and investigations.
+# Running it in a child also keeps one authoritative status-state calculation.
+if (( status_detail == 0 )); then
+	"$SCRIPT_DIR/harness-status" --machine "$1" | awk '
+		/^Project: / ||
+		/^Harness mode: / ||
+		/^Manager supervisor: / ||
+		/^Worker supervisor: / ||
+		/^Specification review: / ||
+		/^Specification IR: / ||
+		/^Specification coverage: / ||
+		/^Architecture health: / ||
+		/^Oracle audit: / ||
+		/^Active root evidence: / ||
+		/^First unmet leaf criterion: / ||
+		/^Active worker goal: / ||
+		/^Goal task \/ target: / ||
+		/^Latest worker\/provider classification: / ||
+		/^Project progress: / ||
+		/^Project status: / {print}
+	'
+	exit
+fi
+
 load_harness_env "$1"
 ensure_project
 

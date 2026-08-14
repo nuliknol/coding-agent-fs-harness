@@ -242,7 +242,7 @@ grep -q '^state=READY$' "$goal_state"
 # treat that telemetry as pending and still finish with project progress.
 pending_log="$project_dir/logs/worker-task-001-20260724T000000Z-attempt-001.jsonl"
 printf '%s\n' '{"type":"turn.started"}' > "$pending_log"
-"$HARNESS_BIN/harness-status" "$TEST_ROOT/harness.env" > "$TEST_ROOT/status-pending.out"
+"$HARNESS_BIN/harness-status" --full "$TEST_ROOT/harness.env" > "$TEST_ROOT/status-pending.out"
 grep -q 'Latest worker/provider classification: not-yet-recorded' "$TEST_ROOT/status-pending.out"
 tail -n 2 "$TEST_ROOT/status-pending.out" | sed -n '1p' |
 	grep -Eq '^Project progress: [0-9]+% \([0-9]+/[0-9]+ plan items complete\)$'
@@ -270,7 +270,7 @@ grep -q 'WORKER_GOAL_CONTINUED task=001 goal=goal.001.behavior iteration=1' "$pr
 grep -q 'WORKER_GOAL_RESUMING task=001 goal=goal.001.behavior iteration=1' "$project_dir/logs/events.log"
 [[ "$(find "$project_dir/results" -type f -name '*.result.md' | wc -l)" == 1 ]]
 
-"$HARNESS_BIN/harness-status" "$TEST_ROOT/harness.env" > "$TEST_ROOT/status.out"
+"$HARNESS_BIN/harness-status" --full "$TEST_ROOT/harness.env" > "$TEST_ROOT/status.out"
 grep -q 'Worker leaf-goal mode: enabled' "$TEST_ROOT/status.out"
 grep -q 'Active worker goal: goal.001.behavior (REVIEW)' "$TEST_ROOT/status.out"
 grep -q 'Internal iterations: 1' "$TEST_ROOT/status.out"

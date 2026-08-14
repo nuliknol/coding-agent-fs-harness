@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-mode.sh"
+harness_dispatch_mode "$SCRIPT_DIR/.." "${0##*/}" "$@"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+follow=0
+show_all=0
+usage()
+{
+	printf 'Usage: %s [--follow] [--all] ENV_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+while (( $# > 0 )); do
+	case "$1" in
+		-f|--follow) follow=1; shift ;;
+		--all) show_all=1; shift ;;
+		-h|--help) usage ;;
+		--) shift; break ;;
+		-*) usage ;;
+		*) break ;;
+	esac
+done
+[[ $# -eq 1 ]] || usage
+load_harness_env "$1"
+ensure_project
+
+events="$(project_dir)/logs/events.log"
+printf 'Implementation history: %s\n' "$PROJECT"
+printf 'State: %s\n' "$(project_dir)"
+printf 'Timeline:\n'
+[[ -f "$events" ]] || { printf '  (no durable implementation events recorded)\n'; exit 0; }
+
+format_events()
+{
+	awk -v show_all="$show_all" '
+		function value(key,    i, prefix) {
+			prefix=key "="
+			for (i=3; i<=NF; i++) if (index($i, prefix)==1) return substr($i, length(prefix)+1)
+			return "-"
+		}
+		function emit(message) {printf "  %s  %s\n", $1, message; fflush()}
+		{
+			event=$2
+			if (event=="PROJECT_INITIALIZED") emit("Project initialized; repository=" value("repository"))
+			else if (event=="SPECIFICATION_REVIEW_RECORDED") emit("Specification " value("status") "; obligations=" value("obligation_count") ", relations=" value("relation_count") "; report=" value("report"))
+			else if (event=="SPECIFICATION_REVIEW_CHALLENGED") emit("Specification clarification requested; issues=" value("issue_count") "; report=" value("report"))
+			else if (event=="SPECIFICATION_RENORMALIZATION_REQUESTED") emit("Specification IR renormalization requested; record=" value("reason"))
+			else if (event=="DECOMPOSITION_CRITIC_APPROVED") emit("Decomposition critic approved " value("nodes") " DAG nodes")
+			else if (event=="DECOMPOSITION_CRITIC_CLARIFICATION") emit("Decomposition critic returned the specification for clarification; report=" value("report"))
+			else if (event=="DECOMPOSITION_CRITIC_RENORMALIZATION") emit("Decomposition critic requested Specification IR regeneration")
+			else if (event=="PROJECT_DECOMPOSITION_V2_INITIALIZED") emit("Decomposition DAG registered; nodes=" value("nodes") "; coverage=" value("coverage"))
+			else if (event=="PROJECT_PLAN_RECLASSIFIED") emit("Pending DAG routes reclassified; Luna=" value("luna") ", Terra=" value("terra") "; report=" value("report"))
+			else if (event=="ARCHITECTURE_REGISTRY_INITIALIZED") emit("Architecture registry initialized")
+			else if (event=="ARCHITECTURE_REGISTRY_REVISED" || event=="MANAGER_ARCHITECTURE_REVISED") emit("Architecture registry revised; task=" value("task"))
+			else if (event=="ARCHITECTURE_DECISION_ACCEPTED") emit("Architecture decision accepted; decision=" value("decision") "; task=" value("task"))
+			else if (event=="ARCHITECTURE_DEBT_RECORDED") emit("Architecture debt recorded; debt=" value("debt") "; severity=" value("severity"))
+			else if (event=="ARCHITECTURE_DEBT_RESOLVED") emit("Architecture debt resolved; debt=" value("debt"))
+			else if (event=="PROJECT_PLAN_ITEM_ACTIVATED") emit("DAG node activated; node=" value("item") "; root=" value("root"))
+			else if (event=="TASK_PUBLISHED") emit("Leaf published; task=" value("task") "; node=" value("plan_item") "; route=" value("worker_route") "; type=" value("leaf_type") "; target=" value("target_criterion"))
+			else if (event=="MANAGER_BOOTSTRAP_STARTED") emit("Manager began initial implementation planning; attempt=" value("attempt"))
+			else if (event=="MANAGER_BOOTSTRAPPED") emit("Manager published the initial bounded leaf; attempts=" value("attempts"))
+			else if (event=="MANAGER_PLAN_STARTED") emit("Manager began planning the next dependency-ready leaf; progress=" value("project_progress") "%")
+			else if (event=="MANAGER_PLAN_COMMITTED") emit("Manager committed the next planning transition; attempt=" value("attempt"))
+			else if (event=="WORKER_INVOCATION_STARTED") emit("Worker started; task=" value("task") "; model=" value("model") "; attempt=" value("attempt"))
+			else if (event=="TASK_COMPLETED") emit("Worker result published; task=" value("task") "; outcome=" value("goal_outcome"))
+			else if (event=="WORKER_GOAL_CONTINUED") emit("Worker leaf continued; task=" value("task") "; iteration=" value("iteration") "; movement=" value("movement"))
+			else if (event=="MANAGER_REVIEW_STARTED") emit("Manager review started; task=" value("task") "; attempt=" value("attempt"))
+			else if (event=="TASK_PROGRESS_UPDATED") emit("Verified progress updated; task=" value("task") "; progress=" value("progress") "%; improvement=" value("improvement") "%")
+			else if (event=="TASK_CHECKPOINTED") emit("Manager checkpointed verified work; task=" value("task") "; criteria=" value("criteria") "; increments=" value("increments"))
+			else if (event=="TASK_ACCEPTED") emit("Manager accepted leaf; task=" value("task"))
+			else if (event=="TASK_REJECTED") emit("Manager rejected leaf; task=" value("task"))
+			else if (event=="TASK_NEEDS_REPLAN") emit("Leaf requires replanning; task=" value("task") "; root=" value("root"))
+			else if (event=="MANAGER_REPLAN_STARTED") emit("Manager replan started; root=" value("root") "; trigger=" value("trigger"))
+			else if (event=="MANAGER_REPLAN_COMMITTED") emit("Manager replan committed; root=" value("root") "; task=" value("task"))
+			else if (event=="TASK_NEEDS_HUMAN" || event=="TASK_NEEDS_HUMAN_CONFIRMED") emit("Human decision required; root=" value("root") "; task=" value("task"))
+			else if (event=="WAITING_DEPENDENCY") emit("Dependency wait recorded; request=" value("request") "; item=" value("item"))
+			else if (event=="DEPENDENCY_SUPPLIED") emit("Dependency supplied; request=" value("request") "; dependency=" value("dependency") "; commit=" value("commit"))
+			else if (event=="DEPENDENCY_RESOLVED") emit("Dependency resolved; request=" value("request") "; item=" value("item"))
+			else if (event=="PROJECT_PLAN_ITEM_COMPLETED") emit("DAG node completed; node=" value("item") "; task=" value("task") "; progress=" value("progress") "%")
+			else if (event=="ORACLE_AUDIT_STARTED") emit("Oracle audit started; audit=" value("audit_id") "; model=" value("model"))
+			else if (event=="ORACLE_AUDIT_PASSED") emit("Oracle audit passed; audit=" value("audit_id"))
+			else if (event=="ORACLE_AUDIT_REOPENED") emit("Oracle reopened implementation work; audit=" value("audit_id") "; items=" value("items"))
+			else if (event=="ORACLE_AUDIT_BLOCKED") emit("Oracle requires human intervention; audit=" value("audit_id"))
+			else if (event=="AGENT_SOURCE_COMMIT") emit("Validated source commit created; task=" value("task") "; commit=" value("commit"))
+			else if (event=="AGENT_BRANCH_PUBLISHED") emit("Required branch published; task=" value("task") "; branch=" value("branch") "; commit=" value("commit"))
+			else if (event=="AGENT_INVOCATION_THROTTLED") emit("Agent launch throttled; role=" value("role") "; wait=" value("wait_seconds") "s")
+			else if (event ~ /^(MANAGER_PLAN_STRUCTURAL_ERROR|MANAGER_RECOVERY_FAILED|MANAGER_REVIEW_FAILED|WORKER_PROTOCOL_FAILED|WORKER_PROCESS_FAILED|SUPERVISOR_FATAL)$/) emit("Execution problem: " event "; task=" value("task") "; root=" value("root"))
+			else if (event=="PROJECT_COMPLETED" || event=="SUPERVISOR_PROJECT_COMPLETED") emit("Project completed; task=" value("task"))
+			else if (show_all) {line=$0; sub(/^[^[:space:]]+[[:space:]]+/, "", line); emit(line)}
+		}
+	'
+}
+
+if (( follow )); then
+	tail -n +1 -F "$events" | format_events
+else
+	format_events < "$events"
+fi

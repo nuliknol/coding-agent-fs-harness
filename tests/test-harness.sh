@@ -681,7 +681,7 @@ continuation="$TEST_ROOT/state/projects/testproj/tasks/testproj-task-005-revisio
 grep -q '^Task-Root: 005$' "$continuation"
 grep -q '^Starting-Progress: 50%$' "$continuation"
 grep -q 'Preserve all previously verified work' "$continuation"
-"$HARNESS_BIN/harness-status" "$TEST_ROOT/harness.env" > "$TEST_ROOT/progress-status.out"
+"$HARNESS_BIN/harness-status" --full "$TEST_ROOT/harness.env" > "$TEST_ROOT/progress-status.out"
 grep -Eq '005-revision-01 +READY +WORKER +50%' "$TEST_ROOT/progress-status.out"
 expected_task_order=$'003\n002\n001\n005-revision-01'
 actual_task_order="$(awk '$1 ~ /^(001|002|003|005-revision-01)$/ {print $1}' \
@@ -857,7 +857,7 @@ hard_remediation="$hard_project/tasks/hardblockproj-task-001-revision-01.ready.m
 grep -q '^Manager-Remediation: 1$' "$hard_remediation"
 grep -q '^Strategy-Change: REPAIR_PREREQUISITE$' "$hard_remediation"
 grep -q '^Supersedes-Task: 001$' "$hard_remediation"
-"$HARNESS_BIN/harness-status" "$HARD_ROOT/harness.env" > "$HARD_ROOT/status.out"
+"$HARNESS_BIN/harness-status" --full "$HARD_ROOT/harness.env" > "$HARD_ROOT/status.out"
 grep -q 'Project status: MANAGER_REMEDIATION.' "$HARD_ROOT/status.out"
 grep -q 'Manager remediation blockers: 1 occurrence(s), 0 unique fingerprint(s); 1 active task(s).' \
 	"$HARD_ROOT/status.out"
@@ -978,7 +978,7 @@ human_block_output="$("$HARNESS_BIN/manager-block-task" "$HARD_ROOT/harness.env"
 [[ ! -f "$hard_progress/hardblockproj-task-human-001.blocked.md" ]]
 grep -q '^Blocker-Class: HUMAN_AUTHORIZATION$' \
 	"$hard_progress/hardblockproj-task-human-001.needs-human.md"
-"$HARNESS_BIN/harness-status" "$HARD_ROOT/harness.env" > "$HARD_ROOT/human-status.out"
+"$HARNESS_BIN/harness-status" --full "$HARD_ROOT/harness.env" > "$HARD_ROOT/human-status.out"
 grep -q 'Hard-block claims: 2 occurrence(s); 1 routed to manager remediation; 1 confirmed human-dependent.' \
 	"$HARD_ROOT/human-status.out"
 
@@ -1316,7 +1316,7 @@ grep -q $'^compiler.registry\tPASSED\t001\t' \
 grep -q $'001\tCHECKPOINT\t50\t50\t' \
 	"$checkpoint_project/control/progress/checkpointproj-task-001.history.tsv"
 grep -Eq $'^P0\tACTIVE\t001\t' "$checkpoint_project/control/project-plan-state.tsv"
-"$HARNESS_BIN/harness-status" "$CHECKPOINT_ROOT/harness.env" > "$CHECKPOINT_ROOT/status-1.out"
+"$HARNESS_BIN/harness-status" --full "$CHECKPOINT_ROOT/harness.env" > "$CHECKPOINT_ROOT/status-1.out"
 grep -Eq '001 +CHECKPOINTED +WORKER +50%' "$CHECKPOINT_ROOT/status-1.out"
 
 for revision in 01 02; do
@@ -1379,7 +1379,7 @@ if "$HARNESS_BIN/manager-publish-task" "$CHECKPOINT_ROOT/harness.env" 001-revisi
 	exit 1
 fi
 grep -q 'task root is paused pending replanning' "$CHECKPOINT_ROOT/paused.err"
-"$HARNESS_BIN/harness-status" "$CHECKPOINT_ROOT/harness.env" > "$CHECKPOINT_ROOT/status-2.out"
+"$HARNESS_BIN/harness-status" --full "$CHECKPOINT_ROOT/harness.env" > "$CHECKPOINT_ROOT/status-2.out"
 grep -q 'Project status: NEEDS_REPLAN.' "$CHECKPOINT_ROOT/status-2.out"
 grep -q 'Verified checkpoints: 3' "$CHECKPOINT_ROOT/status-2.out"
 checkpoint_watch="$CHECKPOINT_ROOT/watch.out"
@@ -1588,7 +1588,7 @@ grep -q '^Strategy-Change: REPAIR_PREREQUISITE$' "$auto_remediation"
 grep -q '^Remediation-Scope: src/mock-blocking-prerequisite.c$' "$auto_remediation"
 grep -q $'^.*\t001-revision-09\t001-revision-08\tlegacy.first\t-\tLOCAL_CODE_PREREQUISITE\tsrc/mock-blocking-prerequisite.c\tmanager-remediation-test-model$' \
 	"$auto_remediation_ledger"
-"$HARNESS_BIN/harness-status" "$AUTO_ROOT/harness.env" > "$AUTO_ROOT/remediation-status.out"
+"$HARNESS_BIN/harness-status" --full "$AUTO_ROOT/harness.env" > "$AUTO_ROOT/remediation-status.out"
 grep -Eq '^001-revision-09[[:space:]]+READY[[:space:]]+MANAGER_FIX' "$AUTO_ROOT/remediation-status.out"
 grep -q 'Project status: MANAGER_REMEDIATION.' "$AUTO_ROOT/remediation-status.out"
 grep -q 'Manager remediation blockers: 1 occurrence(s), 0 unique fingerprint(s); 1 active task(s).' \
@@ -1667,7 +1667,7 @@ grep -q '^Manager-Remediation: 1$' "$auto_same_blocker_remediation"
 grep -q '^Target-Criterion: legacy.final$' "$auto_same_blocker_remediation"
 grep -q $'^.*\t001-revision-12\t001-revision-11\tlegacy.final\tsha256:dddd.*\tLOCAL_CODE_PREREQUISITE\t' \
 	"$auto_remediation_ledger"
-"$HARNESS_BIN/harness-status" "$AUTO_ROOT/harness.env" > "$AUTO_ROOT/same-blocker-remediation-status.out"
+"$HARNESS_BIN/harness-status" --full "$AUTO_ROOT/harness.env" > "$AUTO_ROOT/same-blocker-remediation-status.out"
 grep -q 'Manager remediation blockers: 2 occurrence(s), 1 unique fingerprint(s); 1 active task(s).' \
 	"$AUTO_ROOT/same-blocker-remediation-status.out"
 grep -q 'Hard-block claims: 1 occurrence(s); 1 routed to manager remediation; 0 confirmed human-dependent.' \
@@ -1915,7 +1915,7 @@ sleep 2
 [[ "$(cat "$PLAN_GAP_ROOT/state/manager-plan-count")" == 1 ]]
 plan_gap_project="$PLAN_GAP_ROOT/state/projects/planninggapproj"
 grep -q '^State-Fingerprint: sha256:' "$plan_gap_project/control/manager-plan-stalled.md"
-"$HARNESS_BIN/harness-status" "$PLAN_GAP_ROOT/harness.env" > "$PLAN_GAP_ROOT/status.out"
+"$HARNESS_BIN/harness-status" --full "$PLAN_GAP_ROOT/harness.env" > "$PLAN_GAP_ROOT/status.out"
 grep -Fq 'Project status: PLANNING_STALLED.' "$PLAN_GAP_ROOT/status.out"
 printf '# operator repaired planning metadata\n' >> "$plan_gap_project/control/project-plan.tsv"
 "$HARNESS_BIN/harness-supervisor-start" "$PLAN_GAP_ROOT/harness.env" >/dev/null
@@ -2051,7 +2051,7 @@ oracle_failure_alert="$ORACLE_RETRY_ROOT/state/projects/oracleretryproj/control/
 grep -q '^Exit-Status: 7$' "$oracle_failure_alert"
 [[ "$(grep -c 'SUPERVISOR_ORACLE_FAILED' \
 	"$ORACLE_RETRY_ROOT/state/projects/oracleretryproj/logs/events.log")" == 1 ]]
-"$HARNESS_BIN/harness-status" "$ORACLE_RETRY_ROOT/harness.env" > "$ORACLE_RETRY_ROOT/status.out"
+"$HARNESS_BIN/harness-status" --full "$ORACLE_RETRY_ROOT/harness.env" > "$ORACLE_RETRY_ROOT/status.out"
 grep -Fq "Oracle audit: INVOCATION_FAILED ($oracle_failure_alert)" "$ORACLE_RETRY_ROOT/status.out"
 grep -Fq 'Project status: ORACLE_AUDIT_FAILED.' "$ORACLE_RETRY_ROOT/status.out"
 ! grep -q '^Oracle audit: PENDING$' "$ORACLE_RETRY_ROOT/status.out"
@@ -2173,7 +2173,7 @@ grep -q '^Triggered-By-Task: oracle-unblock-1$' \
 grep -q 'fresh Oracle audit is pending' "$ORACLE_HUMAN_ROOT/unblock.out"
 grep -q 'PROJECT_UNBLOCKED source=operator-oracle-retry prior_audit_id=1 oracle_requeued=1' \
 	"$oracle_human_project/logs/events.log"
-"$HARNESS_BIN/harness-status" "$ORACLE_HUMAN_ROOT/harness.env" \
+"$HARNESS_BIN/harness-status" --full "$ORACLE_HUMAN_ROOT/harness.env" \
 	> "$ORACLE_HUMAN_ROOT/status.out"
 grep -q '^Oracle audit: PENDING$' "$ORACLE_HUMAN_ROOT/status.out"
 grep -Fq 'Project status: ORACLE_AUDIT.' "$ORACLE_HUMAN_ROOT/status.out"
@@ -2235,7 +2235,7 @@ sed -i 's/^ORACLE-BUDGET-01\tPENDING/ORACLE-BUDGET-01\tCOMPLETE/' \
 grep -q '^Max-Oracle-Runs: 1$' "$oracle_budget_project/control/oracle/oracle-run-limit.md"
 grep -q 'ORACLE_AUDIT_LIMIT_REACHED max_runs=1 completed_runs=1' \
 	"$oracle_budget_project/logs/events.log"
-"$HARNESS_BIN/harness-status" "$ORACLE_BUDGET_ROOT/harness.env" > "$ORACLE_BUDGET_ROOT/status.out"
+"$HARNESS_BIN/harness-status" --full "$ORACLE_BUDGET_ROOT/harness.env" > "$ORACLE_BUDGET_ROOT/status.out"
 grep -q '^Oracle audit: RUN_LIMIT_REACHED ' "$ORACLE_BUDGET_ROOT/status.out"
 grep -q '^Project status: COMPLETE_WITH_ORACLE_LIMIT\.' "$ORACLE_BUDGET_ROOT/status.out"
 
