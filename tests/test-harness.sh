@@ -539,6 +539,34 @@ printf '# Duplicate Result\n' > "$result"
 [[ -f "$stale_result_archive" ]]
 grep -q 'TASK_ACCEPTED_STALE_RESULT_ARCHIVED task=002' "$EVENTS"
 
+# A late sibling result for a root already accepted by another revision is not
+# a new review decision. It is archived as SUPERSEDED without invoking the
+# manager model, and a legacy stalled marker cannot pause the project.
+late_task=002-revision-07
+late_base="testproj-task-$late_task"
+cp "$TEST_ROOT/state/projects/testproj/archive/testproj-task-002.assignment.md" \
+	"$TEST_ROOT/state/projects/testproj/archive/$late_base.assignment.md"
+printf '# Late duplicate result\n' > \
+	"$TEST_ROOT/state/projects/testproj/results/$late_base.result.md"
+printf '# Manager Review Stalled\n' > \
+	"$TEST_ROOT/state/projects/testproj/control/$late_base.manager-review-stalled.md"
+rm -f "$TEST_ROOT/state/projects/testproj/control/project.complete"
+"$HARNESS_BIN/harness-status" --full "$TEST_ROOT/harness.env" > \
+	"$TEST_ROOT/superseded-before-status.out"
+! grep -q '^Project status: REVIEW_STALLED\.' \
+	"$TEST_ROOT/superseded-before-status.out"
+manager_calls_before="$(wc -l < "$ARGS_LOG")"
+"$HARNESS_BIN/manager-invoke-result" "$TEST_ROOT/harness.env" "$late_task" >/dev/null
+manager_calls_after="$(wc -l < "$ARGS_LOG")"
+[[ "$manager_calls_after" == "$manager_calls_before" ]]
+[[ ! -e "$TEST_ROOT/state/projects/testproj/results/$late_base.result.md" ]]
+[[ -f "$TEST_ROOT/state/projects/testproj/archive/$late_base.superseded-result.md" ]]
+[[ -f "$TEST_ROOT/state/projects/testproj/archive/$late_base.superseded.md" ]]
+[[ ! -e "$TEST_ROOT/state/projects/testproj/control/$late_base.manager-review-stalled.md" ]]
+grep -q '^Superseded-By: 002$' \
+	"$TEST_ROOT/state/projects/testproj/archive/$late_base.superseded.md"
+grep -q 'MANAGER_REVIEW_SUPERSEDED_WITHOUT_AGENT task=002-revision-07' "$EVENTS"
+
 # Continue with isolated low-level command tests after the completed end-to-end
 # plan by extending this disposable fixture with three pending items.
 rm -f "$TEST_ROOT/state/projects/testproj/control/project.complete"

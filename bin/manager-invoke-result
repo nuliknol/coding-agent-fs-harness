@@ -37,13 +37,23 @@ accepted="$project_path/archive/$base.accepted.md"
 checkpointed="$project_path/archive/$base.checkpointed.md"
 rejected="$project_path/archive/$base.rejected.md"
 blocked="$project_path/archive/$base.blocked.md"
+superseded="$project_path/archive/$base.superseded.md"
 pending_exit_status=3
 [[ -f "$result" ]] || die "result file does not exist: $result"
 [[ ! -e "$running" ]] || die "result is not committed; running assignment still exists: $running"
 [[ ! -e "$lease" ]] || die "result is not committed; worker lease still exists: $lease"
 [[ -f "$assignment_archive" ]] || die "result is not committed; archived assignment is missing: $assignment_archive"
-initialize_task_progress "$task_id" "$assignment_archive"
 task_root="$(task_root_id "$task_id")"
+project_plan_exists || die 'project plan is missing; cannot review a task outside the specification plan'
+plan_item_id="$(project_plan_item_for_root "$task_root")"
+if [[ -n "$plan_item_id" && "$(project_plan_item_status "$plan_item_id")" == COMPLETE ]] &&
+	root_has_accepted_task "$task_root"; then
+	"$HARNESS_BIN/manager-supersede-task" "$HARNESS_ENV_FILE" "$task_id" >/dev/null
+	log_event "MANAGER_REVIEW_SUPERSEDED_WITHOUT_AGENT task=$task_id root=$task_root plan_item=$plan_item_id"
+	trace_event MANAGER_REVIEW_SUPERSEDED_WITHOUT_AGENT "task_id=$task_id" "task_root=$task_root" "plan_item=$plan_item_id"
+	exit 0
+fi
+initialize_task_progress "$task_id" "$assignment_archive"
 progress_file="$(task_progress_file "$task_root")"
 root_assignment_file="$(task_root_assignment_file "$task_root")"
 criteria_definition_file="$(task_criteria_definition_file "$task_root")"
@@ -71,8 +81,6 @@ development_policy_file="$REPOSITORY/design/development-policy.txt"
 [[ -f "$development_policy_file" ]] || development_policy_file=""
 project_plan_definition="$(project_plan_definition_file)"
 project_plan_state="$(project_plan_state_file)"
-project_plan_exists || die 'project plan is missing; cannot review a task outside the specification plan'
-plan_item_id="$(project_plan_item_for_root "$task_root")"
 specification_obligations_path='-'
 specification_relations_path='-'
 specification_coverage_path='-'
@@ -198,7 +206,7 @@ commit_fresh_manager_context()
 
 manager_action_committed()
 {
-	[[ -f "$accepted" || -f "$checkpointed" || -f "$rejected" || -f "$blocked" ]]
+	[[ -f "$accepted" || -f "$checkpointed" || -f "$rejected" || -f "$blocked" || -f "$superseded" ]]
 }
 
 while true; do

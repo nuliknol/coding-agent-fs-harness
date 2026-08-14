@@ -2145,6 +2145,7 @@ task_id_from_filename()
 	filename="${filename%.checkpointed.md}"
 	filename="${filename%.rejected.md}"
 	filename="${filename%.blocked.md}"
+	filename="${filename%.superseded.md}"
 	printf '%s' "$filename"
 }
 
@@ -3240,7 +3241,7 @@ project_plan_all_complete()
 	(( total > 0 && pending == 0 ))
 }
 
-root_has_accepted_task()
+root_accepted_task_file()
 {
 	local root="$1"
 	local file task
@@ -3250,9 +3251,17 @@ root_has_accepted_task()
 		task="${file##*/}"
 		task="${task#${PROJECT}-task-}"
 		task="${task%.accepted.md}"
-		[[ "$(task_root_id "$task")" == "$root" ]] && return 0
+		if [[ "$(task_root_id "$task")" == "$root" ]]; then
+			printf '%s\n' "$file"
+			return 0
+		fi
 	done
 	return 1
+}
+
+root_has_accepted_task()
+{
+	root_accepted_task_file "$1" >/dev/null
 }
 
 initialize_project_plan()

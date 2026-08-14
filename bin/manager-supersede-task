@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TASK_ID\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 2 ]] || usage
+load_harness_env "$1"
+task_id="$2"
+ensure_project
+trace_init manager_supersede_task
+trace_script_start "$@"
+trap 'trace_script_exit $?' EXIT
+validate_task_id "$task_id"
+
+dir="$(project_dir)"
+base="$(task_base "$task_id")"
+root="$(task_root_id "$task_id")"
+result="$dir/results/$base.result.md"
+assignment="$dir/archive/$base.assignment.md"
+running="$dir/running/$base.running.md"
+lease="$dir/control/$base.lease"
+superseded="$dir/archive/$base.superseded.md"
+result_archive="$dir/archive/$base.superseded-result.md"
+
+acquire_project_lock
+project_plan_exists || die 'cannot supersede a result without a persistent project plan'
+item="$(project_plan_item_for_root "$root")"
+[[ -n "$item" ]] || die "task root is not assigned to the project plan: $root"
+[[ "$(project_plan_item_status "$item")" == COMPLETE ]] ||
+	die "task result is not superseded; project plan item remains incomplete: $item"
+accepted_source="$(root_accepted_task_file "$root" 2>/dev/null || true)"
+[[ -n "$accepted_source" ]] ||
+	die "task result is not superseded; root has no accepted task: $root"
+accepted_task="$(task_id_from_filename "$accepted_source")"
+
+[[ ! -e "$running" ]] || die "task is still running: $task_id"
+[[ ! -e "$lease" ]] || die "worker lease still exists: $task_id"
+[[ -f "$assignment" ]] || die "archived assignment is missing: $task_id"
+[[ -f "$result" || -f "$superseded" ]] ||
+	die "there is no late result to supersede: $task_id"
+
+if [[ -f "$result" ]]; then
+	if [[ -f "$result_archive" ]]; then
+		result_archive="$dir/archive/$base.superseded-stale-result-$(timestamp_compact_utc).md"
+	fi
+	mv "$result" "$result_archive"
+fi
+
+if [[ ! -f "$superseded" ]]; then
+	tmp="$superseded.tmp.$$"
+	{
+		printf '# Superseded Task Result\n\n'
+		printf 'Project: %s\n\n' "$PROJECT"
+		printf 'Task-ID: %s\n\n' "$task_id"
+		printf 'Task-Root: %s\n\n' "$root"
+		printf 'Project-Plan-Item: %s\n\n' "$item"
+		printf 'Superseded-By: %s\n\n' "$accepted_task"
+		printf 'Superseded-At: %s\n\n' "$(timestamp_utc)"
+		printf 'Reason: another result already accepted this root and completed its project-plan item; this late result cannot produce a second lifecycle decision.\n'
+	} > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$superseded"
+fi
+
+rm -f \
+	"$dir/control/$base.reviewed-event" \
+	"$dir/control/$base.manager-review-stalled.md" \
+	"$dir/control/$base.manager-failed.md" \
+	"$dir/control/$base.worker-triggered" \
+	"$dir/control/$base.worker-failed.md" \
+	"$dir/control/$base.worker-supervisor-failed.md"
+goal_record_manager_decision "$task_id" SUPERSEDED
+log_event "TASK_SUPERSEDED task=$task_id root=$root plan_item=$item superseded_by=$accepted_task result_archive=${result_archive:-none}"
+trace_event TASK_SUPERSEDED "task_id=$task_id" "task_root=$root" "plan_item=$item" "superseded_by=$accepted_task" "superseded_file=$superseded" "result_archive=${result_archive:-}"
+printf '%s\n' "$superseded"

@@ -107,6 +107,7 @@ if [[ "$mode" == --reset-orphaned ]]; then
 			-f "$dir/archive/$base.checkpointed.md" ||
 			-f "$dir/archive/$base.rejected.md" ||
 			-f "$dir/archive/$base.blocked.md" ||
+			-f "$dir/archive/$base.superseded.md" ||
 			-f "$dir/archive/$base.aborted.assignment.md" ]]; then
 			continue
 		fi

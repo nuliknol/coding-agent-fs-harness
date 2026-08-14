@@ -53,7 +53,21 @@ oracle_limit_marker="$(project_oracle_limit_file)"
 manager_plan_structural_error="$dir/control/manager-plan-structural-error.md"
 manager_plan_stalled="$dir/control/manager-plan-stalled.md"
 manager_plan_failed="$dir/control/manager-plan-failed.md"
-manager_review_stalled="$(find "$dir/control" -maxdepth 1 -type f -name "$PROJECT-task-*.manager-review-stalled.md" -print 2>/dev/null | sort | head -n 1)"
+manager_review_stalled=""
+while IFS= read -r review_stall_candidate; do
+	[[ -n "$review_stall_candidate" ]] || continue
+	review_stall_task="$(task_id_from_filename "${review_stall_candidate%.manager-review-stalled.md}.result.md")"
+	review_stall_base="$(task_base "$review_stall_task")"
+	[[ -f "$dir/results/$review_stall_base.result.md" ]] || continue
+	review_stall_root="$(task_root_id "$review_stall_task")"
+	review_stall_item="$(project_plan_item_for_root "$review_stall_root")"
+	if [[ -n "$review_stall_item" && "$(project_plan_item_status "$review_stall_item")" == COMPLETE ]] &&
+		root_has_accepted_task "$review_stall_root"; then
+		continue
+	fi
+	manager_review_stalled="$review_stall_candidate"
+	break
+done < <(find "$dir/control" -maxdepth 1 -type f -name "$PROJECT-task-*.manager-review-stalled.md" -print 2>/dev/null | sort)
 specification_review_status='DISABLED'
 specification_review_report=''
 specification_normalization_stall_report=''

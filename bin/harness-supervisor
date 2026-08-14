@@ -110,6 +110,19 @@ review_state_fingerprint()
 	} | sha256sum | awk '{print "sha256:" $1}'
 }
 
+reconcile_superseded_result()
+{
+	local task_id="$1" root item
+	root="$(task_root_id "$task_id")"
+	item="$(project_plan_item_for_root "$root")"
+	[[ -n "$item" ]] || return 1
+	[[ "$(project_plan_item_status "$item")" == COMPLETE ]] || return 1
+	root_has_accepted_task "$root" || return 1
+	log_event "SUPERVISOR_RECONCILE_SUPERSEDED task=$task_id root=$root plan_item=$item"
+	trace_event SUPERVISOR_RECONCILE_SUPERSEDED "task_id=$task_id" "task_root=$root" "plan_item=$item"
+	"$HARNESS_BIN/manager-supersede-task" "$HARNESS_ENV_FILE" "$task_id" 8>&- >/dev/null
+}
+
 planning_gap_state_fingerprint()
 {
 	local file
@@ -148,6 +161,9 @@ process_results()
 		if [[ -e "$running" || -e "$lease" || ! -f "$assignment_archive" ]]; then
 			continue
 		fi
+		if reconcile_superseded_result "$task_id"; then
+			continue
+		fi
 
 		marker="$dir/control/$base.reviewed-event"
 		stalled="$dir/control/$base.manager-review-stalled.md"
@@ -169,6 +185,11 @@ process_results()
 			status=$?
 		fi
 		trace_event SUPERVISOR_MANAGER_EXIT "task_id=$task_id" "status=$status"
+		# A sibling review may have accepted this root while this manager turn was
+		# in flight. Reconcile that race before interpreting a no-op as a stall.
+		if [[ -f "$file" ]] && reconcile_superseded_result "$task_id"; then
+			continue
+		fi
 		if (( status == 0 )); then
 			if [[ -f "$file" ]]; then
 				current="$(review_state_fingerprint "$file")"
