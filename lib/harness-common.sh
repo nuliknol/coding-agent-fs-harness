@@ -1413,7 +1413,15 @@ require_clean_repository_start_state()
 		die "repository is not a Git working tree: $REPOSITORY"
 	git -C "$REPOSITORY" rev-parse --verify 'HEAD^{commit}' >/dev/null 2>&1 ||
 		die "repository does not have a valid HEAD commit: $REPOSITORY"
-	changes="$(git -C "$REPOSITORY" status --porcelain=v1 --untracked-files=all)"
+	# spec-review/ is a harness-owned response channel written before a project
+	# has an execution DAG. Its untracked artifacts must survive clarification
+	# and renormalization restarts without weakening the clean-source boundary.
+	# Tracked modifications, staged additions, deletions, renames, and every
+	# unrelated untracked path remain disallowed.
+	changes="$(git -C "$REPOSITORY" status --porcelain=v1 --untracked-files=all | awk '
+		substr($0, 1, 3) == "?? " && substr($0, 4) ~ /^spec-review\// {next}
+		{print}
+	')"
 	if [[ -n "$changes" ]]; then
 		printf '%s\n' "$changes" >&2
 		die 'repository has staged, unstaged, or non-ignored untracked files; commit or clean it before harness-start'

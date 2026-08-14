@@ -141,12 +141,14 @@ checks every source-declared dependency for fidelity.
 
 For a stopped Full project, `harness-start` requires `REPOSITORY` to be a Git
 worktree with a valid `HEAD` and no staged, unstaged, or non-ignored untracked
-files. It prints the exact porcelain-status entries and exits before recovery
-or any agent invocation when this preflight fails. Ignored build products are
-not considered dirty. A redundant start against a live manager or worker
-supervisor remains idempotent and does not apply this stopped-project
-preflight. A startup/reviewer/worker process without a live supervisor does not
-bypass validation and is reported as an overlapping start instead.
+files, except untracked files beneath the harness-owned `spec-review/` response
+directory. Tracked or staged changes under `spec-review/` are still rejected.
+It prints the exact porcelain-status entries and exits before recovery or any
+agent invocation when this preflight fails. Ignored build products are not
+considered dirty. A redundant start against a live manager or worker supervisor
+remains idempotent and does not apply this stopped-project preflight. A
+startup/reviewer/worker process without a live supervisor does not bypass
+validation and is reported as an overlapping start instead.
 
 Long initial review, decomposition, and bootstrap work can be detached safely:
 

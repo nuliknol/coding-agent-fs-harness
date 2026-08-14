@@ -19,7 +19,6 @@ EOF
 git -C "$repo" init -q
 git -C "$repo" add spec.md src/a.c .harness/domain-profiles/test-contract.tsv
 git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm seed
-printf '/spec-review/\n' >> "$repo/.git/info/exclude"
 
 env_file="$TEST_ROOT/configs/spec-review.env"
 cat > "$env_file" <<ENV
@@ -115,6 +114,18 @@ grep -Fq '## Required specification amendment' <<< "$clarification_prompt"
 grep -Fq "git -C $repo add -- spec.md" <<< "$clarification_prompt"
 grep -Fq "$HARNESS_BIN/harness-start --background $env_file" <<< "$clarification_prompt"
 grep -Fq 'Do not wait for the detached startup to finish.' <<< "$clarification_prompt"
+
+# Harness-owned untracked review responses are valid restart input. The same
+# path becomes dirty source state if an operator stages it.
+[[ -n "$(git -C "$repo" status --short --untracked-files=all -- spec-review)" ]]
+git -C "$repo" add -f -- "$record_output"
+set +e
+staged_review_output="$("$HARNESS_BIN/harness-start" "$env_file" 2>&1)"
+staged_review_status=$?
+set -e
+(( staged_review_status == 1 ))
+grep -Eq '^A[[:space:]]+spec-review/' <<< "$staged_review_output"
+git -C "$repo" restore --staged -- "$record_output"
 
 background_output="$("$HARNESS_BIN/harness-start" --background "$env_file")"
 grep -Fq 'Harness start launched in background.' <<< "$background_output"
@@ -420,7 +431,6 @@ EOF
 git -C "$cycle_repo" init -q
 git -C "$cycle_repo" add spec.md
 git -C "$cycle_repo" -c user.name=test -c user.email=test@example.invalid commit -qm seed
-printf '/spec-review/\n' >> "$cycle_repo/.git/info/exclude"
 cycle_env="$TEST_ROOT/configs/spec-cycle.env"
 cat > "$cycle_env" <<ENV
 export PROJECT="spec-cycle-test"
