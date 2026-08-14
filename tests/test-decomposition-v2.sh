@@ -47,6 +47,19 @@ ENV
 chmod 600 "$TEST_ROOT/harness.env"
 
 "$HARNESS_BIN/harness-init" "$TEST_ROOT/harness.env" >/dev/null
+
+# Prompt construction uses an interpolated heredoc. Literal shell backticks in
+# prose must not accidentally execute commands while the prompt is generated.
+set +e
+"$HARNESS_BIN/manager-decomposition-critic" "$TEST_ROOT/harness.env" \
+	>"$TEST_ROOT/critic-prompt.out" 2>"$TEST_ROOT/critic-prompt.err"
+critic_prompt_status=$?
+set -e
+(( critic_prompt_status != 0 ))
+! grep -Fq 'command not found' "$TEST_ROOT/critic-prompt.err"
+grep -Fq 'regex that requires a trailing newline character' \
+	"$TEST_ROOT/state/projects/decompv2/control/manager-decomposition-critic.prompt.md"
+
 cat > "$TEST_ROOT/broad-plan.tsv" <<'PLAN'
 node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route
 broad	-	-	Implement one bounded stage	Owned stage passes	./semantic-smoke --computing-all	src/a.c	target_symbol	LOCAL_IMPLEMENTATION	LOW	LUNA
