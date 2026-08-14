@@ -104,6 +104,18 @@ record_output="$("$HARNESS_BIN/manager-record-specification-review" "$env_file" 
 [[ -f "$repo/$record_output" ]]
 grep -Fqx 'status=SPEC_CLARIFICATION_REQUIRED' "$project_dir/control/specification-review.env"
 
+clarification_prompt="$("$HARNESS_BIN/harness-show-clarification-request" "$env_file")"
+grep -Fq '# Specification Author Action Required' <<< "$clarification_prompt"
+grep -Fq "Repository: $repo" <<< "$clarification_prompt"
+grep -Fq "Governing specification: $repo/spec.md" <<< "$clarification_prompt"
+grep -Fq '### SPEC-negative-input — OBSERVABLE_CONTRACT_AMBIGUITY' <<< "$clarification_prompt"
+grep -Fq 'Question you must answer: Should negative input normalize to zero or return an error?' \
+	<<< "$clarification_prompt"
+grep -Fq '## Required specification amendment' <<< "$clarification_prompt"
+grep -Fq "git -C $repo add -- spec.md" <<< "$clarification_prompt"
+grep -Fq "$HARNESS_BIN/harness-start $env_file" <<< "$clarification_prompt"
+[[ "$("$HARNESS_BIN/harness-show-clarififcation-request" "$env_file")" == "$clarification_prompt" ]]
+
 set +e
 printf 'must block review startup\n' > "$repo/untracked-before-start.txt"
 dirty_start_output="$("$HARNESS_BIN/harness-start" "$env_file" 2>&1)"
@@ -176,6 +188,13 @@ EOF
 printf '%s\n' $'issue_id\tclass\trequirement_ids\tsource_locations\toutcome_a\toutcome_b\tevidence_checked\tmissing_decision\tminimal_question' > "$issues"
 "$HARNESS_BIN/manager-record-specification-review" "$env_file" "$verdict" "$facts" "$issues" "$obligations" "$relations" "$inventory" "$domain_manifest" >/dev/null
 grep -Fqx 'status=ACCEPTED' "$project_dir/control/specification-review.env"
+if "$HARNESS_BIN/harness-show-clarification-request" "$env_file" \
+	>"$TEST_ROOT/no-clarification.out" 2>"$TEST_ROOT/no-clarification.err"; then
+	printf 'clarification command succeeded for an accepted specification\n' >&2
+	exit 1
+fi
+grep -Fq 'current specification review does not require clarification' \
+	"$TEST_ROOT/no-clarification.err"
 
 renormalization_reason="$TEST_ROOT/renormalization.md"
 cat > "$renormalization_reason" <<'EOF'

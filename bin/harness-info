@@ -25,8 +25,12 @@ printf '  State: %s\n' "$dir"
 printf '\nSpecification model\n'
 if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )); then
 	if specification_review_matches_current_inputs; then
-		printf '  Review: %s\n' "$(specification_review_state_value status UNKNOWN)"
+		current_review_status="$(specification_review_state_value status UNKNOWN)"
+		printf '  Review: %s\n' "$current_review_status"
 		printf '  Report: %s\n' "$(specification_review_report_relative_path)"
+		if [[ "$current_review_status" == SPEC_CLARIFICATION_REQUIRED ]]; then
+			printf '  Copy/paste request: harness-show-clarification-request %s\n' "$HARNESS_ENV_FILE"
+		fi
 	else
 		printf '  Review: PENDING (current inputs do not match an accepted review)\n'
 	fi

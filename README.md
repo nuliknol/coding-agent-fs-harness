@@ -1050,6 +1050,20 @@ manager, dependency, architecture, and Oracle transitions. `--all` includes
 low-level lifecycle events. Use `harness-watch-agents` when raw natural-language
 agent output is required.
 
+When specification acceptance stops with `SPEC_CLARIFICATION_REQUIRED`, render
+the complete current report and structured issue set as a copy/paste-ready
+assignment for the specification-authoring agent:
+
+```bash
+harness-show-clarification-request /path/to/repository/harness.env
+```
+
+The output includes the untruncated problem description, incompatible
+outcomes, missing decision, exact governing specification and repository,
+amendment checklist, clean commit instructions, and the correct relaunch
+command. The historical misspelling `harness-show-clarififcation-request` is
+accepted as an alias.
+
 Raw unified state transitions:
 
 ```bash
