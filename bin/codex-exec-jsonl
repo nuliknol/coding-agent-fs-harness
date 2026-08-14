@@ -86,6 +86,38 @@ record_agent_invocation_started()
 	log_event "AGENT_INVOCATION_STARTED role=$role min_interval_seconds=$HARNESS_AGENT_MIN_INTERVAL_SECONDS"
 }
 
+consume_startup_agent_budget()
+{
+	local budget_file="${HARNESS_START_AGENT_BUDGET_FILE:-}" lock_file count maximum tmp
+	[[ -n "$budget_file" ]] || return 0
+	[[ -f "$budget_file" ]] || die "startup agent budget record is missing: $budget_file"
+	lock_file="$budget_file.lock"
+	exec {startup_budget_fd}> "$lock_file"
+	flock "$startup_budget_fd"
+	count="$(kv_file_value "$budget_file" count 0)"
+	maximum="$(kv_file_value "$budget_file" maximum "$HARNESS_START_MAX_AGENT_INVOCATIONS")"
+	[[ "$count" =~ ^[0-9]+$ && "$maximum" =~ ^[1-9][0-9]*$ ]] || die "invalid startup agent budget record: $budget_file"
+	if (( count >= maximum )); then
+		log_event "STARTUP_AGENT_BUDGET_EXHAUSTED count=$count maximum=$maximum role=$role record=$budget_file"
+		die "harness-start agent invocation budget exhausted ($count/$maximum); refusing another $role process"
+	fi
+	count=$((count + 1))
+	tmp="$budget_file.tmp.$$"
+	{
+		printf 'count=%s\n' "$count"
+		printf 'maximum=%s\n' "$maximum"
+		printf 'started_at=%s\n' "$(kv_file_value "$budget_file" started_at)"
+		printf 'last_role=%s\n' "$role"
+		printf 'last_model=%s\n' "$model"
+		printf 'last_invoked_at=%s\n' "$(timestamp_utc)"
+	} > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$budget_file"
+	flock -u "$startup_budget_fd"
+	exec {startup_budget_fd}>&-
+	log_event "STARTUP_AGENT_BUDGET_CONSUMED count=$count maximum=$maximum role=$role"
+}
+
 cmd=(env "CODEX_HOME=$home" "$bin" exec --json --model "$model" --sandbox "$sandbox" --add-dir "$HARNESS_ROOT" --add-dir "$PROJECT_TMP_DIR" --cd "$REPOSITORY" "${extras[@]}" -c 'approval_policy="never"' -c "model_reasoning_effort=\"$effort\"" --output-last-message "$last_message")
 if [[ $# -eq 2 ]]; then
  [[ "$1" == resume ]] || usage
@@ -138,6 +170,7 @@ terminate_process_tree()
 }
 
 agent_cooldown_fd=""
+consume_startup_agent_budget
 wait_for_agent_invocation_slot
 if (( HARNESS_CODEX_WALL_TIMEOUT_SECONDS > 0 )); then
  timeout --signal=TERM --kill-after="${HARNESS_CODEX_KILL_GRACE_SECONDS}s" "${HARNESS_CODEX_WALL_TIMEOUT_SECONDS}s" "${cmd[@]}" < "$prompt" > "$json_log" 2> "$stderr_log" &

@@ -57,13 +57,13 @@ Before drafting a DAG, independently challenge the accepted review and normalize
 
 $HARNESS_BIN/manager-challenge-specification-review "$HARNESS_ENV_FILE" CHALLENGE_REPORT CHALLENGE_ISSUES
 
-Terminate immediately after it succeeds. Ask only the minimal product question. Do not use this path for coding difficulty, architecture delegated to the implementer, discoverable repository facts, or a defect in the generated normalized IR.
+Terminate immediately after it succeeds. Ask only the minimal product question. Do not use this path for coding difficulty, architecture delegated to the implementer, discoverable repository facts, or a defect in the generated normalized IR. A dependency cycle explicitly declared by governing sources is CONTRADICTORY_REQUIREMENTS and always uses this clarification path; it cannot be repaired by dropping a source edge.
 
 2. If the governing sources are sufficiently clear but the accepted facts, obligations, or relations omit, distort, or contradict those clear sources or repository evidence, write RENORMALIZATION_REASON beginning with `# Specification Renormalization Request`, identify the exact source-to-IR mismatch, and call:
 
 $HARNESS_BIN/manager-request-specification-renormalization "$HARNESS_ENV_FILE" RENORMALIZATION_REASON
 
-Terminate immediately after it succeeds. This is an automatic compiler correction and must not bounce a false clarification to the user.
+Terminate immediately after it succeeds. This is an automatic compiler correction and must not bounce a false clarification to the user. Use renormalization only when preserving all governing statements can produce a valid acyclic IR. Never request renormalization when the source itself must change or an authority must choose between incompatible dependency directions.
 
 3. Only when the accepted review and normalized IR survive this independent challenge may you register a DAG.
 
@@ -154,6 +154,12 @@ while true; do
 		log_event "DECOMPOSITION_CRITIC_CLARIFICATION report=$(specification_review_report_relative_path) attempts=$attempt"
 		printf 'Specification clarification required: %s\n' "$(specification_review_report_relative_path)"
 		exit 3
+	fi
+	if specification_renormalization_stall_matches_current_inputs; then
+		cp -f "$message" "$last_message" 2>/dev/null || true
+		stall_report="$(kv_file_value "$(specification_renormalization_stall_file)" report)"
+		printf 'Specification normalization stalled: %s\n' "$stall_report" >&2
+		exit 5
 	fi
 	if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )) && ! specification_review_is_accepted; then
 		cp -f "$message" "$last_message" 2>/dev/null || true

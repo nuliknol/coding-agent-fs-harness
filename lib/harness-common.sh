@@ -157,6 +157,7 @@ load_harness_env()
 	unset HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS
 	unset HARNESS_DECOMPOSITION_V2 HARNESS_DECOMPOSITION_CRITIC_ENABLED
 	unset HARNESS_SPECIFICATION_REVIEW_ENABLED
+	unset HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS HARNESS_START_MAX_AGENT_INVOCATIONS
 	unset HARNESS_DOMAIN_PROFILES
 	unset HARNESS_MAX_LUNA_STRATEGY_FAILURES HARNESS_MAX_LUNA_ALLOWED_PATHS HARNESS_MIN_LUNA_NODE_PERCENT
 	unset HARNESS_MIN_LUNA_CODING_NODE_PERCENT HARNESS_ARCHITECTURE_GUARDS
@@ -265,6 +266,12 @@ load_harness_env()
 	# complete enough to accept before the execution DAG is registered. Existing
 	# plans are already across that boundary and remain migration-compatible.
 	HARNESS_SPECIFICATION_REVIEW_ENABLED="${HARNESS_SPECIFICATION_REVIEW_ENABLED:-$HARNESS_DECOMPOSITION_V2}"
+	# Specification normalization is a compiler pass, not an open-ended agent
+	# strategy. Permit one automatic repair and bound the complete startup
+	# transaction so a malformed source or non-converging critic cannot consume
+	# an unlimited number of manager turns.
+	HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS="${HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS:-1}"
+	HARNESS_START_MAX_AGENT_INVOCATIONS="${HARNESS_START_MAX_AGENT_INVOCATIONS:-4}"
 	# Optional, explicitly selected domain-theory profiles contribute reusable
 	# human-owned invariants to specification normalization. An empty list adds
 	# no product semantics. Names resolve first from the repository and then from
@@ -469,6 +476,8 @@ load_harness_env()
 	[[ "$HARNESS_QUOTA_RETRY_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_QUOTA_RETRY_SECONDS must be an integer'
 	(( HARNESS_QUOTA_RETRY_SECONDS > 0 )) || die 'HARNESS_QUOTA_RETRY_SECONDS must be greater than zero'
 	[[ "$HARNESS_AGENT_MIN_INTERVAL_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_AGENT_MIN_INTERVAL_SECONDS must be a non-negative integer'
+	[[ "$HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS" =~ ^[0-9]+$ ]] || die 'HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS must be a non-negative integer'
+	[[ "$HARNESS_START_MAX_AGENT_INVOCATIONS" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_START_MAX_AGENT_INVOCATIONS must be a positive integer'
 	[[ "$HARNESS_CAPACITY_MAX_RETRIES" =~ ^[0-9]+$ ]] || die 'HARNESS_CAPACITY_MAX_RETRIES must be an integer'
 	[[ "$HARNESS_CODEX_WALL_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_CODEX_WALL_TIMEOUT_SECONDS must be an integer'
 	[[ "$HARNESS_CODEX_IDLE_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_CODEX_IDLE_TIMEOUT_SECONDS must be an integer'
@@ -511,6 +520,7 @@ load_harness_env()
 	export HARNESS_RUNTIME_PATH_PREFIX HARNESS_BOOT_RECOVERY
 	export HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY HARNESS_MAX_IDENTICAL_BLOCKERS HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
 	export HARNESS_AGENT_MIN_INTERVAL_SECONDS
+	export HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS HARNESS_START_MAX_AGENT_INVOCATIONS
 	export HARNESS_MAX_ROOT_ATTEMPTS HARNESS_MAX_ZERO_GAIN_WINDOW HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION
 	export HARNESS_AUTO_REPLAN_ENABLED HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN
 	export HARNESS_MAX_AUTO_REPLANS_WITHOUT_CRITERION
@@ -2490,6 +2500,123 @@ specification_sha256()
 {
 	[[ -n "$SPECIFICATION" && -f "$SPECIFICATION" ]] || { printf 'missing\n'; return 0; }
 	sha256sum "$SPECIFICATION" | awk '{print $1}'
+}
+
+# Emit explicit requirement prerequisites found in the two structured forms
+# used by harness specifications: Markdown requirement tables and the optional
+# inline machine-readable registry. The output has no header:
+# subject<TAB>dependency<TAB>source:line.
+specification_explicit_dependencies()
+{
+	[[ -n "$SPECIFICATION" && -f "$SPECIFICATION" ]] || return 0
+	awk '
+		function trim(value) {
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+			gsub(/^[`]+|[`]+$/, "", value)
+			return value
+		}
+		function valid_id(value) {
+			return value ~ /^[A-Za-z0-9][A-Za-z0-9._:-]*$/ && value != "-" && value != "none" && value != "NONE"
+		}
+		function emit_dependencies(subject, value, location, count, parts, dependency) {
+			sub(/^[[:space:]]*\[/, "", value)
+			sub(/\][[:space:]]*$/, "", value)
+			gsub(/[`]/, "", value)
+			count=split(value, parts, /[[:space:],]+/)
+			for (i=1; i<=count; i++) {
+				dependency=trim(parts[i])
+				if (valid_id(subject) && valid_id(dependency))
+					print subject "\t" dependency "\t" location
+			}
+		}
+		/^[#]+[[:space:]]+/ {
+			heading=$0
+			sub(/^[#]+[[:space:]]+/, "", heading)
+			split(heading, heading_parts, /[[:space:]]+/)
+			candidate=trim(heading_parts[1])
+			if (valid_id(candidate)) current=candidate
+		}
+		/^\|[[:space:]]*(Requirement ID|Goal ID|Test ID)[[:space:]]*\|/ {
+			split($0, cells, "|")
+			candidate=trim(cells[3])
+			if (valid_id(candidate)) current=candidate
+		}
+		/^\|[[:space:]]*Dependencies[[:space:]]*\|/ {
+			split($0, cells, "|")
+			emit_dependencies(current, trim(cells[3]), FILENAME ":" FNR)
+		}
+		/^[[:space:]]*-[[:space:]]*\{id:[[:space:]]*/ {
+			entry=$0
+			id_text=entry
+			sub(/^[[:space:]]*-[[:space:]]*\{id:[[:space:]]*/, "", id_text)
+			split(id_text, id_parts, ",")
+			registry_id=trim(id_parts[1])
+			if (match(entry, /dependencies:[[:space:]]*\[[^]]*\]/)) {
+				dependency_text=substr(entry, RSTART, RLENGTH)
+				sub(/^dependencies:[[:space:]]*/, "", dependency_text)
+				emit_dependencies(registry_id, dependency_text, FILENAME ":" FNR)
+			}
+		}
+	' "$SPECIFICATION" | sort -u
+}
+
+specification_explicit_dependency_cycle()
+{
+	local dependencies_file
+	dependencies_file="${1:-}"
+	if [[ -n "$dependencies_file" ]]; then
+		[[ -s "$dependencies_file" ]] || return 1
+		! awk -F '\t' '{print $1, $2}' "$dependencies_file" | tsort >/dev/null 2>&1
+	else
+		! specification_explicit_dependencies | awk -F '\t' '{print $1, $2}' | tsort >/dev/null 2>&1
+	fi
+}
+
+# Return only source edges that participate in a strongly connected component.
+# This keeps deterministic clarification reports focused when a large registry
+# contains one small cycle.
+specification_explicit_dependency_cycle_edges()
+{
+	specification_explicit_dependencies | awk -F '\t' '
+		{
+			key=$1 SUBSEP $2
+			if (!(key in edge_location)) edge_location[key]=$3
+			nodes[$1]=1; nodes[$2]=1; reach[$1 SUBSEP $2]=1
+		}
+		END {
+			do {
+				changed=0
+				for (middle in nodes)
+					for (left in nodes)
+						if ((left SUBSEP middle) in reach)
+							for (right in nodes)
+								if (((middle SUBSEP right) in reach) && !((left SUBSEP right) in reach)) {
+									reach[left SUBSEP right]=1
+									changed=1
+								}
+			} while (changed)
+			for (key in edge_location) {
+				split(key, parts, SUBSEP)
+				if ((parts[2] SUBSEP parts[1]) in reach)
+					print parts[1] "\t" parts[2] "\t" edge_location[key]
+			}
+		}
+	' | sort
+}
+
+specification_renormalization_stall_file()
+{
+	printf '%s/control/specification-renormalization-stalled.env' "$(project_dir)"
+}
+
+specification_renormalization_stall_matches_current_inputs()
+{
+	local stall
+	stall="$(specification_renormalization_stall_file)"
+	[[ -f "$stall" ]] || return 1
+	[[ "$(kv_file_value "$stall" specification_sha256)" == "$(specification_sha256)" ]] || return 1
+	[[ "$(kv_file_value "$stall" repository_baseline)" == "$(specification_review_repository_baseline)" ]] || return 1
+	[[ "$(kv_file_value "$stall" domain_profiles_sha256)" == "$(domain_profiles_sha256)" ]]
 }
 
 specification_review_repository_baseline()

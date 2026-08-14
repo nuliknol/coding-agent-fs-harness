@@ -103,6 +103,23 @@ if (( HARNESS_BOOT_RECOVERY == 1 )) && [[ "${HARNESS_AUTOSTART_INTERNAL:-0}" != 
 	"$HARNESS_BIN/harness-autostart" enable "$HARNESS_ENV_FILE"
 fi
 
+if specification_renormalization_stall_matches_current_inputs; then
+	stall_report="$(kv_file_value "$(specification_renormalization_stall_file)" report)"
+	die "specification normalization is durably stalled for unchanged inputs; inspect $stall_report"
+fi
+
+startup_budget_file=""
+if ! project_plan_exists; then
+	startup_budget_file="$dir/control/harness-start-agent-budget.env"
+	{
+		printf 'count=0\n'
+		printf 'maximum=%s\n' "$HARNESS_START_MAX_AGENT_INVOCATIONS"
+		printf 'started_at=%s\n' "$(timestamp_utc)"
+	} > "$startup_budget_file"
+	chmod 600 "$startup_budget_file"
+	export HARNESS_START_AGENT_BUDGET_FILE="$startup_budget_file"
+fi
+
 renormalizations=0
 while ! project_plan_exists; do
 	if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )); then
@@ -127,10 +144,15 @@ while ! project_plan_exists; do
 				exit 3
 				;;
 			4)
-				(( renormalizations == 0 )) || die 'decomposition critic requested repeated specification IR renormalization; inspect critic and reviewer logs'
+				(( renormalizations < HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS )) ||
+					die 'decomposition critic exceeded the configured specification IR renormalization limit'
 				renormalizations=$((renormalizations + 1))
 				printf 'Regenerating normalized specification IR after independent critic challenge.\n'
 				continue
+				;;
+			5)
+				stall_report="$(kv_file_value "$(specification_renormalization_stall_file)" report 2>/dev/null || true)"
+				die "specification normalization stalled without convergence; inspect ${stall_report:-the decomposition critic logs}"
 				;;
 			*) exit "$critic_status" ;;
 		esac
@@ -156,6 +178,12 @@ if [[ ! -f "$dir/control/manager.thread" ]]; then
 	"$HARNESS_BIN/manager-bootstrap" "$HARNESS_ENV_FILE"
 else
 	printf 'Manager thread already exists; bootstrap was not repeated.\n'
+fi
+
+# Runtime supervisors must not inherit the bounded startup transaction.
+if [[ -n "$startup_budget_file" ]]; then
+	rm -f "$startup_budget_file" "$startup_budget_file.lock"
+	unset HARNESS_START_AGENT_BUDGET_FILE
 fi
 
 "$HARNESS_BIN/manager-supervisor-start" "$HARNESS_ENV_FILE"

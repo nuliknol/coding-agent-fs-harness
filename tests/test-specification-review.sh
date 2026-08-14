@@ -225,6 +225,27 @@ EOF
 [[ "$(find "$project_dir/control/specification-review-revisions" -type f -name '*.state.env' | wc -l)" == 1 ]]
 "$HARNESS_BIN/manager-record-specification-review" "$env_file" "$verdict" "$facts" "$issues" "$obligations" "$relations" "$inventory" "$domain_manifest" >/dev/null
 
+second_renormalization_reason="$TEST_ROOT/second-renormalization.md"
+cat > "$second_renormalization_reason" <<'EOF'
+# Specification Renormalization Request
+
+The unchanged authority allegedly requires another compiler correction.
+EOF
+if "$HARNESS_BIN/manager-request-specification-renormalization" "$env_file" "$second_renormalization_reason" \
+	>"$TEST_ROOT/second-renormalization.out" 2>"$TEST_ROOT/second-renormalization.err"; then
+	printf 'repeated specification renormalization unexpectedly bypassed its durable limit\n' >&2
+	exit 1
+fi
+grep -Fq 'specification normalization did not converge' "$TEST_ROOT/second-renormalization.err"
+stall_file="$project_dir/control/specification-renormalization-stalled.env"
+grep -Fqx 'request_count=2' "$stall_file"
+grep -Fqx 'status=ACCEPTED' "$project_dir/control/specification-review.env"
+if "$HARNESS_BIN/harness-start" "$env_file" >"$TEST_ROOT/stalled-start.out" 2>"$TEST_ROOT/stalled-start.err"; then
+	printf 'harness-start unexpectedly launched agents after durable normalization stall\n' >&2
+	exit 1
+fi
+grep -Fq 'specification normalization is durably stalled for unchanged inputs' "$TEST_ROOT/stalled-start.err"
+
 challenge_report="$TEST_ROOT/challenge.md"
 challenge_issues="$TEST_ROOT/challenge-issues.tsv"
 cat > "$challenge_report" <<'EOF'
@@ -373,5 +394,68 @@ grep -Fq 'Manager/worker ratio: 2.27:1' <<< "$statistics_output"
 implementation_output="$("$HARNESS_BIN/harness-implementation-log" "$env_file")"
 grep -Fq 'Specification ACCEPTED; obligations=2, relations=5' <<< "$implementation_output"
 grep -Fq 'Decomposition DAG registered; nodes=2' <<< "$implementation_output"
+
+# A source-declared cycle must become a deterministic clarification before any
+# manager model is invoked. The provisional clarification IR may be empty.
+cycle_repo="$TEST_ROOT/cycle-repo"
+cycle_state="$TEST_ROOT/cycle-state"
+mkdir -p "$cycle_repo" "$TEST_ROOT/cycle-manager-home" "$TEST_ROOT/cycle-worker-home"
+cat > "$cycle_repo/spec.md" <<'EOF'
+# Cyclic specification
+
+### REQ-A — First requirement
+
+| Field | Value |
+|---|---|
+| Requirement ID | REQ-A |
+| Dependencies | REQ-B |
+
+### REQ-B — Second requirement
+
+| Field | Value |
+|---|---|
+| Requirement ID | REQ-B |
+| Dependencies | REQ-A |
+EOF
+git -C "$cycle_repo" init -q
+git -C "$cycle_repo" add spec.md
+git -C "$cycle_repo" -c user.name=test -c user.email=test@example.invalid commit -qm seed
+printf '/spec-review/\n' >> "$cycle_repo/.git/info/exclude"
+cycle_env="$TEST_ROOT/configs/spec-cycle.env"
+cat > "$cycle_env" <<ENV
+export PROJECT="spec-cycle-test"
+export REPOSITORY="$cycle_repo"
+export SPECIFICATION="$cycle_repo/spec.md"
+export HARNESS_MODE="full"
+export HARNESS_HOME="$HARNESS_HOME"
+export HARNESS_BIN="$HARNESS_BIN"
+export HARNESS_ROOT="$cycle_state"
+export HARNESS_AGENT_MIN_INTERVAL_SECONDS="0"
+export MANAGER_CODEX_HOME="$TEST_ROOT/cycle-manager-home"
+export MANAGER_CODEX_BIN="/bin/false"
+export WORKER_CODEX_HOME="$TEST_ROOT/cycle-worker-home"
+export WORKER_CODEX_BIN="/bin/false"
+export HARNESS_DECOMPOSITION_V2="1"
+export HARNESS_DECOMPOSITION_CRITIC_ENABLED="1"
+export HARNESS_SPECIFICATION_REVIEW_ENABLED="1"
+export HARNESS_ARCHITECTURE_GUARDS="0"
+export MAX_ORACLE_RUNS="0"
+ENV
+chmod 600 "$cycle_env"
+"$HARNESS_BIN/harness-init" "$cycle_env" >/dev/null
+set +e
+cycle_start_output="$("$HARNESS_BIN/harness-start" "$cycle_env" 2>&1)"
+cycle_start_status=$?
+set -e
+(( cycle_start_status == 3 ))
+grep -Fq 'Specification clarification required: spec-review/specification-review-' <<< "$cycle_start_output"
+cycle_project_dir="$cycle_state/projects/spec-cycle-test"
+grep -Fqx 'status=SPEC_CLARIFICATION_REQUIRED' "$cycle_project_dir/control/specification-review.env"
+grep -Fqx 'obligation_count=0' "$cycle_project_dir/control/specification-review.env"
+grep -Fqx 'relation_count=0' "$cycle_project_dir/control/specification-review.env"
+[[ "$(find "$cycle_project_dir/logs" -maxdepth 1 -type f -name 'manager-specification-review-*' | wc -l)" == 0 ]]
+cycle_request="$("$HARNESS_BIN/harness-show-clarification-request" "$cycle_env")"
+grep -Fq '### SPEC-DEPENDENCY-CYCLE — CONTRADICTORY_REQUIREMENTS' <<< "$cycle_request"
+grep -Fq 'Which dependency direction is authoritative' <<< "$cycle_request"
 
 printf 'specification review and token usage tests passed\n'

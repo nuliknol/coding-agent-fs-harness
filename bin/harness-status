@@ -56,8 +56,12 @@ manager_plan_failed="$dir/control/manager-plan-failed.md"
 manager_review_stalled="$(find "$dir/control" -maxdepth 1 -type f -name "$PROJECT-task-*.manager-review-stalled.md" -print 2>/dev/null | sort | head -n 1)"
 specification_review_status='DISABLED'
 specification_review_report=''
+specification_normalization_stall_report=''
 if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )); then
-	if specification_review_matches_current_inputs; then
+	if specification_renormalization_stall_matches_current_inputs; then
+		specification_review_status='NORMALIZATION_STALLED'
+		specification_normalization_stall_report="$(kv_file_value "$(specification_renormalization_stall_file)" report)"
+	elif specification_review_matches_current_inputs; then
 		specification_review_status="$(specification_review_state_value status UNKNOWN)"
 		specification_review_report="$(specification_review_report_relative_path)"
 	else
@@ -427,7 +431,9 @@ else
 	done
 fi
 
-if specification_ir_registered && { ! specification_ir_available || { project_plan_exists && [[ ! -f "$(specification_coverage_file)" ]]; }; }; then
+if [[ -n "$specification_normalization_stall_report" ]]; then
+	project_status_line="Project status: SPECIFICATION_NORMALIZATION_STALLED. Automatic review correction did not converge; inspect $specification_normalization_stall_report."
+elif specification_ir_registered && { ! specification_ir_available || { project_plan_exists && [[ ! -f "$(specification_coverage_file)" ]]; }; }; then
 	project_status_line='Project status: SPECIFICATION_IR_INVALID. Execution is stopped because accepted semantic authority, repository history, or obligation coverage no longer matches.'
 elif [[ "$specification_review_status" == SPEC_CLARIFICATION_REQUIRED ]]; then
 	project_status_line="Project status: SPEC_CLARIFICATION_REQUIRED. Review $specification_review_report before DAG registration."

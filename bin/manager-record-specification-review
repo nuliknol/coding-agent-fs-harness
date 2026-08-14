@@ -136,7 +136,7 @@ done < <(domain_profile_names)
 obligations_header=$'obligation_id\tauthority\tsource_requirement\tsource_location\tobligation_type\tstatement\tobservable_outcome\tacceptance_authority'
 IFS= read -r header < "$obligations_file" || die 'specification obligations file is empty'
 [[ "$header" == "$obligations_header" ]] || die "specification obligations header must be: $obligations_header"
-declare -A obligations=() obligation_authority=() obligation_source=()
+declare -A obligations=() obligation_authority=() obligation_source=() obligation_by_source=()
 obligation_count=0
 authoritative_obligation_count=0
 while IFS=$'\t' read -r obligation_id authority source_requirement source_location obligation_type statement observable_outcome acceptance_authority extra; do
@@ -164,30 +164,39 @@ while IFS=$'\t' read -r obligation_id authority source_requirement source_locati
 	obligations[$obligation_id]=1
 	obligation_authority[$obligation_id]="$authority"
 	obligation_source[$obligation_id]="$source_requirement"
+	if [[ -z "${obligation_by_source[$source_requirement]:-}" ]]; then
+		obligation_by_source[$source_requirement]="$obligation_id"
+	else
+		obligation_by_source[$source_requirement]='-ambiguous-'
+	fi
 	obligation_count=$((obligation_count + 1))
 	[[ "$authority" == DERIVED ]] || authoritative_obligation_count=$((authoritative_obligation_count + 1))
 done < <(tail -n +2 "$obligations_file")
-(( obligation_count > 0 && authoritative_obligation_count > 0 )) || die 'specification IR requires at least one specified or domain-profile obligation'
+if [[ "$decision" == ACCEPT ]]; then
+	(( obligation_count > 0 && authoritative_obligation_count > 0 )) || die 'accepted specification IR requires at least one specified or domain-profile obligation'
+fi
 
-while IFS= read -r profile_id; do
-	profile_source="$(domain_profile_file "$profile_id")"
-	while IFS=$'\t' read -r invariant_id _; do
-		[[ "$invariant_id" != invariant_id && -n "$invariant_id" ]] || continue
-		profile_requirement="PROFILE:$profile_id:$invariant_id"
-		matched=0
-		for obligation_id in "${!obligations[@]}"; do
-			if [[ "${obligation_authority[$obligation_id]}" == DOMAIN_PROFILE && "${obligation_source[$obligation_id]}" == "$profile_requirement" ]]; then
-				matched=$((matched + 1))
-			fi
-		done
-		(( matched == 1 )) || die "selected domain invariant must map to exactly one normalized obligation: $profile_requirement"
-	done < "$profile_source"
-done < <(domain_profile_names)
+if [[ "$decision" == ACCEPT ]]; then
+	while IFS= read -r profile_id; do
+		profile_source="$(domain_profile_file "$profile_id")"
+		while IFS=$'\t' read -r invariant_id _; do
+			[[ "$invariant_id" != invariant_id && -n "$invariant_id" ]] || continue
+			profile_requirement="PROFILE:$profile_id:$invariant_id"
+			matched=0
+			for obligation_id in "${!obligations[@]}"; do
+				if [[ "${obligation_authority[$obligation_id]}" == DOMAIN_PROFILE && "${obligation_source[$obligation_id]}" == "$profile_requirement" ]]; then
+					matched=$((matched + 1))
+				fi
+			done
+			(( matched == 1 )) || die "selected domain invariant must map to exactly one normalized obligation: $profile_requirement"
+		done < "$profile_source"
+	done < <(domain_profile_names)
+fi
 
 relations_header=$'relation_id\trelation_type\tsubject\tobject\tauthority\tevidence'
 IFS= read -r header < "$relations_file" || die 'specification relations file is empty'
 [[ "$header" == "$relations_header" ]] || die "specification relations header must be: $relations_header"
-declare -A relations_seen=() validations=() produced=() consumed=() exclusive_owner=()
+declare -A relations_seen=() validations=() produced=() consumed=() exclusive_owner=() specified_dependencies=()
 relation_count=0
 ownership_conflicts=0
 while IFS=$'\t' read -r relation_id relation_type subject object relation_authority evidence extra; do
@@ -206,6 +215,9 @@ while IFS=$'\t' read -r relation_id relation_type subject object relation_author
 		DEPENDS_ON|MAY_DEVELOP_INDEPENDENTLY|INTEGRATION_DEPENDENCY_ONLY|REGRESSION_BOUNDARY|FINAL_HEALTH_DEPENDENCY|REQUIRES_ACCEPTED)
 			[[ -n "${obligations[$object]:-}" ]] || die "$relation_type relation object is not an obligation: $object"
 			[[ "$subject" != "$object" ]] || die "specification relation is self-referential: $relation_id"
+			if [[ "$relation_type" == DEPENDS_ON && "$relation_authority" == SPECIFIED ]]; then
+				specified_dependencies["$subject"$'\t'"$object"]=1
+			fi
 			;;
 		VALIDATES) [[ "$relation_authority" == PLANNING_HINT ]] || validations[$subject]=1 ;;
 		PRODUCES) [[ "$relation_authority" == PLANNING_HINT ]] || produced[$object]=1 ;;
@@ -219,7 +231,9 @@ while IFS=$'\t' read -r relation_id relation_type subject object relation_author
 	esac
 	relation_count=$((relation_count + 1))
 done < <(tail -n +2 "$relations_file")
-(( relation_count > 0 )) || die 'specification IR requires at least one semantic relation'
+if [[ "$decision" == ACCEPT ]]; then
+	(( relation_count > 0 )) || die 'accepted specification IR requires at least one semantic relation'
+fi
 
 missing_validation=0
 for obligation_id in "${!obligations[@]}"; do
@@ -236,6 +250,23 @@ if ! awk -F '\t' 'NR > 1 && $5 != "PLANNING_HINT" && ($2 == "DEPENDS_ON" || $2 =
 	dependency_cycle=1
 fi
 if [[ "$decision" == ACCEPT ]]; then
+	if specification_explicit_dependency_cycle; then
+		die 'accepted specification source contains an explicit dependency cycle; record CONTRADICTORY_REQUIREMENTS clarification instead of dropping a source edge'
+	fi
+	missing_explicit_dependencies=0
+	while IFS=$'\t' read -r source_subject source_object source_location; do
+		normalized_subject="${obligations[$source_subject]:+${source_subject}}"
+		normalized_object="${obligations[$source_object]:+${source_object}}"
+		[[ -n "$normalized_subject" ]] || normalized_subject="${obligation_by_source[$source_subject]:-}"
+		[[ -n "$normalized_object" ]] || normalized_object="${obligation_by_source[$source_object]:-}"
+		[[ -n "$normalized_subject" && "$normalized_subject" != '-ambiguous-' && -n "$normalized_object" && "$normalized_object" != '-ambiguous-' ]] || continue
+		[[ -n "${specified_dependencies["$normalized_subject"$'\t'"$normalized_object"]:-}" ]] || {
+			printf 'Missing source-declared dependency in normalized IR: %s DEPENDS_ON %s (%s)\n' \
+				"$source_subject" "$source_object" "$source_location" >&2
+			missing_explicit_dependencies=$((missing_explicit_dependencies + 1))
+		}
+	done < <(specification_explicit_dependencies)
+	(( missing_explicit_dependencies == 0 )) || die "accepted specification IR omitted $missing_explicit_dependencies explicit source dependency relation(s)"
 	(( missing_validation == 0 )) || die "accepted specification IR has $missing_validation obligation(s) without VALIDATES relations"
 	(( missing_producer == 0 )) || die "accepted specification IR has $missing_producer consumed artifact(s) without a producer or observed repository fact"
 	(( ownership_conflicts == 0 )) || die "accepted specification IR has $ownership_conflicts conflicting exclusive ownership relation(s)"

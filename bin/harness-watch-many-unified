@@ -275,6 +275,9 @@ while IFS= read -r -d '' env_file; do
 	if [[ "$project_status" == SPECIFICATION_IR_INVALID.* ]]; then
 		display_status=paused
 		description="$project_status"
+	elif [[ "$project_status" == SPECIFICATION_NORMALIZATION_STALLED.* ]]; then
+		display_status=paused
+		description="$project_status"
 	elif [[ "$project_status" == SPEC_CLARIFICATION_REQUIRED.* ]]; then
 		display_status=clarify
 		completion='-'

@@ -46,6 +46,8 @@ if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 		"$([[ "$HARNESS_DECOMPOSITION_CRITIC_ENABLED" == 1 ]] && printf enabled || printf disabled)"
 	printf 'Pre-acceptance specification review: %s\n' \
 		"$([[ "$HARNESS_SPECIFICATION_REVIEW_ENABLED" == 1 ]] && printf enabled || printf disabled)"
+	printf 'Maximum specification IR renormalizations: %s\n' "$HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS"
+	printf 'Maximum harness-start agent invocations: %s\n' "$HARNESS_START_MAX_AGENT_INVOCATIONS"
 	printf 'Selected domain profiles: %s\n' "${HARNESS_DOMAIN_PROFILES:-none}"
 	printf 'Luna leaf route: %s (%s)\n' "$LUNA_WORKER_MODEL" "$LUNA_WORKER_REASONING_EFFORT"
 	printf 'Terra leaf route: %s (%s)\n' "$TERRA_WORKER_MODEL" "$TERRA_WORKER_REASONING_EFFORT"

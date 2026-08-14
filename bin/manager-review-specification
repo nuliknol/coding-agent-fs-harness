@@ -14,6 +14,11 @@ project_plan_exists && exit 0
 
 if specification_review_matches_current_inputs; then
 	status="$(specification_review_state_value status)"
+	if [[ "$status" == ACCEPTED ]] && specification_explicit_dependency_cycle; then
+		"$HARNESS_BIN/manager-record-specification-dependency-cycle" "$HARNESS_ENV_FILE" \
+			"$(specification_repository_inventory_file)" "$(specification_domain_manifest_file)"
+		exit 0
+	fi
 	if [[ "$status" =~ ^(ACCEPTED|SPEC_CLARIFICATION_REQUIRED)$ ]]; then
 		printf '%s\n' "$(specification_review_report_relative_path)"
 		exit 0
@@ -39,6 +44,17 @@ domain_manifest="$PROJECT_TMP_DIR/$PROJECT-domain-profiles.tsv"
 } > "$domain_manifest.tmp.$$"
 chmod 600 "$domain_manifest.tmp.$$"
 mv "$domain_manifest.tmp.$$" "$domain_manifest"
+
+# Dependency cycles stated by the governing source are specification defects,
+# not normalization defects. Detect and record them without spending a manager
+# turn or permitting a generated IR to hide one side of the cycle.
+command -v tsort >/dev/null 2>&1 || die 'tsort is required to validate specification dependency cycles'
+if specification_explicit_dependency_cycle; then
+	"$HARNESS_BIN/manager-record-specification-dependency-cycle" \
+		"$HARNESS_ENV_FILE" "$repository_inventory" "$domain_manifest"
+	exit 0
+fi
+
 prompt="$dir/control/manager-specification-review.prompt.md"
 cat > "$prompt.tmp.$$" <<PROMPT
 You are the independent pre-acceptance specification reviewer for a filesystem-backed coding harness. Do not edit repository source, tests, specifications, build outputs, or harness state directly. This review occurs before the execution DAG exists.
@@ -68,6 +84,8 @@ UNDEFINED_COMPLETION_BOUNDARY
 UNAVAILABLE_EXTERNAL_AUTHORITY
 
 Do not request clarification for coding difficulty, repository size, unknown implementation details, paths or symbols discoverable from the repository, missing tests that can be implemented, local build/integration defects, file ownership, decomposition complexity, or an architecture choice explicitly delegated to the implementer. Those are automatic engineering work. Every clarification issue must identify two distinct incompatible observable outcomes, the governing sources and repository evidence checked, the missing authoritative decision, and one minimal question. If repository or governing evidence resolves the question, accept it and record that evidence as a fact.
+
+Explicit normative Dependencies fields are source authority. Preserve every such edge as a SPECIFIED DEPENDS_ON relation. If the governing source declares a dependency cycle, that is CONTRADICTORY_REQUIREMENTS: request clarification about the authoritative direction or non-ordering relationship. Never make the IR acyclic by silently omitting or reversing a source-declared edge.
 
 Write five files under PROJECT_TMP_DIR: VERDICT_FILE, FACTS_FILE, ISSUES_FILE, OBLIGATIONS_FILE, and RELATIONS_FILE.
 

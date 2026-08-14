@@ -108,6 +108,8 @@ export HARNESS_WORKER_GOAL_MODE="1"
 export HARNESS_DECOMPOSITION_V2="1"
 export HARNESS_DECOMPOSITION_CRITIC_ENABLED="1"
 export HARNESS_SPECIFICATION_REVIEW_ENABLED="1"
+export HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS="1"
+export HARNESS_START_MAX_AGENT_INVOCATIONS="4"
 export HARNESS_DOMAIN_PROFILES=""  # optional comma-separated profile IDs
 export HARNESS_MAX_LUNA_STRATEGY_FAILURES="3"
 export HARNESS_MAX_LUNA_ALLOWED_PATHS="8"
@@ -130,6 +132,12 @@ facts, and structured questions are written under `$REPOSITORY/spec-review/`,
 while commands and watchers display only the repository-relative report name.
 Revise and commit the governing specification or repository evidence, then run
 `harness-start` again to obtain a fresh review.
+
+Structured requirement `Dependencies` are extracted before the reviewer is
+launched. A source-declared cycle is recorded deterministically as
+`CONTRADICTORY_REQUIREMENTS`, so no manager tokens are spent and no generated
+IR can hide the conflict by dropping an edge. Accepted IR registration also
+checks every source-declared dependency for fidelity.
 
 For a stopped Full project, `harness-start` requires `REPOSITORY` to be a Git
 worktree with a valid `HEAD` and no staged, unstaged, or non-ignored untracked
@@ -168,8 +176,11 @@ register a DAG. A genuine unresolved product contract transitions back to
 `$REPOSITORY/spec-review/`. If the governing sources are clear but the generated
 facts, obligations, or relations are defective, the critic requests automatic
 IR renormalization instead; `harness-start` reruns the reviewer once and refuses
-repeated compiler churn. Thus only missing human authority is bounced to the
-specification author.
+repeated compiler churn. The renormalization limit is durable across starts,
+and each startup transaction also has a hard provider-process budget. A
+non-converging compiler pass enters `SPECIFICATION_NORMALIZATION_STALLED`; an
+unchanged restart refuses further agent calls. Thus only missing human
+authority is bounced to the specification author.
 
 Reusable domain theory is opt-in through `HARNESS_DOMAIN_PROFILES`. A profile
 resolves first from `$REPOSITORY/.harness/domain-profiles/NAME.tsv`, then from
@@ -585,6 +596,8 @@ export HARNESS_WORKER_GOAL_MODE="1"
 export HARNESS_DECOMPOSITION_V2="1"
 export HARNESS_DECOMPOSITION_CRITIC_ENABLED="1"
 export HARNESS_SPECIFICATION_REVIEW_ENABLED="1"
+export HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS="1"
+export HARNESS_START_MAX_AGENT_INVOCATIONS="4"
 export HARNESS_DOMAIN_PROFILES=""
 export HARNESS_MAX_LUNA_STRATEGY_FAILURES="3"
 export HARNESS_MAX_LUNA_ALLOWED_PATHS="8"

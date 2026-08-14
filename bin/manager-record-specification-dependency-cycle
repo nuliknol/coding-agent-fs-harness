@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 3 ]] || { printf 'Usage: %s ENV_FILE INVENTORY_TSV DOMAIN_MANIFEST_TSV\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+inventory_file="$2"
+domain_manifest_file="$3"
+ensure_project
+require_manager_configuration
+command -v tsort >/dev/null 2>&1 || die 'tsort is required to validate specification dependency cycles'
+project_plan_exists && die 'cannot record a specification dependency cycle after DAG registration'
+[[ -f "$inventory_file" && -f "$domain_manifest_file" ]] || die 'dependency-cycle review requires inventory and domain-manifest files'
+
+mkdir -p "$PROJECT_TMP_DIR"
+chmod 700 "$PROJECT_TMP_DIR"
+dependencies_file="$PROJECT_TMP_DIR/$PROJECT-explicit-specification-dependency-cycle.tsv"
+specification_explicit_dependency_cycle_edges > "$dependencies_file.tmp.$$"
+chmod 600 "$dependencies_file.tmp.$$"
+mv "$dependencies_file.tmp.$$" "$dependencies_file"
+[[ -s "$dependencies_file" ]] || die 'explicit specification dependencies are acyclic'
+
+spec_sha="$(specification_sha256)"
+repository_baseline="$(specification_review_repository_baseline)"
+domain_sha="$(domain_profiles_sha256)"
+verdict_file="$PROJECT_TMP_DIR/$PROJECT-dependency-cycle-verdict.md"
+facts_file="$PROJECT_TMP_DIR/$PROJECT-dependency-cycle-facts.tsv"
+issues_file="$PROJECT_TMP_DIR/$PROJECT-dependency-cycle-issues.tsv"
+obligations_file="$PROJECT_TMP_DIR/$PROJECT-dependency-cycle-obligations.tsv"
+relations_file="$PROJECT_TMP_DIR/$PROJECT-dependency-cycle-relations.tsv"
+
+cycle_nodes="$(awk -F '\t' '{print $1; print $2}' "$dependencies_file" | sort -u | paste -sd, -)"
+cycle_locations="$(awk -F '\t' '{print $3}' "$dependencies_file" | sort -u | paste -sd, -)"
+cycle_edges="$(awk -F '\t' '{printf "%s%s DEPENDS_ON %s", separator, $1, $2; separator="; "}' "$dependencies_file")"
+cat > "$verdict_file.tmp.$$" <<EOF
+# Specification Review
+
+Project: $PROJECT
+Specification-SHA256: $spec_sha
+Repository-Baseline: $repository_baseline
+Domain-Profiles-SHA256: $domain_sha
+Decision: SPEC_CLARIFICATION_REQUIRED
+
+## Review summary
+
+The governing specification contains an explicit requirement-dependency cycle. The harness cannot preserve every declared prerequisite while also producing the required acyclic implementation DAG.
+
+## Repository grounding
+
+This is a source-authority conflict detected directly from structured Dependencies fields before any manager model was invoked. Explicit edges examined: $cycle_edges
+
+## Conclusion
+
+Clarify the authoritative prerequisite direction or replace the cyclic ordering with a non-ordering relationship. Implementation cannot begin by silently dropping either declared edge.
+EOF
+printf '%s\n' \
+	$'fact_id\tkind\tsubject\tvalue\tevidence\tauthority\tconfidence' \
+	$'FACT-SPECIFICATION-DEPENDENCY-GRAPH\tDEPENDENCY\tspecification\texplicit requirement dependency graph\tspecification:Dependencies\tOBSERVED\tHIGH' \
+	> "$facts_file.tmp.$$"
+printf '%s\n' \
+	$'issue_id\tclass\trequirement_ids\tsource_locations\toutcome_a\toutcome_b\tevidence_checked\tmissing_decision\tminimal_question' \
+	"SPEC-DEPENDENCY-CYCLE"$'\t'"CONTRADICTORY_REQUIREMENTS"$'\t'"$cycle_nodes"$'\t'"$cycle_locations"$'\t'"Preserve every declared prerequisite edge"$'\t'"Produce an acyclic executable dependency order"$'\t'"$cycle_edges"$'\t'"Authoritative acyclic prerequisite relationship"$'\t'"Which dependency direction is authoritative, or should these requirements have no ordering dependency?" \
+	> "$issues_file.tmp.$$"
+printf '%s\n' $'obligation_id\tauthority\tsource_requirement\tsource_location\tobligation_type\tstatement\tobservable_outcome\tacceptance_authority' \
+	> "$obligations_file.tmp.$$"
+printf '%s\n' $'relation_id\trelation_type\tsubject\tobject\tauthority\tevidence' \
+	> "$relations_file.tmp.$$"
+for file in "$verdict_file" "$facts_file" "$issues_file" "$obligations_file" "$relations_file"; do
+	chmod 600 "$file.tmp.$$"
+	mv "$file.tmp.$$" "$file"
+done
+
+"$HARNESS_BIN/manager-record-specification-review" "$HARNESS_ENV_FILE" \
+	"$verdict_file" "$facts_file" "$issues_file" "$obligations_file" \
+	"$relations_file" "$inventory_file" "$domain_manifest_file"

@@ -21,8 +21,55 @@ mkdir -p "$archive_dir"
 chmod 700 "$archive_dir"
 stamp="$(timestamp_compact_utc)"
 state="$(specification_review_state_file)"
+current_spec_sha="$(specification_sha256)"
+current_baseline="$(specification_review_repository_baseline)"
+current_domain_sha="$(domain_profiles_sha256)"
+previous_requests=0
+for archived_state in "$archive_dir"/*.state.env; do
+	[[ -f "$archived_state" ]] || continue
+	[[ "$(kv_file_value "$archived_state" specification_sha256)" == "$current_spec_sha" ]] || continue
+	[[ "$(kv_file_value "$archived_state" repository_baseline)" == "$current_baseline" ]] || continue
+	[[ "$(kv_file_value "$archived_state" domain_profiles_sha256)" == "$current_domain_sha" ]] || continue
+	previous_requests=$((previous_requests + 1))
+done
+reason_fingerprint="$(sed -E 's/[[:space:]]+/ /g; /^[[:space:]]*$/d' "$reason" | sha256sum | awk '{print $1}')"
+if (( previous_requests >= HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS )); then
+	stall="$(specification_renormalization_stall_file)"
+	stall_report="${stall%.env}.md"
+	{
+		printf '# Specification Normalization Stalled\n\n'
+		printf 'The decomposition critic requested another normalization pass for unchanged specification authority after %s automatic repair attempt(s). No further agent will be launched until the specification, repository baseline, domain profiles, or harness defect changes.\n\n' "$previous_requests"
+		printf 'Latest request fingerprint: `%s`\n\n' "$reason_fingerprint"
+		printf '## Latest request\n\n'
+		cat "$reason"
+	} > "$stall_report.tmp.$$"
+	chmod 600 "$stall_report.tmp.$$"
+	mv "$stall_report.tmp.$$" "$stall_report"
+	{
+		printf 'specification_sha256=%s\n' "$current_spec_sha"
+		printf 'repository_baseline=%s\n' "$current_baseline"
+		printf 'domain_profiles_sha256=%s\n' "$current_domain_sha"
+		printf 'request_count=%s\n' "$((previous_requests + 1))"
+		printf 'reason_fingerprint=%s\n' "$reason_fingerprint"
+		printf 'report=%s\n' "$stall_report"
+		printf 'stalled_at=%s\n' "$(timestamp_utc)"
+	} > "$stall.tmp.$$"
+	chmod 600 "$stall.tmp.$$"
+	mv "$stall.tmp.$$" "$stall"
+	log_event "SPECIFICATION_RENORMALIZATION_STALLED requests=$((previous_requests + 1)) fingerprint=$reason_fingerprint report=$stall_report"
+	die "specification normalization did not converge after $previous_requests automatic repair attempt(s); inspect $stall_report"
+fi
+stall_path="$(specification_renormalization_stall_file)"
+rm -f "$stall_path" "${stall_path%.env}.md"
 install -m 600 "$state" "$archive_dir/$stamp.state.env"
 install -m 600 "$reason" "$archive_dir/$stamp.reason.md"
+{
+	printf 'specification_sha256=%s\n' "$current_spec_sha"
+	printf 'repository_baseline=%s\n' "$current_baseline"
+	printf 'domain_profiles_sha256=%s\n' "$current_domain_sha"
+	printf 'reason_fingerprint=%s\n' "$reason_fingerprint"
+} > "$archive_dir/$stamp.request.env"
+chmod 600 "$archive_dir/$stamp.request.env"
 rm -f "$state"
-log_event "SPECIFICATION_RENORMALIZATION_REQUESTED reason=$archive_dir/$stamp.reason.md"
+log_event "SPECIFICATION_RENORMALIZATION_REQUESTED reason=$archive_dir/$stamp.reason.md fingerprint=$reason_fingerprint"
 printf 'RENORMALIZE\n'

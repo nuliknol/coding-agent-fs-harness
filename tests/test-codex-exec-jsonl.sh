@@ -144,6 +144,24 @@ run_case network_stderr provider_transient_error
 run_case auth_code terminal_authentication_error
 run_case success_warning success
 
+# One harness-start transaction has a hard process budget independent of the
+# time-based limiter. Exhaustion must fail before the model executable starts.
+startup_budget="$TMP/state/projects/jsonltest/control/test-startup-budget.env"
+mkdir -p "$(dirname "$startup_budget")"
+printf '%s\n' 'count=1' 'maximum=1' 'started_at=2026-01-01T00:00:00Z' > "$startup_budget"
+set +e
+MOCK_MODE=success HARNESS_START_AGENT_BUDGET_FILE="$startup_budget" \
+	"$ROOT/bin/codex-exec-jsonl" "$TMP/env" manager_plan gpt-5.5 "$prompt" \
+	"$TMP/budget.jsonl" "$TMP/budget.stderr" "$TMP/budget.last" \
+	>"$TMP/budget.out" 2>"$TMP/budget-command.err"
+budget_status=$?
+set -e
+(( budget_status != 0 ))
+grep -q 'harness-start agent invocation budget exhausted (1/1)' "$TMP/budget-command.err"
+test ! -s "$TMP/budget.jsonl"
+grep -q 'STARTUP_AGENT_BUDGET_EXHAUSTED count=1 maximum=1 role=manager_plan' \
+	"$TMP/state/projects/jsonltest/logs/events.log"
+
 # One project-wide clock covers every role. An immediate manager launch after
 # a worker launch must wait even though the role changed.
 cp "$TMP/env" "$TMP/env-throttle"
