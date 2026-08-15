@@ -180,11 +180,11 @@ last_message=""
 classification=""
 fallback_stage=0
 current_model="$MANAGER_MODEL"
-review_thread_id="$thread_id"
-fresh_context_pending=0
+review_thread_id=""
+fresh_context_pending=1
+manager_rotation_reason=bounded_review
 if (( review_state_changed == 1 )); then
-	review_thread_id=""
-	fresh_context_pending=1
+	manager_rotation_reason=review_state_changed
 fi
 
 extract_thread_id()
@@ -203,8 +203,8 @@ commit_fresh_manager_context()
 	[[ -n "$review_thread_id" && "$review_thread_id" != null ]] ||
 		die 'fresh manager review completed without a recoverable thread id'
 	"$HARNESS_BIN/manager-register-thread" "$HARNESS_ENV_FILE" "$review_thread_id" >/dev/null
-	log_event "MANAGER_CONTEXT_ROTATED previous=$original_thread_id current=$review_thread_id reason=review_state_changed"
-	trace_event MANAGER_CONTEXT_ROTATED "previous_thread_id=$original_thread_id" "current_thread_id=$review_thread_id" "reason=review_state_changed"
+	log_event "MANAGER_CONTEXT_ROTATED previous=$original_thread_id current=$review_thread_id reason=$manager_rotation_reason"
+	trace_event MANAGER_CONTEXT_ROTATED "previous_thread_id=$original_thread_id" "current_thread_id=$review_thread_id" "reason=$manager_rotation_reason"
 	fresh_context_pending=0
 }
 

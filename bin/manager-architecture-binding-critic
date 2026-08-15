@@ -63,7 +63,7 @@ gate_id<TAB>trigger_node<TAB>depends_on<TAB>validation<TAB>severity<TAB>invarian
 debt.tsv:
 debt_id<TAB>introduced_by_task<TAB>introduced_by_commit<TAB>category<TAB>affected_invariants<TAB>consequence<TAB>remediation_node<TAB>severity<TAB>expires_at<TAB>status<TAB>waiver_authority
 
-Use '-' for intentionally empty identifiers. Every DAG node has exactly one binding. Use only invariant categories CANONICAL_REPRESENTATION, DEPENDENCY_CYCLE, DEVICE_AUTHORITY, ERROR_MODEL, LAYERING, OTHER, OWNERSHIP, PUBLIC_API, or SERIALIZATION. SPECIFIED invariants cite original obligations; DERIVED invariants are necessary consequences; PROPOSED invariants do not constrain implementation. Every API, representation, ownership, serialization, concurrency, or error contract crossing a dependency has an edge. contract_artifact is '-', a bounded repository-relative path, or decision:DECISION_ID. Decision references also appear in decision_ids. Terra decision nodes produce explicit decisions; Luna nodes consume accepted decisions but produce none.
+Use '-' for intentionally empty identifiers. Every DAG node has exactly one binding. Use only invariant categories CANONICAL_REPRESENTATION, CONCURRENCY, DEPENDENCY_CYCLE, DEVICE_AUTHORITY, ERROR_MODEL, LAYERING, OTHER, OWNERSHIP, PERFORMANCE, PUBLIC_API, SECURITY, SERIALIZATION. Use only INFO, WARNING, or CRITICAL severity and only COMMAND or REVIEW validation_kind; mandatory/MUST/HARD requirements map to CRITICAL. SPECIFIED invariants cite original obligations; DERIVED invariants are necessary consequences; PROPOSED invariants do not constrain implementation. Every API, representation, ownership, serialization, concurrency, or error contract crossing a dependency has an edge. A DAG depends_on entry used only for scheduling, evidence ordering, validation, documentation, or integration sequencing is not an architecture edge. Do not create one edge per DAG dependency. Create only the smallest set of semantic contracts actually crossing component or authority boundaries. contract_artifact is '-', a bounded repository-relative path, or decision:DECISION_ID. Decision references also appear in decision_ids. Terra decision nodes produce explicit decisions; Luna nodes consume accepted decisions but produce none.
 
 Bind milestone gates after coherent groups and final integration. Every invariant command, compatibility check, and non-final gate uses the focused selector already owned by the fixed DAG. Never require an unrelated broad aggregate to exit zero. When an aggregate is useful as baseline evidence, capture or tolerate its exit and assert the owned stage result separately. HARNESS_BROAD_GATE_REQUIRED=1 is permitted only when the human specification explicitly requires whole-project aggregate success. Keep verbose build/test output in PROJECT_TMP_DIR logs and print only bounded tails on failure. An invariant's affected_nodes exactly matches nodes whose bindings contain it. Start debt.tsv empty except for explicitly forced redesign debt already required by the accepted force waiver.
 
@@ -75,6 +75,16 @@ Pass '-' instead of ARCH_DIR only for the deterministic single-test profile desc
 PROMPT
 chmod 600 "$prompt.tmp.$$"
 mv "$prompt.tmp.$$" "$prompt"
+
+# Make bounded prompt paths directly usable by agent shell commands. These are
+# invocation-local values, not persistent harness configuration.
+export DAG_FILE="$dag"
+export SPECIFICATION_COVERAGE_FILE="$coverage"
+export ARCHITECTURE_FIT_REPORT="$fit_report"
+export SPECIFICATION_OBLIGATIONS_FILE="$(specification_obligations_file)"
+export SPECIFICATION_RELATIONS_FILE="$(specification_relations_file)"
+export REPOSITORY_FACTS_FILE="$REPOSITORY/$(specification_review_state_value facts)"
+export ARCHITECTURE_GUARDS="$HARNESS_ARCHITECTURE_GUARDS"
 
 attempt=1
 while true; do

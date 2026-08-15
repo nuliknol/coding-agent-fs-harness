@@ -67,5 +67,12 @@ if decomposition_dag_candidate_matches_current_inputs &&
 	printf 'Decomposition DAG candidate repaired and staged.\n'
 	exit 0
 fi
+new_candidate_dir="$(decomposition_dag_candidate_state_value directory -)"
+if (( status == 0 )) && [[ "$new_candidate_dir" != - && "$new_candidate_dir" != "$candidate_dir" ]] &&
+	decomposition_dag_candidate_matches_current_inputs; then
+	log_event "DECOMPOSITION_DAG_REPAIR_PROGRESS previous=$candidate_id current=${new_candidate_dir##*/} status=$(decomposition_dag_candidate_state_value status -)"
+	printf 'DAG repair produced a new durable candidate; continuing bounded validation.\n'
+	exit 0
+fi
 (( status == 0 )) && die 'DAG repair exited without staging a valid candidate'
 die "DAG repair failed with status $status; see $json"

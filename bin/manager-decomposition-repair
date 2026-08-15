@@ -90,6 +90,13 @@ while true; do
 		printf 'Decomposition candidate repaired and installed.\n'
 		exit 0
 	fi
+	new_candidate_dir="$(decomposition_candidate_state_value directory -)"
+	if (( status == 0 )) && [[ "$new_candidate_dir" != - && "$new_candidate_dir" != "$candidate_dir" ]] &&
+		decomposition_candidate_matches_current_inputs; then
+		log_event "DECOMPOSITION_REPAIR_PROGRESS previous=$candidate_id current=${new_candidate_dir##*/} status=$(decomposition_candidate_state_value status -)"
+		printf 'Decomposition repair produced a new durable candidate; continuing bounded validation.\n'
+		exit 0
+	fi
 	classification="$(kv_file_value "${json%.jsonl}.classification" classification 2>/dev/null || true)"
 	retry_kind="$(codex_provider_retry_kind "$classification" 2>/dev/null || true)"
 	if [[ -n "$retry_kind" ]]; then
