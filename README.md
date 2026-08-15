@@ -50,6 +50,9 @@ compatibility alias; new files should use the uppercase shell variable.
 - Revision publication keeps generated build trees in validation context,
   clamps execution budgets to root ceilings, and returns a failure status for
   genuine authority expansion so managers cannot report a false publication.
+- Reassessment resolution atomically restores replanning for taskless active
+  roots, and publication rejects a stale planner's second live revision of the
+  same root.
 - Focused closure mode: high-progress tasks receive a bounded
   diagnose-correct-rebuild-smoke budget instead of unbounded revision churn.
 - Independent final audit: an optional fresh Oracle checks specification

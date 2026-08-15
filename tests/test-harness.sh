@@ -1651,6 +1651,12 @@ grep -q 'MANAGER_REPLAN_STARTED root=001.*context=fresh previous_thread_id=auto-
 grep -q 'MANAGER_CONTEXT_ROTATED previous=auto-manager-thread current=mock-thread-001 reason=bounded_replan' \
 	"$auto_project/logs/events.log"
 
+# Hold the already-verified ready artifact outside the live queues while the
+# following negative publication cases exercise deeper semantic validators.
+# Production publication now correctly refuses any second live root revision.
+auto_ready_held="$AUTO_ROOT/autoreplanproj-task-001-revision-08.ready.held"
+mv "$auto_ready" "$auto_ready_held"
+
 cat > "$AUTO_ROOT/nonfirst.md" <<'TASK'
 # Task
 
@@ -1716,6 +1722,7 @@ grep -q 'MANAGER_RECOVERY_PUBLISH_ATTEMPT_BLOCKED root=001 task=001-revision-09 
 rm -f "$auto_progress/autoreplanproj-task-001.replanning.md"
 rm -f "$auto_progress/autoreplanproj-task-001.needs-replan.md"
 
+mv "$auto_ready_held" "$auto_ready"
 mv "$auto_ready" "$auto_project/archive/autoreplanproj-task-001-revision-08.checkpointed.md"
 cat > "$auto_progress/autoreplanproj-task-001.needs-replan.md" <<'MARKER'
 # Root Task Needs Replanning

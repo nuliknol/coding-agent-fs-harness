@@ -137,6 +137,12 @@ grep -Fqx 'worker_route=TERRA' \
 grep -Fqx 'old_allowed_paths=src/api.h' "$revision_archive/revision.env"
 grep -Fqx 'new_allowed_paths=src/api.h,src/api.c' "$revision_archive/revision.env"
 
+# The original root assignment has served as the active-plan fixture. Move it
+# out of the live queue before exercising sequential continuation publication;
+# production now rejects two simultaneous live revisions of one root.
+mv "$project/tasks/revisionproj-task-contract.ready.md" \
+	"$project/archive/revisionproj-task-contract.checkpointed.md"
+
 # Planning publication derives revision identity from durable state and restores
 # immutable DAG metadata from the accepted root instead of trusting model prose.
 sed 's#^Allowed-Scope: src/api.h,src/api.c$#Allowed-Scope: src/#' \

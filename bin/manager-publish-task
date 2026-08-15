@@ -104,6 +104,25 @@ rejected="$dir/archive/$base.rejected.md"
 blocked="$dir/archive/$base.blocked.md"
 aborted="$dir/control/$base.abort.md"
 
+active_root_artifact=""
+if [[ "$task_id" != "$root" ]]; then
+	shopt -s nullglob
+	for artifact in "$dir/tasks/$PROJECT-task-"*.ready.md \
+		"$dir/running/$PROJECT-task-"*.running.md \
+		"$dir/results/$PROJECT-task-"*.result.md; do
+		[[ -f "$artifact" ]] || continue
+		artifact_task="$(task_id_from_filename "$artifact")"
+		[[ "$artifact_task" != "$task_id" ]] || continue
+		if [[ "$(task_root_id "$artifact_task")" == "$root" ]]; then
+			active_root_artifact="$artifact"
+			break
+		fi
+	done
+	shopt -u nullglob
+	[[ -z "$active_root_artifact" ]] ||
+		die "task root already has an active ready, running, or review artifact: $active_root_artifact"
+fi
+
 if [[ "$task_id" == "$root" ]]; then
 	[[ -n "$plan_item_id" ]] || die 'a new root task requires PROJECT_PLAN_ITEM_ID'
 	[[ "$(project_plan_item_status "$plan_item_id")" == PENDING ]] || die "project plan item is not pending: $plan_item_id"

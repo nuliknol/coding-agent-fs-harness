@@ -87,6 +87,8 @@ MD
 "$HARNESS_BIN/harness-resolve-architecture-reassessment" \
 	"$TEST_ROOT/harness.env" consumer "$TEST_ROOT/resolution.md" >/dev/null
 [[ ! -f "$reassessment" ]]
+[[ -f "$project/control/progress/livenessproj-task-consumer.needs-replan.md" ]]
+"$HARNESS_BIN/harness-unblock-root" "$TEST_ROOT/harness.env" consumer >/dev/null
 find "$project/archive/architecture-reassessments" -type f -name '*.resolved.md' | grep -q .
 # An explicit operator architecture epoch may raise a budget; automatic
 # replanning itself never changes or resets it.
@@ -130,6 +132,8 @@ grep -Fqx 'Category: IMMUTABLE_ROOT_AUTHORITY' "$reassessment"
 [[ ! -f "$project/tasks/livenessproj-task-consumer-revision-03.ready.md" ]]
 "$HARNESS_BIN/harness-resolve-architecture-reassessment" \
 	"$TEST_ROOT/harness.env" consumer "$TEST_ROOT/resolution.md" >/dev/null
+[[ -f "$project/control/progress/livenessproj-task-consumer.needs-replan.md" ]]
+"$HARNESS_BIN/harness-unblock-root" "$TEST_ROOT/harness.env" consumer >/dev/null
 
 # A read-only continuation may inspect additional repository evidence, but it
 # must retain the immutable root's write scope and must not trigger an
@@ -233,6 +237,19 @@ grep -Fqx 'Allowed-Scope: src/consumer' "$generated_ready"
 grep -Fqx 'Expected-Max-Implementation-Files: 2' "$generated_ready"
 grep -Fqx 'Expected-Max-Worker-Turns: 2' "$generated_ready"
 [[ ! -f "$reassessment" ]]
+rm -f "$generated_ready"
+
+# A stale planning turn cannot publish a second revision while another
+# revision of the same root is ready for execution.
+cp "$TEST_ROOT/generated-validation-revision.md" "$TEST_ROOT/concurrent-revision.md"
+sed -i 's/consumer-revision-05/consumer-revision-06/g' "$TEST_ROOT/concurrent-revision.md"
+cp "$TEST_ROOT/generated-validation-revision.md" "$generated_ready"
+if "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" \
+	consumer-revision-06 "$TEST_ROOT/concurrent-revision.md" >"$TEST_ROOT/concurrent.out" 2>"$TEST_ROOT/concurrent.err"; then
+	printf 'concurrent root revision unexpectedly published\n' >&2
+	exit 1
+fi
+grep -Fq 'task root already has an active ready, running, or review artifact' "$TEST_ROOT/concurrent.err"
 rm -f "$generated_ready"
 
 cat > "$TEST_ROOT/invalidation.md" <<'MD'
