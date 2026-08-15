@@ -506,6 +506,13 @@ grep -q 'event=PROJECT_COMPLETED' "$TRACE"
 grep -q -- '--config model_context_window=272000' "$ARGS_LOG"
 grep -q -- '--config model_auto_compact_token_limit=240000' "$ARGS_LOG"
 grep -q -- '--add-dir /tmp/testproj' "$ARGS_LOG"
+review_prompt="$TEST_ROOT/state/projects/testproj/control/testproj-task-001.manager-review.prompt.md"
+review_digest="$TEST_ROOT/state/projects/testproj/control/testproj-task-001.worker-evidence-digest.md"
+[[ -f "$review_prompt" && -f "$review_digest" ]]
+grep -Fq "WORKER_EVIDENCE_DIGEST_FILE=$review_digest" "$review_prompt"
+grep -Fq 'WORKER_EVIDENCE_DIGEST_FILE is the only authorized worker-transcript evidence' "$review_prompt"
+grep -Fq 'Reviewers must not open the raw worker JSONL' "$review_digest"
+(( $(stat -c %s "$review_digest") <= 32768 ))
 [[ -f "$TEST_ROOT/state/projects/testproj/archive/testproj-task-001.assignment.md" ]]
 [[ -f "$TEST_ROOT/state/projects/testproj/archive/testproj-task-002.assignment.md" ]]
 normalized_result="$TEST_ROOT/state/projects/testproj/archive/testproj-task-002.result.md"

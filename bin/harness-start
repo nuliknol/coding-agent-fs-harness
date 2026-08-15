@@ -178,6 +178,13 @@ while ! project_plan_exists; do
 				fi
 			fi
 			if [[ -f "$full_rejection_log" ]] &&
+				grep -Eq 'accepted decision .* lacks repository evidence|accepted decision .* evidence is not committed at HEAD' "$full_rejection_log"; then
+				printf 'Normalizing mechanical architecture decision evidence without an agent turn.\n'
+				if "$HARNESS_BIN/manager-repair-decomposition-decision-evidence" "$HARNESS_ENV_FILE"; then
+					continue
+				fi
+			fi
+			if [[ -f "$full_rejection_log" ]] &&
 				grep -Eq 'consumer .* must directly depend on producer' "$full_rejection_log"; then
 				printf 'Repairing mechanical architecture producer/consumer links without an agent turn.\n'
 				if "$HARNESS_BIN/manager-repair-decomposition-links" "$HARNESS_ENV_FILE"; then

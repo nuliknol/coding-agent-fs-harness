@@ -230,8 +230,11 @@ architecture-wide checks authorized by this contract.
 
 1. Run `$HARNESS_BIN/harness-status "$ENV_FILE"`.
 2. Read `PROJECT_PLAN_FILE`, `PROJECT_PLAN_STATE_FILE`, `ROOT_ASSIGNMENT_FILE`,
-   `PROGRESS_FILE`, the current archived assignment, the worker result, and the
-   actual code. The plan and root assignment are immutable.
+   `PROGRESS_FILE`, the current archived assignment, the worker result,
+   `WORKER_EVIDENCE_DIGEST_FILE`, and the actual code. The digest is the only
+   authorized worker-transcript evidence. Never open or print raw worker
+   JSONL, worker stderr, raw command-output logs, or raw build/test logs. The
+   plan and root assignment are immutable.
 3. Reconcile the cumulative root-task checklist against repository evidence.
    Preserve previously verified criteria; a restart never resets progress to 0.
    When a criterion inventory exists, work and verification proceed strictly in

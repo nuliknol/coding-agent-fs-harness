@@ -1653,6 +1653,79 @@ worker_thread_id_for_task()
 	printf '%s\n' "$thread_id"
 }
 
+latest_worker_jsonl_for_task()
+{
+	local task_id="$1" dir file latest latest_mtime mtime
+	dir="$(project_dir)"
+	latest=""
+	latest_mtime=-1
+	shopt -s nullglob
+	for file in "$dir/logs/worker-task-$task_id-"*.jsonl; do
+		mtime="$(stat -c %Y "$file" 2>/dev/null || printf 0)"
+		if (( mtime > latest_mtime )) || { (( mtime == latest_mtime )) && [[ "$file" > "$latest" ]]; }; then
+			latest="$file"
+			latest_mtime="$mtime"
+		fi
+	done
+	shopt -u nullglob
+	[[ -n "$latest" ]] || return 1
+	printf '%s\n' "$latest"
+}
+
+write_worker_episode_evidence_digest()
+{
+	local task_id="$1" output_file="$2" json_log classification_file last_message_file tmp
+	json_log="$(latest_worker_jsonl_for_task "$task_id" 2>/dev/null || true)"
+	tmp="$output_file.tmp.$$"
+	{
+		printf '# Bounded Worker Episode Evidence\n\n'
+		printf 'Task-ID: %s\n' "$task_id"
+		if [[ -z "$json_log" ]]; then
+			printf 'Worker-Transcript: unavailable\n'
+		else
+			classification_file="${json_log%.jsonl}.classification"
+			last_message_file="${json_log%.jsonl}.md"
+			printf 'Worker-Transcript: summarized-locally\n'
+			printf 'Worker-JSONL-Bytes: %s\n' "$(stat -c %s "$json_log" 2>/dev/null || printf 0)"
+			if [[ -f "$classification_file" ]]; then
+				printf '\n## Classification\n\n'
+				awk -F= '$1 ~ /^(classification|role|model|exit_status|item_started_count|estimated_processed_tokens|processed_token_limit|resource_guard|git_head_changed|partial_edits)$/ {print}' \
+					"$classification_file"
+			fi
+			if command -v jq >/dev/null 2>&1; then
+				printf '\n## Command manifest\n\n'
+				jq -sr '
+					[.[] | select(.type == "item.completed" and .item.type == "command_execution")][0:40]
+					| to_entries[]?
+					| .value.item as $item
+					| ($item.command // "" | gsub("[\\r\\n\\t]+"; " ") | .[0:360]) as $command
+					| ($item.aggregated_output // $item.output // "" | tostring | length) as $bytes
+					| "- command[\(.key + 1)] exit=\($item.exit_code // $item.status // "unknown") output_bytes=\($bytes): \($command)"
+				' "$json_log" 2>/dev/null || true
+				printf '\n## Agent messages\n\n'
+				jq -sr '
+					[.[] | select(.type == "item.completed" and .item.type == "agent_message") | (.item.text // "")]
+					| .[-3:][]?
+					| gsub("[\\r\\t]"; " ")
+					| .[0:2400]
+				' "$json_log" 2>/dev/null || true
+			fi
+			if [[ -s "$last_message_file" ]]; then
+				printf '\n## Last message (bounded)\n\n'
+				tail -n 80 "$last_message_file" | tail -c 8192
+				printf '\n'
+			fi
+		fi
+		printf '\n## Review boundary\n\n'
+		printf 'This digest was generated locally. Reviewers must not open the raw worker JSONL, stderr, or raw command/build logs. Inspect current bounded repository evidence and run focused validation through harness-run-logged instead.\n'
+	} > "$tmp"
+	# A malformed or unexpectedly verbose provider record must never turn the
+	# deterministic digest itself into another context-amplification source.
+	head -c 32768 "$tmp" > "$output_file"
+	rm -f "$tmp"
+	chmod 600 "$output_file"
+}
+
 retain_worker_thread_for_rejection()
 {
 	local task_id="$1" root file thread_id previous_thread previous_task rejection_count tmp
