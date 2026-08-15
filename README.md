@@ -65,6 +65,9 @@ compatibility alias; new files should use the uppercase shell variable.
 - Attention-only watcher color: problematic states render only their STATUS
   text in red; normal, stopped, and completed rows retain ordinary terminal
   colors without row-wide inversion.
+- Executable architecture gates: invariant, compatibility, and health
+  validations reject accidental English prose before DAG installation; bounded
+  review-attested checks use explicit focused, incremental, or clean descriptors.
 - Safe restart and recovery: supervisor restarts preserve plans, task state,
   checkpoints, retained threads, and completed evidence; child processes do
   not inherit supervisor lifetime locks.

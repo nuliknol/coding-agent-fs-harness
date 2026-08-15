@@ -120,6 +120,19 @@ fi
 grep -Fq 'health gate GATE-widget is bound to node contract but declares trigger node coding' \
 	"$TEST_ROOT/wrong-binding.out"
 test ! -e "$TEST_ROOT/state/projects/archguard/control/architecture"
+prose_architecture="$TEST_ROOT/prose-architecture"
+cp -a "$TEST_ROOT/architecture" "$prose_architecture"
+awk -F '\t' 'BEGIN {OFS=FS} $1 == "GATE-widget" {$4="Run the focused widget test and retain its output."} {print}' \
+	"$prose_architecture/health-gates.tsv" > "$prose_architecture/health-gates.tsv.tmp"
+mv "$prose_architecture/health-gates.tsv.tmp" "$prose_architecture/health-gates.tsv"
+if "$HARNESS_BIN/manager-init-architecture" "$TEST_ROOT/harness.env" "$prose_architecture" \
+	> "$TEST_ROOT/prose-gate.out" 2>&1; then
+	printf 'English prose in an executable architecture health gate was accepted\n' >&2
+	exit 1
+fi
+grep -Fq 'health gate GATE-widget validation must be an executable shell command or a FOCUSED:, INCREMENTAL:, or CLEAN_GLOBAL: review descriptor; prose is not executable' \
+	"$TEST_ROOT/prose-gate.out"
+test ! -e "$TEST_ROOT/state/projects/archguard/control/architecture"
 broad_architecture="$TEST_ROOT/broad-architecture"
 cp -a "$TEST_ROOT/architecture" "$broad_architecture"
 awk -F '\t' 'BEGIN {OFS=FS} $1 == "GATE-widget" {$4="./widget-smoke --computing-all"} {print}' \

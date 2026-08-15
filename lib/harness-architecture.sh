@@ -156,6 +156,35 @@ architecture_validation_is_broad_aggregate()
 			! "$validation" =~ (^|[[:space:]])(-R|--tests-regex)([[:space:]]|=) ]]
 }
 
+architecture_validation_is_review_descriptor()
+{
+	[[ "$1" =~ ^(FOCUSED|INCREMENTAL|CLEAN_GLOBAL):[[:space:]]*[^[:space:]] ]]
+}
+
+architecture_validation_is_command_shaped()
+{
+	local validation="$1" first_word
+	architecture_validation_is_review_descriptor "$validation" && return 0
+	[[ -n "$validation" && "$validation" != *$'\n'* && "$validation" != *$'\r'* ]] || return 1
+	bash -n -o pipefail -c "$validation" >/dev/null 2>&1 || return 1
+	validation="$(trim_surrounding_whitespace "$validation")"
+	first_word="${validation%%[[:space:]]*}"
+	first_word="${first_word%%[;|&]*}"
+	case "$first_word" in
+		'('|')'|'{'|'}'|'['|'[['|'!') return 0 ;;
+	esac
+	[[ "$first_word" =~ ^[A-Za-z_][A-Za-z0-9_]*=.*$ ]] && return 0
+	[[ "$first_word" == */* ]] && return 0
+	command -v "$first_word" >/dev/null 2>&1
+}
+
+architecture_require_executable_validation()
+{
+	local label="$1" validation="$2"
+	architecture_validation_is_command_shaped "$validation" ||
+		die "$label validation must be an executable shell command or a FOCUSED:, INCREMENTAL:, or CLEAN_GLOBAL: review descriptor; prose is not executable: $validation"
+}
+
 architecture_require_scoped_validation()
 {
 	local label="$1" validation="$2"
@@ -187,6 +216,10 @@ architecture_report_unscoped_candidate_validations()
 		id="${fields[0]:-}"
 		[[ "$id" != node_id && -n "$id" ]] || continue
 		validation="${fields[5]:-}"
+		if ! architecture_validation_is_command_shaped "$validation"; then
+			printf 'ERROR: plan node %s focused_validation must be an executable shell command or a FOCUSED:, INCREMENTAL:, or CLEAN_GLOBAL: review descriptor; prose is not executable: %s\n' "$id" "$validation"
+			errors=$((errors + 1))
+		fi
 		if ! architecture_validation_is_scoped_or_authorized "$validation"; then
 			printf 'ERROR: plan node %s focused_validation uses a broad aggregate as a mandatory success condition; use a focused selector, tolerate the unrelated aggregate as baseline evidence, or set HARNESS_BROAD_GATE_REQUIRED=1 when the governing specification explicitly requires whole-project success\n' "$id"
 			errors=$((errors + 1))
@@ -195,6 +228,10 @@ architecture_report_unscoped_candidate_validations()
 	if [[ "$source_dir" != - ]]; then
 		while IFS=$'\t' read -r id _ _ _ _ _ _ kind validation _; do
 			[[ "$id" != invariant_id && "$kind" == COMMAND ]] || continue
+			if ! architecture_validation_is_command_shaped "$validation"; then
+				printf 'ERROR: invariant %s validation must be an executable shell command or a FOCUSED:, INCREMENTAL:, or CLEAN_GLOBAL: review descriptor; prose is not executable: %s\n' "$id" "$validation"
+				errors=$((errors + 1))
+			fi
 			if ! architecture_validation_is_scoped_or_authorized "$validation"; then
 				printf 'ERROR: invariant %s uses a broad aggregate as a mandatory success condition; use a focused selector, tolerate the unrelated aggregate as baseline evidence, or set HARNESS_BROAD_GATE_REQUIRED=1 when the governing specification explicitly requires whole-project success\n' "$id"
 				errors=$((errors + 1))
@@ -202,6 +239,10 @@ architecture_report_unscoped_candidate_validations()
 		done < "$source_dir/invariants.tsv"
 		while IFS=$'\t' read -r id _ _ _ _ _ _ _ validation _; do
 			[[ "$id" != edge_id && "$validation" != REVIEW ]] || continue
+			if ! architecture_validation_is_command_shaped "$validation"; then
+				printf 'ERROR: edge %s validation must be an executable shell command or a FOCUSED:, INCREMENTAL:, or CLEAN_GLOBAL: review descriptor; prose is not executable: %s\n' "$id" "$validation"
+				errors=$((errors + 1))
+			fi
 			if ! architecture_validation_is_scoped_or_authorized "$validation"; then
 				printf 'ERROR: edge %s uses a broad aggregate as a mandatory success condition; use a focused selector, tolerate the unrelated aggregate as baseline evidence, or set HARNESS_BROAD_GATE_REQUIRED=1 when the governing specification explicitly requires whole-project success\n' "$id"
 				errors=$((errors + 1))
@@ -209,6 +250,10 @@ architecture_report_unscoped_candidate_validations()
 		done < "$source_dir/edges.tsv"
 		while IFS=$'\t' read -r id _ _ validation _; do
 			[[ "$id" != gate_id ]] || continue
+			if ! architecture_validation_is_command_shaped "$validation"; then
+				printf 'ERROR: health gate %s validation must be an executable shell command or a FOCUSED:, INCREMENTAL:, or CLEAN_GLOBAL: review descriptor; prose is not executable: %s\n' "$id" "$validation"
+				errors=$((errors + 1))
+			fi
 			if ! architecture_validation_is_scoped_or_authorized "$validation"; then
 				printf 'ERROR: health gate %s uses a broad aggregate as a mandatory success condition; use a focused selector, tolerate the unrelated aggregate as baseline evidence, or set HARNESS_BROAD_GATE_REQUIRED=1 when the governing specification explicitly requires whole-project success\n' "$id"
 				errors=$((errors + 1))
@@ -245,14 +290,17 @@ architecture_validate_new_validation_scope()
 	local source_dir="$1" id _ kind validation
 	while IFS=$'\t' read -r id _ _ _ _ _ _ kind validation _; do
 		[[ "$id" != invariant_id && "$kind" == COMMAND ]] || continue
+		architecture_require_executable_validation "invariant $id" "$validation"
 		architecture_require_scoped_validation "invariant $id" "$validation"
 	done < "$source_dir/invariants.tsv"
 	while IFS=$'\t' read -r id _ _ _ _ _ _ _ validation _; do
 		[[ "$id" != edge_id && "$validation" != REVIEW ]] || continue
+		architecture_require_executable_validation "edge $id" "$validation"
 		architecture_require_scoped_validation "edge $id" "$validation"
 	done < "$source_dir/edges.tsv"
 	while IFS=$'\t' read -r id _ _ validation _; do
 		[[ "$id" != gate_id ]] || continue
+		architecture_require_executable_validation "health gate $id" "$validation"
 		architecture_require_scoped_validation "health gate $id" "$validation"
 	done < "$source_dir/health-gates.tsv"
 }
