@@ -738,7 +738,9 @@ architecture_run_acceptance_gates()
 	invariants="$(architecture_node_value "$node" invariant_ids)"
 	architecture_parse_id_list "$invariants" ids
 	for id in "${ids[@]}"; do
-		read -r kind validation affected < <(awk -F '\t' -v id="$id" 'NR>1 && $1==id {print $8, $9, $10; exit}' "$(architecture_invariants_file)")
+		IFS=$'\t' read -r kind validation affected < <(awk -F '\t' -v id="$id" \
+			'BEGIN {OFS="\t"} NR>1 && $1==id {print $8, $9, $10; exit}' \
+			"$(architecture_invariants_file)")
 		if [[ "$kind" == COMMAND ]]; then
 			log="$(architecture_dir)/health-logs/$task-invariant-$id.log"
 			# A cross-node invariant is cumulative. Running it while another
