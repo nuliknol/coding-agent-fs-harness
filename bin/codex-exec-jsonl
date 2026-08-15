@@ -199,8 +199,10 @@ if [[ "$role" =~ ^worker || "$role" == manager_remediation ]] &&
 fi
 if [[ "$role" =~ ^worker || "$role" == manager_remediation ]] &&
 	[[ "$resource_effective_p95" =~ ^[1-9][0-9]*$ ]]; then
-	(( resource_effective_p95 < resource_processed_token_limit )) && resource_processed_token_limit="$resource_effective_p95"
-	(( resource_effective_p95 < resource_estimated_token_limit )) && resource_estimated_token_limit="$resource_effective_p95"
+	resource_effective_p95_with_headroom=$((resource_effective_p95 +
+		(resource_effective_p95 * HARNESS_AGENT_P95_TOKEN_HEADROOM_PERCENT + 99) / 100))
+	(( resource_effective_p95_with_headroom < resource_processed_token_limit )) && resource_processed_token_limit="$resource_effective_p95_with_headroom"
+	(( resource_effective_p95_with_headroom < resource_estimated_token_limit )) && resource_estimated_token_limit="$resource_effective_p95_with_headroom"
 fi
 if [[ "$resource_agent_phase" == specification_review ]]; then
 	resource_processed_token_limit="$HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION"
