@@ -1117,6 +1117,7 @@ grep -q 'HUMAN_PRODUCT_SPECIFICATION requires Product-Decision-Evidence' \
 	"$HARD_ROOT/product-invalid.err"
 cat >> "$HARD_ROOT/product-review.md" <<'NOTE'
 Product-Decision-Evidence: public API returns legacy values or normalized values, and the specification does not choose between them
+Governing-Specification-Search: exact bounded search for the public API return contract found no governing choice
 NOTE
 product_block_output="$("$HARNESS_BIN/manager-block-task" "$HARD_ROOT/harness.env" \
 	product-001 "$HARD_ROOT/product-review.md" 'product behavior is unresolved')"

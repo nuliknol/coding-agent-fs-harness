@@ -42,6 +42,7 @@ blocker_class="$(metadata_value "$note_file" Blocker-Class)"
 remediation_scope="$(metadata_value "$note_file" Remediation-Scope)"
 human_dependency_evidence="$(metadata_value "$note_file" Human-Dependency-Evidence)"
 product_decision_evidence="$(metadata_value "$note_file" Product-Decision-Evidence)"
+governing_specification_search="$(metadata_value "$note_file" Governing-Specification-Search)"
 [[ ! -f "$result" ]] || goal_outcome="$(metadata_value "$result" Goal-Outcome)"
 
 [[ -n "$progress_percent" ]] || progress_percent="$(task_progress_percent "$root")"
@@ -101,6 +102,8 @@ elif hard_block_class_is_human "$blocker_class"; then
 	if [[ "$blocker_class" == HUMAN_PRODUCT_SPECIFICATION ]]; then
 		[[ -n "$product_decision_evidence" ]] ||
 			die 'HUMAN_PRODUCT_SPECIFICATION requires Product-Decision-Evidence naming incompatible observable product outcomes; file ownership or worker scope alone is LOCAL_SCOPE_PREREQUISITE'
+		[[ -n "$governing_specification_search" ]] ||
+			die 'HUMAN_PRODUCT_SPECIFICATION requires Governing-Specification-Search documenting a bounded exact search that found no governing resolution'
 	fi
 else
 	die 'HARD_BLOCKED review requires Blocker-Class: LOCAL_CODE_PREREQUISITE|LOCAL_BUILD_PREREQUISITE|LOCAL_INTEGRATION_PREREQUISITE|LOCAL_SCOPE_PREREQUISITE|HUMAN_AUTHORIZATION|HUMAN_SECRET|HUMAN_EXTERNAL_STATE|HUMAN_PRODUCT_SPECIFICATION'
@@ -164,6 +167,7 @@ tmp="$blocked.tmp.$$"
 	printf 'Human-Dependency-Evidence: %s\n\n' "$human_dependency_evidence"
 	if [[ "$blocker_class" == HUMAN_PRODUCT_SPECIFICATION ]]; then
 		printf 'Product-Decision-Evidence: %s\n\n' "$product_decision_evidence"
+		printf 'Governing-Specification-Search: %s\n\n' "$governing_specification_search"
 	fi
 	printf '## Review notes\n\n'
 	cat "$note_file"
