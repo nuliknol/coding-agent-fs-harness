@@ -37,9 +37,13 @@ if specification_ir_available; then
 fi
 ready_plan_node=""
 plan_instruction=""
+allocated_specification_obligations='-'
 if project_plan_exists; then
 	ready_plan_node="$(project_plan_first_ready_item 2>/dev/null || true)"
-	plan_instruction="The decomposition plan is already registered. Read PROJECT_PLAN_FILE and PROJECT_DECOMPOSITION_FILE completely. Publish the initial root for READY_PLAN_NODE; do not initialize or replace the plan."
+	if (( HARNESS_DECOMPOSITION_V2 == 1 )) && [[ -n "$ready_plan_node" ]] && specification_ir_available; then
+		allocated_specification_obligations="$(specification_obligations_for_node "$ready_plan_node" | paste -sd, -)"
+	fi
+	plan_instruction="The decomposition plan is already registered. Do not initialize or replace it. Read only READY_PLAN_NODE's row from PROJECT_PLAN_FILE and PROJECT_DECOMPOSITION_FILE, its coverage row, ALLOCATED_SPECIFICATION_OBLIGATIONS rows, relations touching those IDs, and architecture rows referenced by that node. Publish the initial root for READY_PLAN_NODE."
 elif (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 	plan_instruction="Create and critic-check a topologically ordered v2 decomposition DAG using the exact schema required by manager-init-project-plan. When SPECIFICATION_OBLIGATIONS_FILE is present, also create complete obligation-to-node coverage and pass it as the third argument to manager-init-project-plan. Register both, then publish the first dependency-ready node."
 else
@@ -66,8 +70,9 @@ SPECIFICATION_OBLIGATIONS_FILE=$specification_obligations
 SPECIFICATION_RELATIONS_FILE=$specification_relations
 SPECIFICATION_COVERAGE_FILE=$specification_coverage
 READY_PLAN_NODE=$ready_plan_node
+ALLOCATED_SPECIFICATION_OBLIGATIONS=$allocated_specification_obligations
 
-This is the bootstrap turn. Read DEVELOPMENT_POLICY_FILE when present and inspect the complete specification. $plan_instruction Then inspect the repository, write one bounded initial assignment under PROJECT_TMP_DIR with stable Root-Criterion lines for every independently verifiable acceptance criterion, and publish it with manager-publish-task including the corresponding PROJECT_PLAN_ITEM_ID. Terminate after exactly one task is published. Every harness command must receive ENV_FILE as its first argument. Do not wait for the worker and do not run any polling command.
+This is the bootstrap turn. Read DEVELOPMENT_POLICY_FILE when present. When DECOMPOSITION_V2=0, inspect the complete specification. When DECOMPOSITION_V2=1 and READY_PLAN_NODE is nonempty, the accepted specification review, normalized IR, Sol decomposition, and architecture binding are authoritative: do not read the human specification, complete normalized IR, complete plan/DAG, repository inventory, or complete architecture registries. $plan_instruction Inspect only repository paths named by that bounded node context, write one bounded initial assignment under PROJECT_TMP_DIR with stable Root-Criterion lines for every independently verifiable acceptance criterion, and publish it with manager-publish-task including the corresponding PROJECT_PLAN_ITEM_ID. Bound every shell output to at most $HARNESS_VALIDATION_OUTPUT_MAX_LINES lines and $HARNESS_VALIDATION_OUTPUT_MAX_BYTES bytes. Terminate after exactly one task is published. Every harness command must receive ENV_FILE as its first argument. Do not wait for the worker and do not run any polling command.
 PROMPT
 if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
@@ -82,7 +87,7 @@ V2 decomposition is mandatory and PREFERRED_WORKER_ROUTE=$HARNESS_PREFERRED_WORK
 
 Before registering any new DAG, verify authority closure for every node: a plausible failure of its acceptance evidence or focused validation must not require an ordinary specification-authorized production correction outside its Allowed-Scope. Split a header-contract or test-only node from the implementation/integration node that owns executable runtime repair. Validation may observe broader behavior, but corrective authority must be explicit in this node or an explicit adjacent node.
 
-When SPECIFICATION_OBLIGATIONS_FILE is present, read it and SPECIFICATION_RELATIONS_FILE completely. The coverage file must contain obligation_id, node_ids, and evidence_plan; map every obligation exactly once and justify every DAG node. Typed relations determine dependency, independent-development, integration-only, regression, health, producer/consumer, ownership, and validation semantics.
+Only when no registered project plan exists, read SPECIFICATION_OBLIGATIONS_FILE and SPECIFICATION_RELATIONS_FILE completely to create coverage. When READY_PLAN_NODE is nonempty, never recreate or globally audit the DAG: use only ALLOCATED_SPECIFICATION_OBLIGATIONS and the bounded rows described above. Typed relations determine dependency, independent-development, integration-only, regression, health, producer/consumer, ownership, and validation semantics.
 PROMPT
 fi
 if codex_model_requires_narrow_prompt "$MANAGER_MODEL"; then

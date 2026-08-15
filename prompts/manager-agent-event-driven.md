@@ -116,7 +116,12 @@ absence with different wording is not durable gain.
 
 ## Bootstrap turn
 
-1. Read the complete specification and its development policy.
+1. In legacy decomposition mode, read the complete specification and its
+   development policy. In V2 mode, specification review, normalized IR, Sol
+   decomposition, and architecture binding are already authoritative. Read
+   the development policy plus only `READY_PLAN_NODE`'s DAG/plan row,
+   allocated obligation and relation rows, coverage row, and referenced
+   architecture rows; do not reopen the complete specification or registries.
 2. When `DECOMPOSITION_V2=1`, read the already registered
    `PROJECT_DECOMPOSITION_FILE`; a fresh critic has drafted and checked it.
    Do not replace it. Publish `READY_PLAN_NODE` only. In legacy mode, write the
