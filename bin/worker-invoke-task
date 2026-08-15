@@ -249,8 +249,12 @@ GOAL_PROCESS_MAX_FIXES=$HARNESS_GOAL_PROCESS_MAX_FIXES
 GOAL_PROCESS_MAX_SMOKE_RUNS=$HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS
 VALIDATION_CLASS=$validation_class
 VALIDATION_OUTPUT_POLICY=CAPTURE_SUMMARY
+OUTPUT_MAX_LINES=$HARNESS_VALIDATION_OUTPUT_MAX_LINES
+OUTPUT_MAX_BYTES=$HARNESS_VALIDATION_OUTPUT_MAX_BYTES
 
-The task is already claimed by this launcher. For a v2 task, the complete bounded assignment and context capsule are embedded below. They are the worker's entire harness context: do not open DEVELOPMENT_POLICY_FILE, ROOT_ASSIGNMENT_FILE, PROGRESS_FILE, GOAL_SUMMARY_FILE, specification IR/coverage files, or other harness control files. Do not reread the embedded assignment or capsule through shell commands. Inspect only Context-Paths, Allowed-Scope, Required-Symbols, and repository files directly implicated by compiler/linker diagnostics. Legacy tasks without an embedded capsule may read their named task and progress files once.
+The task is already claimed by this launcher. For a v2 task, the complete bounded assignment and context capsule are embedded below. They are the worker's entire harness context: do not open DEVELOPMENT_POLICY_FILE, ROOT_ASSIGNMENT_FILE, PROGRESS_FILE, GOAL_SUMMARY_FILE, specification IR/coverage files, or other harness control files. Do not reread the embedded assignment or capsule through shell commands. Inspect only Context-Paths, Allowed-Scope, Required-Symbols, and repository files directly implicated by a bounded compiler/linker diagnostic. Legacy tasks without an embedded capsule may read their named task and progress files once.
+
+The context boundary is enforceable. Direct rg/grep/find/sed inspection is limited to Context-Paths and Allowed-Scope, and every command must return at most OUTPUT_MAX_LINES lines and OUTPUT_MAX_BYTES bytes. Never print a repository-wide content search. If an exact required symbol is absent from the supplied context, one filename-only discovery command such as `rg -l --fixed-strings SYMBOL BOUNDED_REPOSITORY_SUBTREE | head -n 20` is permitted; inspect only the smallest exact match. If more than one such discovery is needed, or a required contract still cannot be located, terminate with NEEDS_DECOMPOSITION and name the missing symbols/context paths. Do not use broad exploration to repair an incomplete planner capsule.
 
 Preserve verified work and continue from STARTING_PROGRESS_PERCENT rather than reimplementing the root task from zero. Implement exactly the remaining bounded assignment. Run build and test validation through this command so complete output is retained on disk and only a bounded summary enters this transcript:
 

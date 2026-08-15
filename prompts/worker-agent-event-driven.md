@@ -25,6 +25,9 @@ The launcher has already claimed the task. During this turn:
    behavior or contracts. If production changes are necessary, preserve the
    diagnosis and return `NEEDS_DECOMPOSITION` so the manager can create the
    appropriate implementation leaf.
+   Treat `Context-Paths` as an execution boundary. Do not search
+   repository-wide file contents to compensate for missing planner context;
+   return `NEEDS_DECOMPOSITION` with exact missing symbols or paths instead.
 4. Run the affected build/compile check and focused test through
    `harness-run-logged`. It retains complete output on disk and returns only a
    bounded diagnostic summary. Never stream a potentially verbose build or
