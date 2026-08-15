@@ -3,6 +3,8 @@
 set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/harness-common.sh"
+source "$SCRIPT_DIR/../lib/harness-git-commit.sh"
+source "$SCRIPT_DIR/../lib/harness-checkpoint-commit.sh"
 
 usage()
 {
@@ -296,6 +298,7 @@ review_sha="$(sha256sum "$note_file" | awk '{print $1}')"
 	done < "$paths_file"
 } > "$artifact_tmp/manifest.txt"
 chmod 600 "$artifact_tmp/manifest.txt"
+checkpoint_commit_verified_artifact "$task_id" "$artifact_tmp"
 mv "$artifact_tmp" "$artifact_dir"
 
 mv "$result" "$result_archive"

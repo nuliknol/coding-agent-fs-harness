@@ -3,6 +3,8 @@
 set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/harness-common.sh"
+source "$SCRIPT_DIR/../lib/harness-git-commit.sh"
+source "$SCRIPT_DIR/../lib/harness-checkpoint-commit.sh"
 
 usage()
 {
@@ -174,6 +176,11 @@ fi
 project_plan_exists || die 'cannot accept a task without a persistent project plan'
 plan_item_id="$(project_plan_item_for_root "$(task_root_id "$task_id")")"
 [[ -n "$plan_item_id" ]] || die "task is not assigned to the project plan: $task_id"
+# A zero-write recovery leaf validates inherited code; it must never claim or
+# modify that code. If an older verified checkpoint predates automatic
+# checkpoint commits, reconcile its exact reviewed snapshot now under the
+# original checkpoint task's authority before architecture provenance checks.
+checkpoint_reconcile_root_source_provenance "$task_id"
 # Produced architecture decisions are machine-owned node metadata with a
 # registered evidence path. Once the manager has independently accepted the
 # result, record those decisions deterministically instead of relying on a

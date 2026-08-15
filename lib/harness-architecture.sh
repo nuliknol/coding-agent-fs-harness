@@ -851,13 +851,47 @@ architecture_accept_decision()
 			[[ "$(sha256sum "$actual_path" | awk '{print $1}')" == "$(specification_sha256)" ]] ||
 				die 'architecture decision cites a governing specification whose accepted authority hash has changed'
 		else
-			awk -F '\t' -v task="$task" -v path="$expected_evidence" 'NR>1 && $2==task {n=split($5,a,","); for(i=1;i<=n;i++) if(a[i]==path) ok=1} END {exit !ok}' \
-				"$(project_dir)/control/agent-commits.tsv" 2>/dev/null || die "decision evidence was not delivered by the controlled source commit for task $task: $expected_evidence"
+			architecture_evidence_has_root_provenance "$task" "$expected_evidence" ||
+				die "decision evidence was not delivered by the controlled source commit for task or a verified checkpoint of root $(task_root_id "$task"): $expected_evidence"
 		fi
 	fi
 	sha="$(sha256sum "$evidence" | awk '{print $1}')"
 	printf '%s\tACCEPTED\t%s\t%s\t%s\n' "$decision" "$task" "$sha" "$(timestamp_utc)" >> "$(architecture_decision_ledger_file)"
 	log_event "ARCHITECTURE_DECISION_ACCEPTED decision=$decision task=$task evidence_sha256=$sha"
+}
+
+architecture_evidence_has_root_provenance()
+{
+	local task="$1" path="$2" root ledger commit candidate _session _created paths marker artifact manifest_sha
+	local path_committed committed_path
+	local -a committed_paths=()
+	root="$(task_root_id "$task")"
+	ledger="$(project_dir)/control/agent-commits.tsv"
+	[[ -f "$ledger" ]] || return 1
+	while IFS=$'\t' read -r commit candidate _session _created paths; do
+		[[ -n "$candidate" ]] || continue
+		IFS=',' read -r -a committed_paths <<< "$paths"
+		path_committed=0
+		for committed_path in "${committed_paths[@]}"; do
+			if [[ "$committed_path" == "$path" ]]; then
+				path_committed=1
+				break
+			fi
+		done
+		(( path_committed == 1 )) || continue
+		git -C "$REPOSITORY" merge-base --is-ancestor "$commit" HEAD 2>/dev/null || continue
+		[[ "$candidate" == "$task" ]] && return 0
+		[[ "$(task_root_id "$candidate")" == "$root" ]] || continue
+		marker="$(project_dir)/archive/$(task_base "$candidate").checkpointed.md"
+		[[ -f "$marker" ]] || continue
+		artifact="$(metadata_value "$marker" Artifact-Directory)"
+		[[ -n "$artifact" && -f "$artifact/manifest.txt" ]] || continue
+		manifest_sha="$(awk -F '\t' -v wanted="path=$path" '$1 == wanted {for (i=2;i<=NF;i++) if ($i ~ /^sha256=/) {sub(/^sha256=/,"",$i); print $i; exit}}' "$artifact/manifest.txt")"
+		[[ -n "$manifest_sha" && -f "$REPOSITORY/$path" && ! -L "$REPOSITORY/$path" ]] || continue
+		[[ "$(sha256sum "$REPOSITORY/$path" | awk '{print $1}')" == "$manifest_sha" ]] || continue
+		return 0
+	done < <(tail -n +2 "$ledger")
+	return 1
 }
 
 architecture_accept_produced_decisions()

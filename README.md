@@ -1028,8 +1028,12 @@ The manager has three ordinary review outcomes:
 files. It stores the review, result, assignment, file snapshots, Git patch and
 hash manifest under `archive/checkpoints/`. The append-only `.criteria.tsv`,
 `.checkpoints.tsv`, and `.history.tsv` files under `control/progress/` remain
-the recovery ledger. The live repository is never reset or rewritten by this
-transaction. New root assignments declare stable `Root-Criterion` IDs; for
+the recovery ledger. When checkpoint paths contain reviewed source changes,
+the transaction creates a validated, path-bounded source commit attributed to
+the checkpoint task. A later zero-write recovery leaf may consume that commit
+within the same immutable root, but cannot claim or modify the inherited code.
+Legacy checkpoints are reconciled only when the live files exactly match their
+stored hash manifest. New root assignments declare stable `Root-Criterion` IDs; for
 undecomposed roots checkpoint progress is calculated from passed versus
 declared criteria rather than estimated by the manager. Once a broad criterion
 has append-only children, the monotonic display percentage remains compatible

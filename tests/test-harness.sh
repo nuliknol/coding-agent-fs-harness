@@ -1427,6 +1427,19 @@ grep -q $'^compiler.registry\tPASSED\t001\t' \
 grep -q $'001\tCHECKPOINT\t50\t50\t' \
 	"$checkpoint_project/control/progress/checkpointproj-task-001.history.tsv"
 grep -Eq $'^P0\tACTIVE\t001\t' "$checkpoint_project/control/project-plan-state.tsv"
+# A verified source checkpoint is a durable controlled commit, not merely a
+# workspace patch. Later zero-write revisions may inherit that provenance
+# without claiming the source mutation as their own.
+git -C "$CHECKPOINT_ROOT/repo" diff --quiet HEAD -- source.txt
+grep -q $'^controlled_source_commit=' \
+	"$checkpoint_project/archive/checkpoints/checkpointproj-task-001/manifest.txt"
+grep -Eq $'^[0-9a-f]+\t001\tmanager-checkpoint\t[^\t]+\tsource.txt$' \
+	"$checkpoint_project/control/agent-commits.tsv"
+(
+	source "$CHECKPOINT_ROOT/harness.env"
+	source "$HARNESS_HOME/lib/harness-common.sh"
+	architecture_evidence_has_root_provenance 001-revision-01 source.txt
+)
 "$HARNESS_BIN/harness-status" --full "$CHECKPOINT_ROOT/harness.env" > "$CHECKPOINT_ROOT/status-1.out"
 grep -Eq '001 +CHECKPOINTED +WORKER +50%' "$CHECKPOINT_ROOT/status-1.out"
 
