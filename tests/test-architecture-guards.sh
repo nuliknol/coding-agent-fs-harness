@@ -572,6 +572,11 @@ printf 'Duplicate representation removed and focused gate passes.\n' > "$TEST_RO
 "$HARNESS_BIN/manager-resolve-debt" "$TEST_ROOT/harness.env" DEBT-widget "$TEST_ROOT/debt-resolution.md" >/dev/null
 printf 'int widget_value(void) { return 1; } /* uncommitted after review */\n' > \
 	"$TEST_ROOT/repo/src/widget.c"
+review_diff_output="$("$HARNESS_BIN/harness-review-diff" "$TEST_ROOT/harness.env" 002)"
+grep -Fq 'Diff-Check-Status: 0' <<< "$review_diff_output"
+grep -Fq '/* uncommitted after review */' <<< "$review_diff_output"
+(( ${#review_diff_output} <= 32768 ))
+test -s /tmp/archguard/archguard-task-002.manager-review-diff.log
 "$HARNESS_BIN/manager-accept-task" "$TEST_ROOT/harness.env" 002 "$TEST_ROOT/coding-review.md" >/dev/null
 test -z "$(git -C "$TEST_ROOT/repo" status --porcelain=v1 -- src/widget.c)"
 grep -Eq $'^[0-9a-f]+\t002\tmanager-accept\t.*\tsrc/widget.c$' \

@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TASK_ID\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 2 ]] || usage
+load_harness_env "$1"
+task_id="$2"
+ensure_project
+validate_task_id "$task_id"
+
+assignment="$(project_dir)/archive/$(task_base "$task_id").assignment.md"
+[[ -f "$assignment" ]] || die "archived assignment is missing: $task_id"
+allowed_scope="$(metadata_value "$assignment" Allowed-Scope)"
+[[ -n "$allowed_scope" ]] || die "assignment has no Allowed-Scope: $task_id"
+
+declare -a scope_paths=()
+IFS=',' read -r -a raw_paths <<< "${allowed_scope//;/,}"
+for path in "${raw_paths[@]}"; do
+	path="$(trim_surrounding_whitespace "$path")"
+	[[ -n "$path" && "$path" != NONE ]] || continue
+	[[ "$path" != /* && "$path" != '.' && "$path" != '..' &&
+		"$path" != ../* && "$path" != */../* && "$path" != */.. &&
+		"$path" != *'*'* && "$path" != *'?'* && "$path" != *'['* ]] ||
+		die "unsafe review scope path: $path"
+	scope_paths+=("$path")
+done
+
+report="$PROJECT_TMP_DIR/$PROJECT-task-$task_id.manager-review-diff.log"
+summary="$report.summary.$$"
+mkdir -p "$PROJECT_TMP_DIR"
+if (( ${#scope_paths[@]} == 0 )); then
+	printf 'Task %s has no writable source paths in Allowed-Scope.\n' "$task_id" > "$report"
+	diff_check_status=0
+else
+	set +e
+	git -C "$REPOSITORY" diff --check HEAD -- "${scope_paths[@]}" > "$report.check.$$" 2>&1
+	diff_check_status=$?
+	set -e
+	{
+		printf 'Task-ID: %s\n' "$task_id"
+		printf 'Allowed-Scope: %s\n' "$allowed_scope"
+		printf 'Diff-Check-Status: %s\n' "$diff_check_status"
+		printf '\n## Git status\n\n'
+		git -C "$REPOSITORY" status --short -- "${scope_paths[@]}"
+		printf '\n## Diff check\n\n'
+		cat "$report.check.$$"
+		printf '\n## Diff stat\n\n'
+		git -C "$REPOSITORY" diff --stat HEAD -- "${scope_paths[@]}"
+		printf '\n## Reviewed diff\n\n'
+		git -C "$REPOSITORY" diff --no-ext-diff --unified=8 HEAD -- "${scope_paths[@]}"
+	} > "$report"
+	rm -f "$report.check.$$"
+fi
+chmod 600 "$report"
+{
+	printf 'Full-Review-Diff: %s\n' "$report"
+	printf 'Diff-Check-Status: %s\n\n' "$diff_check_status"
+	head -n "$HARNESS_VALIDATION_OUTPUT_MAX_LINES" "$report" |
+		head -c "$HARNESS_VALIDATION_OUTPUT_MAX_BYTES"
+} > "$summary"
+head -n "$HARNESS_VALIDATION_OUTPUT_MAX_LINES" "$summary" |
+	head -c "$HARNESS_VALIDATION_OUTPUT_MAX_BYTES"
+rm -f "$summary"
+exit "$diff_check_status"
