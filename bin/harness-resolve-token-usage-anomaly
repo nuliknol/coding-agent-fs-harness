@@ -46,6 +46,22 @@ archive="$archive_dir/$PROJECT-task-$root.$stamp.resolved.md"
 chmod 600 "$archive.tmp.$$"
 mv "$archive.tmp.$$" "$archive"
 rm -f "$marker"
+# A token anomaly proves that the current transcript is not a safe continuation
+# capsule. Rotate both legacy root-thread state and goal-mode thread state; a
+# repaired task may reuse the logical Goal-ID, but never the amplified context.
+clear_worker_thread_for_root "$root" token_usage_anomaly_resolved
+rotated_goal_threads=0
+shopt -s nullglob
+for goal_state in "$(goal_control_dir)"/"$PROJECT-task-"*.goal; do
+	[[ "$(kv_file_value "$goal_state" task_root 2>/dev/null || true)" == "$root" ]] || continue
+	goal_task="$(kv_file_value "$goal_state" task_id 2>/dev/null || true)"
+	[[ -n "$goal_task" ]] || continue
+	goal_state_set "$goal_state" thread_id ""
+	goal_state_set "$goal_state" thread_context token-anomaly-resolved
+	goal_thread_store "$goal_task" "" token-anomaly-resolved
+	rotated_goal_threads=$((rotated_goal_threads + 1))
+done
+shopt -u nullglob
 cleared_reviews=0
 shopt -s nullglob
 for result_file in "$(project_dir)/results/$PROJECT-task-"*.result.md; do
@@ -64,5 +80,5 @@ done
 shopt -u nullglob
 record_root_convergence_baseline "$root"
 record_root_replan_baseline "$root"
-log_event "TOKEN_USAGE_ANOMALY_RESOLVED root=$root resolution=$archive review_suppression_cleared=$cleared_reviews"
+log_event "TOKEN_USAGE_ANOMALY_RESOLVED root=$root resolution=$archive review_suppression_cleared=$cleared_reviews goal_threads_rotated=$rotated_goal_threads"
 printf '%s\n' "$archive"

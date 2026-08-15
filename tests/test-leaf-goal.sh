@@ -435,7 +435,10 @@ NOTE
 [[ ! -e "$resource_base.reviewed-event" ]]
 [[ ! -e "$resource_base.manager-failed.md" ]]
 [[ ! -e "$resource_base.manager-review-stalled.md" ]]
-grep -q 'TOKEN_USAGE_ANOMALY_RESOLVED root=001.*review_suppression_cleared=1' "$resource_project/logs/events.log"
+resource_goal_state="$resource_project/control/goals/goalresource-task-001.goal"
+grep -Fqx 'thread_id=' "$resource_goal_state"
+grep -Fqx 'thread_context=token-anomaly-resolved' "$resource_goal_state"
+grep -q 'TOKEN_USAGE_ANOMALY_RESOLVED root=001.*review_suppression_cleared=1.*goal_threads_rotated=1' "$resource_project/logs/events.log"
 
 # Releases before 5.11 mislabeled token fuses as NEEDS_HUMAN. The state
 # migration is exact, evidence-preserving, and idempotent; unrelated human
