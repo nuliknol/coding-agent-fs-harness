@@ -411,7 +411,10 @@ load_harness_env()
 	# Model-reported input includes fixed system/tool framing that the semantic
 	# leaf p95 does not predict exactly. Permit a small bounded margin around the
 	# measured p95 while retaining the project-wide 500K hard fuse.
-	HARNESS_AGENT_P95_TOKEN_HEADROOM_PERCENT="${HARNESS_AGENT_P95_TOKEN_HEADROOM_PERCENT:-25}"
+	# A predicted p95 is a planning estimate, not a hard maximum. Keep a bounded
+	# tail allowance below the independent absolute fuse so ordinary fixed
+	# prompt/tool framing does not pause successful, compact leaf episodes.
+	HARNESS_AGENT_P95_TOKEN_HEADROOM_PERCENT="${HARNESS_AGENT_P95_TOKEN_HEADROOM_PERCENT:-50}"
 	# Codex reports authoritative usage only when a turn ends. Estimate live
 	# context amplification from prompt/transcript size at every tool boundary so
 	# an internally looping process can be interrupted before final accounting.

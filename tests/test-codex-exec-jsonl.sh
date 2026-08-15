@@ -207,7 +207,7 @@ set -e
 grep -q '^classification=agent_item_budget_exceeded$' \
 	"$TMP/manager-remediation-item-loop.classification"
 grep -q '^item_limit=3$' "$TMP/manager-remediation-item-loop.classification"
-grep -q '^processed_token_limit=125000$' \
+grep -q '^processed_token_limit=150000$' \
 	"$TMP/manager-remediation-item-loop.classification"
 [[ ! -e "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-manager-remediation-root.needs-human.md" ]]
 [[ ! -e "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-manager-remediation-root.token-usage-anomaly.md" ]]
@@ -332,7 +332,7 @@ rm -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-token-root.
 
 # The deterministic per-leaf p95 is also an invocation fuse even when the
 # project-wide worker allowance is larger.
-printf 'TASK_ID=predicted-token-root\nTASK_ROOT=predicted-token-root\nEXPECTED_MAX_AGENT_ACTIONS=8\nEFFECTIVE_P95_TOKENS=80\n' > "$TMP/predicted-token-prompt"
+printf 'TASK_ID=predicted-token-root\nTASK_ROOT=predicted-token-root\nEXPECTED_MAX_AGENT_ACTIONS=8\nEFFECTIVE_P95_TOKENS=70\n' > "$TMP/predicted-token-prompt"
 set +e
 MOCK_MODE=token_heavy "$ROOT/bin/codex-exec-jsonl" "$TMP/env" worker gpt-5.5 \
 	"$TMP/predicted-token-prompt" "$TMP/predicted-token.jsonl" "$TMP/predicted-token.stderr" "$TMP/predicted-token.last"
@@ -340,7 +340,7 @@ predicted_token_status=$?
 set -e
 (( predicted_token_status != 0 ))
 grep -q '^classification=agent_token_budget_exceeded$' "$TMP/predicted-token.classification"
-grep -q '^processed_token_limit=100$' "$TMP/predicted-token.classification"
+grep -q '^processed_token_limit=105$' "$TMP/predicted-token.classification"
 rm -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-predicted-token-root.token-usage-anomaly.md"
 
 # The named specification-normalization phase has a separate bounded allowance
