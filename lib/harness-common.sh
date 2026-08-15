@@ -180,6 +180,7 @@ load_harness_env()
 	unset HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
 	unset HARNESS_AGENT_MIN_INTERVAL_SECONDS
 	unset HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION HARNESS_MAX_MANAGER_REVIEW_ITEMS_PER_INVOCATION
+	unset HARNESS_MAX_MANAGER_REPLAN_ITEMS_PER_INVOCATION HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS
 	unset HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION
 	unset HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION
 	unset HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS
@@ -392,6 +393,10 @@ load_harness_env()
 	HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION="${HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION:-80}"
 	# Reviews are bounded verification transactions, not exploratory coding.
 	HARNESS_MAX_MANAGER_REVIEW_ITEMS_PER_INVOCATION="${HARNESS_MAX_MANAGER_REVIEW_ITEMS_PER_INVOCATION:-14}"
+	# Replanning is also a bounded planning transaction.  A failed assignment
+	# publication must not turn into an open-ended prompt-debugging session.
+	HARNESS_MAX_MANAGER_REPLAN_ITEMS_PER_INVOCATION="${HARNESS_MAX_MANAGER_REPLAN_ITEMS_PER_INVOCATION:-14}"
+	HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS="${HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS:-2}"
 	HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION="${HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION:-500000}"
 	# Codex reports authoritative usage only when a turn ends. Estimate live
 	# context amplification from prompt/transcript size at every tool boundary so
@@ -606,6 +611,8 @@ load_harness_env()
 	[[ "$HARNESS_AGENT_MIN_INTERVAL_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_AGENT_MIN_INTERVAL_SECONDS must be a non-negative integer'
 	[[ "$HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION must be a positive integer'
 	[[ "$HARNESS_MAX_MANAGER_REVIEW_ITEMS_PER_INVOCATION" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_MANAGER_REVIEW_ITEMS_PER_INVOCATION must be a positive integer'
+	[[ "$HARNESS_MAX_MANAGER_REPLAN_ITEMS_PER_INVOCATION" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_MANAGER_REPLAN_ITEMS_PER_INVOCATION must be a positive integer'
+	[[ "$HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS must be a positive integer'
 	[[ "$HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION must be a positive integer'
 	[[ "$HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION must be a positive integer'
 	[[ "$HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS must be a positive integer'
@@ -658,6 +665,7 @@ load_harness_env()
 	export HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY HARNESS_MAX_IDENTICAL_BLOCKERS HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
 	export HARNESS_AGENT_MIN_INTERVAL_SECONDS
 	export HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION HARNESS_MAX_MANAGER_REVIEW_ITEMS_PER_INVOCATION
+	export HARNESS_MAX_MANAGER_REPLAN_ITEMS_PER_INVOCATION HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS
 	export HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION
 	export HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION
 	export HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS
@@ -5042,6 +5050,9 @@ write_manager_snapshot()
 		printf 'max_total_root_replans=%s\n' "$HARNESS_MAX_TOTAL_ROOT_REPLANS"
 		printf 'max_root_reviews_without_criterion=%s\n' "$HARNESS_MAX_ROOT_REVIEWS_WITHOUT_CRITERION"
 		printf 'max_agent_items_per_invocation=%s\n' "$HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION"
+		printf 'max_manager_review_items_per_invocation=%s\n' "$HARNESS_MAX_MANAGER_REVIEW_ITEMS_PER_INVOCATION"
+		printf 'max_manager_replan_items_per_invocation=%s\n' "$HARNESS_MAX_MANAGER_REPLAN_ITEMS_PER_INVOCATION"
+		printf 'max_manager_replan_publish_attempts=%s\n' "$HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS"
 		printf 'max_agent_processed_tokens_per_invocation=%s\n' "$HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION"
 		printf 'max_agent_estimated_processed_tokens_per_invocation=%s\n' "$HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION"
 		printf 'max_worker_task_processed_tokens=%s\n' "$HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS"
@@ -5089,6 +5100,9 @@ write_worker_snapshot()
 		printf 'max_total_root_replans=%s\n' "$HARNESS_MAX_TOTAL_ROOT_REPLANS"
 		printf 'max_root_reviews_without_criterion=%s\n' "$HARNESS_MAX_ROOT_REVIEWS_WITHOUT_CRITERION"
 		printf 'max_agent_items_per_invocation=%s\n' "$HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION"
+		printf 'max_manager_review_items_per_invocation=%s\n' "$HARNESS_MAX_MANAGER_REVIEW_ITEMS_PER_INVOCATION"
+		printf 'max_manager_replan_items_per_invocation=%s\n' "$HARNESS_MAX_MANAGER_REPLAN_ITEMS_PER_INVOCATION"
+		printf 'max_manager_replan_publish_attempts=%s\n' "$HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS"
 		printf 'max_agent_processed_tokens_per_invocation=%s\n' "$HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION"
 		printf 'max_agent_estimated_processed_tokens_per_invocation=%s\n' "$HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION"
 		printf 'max_worker_task_processed_tokens=%s\n' "$HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS"

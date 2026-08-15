@@ -201,6 +201,27 @@ grep -q '^resource_guard=ITEM_LIMIT$' "$TMP/review-item-loop.classification"
 [[ ! -e "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-review-resource.needs-human.md" ]]
 rm -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-review-resource.token-usage-anomaly.md"
 
+# Replanning has the same bounded-planning semantics as review. A replan that
+# keeps revising a rejected publication is a token anomaly, not a human product
+# decision, and receives its own role-specific action ceiling.
+cp "$TMP/env" "$TMP/env-replan-items"
+printf 'export HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION="80"\n' >> "$TMP/env-replan-items"
+printf 'export HARNESS_MAX_MANAGER_REPLAN_ITEMS_PER_INVOCATION="3"\n' >> "$TMP/env-replan-items"
+replan_resource_prompt="$TMP/replan-resource-prompt"
+printf 'TASK_ID=replan-resource\nTASK_ROOT=replan-resource\n' > "$replan_resource_prompt"
+set +e
+MOCK_MODE=item_loop "$ROOT/bin/codex-exec-jsonl" "$TMP/env-replan-items" manager_replan gpt-5.5 \
+	"$replan_resource_prompt" "$TMP/replan-item-loop.jsonl" "$TMP/replan-item-loop.stderr" \
+	"$TMP/replan-item-loop.last"
+replan_item_status=$?
+set -e
+(( replan_item_status != 0 ))
+grep -q '^classification=agent_item_budget_exceeded$' "$TMP/replan-item-loop.classification"
+grep -q '^item_limit=3$' "$TMP/replan-item-loop.classification"
+[[ -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-replan-resource.token-usage-anomaly.md" ]]
+[[ ! -e "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-replan-resource.needs-human.md" ]]
+rm -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-replan-resource.token-usage-anomaly.md"
+
 # A leaf-goal guard closes one semantic episode in worker-invoke-task. It must
 # not be mislabeled as a human authorization/secret/external-state dependency.
 goal_resource_prompt="$TMP/goal-resource-prompt"

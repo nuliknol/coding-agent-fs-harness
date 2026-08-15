@@ -69,6 +69,7 @@ project_path="$(project_dir)"
 manager_thread_file="$project_path/control/manager.thread"
 [[ -f "$manager_thread_file" ]] || die 'manager thread is not registered; run manager-bootstrap'
 manager_thread_id="$(kv_file_value "$manager_thread_file" thread_id)"
+expected_task_id="$(next_task_revision_id "$root")"
 running_marker="$(task_root_replanning_file "$root")"
 if [[ -f "$running_marker" ]]; then
 	running_pid="$(kv_file_value "$running_marker" pid 2>/dev/null || true)"
@@ -86,13 +87,15 @@ trap cleanup EXIT
 {
 	printf 'pid=%s\n' "$$"
 	printf 'root=%s\n' "$root"
+	printf 'expected_task_id=%s\n' "$expected_task_id"
+	printf 'publish_attempts=0\n'
+	printf 'max_publish_attempts=%s\n' "$HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS"
 	printf 'started_at=%s\n' "$(timestamp_utc)"
 	printf 'env_file=%s\n' "$HARNESS_ENV_FILE"
 } > "$running_marker.tmp.$$"
 chmod 600 "$running_marker.tmp.$$"
 mv "$running_marker.tmp.$$" "$running_marker"
 
-expected_task_id="$(next_task_revision_id "$root")"
 root_assignment="$(task_root_assignment_file "$root")"
 progress_file="$(task_progress_file "$root")"
 criteria_definition="$(task_criteria_definition_file "$root")"
@@ -197,7 +200,7 @@ Publish the task atomically with:
 
 $HARNESS_BIN/manager-publish-task "$HARNESS_ENV_FILE" "$expected_task_id" "$task_output" $publish_flag [CRITERIA_OUTPUT only for an undecomposed legacy root] [DECOMPOSITION_OUTPUT only after a '-' criteria placeholder]
 
-$recovery_validator_contract A unique verified checkpoint or passed criterion resets ordinary convergence escalation even when Progress-Percent is unchanged. Correct any validation error within this one turn. Publish exactly one task, then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or call harness-unblock-root.
+$recovery_validator_contract A unique verified checkpoint or passed criterion resets ordinary convergence escalation even when Progress-Percent is unchanged. You may call manager-publish-task at most $HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS times: after the first rejection, correct the complete diagnostic set once; after a second rejection, terminate with the exact blocker. Publish exactly one task, then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or call harness-unblock-root.
 PROMPT
 if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT

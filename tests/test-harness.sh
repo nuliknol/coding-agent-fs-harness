@@ -1682,6 +1682,38 @@ if "$HARNESS_BIN/manager-publish-task" "$AUTO_ROOT/harness.env" 001-revision-09 
 fi
 grep -q 'manager recovery is not materially different from an earlier bounded strategy' \
 	"$AUTO_ROOT/materially-same.err"
+
+# One recovery invocation may correct one rejected publication, but a third
+# manager-publish-task call is refused before semantic validation can consume
+# another planning round.
+cat > "$auto_progress/autoreplanproj-task-001.replanning.md" <<MARKER
+pid=$$
+root=001
+expected_task_id=001-revision-09
+publish_attempts=0
+max_publish_attempts=2
+started_at=2026-08-15T00:00:00Z
+env_file=$AUTO_ROOT/harness.env
+MARKER
+for publish_attempt in 1 2; do
+	if "$HARNESS_BIN/manager-publish-task" "$AUTO_ROOT/harness.env" 001-revision-09 \
+		"$AUTO_ROOT/materially-same.md" --auto-replan \
+		>"$AUTO_ROOT/publish-attempt-$publish_attempt.out" 2>"$AUTO_ROOT/publish-attempt-$publish_attempt.err"; then
+		printf 'Expected bounded recovery publication %s to remain semantically rejected.\n' "$publish_attempt" >&2
+		exit 1
+	fi
+done
+if "$HARNESS_BIN/manager-publish-task" "$AUTO_ROOT/harness.env" 001-revision-09 \
+	"$AUTO_ROOT/materially-same.md" --auto-replan \
+	>"$AUTO_ROOT/publish-attempt-3.out" 2>"$AUTO_ROOT/publish-attempt-3.err"; then
+	printf 'Expected the third recovery publication attempt to be machine-blocked.\n' >&2
+	exit 1
+fi
+grep -q 'manager recovery publication attempt budget exhausted (2/2)' \
+	"$AUTO_ROOT/publish-attempt-3.err"
+grep -q 'MANAGER_RECOVERY_PUBLISH_ATTEMPT_BLOCKED root=001 task=001-revision-09 attempts=2 limit=2' \
+	"$auto_project/logs/events.log"
+rm -f "$auto_progress/autoreplanproj-task-001.replanning.md"
 rm -f "$auto_progress/autoreplanproj-task-001.needs-replan.md"
 
 mv "$auto_ready" "$auto_project/archive/autoreplanproj-task-001-revision-08.checkpointed.md"

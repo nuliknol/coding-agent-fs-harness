@@ -167,6 +167,8 @@ resource_estimated_token_limit="$HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PE
 resource_item_limit="$HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION"
 if [[ "$role" == manager_review ]]; then
 	resource_item_limit="$HARNESS_MAX_MANAGER_REVIEW_ITEMS_PER_INVOCATION"
+elif [[ "$role" == manager_replan ]]; then
+	resource_item_limit="$HARNESS_MAX_MANAGER_REPLAN_ITEMS_PER_INVOCATION"
 fi
 if [[ "$role" =~ ^worker ]] && [[ "$resource_expected_actions" =~ ^[1-9][0-9]*$ ]] &&
 	(( resource_expected_actions + 1 < resource_item_limit )); then
@@ -197,7 +199,7 @@ record_resource_guard()
 	local alarm marker="-" anomaly_task
 	if [[ -n "$resource_task_root" && "$resource_task_root" != - ]] &&
 		{ [[ "$resource_guard_kind" =~ ^(TOKEN_LIMIT|ESTIMATED_TOKEN_LIMIT)$ ]] ||
-			{ [[ "$role" == manager_review ]] && [[ "$resource_guard_kind" == ITEM_LIMIT ]]; }; }; then
+			{ [[ "$role" =~ ^manager_(review|replan)$ ]] && [[ "$resource_guard_kind" == ITEM_LIMIT ]]; }; }; then
 		anomaly_task="$resource_task_id"
 		[[ -n "$anomaly_task" && "$(task_root_id "$anomaly_task")" == "$(task_root_id "$resource_task_root")" ]] ||
 			anomaly_task="$resource_task_root"

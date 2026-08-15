@@ -72,6 +72,23 @@ if (( recovery_publish == 1 )); then
 	task_root_needs_replan "$root" || die "recovery marker is missing for root: $root"
 	! task_root_is_blocked "$root" || die "hard-blocked root requires human intervention: $root"
 	! task_root_needs_human "$root" || die "root already requires human intervention: $root"
+	replanning_marker="$(task_root_replanning_file "$root")"
+	if [[ -f "$replanning_marker" ]]; then
+		replanning_expected_task="$(kv_file_value "$replanning_marker" expected_task_id 2>/dev/null || true)"
+		[[ -z "$replanning_expected_task" || "$replanning_expected_task" == "$task_id" ]] ||
+			die "replan publication task mismatch: expected $replanning_expected_task"
+		publish_attempts="$(kv_file_value "$replanning_marker" publish_attempts 2>/dev/null || printf 0)"
+		max_publish_attempts="$(kv_file_value "$replanning_marker" max_publish_attempts 2>/dev/null || printf '%s' "$HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS")"
+		[[ "$publish_attempts" =~ ^[0-9]+$ ]] || publish_attempts=0
+		[[ "$max_publish_attempts" =~ ^[1-9][0-9]*$ ]] || max_publish_attempts="$HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS"
+		if (( publish_attempts >= max_publish_attempts )); then
+			log_event "MANAGER_RECOVERY_PUBLISH_ATTEMPT_BLOCKED root=$root task=$task_id attempts=$publish_attempts limit=$max_publish_attempts"
+			die "manager recovery publication attempt budget exhausted ($publish_attempts/$max_publish_attempts); terminate this replan turn"
+		fi
+		publish_attempts=$((publish_attempts + 1))
+		goal_state_set "$replanning_marker" publish_attempts "$publish_attempts"
+		log_event "MANAGER_RECOVERY_PUBLISH_ATTEMPT root=$root task=$task_id attempt=$publish_attempts limit=$max_publish_attempts"
+	fi
 else
 	task_root_is_paused "$root" && die "task root is paused pending replanning or human intervention: $root"
 fi
