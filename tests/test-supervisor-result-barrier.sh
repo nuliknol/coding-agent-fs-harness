@@ -16,8 +16,9 @@ git -C "$TEST_ROOT/repo" -c user.name=test -c user.email=test@example.invalid co
 cat > "$TEST_ROOT/manager-invoker" <<SCRIPT
 #!/usr/bin/env bash
 set -Eeuo pipefail
-touch "$TEST_ROOT/manager-called"
-rm -f "$TEST_ROOT/state/projects/raceproj/results/raceproj-task-001.result.md"
+task_id="\$2"
+touch "$TEST_ROOT/manager-called-\$task_id"
+rm -f "$TEST_ROOT/state/projects/raceproj/results/raceproj-task-\$task_id.result.md"
 SCRIPT
 chmod 700 "$TEST_ROOT/manager-invoker"
 
@@ -72,19 +73,58 @@ MARKER
 
 "$HARNESS_BIN/harness-supervisor-start" "$TEST_ROOT/harness.env" >/dev/null
 sleep 2
-[[ ! -e "$TEST_ROOT/manager-called" ]]
+[[ ! -e "$TEST_ROOT/manager-called-001" ]]
 [[ -f "$project/results/raceproj-task-001.result.md" ]]
 
 kill "$worker_pid"
 wait "$worker_pid" 2>/dev/null || true
 for _ in $(seq 1 100); do
-	[[ -e "$TEST_ROOT/manager-called" ]] && break
+	[[ -e "$TEST_ROOT/manager-called-001" ]] && break
 	sleep 0.05
 done
-[[ -e "$TEST_ROOT/manager-called" ]]
+[[ -e "$TEST_ROOT/manager-called-001" ]]
 [[ ! -f "$project/results/raceproj-task-001.result.md" ]]
 [[ ! -f "$project/control/raceproj-task-001.worker-invocation-active" ]]
 grep -Fq 'STALE_WORKER_INVOCATION_BARRIER_REMOVED task=001' "$project/logs/events.log"
+
+# Reproduce the exact unlink race: the manager observes the marker, opens it,
+# and worker-supervisor removes it before any second field read could occur.
+# A single snapshot remains valid through unlink and must not kill the manager
+# supervisor or strand the already-published result.
+cat > "$project/archive/raceproj-task-002.assignment.md" <<'ASSIGNMENT'
+# Task Assignment
+
+Task-ID: 002
+Task-Root: 002
+ASSIGNMENT
+cat > "$project/results/raceproj-task-002.result.md" <<'RESULT'
+# Task Result
+
+Task-ID: 002
+Status: COMPLETED
+RESULT
+race_marker="$project/control/raceproj-task-002.worker-invocation-active"
+cat > "$race_marker" <<'MARKER'
+task_id=002
+supervisor_pid=
+worker_pid=
+started_at=2026-08-15T00:00:00Z
+MARKER
+(
+	inotifywait -q -e open "$race_marker" >/dev/null 2>&1
+	rm -f "$race_marker"
+) &
+unlink_watcher=$!
+for _ in $(seq 1 100); do
+	[[ -e "$TEST_ROOT/manager-called-002" ]] && break
+	sleep 0.05
+done
+wait "$unlink_watcher"
+[[ -e "$TEST_ROOT/manager-called-002" ]]
+[[ ! -f "$project/results/raceproj-task-002.result.md" ]]
+supervisor_pid="$(awk 'NR==1 {print; exit}' "$project/control/supervisor.pid")"
+kill -0 "$supervisor_pid"
+! grep -Fq 'SUPERVISOR_FATAL' "$project/logs/events.log"
 "$HARNESS_BIN/harness-supervisor-stop" "$TEST_ROOT/harness.env" >/dev/null
 
 printf 'supervisor result barrier tests passed.\n'

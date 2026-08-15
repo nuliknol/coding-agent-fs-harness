@@ -68,6 +68,9 @@ compatibility alias; new files should use the uppercase shell variable.
 - Executable architecture gates: invariant, compatibility, and health
   validations reject accidental English prose before DAG installation; bounded
   review-attested checks use explicit focused, incremental, or clean descriptors.
+- Race-safe result review: the manager snapshots a worker-invocation barrier
+  once, so normal worker-supervisor cleanup cannot strand a published result or
+  terminate the manager between separate marker-field reads.
 - Safe restart and recovery: supervisor restarts preserve plans, task state,
   checkpoints, retained threads, and completed evidence; child processes do
   not inherit supervisor lifetime locks.

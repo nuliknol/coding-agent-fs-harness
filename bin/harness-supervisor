@@ -142,15 +142,20 @@ planning_gap_state_fingerprint()
 
 process_results()
 {
-	local file task_id base marker current previous invocation_fingerprint post_fingerprint review_state_changed status alert stalled tmp running lease assignment_archive accepted checkpointed rejected blocked worker_invocation worker_pid worker_supervisor_pid
+	local file task_id base marker current previous invocation_fingerprint post_fingerprint review_state_changed status alert stalled tmp running lease assignment_archive accepted checkpointed rejected blocked worker_invocation invocation_snapshot worker_pid worker_supervisor_pid
 	shopt -s nullglob
 	for file in "$dir/results/$PROJECT-task-"*.result.md; do
 		task_id="$(task_id_from_filename "$file")"
 		base="$(task_base "$task_id")"
 		worker_invocation="$dir/control/$base.worker-invocation-active"
 		if [[ -f "$worker_invocation" ]]; then
-			worker_pid="$(kv_file_value "$worker_invocation" worker_pid 2>/dev/null || true)"
-			worker_supervisor_pid="$(kv_file_value "$worker_invocation" supervisor_pid 2>/dev/null || true)"
+			# worker-supervisor removes this barrier immediately after the worker
+			# invocation is classified. Snapshot it once: two independent key reads
+			# can straddle that unlink and turn normal cleanup into a fatal missing-
+			# file error. A marker that vanishes before this read is already stale.
+			invocation_snapshot="$(cat -- "$worker_invocation" 2>/dev/null || true)"
+			worker_pid="$(awk -F= '$1=="worker_pid" {sub(/^[^=]*=/, ""); print; exit}' <<< "$invocation_snapshot")"
+			worker_supervisor_pid="$(awk -F= '$1=="supervisor_pid" {sub(/^[^=]*=/, ""); print; exit}' <<< "$invocation_snapshot")"
 			if { [[ "$worker_pid" =~ ^[1-9][0-9]*$ ]] && kill -0 "$worker_pid" 2>/dev/null; } ||
 				{ [[ "$worker_supervisor_pid" =~ ^[1-9][0-9]*$ ]] && kill -0 "$worker_supervisor_pid" 2>/dev/null; }; then
 				continue
