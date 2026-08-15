@@ -5,7 +5,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HARNESS_HOME="$(cd "$SCRIPT_DIR/.." && pwd)"
 HARNESS_BIN="$HARNESS_HOME/bin"
 TEST_ROOT="$(mktemp -d /tmp/harness-decomposition-startup.XXXXXX)"
-trap 'rm -rf -- "$TEST_ROOT"' EXIT
+if [[ "${HARNESS_TEST_KEEP_TMP:-0}" == 1 ]]; then
+	trap 'printf "Preserved test root: %s\\n" "$TEST_ROOT" >&2' EXIT
+else
+	trap 'rm -rf -- "$TEST_ROOT"' EXIT
+fi
 
 repo="$TEST_ROOT/repo"
 state="$TEST_ROOT/state"
@@ -125,11 +129,12 @@ cat > "$TEST_ROOT/dag.tsv" <<'EOF'
 node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route	behavioral_concerns	failure_paths	ownership_transitions	concurrency_boundaries	validation_surfaces	implementation_files	predicted_worker_actions	predicted_p95_tokens	terra_exception
 n01	-	-	Implement target behavior	Focused source exists	test -f src/a.c	src/a.c	target	LOCAL_IMPLEMENTATION	LOW	LUNA	1	0	0	0	1	1	4	100000	-
 n02	-	n01	Expose target behavior	Focused source exists	test -f src/a.c	src/a.c	target	LOCAL_IMPLEMENTATION	LOW	LUNA	1	0	0	0	1	1	4	100000	-
+terra-contract	-	n02	Choose the target contract	Contract decision is accepted	test -f src/a.c	src/a.c	target	CONTRACT_DESIGN	HIGH	TERRA	2	2	2	0	2	3	11	360000	CONTRACT_DECISION
 EOF
 cat > "$TEST_ROOT/coverage.tsv" <<'EOF'
 obligation_id	node_ids	evidence_plan
 REQ-ONE	n01	n01 focused source validation
-REQ-TWO	n02	n02 exposes the accepted prerequisite behavior
+REQ-TWO	n02,terra-contract	n02 exposes behavior and terra-contract fixes its contract
 EOF
 cat > "$TEST_ROOT/over-budget-dag.tsv" <<'EOF'
 node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route	behavioral_concerns	failure_paths	ownership_transitions	concurrency_boundaries	validation_surfaces	implementation_files	predicted_worker_actions	predicted_p95_tokens	terra_exception
@@ -437,5 +442,108 @@ set -e
 grep -Fqx 'Complexity-Class: LOW' "$TEST_ROOT/remediation-draft.md"
 grep -Fqx 'Worker-Route: TERRA' "$TEST_ROOT/remediation-draft.md"
 grep -Fqx 'Terra-Exception: -' "$TEST_ROOT/remediation-draft.md"
+
+# A verified Terra decision may leave only bounded, zero-write validation
+# evidence. Recovery must preserve immutable architecture authority while
+# replacing the completed HIGH/TERRA execution vector with a deterministic
+# residual LOW/LUNA vector. This is the exact transition that previously left
+# a live supervisor idle behind a permanently rejected continuation.
+sed -i \
+	-e $'s/^n01\tACTIVE\tleaf-root/n01\tCOMPLETE\tleaf-root/' \
+	-e $'s/^n02\tPENDING\t-/n02\tCOMPLETE\tn02/' \
+	-e $'s/^terra-contract\tPENDING\t-/terra-contract\tACTIVE\tterra-contract/' \
+	"$project_dir/control/project-plan-state.tsv"
+cat > "$project_dir/control/progress/startup-split-task-terra-contract.root-assignment.md" <<'EOF'
+# Terra contract root
+
+Task-ID: terra-contract
+Task-Root: terra-contract
+Root-Criterion: terra-contract.acceptance
+Allowed-Scope: src/a.c
+Architecture-Decisions: TERRA-CONTRACT-001
+Expected-Max-Implementation-Files: 3
+Expected-Max-Worker-Turns: 11
+EOF
+cat > "$project_dir/control/progress/startup-split-task-terra-contract.criteria.tsv" <<'EOF'
+item_id	state	verified_by	evidence_sha256	updated_at
+terra-contract.decision	VERIFIED	terra-contract	sha256:test	2026-08-15T00:00:00Z
+EOF
+cat > "$project_dir/control/progress/startup-split-task-terra-contract.needs-replan.md" <<'EOF'
+# Root Task Needs Replanning
+
+Task-Root: terra-contract
+Triggered-By: terra-contract
+Trigger-Outcome: CHECKPOINT
+Blocking-Fingerprint: -
+EOF
+cat > "$project_dir/control/startup-split-task-terra-contract.manager-replan-failed.md" <<'EOF'
+# Automatic Manager Replan Invocation Failed
+
+Project: startup-split
+Task-Root: terra-contract
+Exit-Status: 70
+EOF
+recovery_status="$($HARNESS_BIN/harness-status --machine "$env_file")"
+grep -Fq 'Project status: RECOVERY_STALLED.' <<< "$recovery_status"
+recovery_watch="$(HARNESS_WATCH_COLOR=always COLUMNS=120 LINES=30 \
+	"$HARNESS_BIN/harness-watch-many" --once "$TEST_ROOT/configs")"
+grep -Eq $'^startup-split +\| *0\| \033\[31mpaused\033\[0m +\|' <<< "$recovery_watch"
+grep -Fq 'RECOVERY_STALLED:' <<< "$recovery_watch"
+rm -f "$project_dir/control/startup-split-task-terra-contract.manager-replan-failed.md"
+
+cat > "$TEST_ROOT/residual-evidence.md" <<'EOF'
+# Residual evidence leaf
+
+Task-ID: terra-contract-revision-01
+Task-Root: terra-contract
+Target-Criterion: terra-contract.acceptance
+Worker-Context: FRESH
+Replan-Strategy-ID: residual-evidence-v1
+Strategy-Change: NEW_EVIDENCE
+Supersedes-Task: terra-contract
+Execution-Mode: LEAF_GOAL
+Goal-ID: terra-contract.residual-evidence.v1
+Goal-Success-Evidence: The existing target contract has retained focused evidence.
+Focused-Validation: test -f src/a.c
+Allowed-Scope: src/a.c
+Baseline-Boundary: Preserve the verified Terra decision and make no source edits.
+Hard-Block-Conditions: Stop if evidence requires changing the accepted contract.
+Leaf-Type: DOCUMENTATION
+Complexity-Class: LOW
+Worker-Route: LUNA
+Depends-On: n02
+Deliverable: Retained focused validation evidence.
+Required-Symbols: target
+Context-Paths: src/a.c
+Architecture-Decisions: NONE
+Validation-Class: FOCUSED
+Expected-Max-Implementation-Files: 0
+Expected-Max-Worker-Turns: 2
+
+## Objective
+
+Record the bounded evidence for the already verified contract without editing source.
+
+## Acceptance criteria
+
+- The focused target evidence is retained.
+
+## Validation commands
+
+```sh
+test -f src/a.c
+```
+EOF
+"$HARNESS_BIN/manager-publish-task" "$env_file" terra-contract-revision-01 \
+	"$TEST_ROOT/residual-evidence.md" --auto-replan >/dev/null
+residual_ready="$project_dir/tasks/startup-split-task-terra-contract-revision-01.ready.md"
+test -f "$residual_ready"
+grep -Fqx 'Complexity-Class: LOW' "$residual_ready"
+grep -Fqx 'Worker-Route: LUNA' "$residual_ready"
+grep -Fqx 'Expected-Max-Implementation-Files: 0' "$residual_ready"
+grep -Fqx 'Terra-Exception: -' "$residual_ready"
+awk -F': ' -v maximum=24 '$1=="Complexity-Score" {found=1; exit !($2<=maximum)} END{exit !found}' "$residual_ready"
+grep -Fq 'RECOVERY_RESIDUAL_EVIDENCE_RECLASSIFIED root=terra-contract task=terra-contract-revision-01' \
+	"$project_dir/logs/events.log"
 
 printf 'split decomposition startup transaction tests passed\n'

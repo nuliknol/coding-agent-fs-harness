@@ -398,10 +398,14 @@ process_auto_replans()
 		[[ "${replan_failed_fingerprint[$root]:-}" != "$current" ]] || continue
 		log_event "SUPERVISOR_INVOKE_MANAGER_REPLAN root=$root fingerprint=$current invoker=$manager_replan_invoker"
 		trace_event SUPERVISOR_INVOKE_MANAGER_REPLAN "root=$root" "fingerprint=$current" "manager_replan_invoker=$manager_replan_invoker"
-		set +e
-		"$manager_replan_invoker" "$HARNESS_ENV_FILE" "$root" 8>&-
-		status=$?
-		set -e
+		# A rejected recovery publication is an expected, durably reported
+		# outcome. Invoke it in a conditional so the global ERR trap does not
+		# mislabel the captured status as a fatal supervisor crash.
+		if "$manager_replan_invoker" "$HARNESS_ENV_FILE" "$root" 8>&-; then
+			status=0
+		else
+			status=$?
+		fi
 		trace_event SUPERVISOR_MANAGER_REPLAN_EXIT "root=$root" "status=$status"
 		if (( status == 0 )); then
 			unset 'replan_failed_fingerprint[$root]'

@@ -112,12 +112,15 @@ startup_status_file="$dir/control/harness-start-background.status"
 startup_state='IDLE'
 startup_exit=''
 startup_log=''
+manager_replan_failed=''
 if [[ -f "$startup_status_file" ]]; then
 	startup_state="$(awk -F= '$1=="state" {print $2; exit}' "$startup_status_file")"
 	[[ -n "$startup_state" ]] || startup_state=IDLE
 	startup_exit="$(awk -F= '$1=="exit_status" {print $2; exit}' "$startup_status_file")"
 	startup_log="$(awk -F= '$1=="log" {sub(/^[^=]*=/, ""); print; exit}' "$startup_status_file")"
 fi
+manager_replan_failed="$(find "$dir/control" -maxdepth 1 -type f \
+	-name "$PROJECT-task-*.manager-replan-failed.md" -print 2>/dev/null | sort | head -n 1)"
 if project_plan_exists; then
 	printf -v project_progress_line 'Project progress: %s%% (%s/%s plan items complete)' \
 		"$(project_plan_progress_percent)" "$(project_plan_complete_count)" "$(project_plan_total_count)"
@@ -566,6 +569,8 @@ elif (( blocked_count > 0 )); then
 	project_status_line='Project status: BLOCKED. A legacy hard-block marker is awaiting manager classification; restart the manager supervisor to recover it.'
 elif (( replanning_count > 0 )); then
 	project_status_line='Project status: REPLANNING. The persistent manager is decomposing the root and publishing one first-unmet-criterion continuation.'
+elif [[ -n "$manager_replan_failed" ]]; then
+	project_status_line="Project status: RECOVERY_STALLED. Automatic manager recovery failed and unchanged-state retries are suppressed; inspect $manager_replan_failed."
 elif (( replan_count > 0 )); then
 	if (( HARNESS_AUTO_REPLAN_ENABLED == 1 )); then
 		project_status_line='Project status: NEEDS_REPLAN. Verified checkpoints are preserved; automatic persistent-manager recovery is pending.'

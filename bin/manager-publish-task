@@ -143,7 +143,8 @@ normalize_measured_assignment_metadata()
 {
 	local report decomposition report_row dag_row tmp
 	local complexity_score behavioral failures ownership concurrency validations implementation_files actions declared_p95 effective_p95 complexity_class worker_route terra_exception
-	local requested_route requested_exception luna_failures
+	local obligation_weight requested_route requested_class requested_leaf requested_architecture requested_validation requested_files requested_turns requested_exception luna_failures
+	local required_symbols symbol_count calibration_rate residual_p95 verified_items
 	# Every task bound to a measured plan node uses the installed deterministic
 	# vector.  Revisions and recovery tasks must not ask a planning agent to
 	# reproduce these machine-owned fields by hand.
@@ -155,15 +156,63 @@ normalize_measured_assignment_metadata()
 	report_row="$(awk -F '\t' -v node="$plan_item_id" 'NR > 1 && $1 == node {print; exit}' "$report")"
 	dag_row="$(awk -F '\t' -v node="$plan_item_id" 'NR > 1 && $1 == node {print; exit}' "$decomposition")"
 	[[ -n "$report_row" && -n "$dag_row" ]] || die "measured metadata is missing for plan node: $plan_item_id"
-	IFS=$'\t' read -r _ _ _ complexity_score _ _ _ _ behavioral failures ownership concurrency \
+	IFS=$'\t' read -r _ _ _ complexity_score _ obligation_weight _ _ behavioral failures ownership concurrency \
 		validations implementation_files actions declared_p95 effective_p95 _ _ _ <<< "$report_row"
 	IFS=$'\t' read -r _ _ _ _ _ _ _ _ _ complexity_class worker_route _ _ _ _ _ _ _ _ terra_exception <<< "$dag_row"
+	requested_route="$(metadata_value "$task_file" Worker-Route)"
+	requested_class="$(metadata_value "$task_file" Complexity-Class)"
+	requested_leaf="$(metadata_value "$task_file" Leaf-Type)"
+	requested_architecture="$(metadata_value "$task_file" Architecture-Decisions)"
+	requested_validation="$(metadata_value "$task_file" Validation-Class)"
+	requested_files="$(metadata_value "$task_file" Expected-Max-Implementation-Files)"
+	requested_turns="$(metadata_value "$task_file" Expected-Max-Worker-Turns)"
 	if (( manager_remediation == 1 )); then
 		worker_route=TERRA
 	elif (( recovery_publish == 1 )); then
-		requested_route="$(metadata_value "$task_file" Worker-Route)"
 		luna_failures="$(root_luna_strategy_failure_count "$root")"
-		if [[ "$requested_route" == TERRA ]] &&
+		verified_items="$(task_verified_item_count "$root")"
+		trace_event RECOVERY_MEASURED_ROUTE_REQUEST "root=$root" "task_id=$task_id" \
+			"requested_route=$requested_route" "requested_class=$requested_class" \
+			"requested_leaf=$requested_leaf" "requested_architecture=$requested_architecture" \
+			"requested_validation=$requested_validation" "requested_files=$requested_files" \
+			"requested_turns=$requested_turns" "verified_items=$verified_items"
+		# A verified Terra decision can leave a much smaller read-only evidence
+		# boundary. Require an explicit zero-write Luna assignment and derive its
+		# residual vector here, rather than restoring the completed parent node's
+		# HIGH/TERRA vector. Other revisions retain the immutable measured vector.
+		if [[ "$requested_route" == LUNA && "$requested_class" == LOW &&
+			"$requested_leaf" =~ ^(TEST_IMPLEMENTATION|DOCUMENTATION)$ &&
+			"$requested_architecture" == NONE &&
+			"$requested_validation" =~ ^(FOCUSED|INCREMENTAL)$ &&
+			"$requested_files" == 0 && "$requested_turns" =~ ^[1-3]$ &&
+			"$verified_items" =~ ^[1-9][0-9]*$ ]]; then
+			required_symbols="$(metadata_value "$task_file" Required-Symbols)"
+			symbol_count="$(awk -F, '{if ($0=="-" || $0=="") print 0; else print NF}' <<< "$required_symbols")"
+			behavioral=1
+			failures=0
+			ownership=0
+			concurrency=0
+			validations=1
+			implementation_files=0
+			actions=5
+			(( actions <= HARNESS_MAX_LUNA_PREDICTED_ACTIONS )) || actions="$HARNESS_MAX_LUNA_PREDICTED_ACTIONS"
+			complexity_score=$((obligation_weight + behavioral * 3 + validations * 2 + (symbol_count + 1) / 2))
+			declared_p95=$((complexity_score * HARNESS_COMPLEXITY_TOKENS_PER_SCORE_POINT))
+			calibration_rate="$(complexity_calibrated_tokens_per_score "$LUNA_WORKER_MODEL")"
+			residual_p95=$((complexity_score * calibration_rate))
+			effective_p95="$declared_p95"
+			(( effective_p95 >= residual_p95 )) || effective_p95="$residual_p95"
+			(( symbol_count <= HARNESS_MAX_LUNA_REQUIRED_SYMBOLS &&
+				complexity_score <= HARNESS_MAX_LUNA_COMPLEXITY_SCORE &&
+				actions <= HARNESS_MAX_LUNA_PREDICTED_ACTIONS &&
+				effective_p95 <= HARNESS_MAX_LUNA_PREDICTED_P95_TOKENS )) ||
+				die "residual evidence leaf exceeds the measured Luna budget (score=$complexity_score actions=$actions p95=$effective_p95)"
+			complexity_class=LOW
+			worker_route=LUNA
+			terra_exception=-
+			measured_recovery_route_override=2
+			log_event "RECOVERY_RESIDUAL_EVIDENCE_RECLASSIFIED root=$root task=$task_id leaf_type=$requested_leaf complexity_score=$complexity_score actions=$actions p95=$effective_p95"
+		elif [[ "$requested_route" == TERRA ]] &&
 			(( luna_failures >= HARNESS_MAX_LUNA_STRATEGY_FAILURES )); then
 			requested_exception="$(metadata_value "$task_file" Terra-Exception)"
 			worker_route=TERRA
@@ -683,19 +732,23 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 				"Expected-Max-Agent-Actions:15:$leaf_expected_actions" \
 				"Predicted-P95-Tokens:16:$leaf_predicted_p95"; do
 				IFS=: read -r metadata_field report_field actual_value <<< "$mapping"
-				expected_value="$(awk -F '\t' -v node="$plan_item_id" -v field="$report_field" 'NR>1 && $1==node {print $field; exit}' "$(decomposition_complexity_report_file)")"
-				[[ "$actual_value" == "$expected_value" ]] ||
-					die "$metadata_field must match the deterministic complexity report for $plan_item_id"
+				if (( measured_recovery_route_override != 2 )); then
+					expected_value="$(awk -F '\t' -v node="$plan_item_id" -v field="$report_field" 'NR>1 && $1==node {print $field; exit}' "$(decomposition_complexity_report_file)")"
+					[[ "$actual_value" == "$expected_value" ]] ||
+						die "$metadata_field must match the deterministic complexity report for $plan_item_id"
+				fi
 			done
 			if (( measured_recovery_route_override == 0 )); then
 				expected_value="$(project_plan_node_value "$plan_item_id" terra_exception)"
 				[[ "$leaf_terra_exception" == "$expected_value" ]] ||
 					die "Terra-Exception must match the immutable measured decomposition value for $plan_item_id"
 			fi
-			expected_value="$(awk -F '\t' -v node="$plan_item_id" 'NR>1 && $1==node {print $4; exit}' "$(decomposition_complexity_report_file)")"
-			[[ "$leaf_complexity_score" == "$expected_value" ]] || die 'Complexity-Score must match the deterministic complexity report'
-			expected_value="$(awk -F '\t' -v node="$plan_item_id" 'NR>1 && $1==node {print $17; exit}' "$(decomposition_complexity_report_file)")"
-			[[ "$leaf_effective_p95" == "$expected_value" ]] || die 'Effective-P95-Tokens must match the deterministic complexity report'
+			if (( measured_recovery_route_override != 2 )); then
+				expected_value="$(awk -F '\t' -v node="$plan_item_id" 'NR>1 && $1==node {print $4; exit}' "$(decomposition_complexity_report_file)")"
+				[[ "$leaf_complexity_score" == "$expected_value" ]] || die 'Complexity-Score must match the deterministic complexity report'
+				expected_value="$(awk -F '\t' -v node="$plan_item_id" 'NR>1 && $1==node {print $17; exit}' "$(decomposition_complexity_report_file)")"
+				[[ "$leaf_effective_p95" == "$expected_value" ]] || die 'Effective-P95-Tokens must match the deterministic complexity report'
+			fi
 		fi
 		[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]] ||
 			die "invalid Leaf-Type: $leaf_type"

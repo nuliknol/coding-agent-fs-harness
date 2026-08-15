@@ -71,6 +71,10 @@ compatibility alias; new files should use the uppercase shell variable.
 - Race-safe result review: the manager snapshots a worker-invocation barrier
   once, so normal worker-supervisor cleanup cannot strand a published result or
   terminate the manager between separate marker-field reads.
+- Checkpoint-aware recovery: a completed Terra decision can hand its bounded,
+  zero-write validation residue to a deterministically measured LOW/LUNA leaf.
+  Suppressed recovery failures appear as `RECOVERY_STALLED` instead of a
+  healthy running manager merely because its idle watcher process still exists.
 - Safe restart and recovery: supervisor restarts preserve plans, task state,
   checkpoints, retained threads, and completed evidence; child processes do
   not inherit supervisor lifetime locks.

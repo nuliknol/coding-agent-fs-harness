@@ -22,6 +22,14 @@ rm -f "$TEST_ROOT/state/projects/raceproj/results/raceproj-task-\$task_id.result
 SCRIPT
 chmod 700 "$TEST_ROOT/manager-invoker"
 
+cat > "$TEST_ROOT/manager-replan-invoker" <<SCRIPT
+#!/usr/bin/env bash
+set -Eeuo pipefail
+touch "$TEST_ROOT/manager-replan-called-\$2"
+exit 70
+SCRIPT
+chmod 700 "$TEST_ROOT/manager-replan-invoker"
+
 cat > "$TEST_ROOT/harness.env" <<ENV
 export PROJECT="raceproj"
 export REPOSITORY="$TEST_ROOT/repo"
@@ -36,6 +44,7 @@ export MANAGER_CODEX_BIN="/bin/true"
 export WORKER_CODEX_HOME="$TEST_ROOT/worker-home"
 export WORKER_CODEX_BIN="/bin/true"
 export HARNESS_MANAGER_INVOKER="$TEST_ROOT/manager-invoker"
+export HARNESS_MANAGER_REPLAN_INVOKER="$TEST_ROOT/manager-replan-invoker"
 export HARNESS_SPECIFICATION_REVIEW_ENABLED="0"
 export HARNESS_DECOMPOSITION_V2="0"
 export HARNESS_WORKER_GOAL_MODE="0"
@@ -125,6 +134,27 @@ wait "$unlink_watcher"
 supervisor_pid="$(awk 'NR==1 {print; exit}' "$project/control/supervisor.pid")"
 kill -0 "$supervisor_pid"
 ! grep -Fq 'SUPERVISOR_FATAL' "$project/logs/events.log"
+
+# A bounded automatic-replan publication failure is captured as durable
+# recovery state. It must not fire the global ERR trap, kill the watcher, or
+# leave status tools believing that an unreported fatal crash occurred.
+mkdir -p "$project/control/progress"
+cat > "$project/control/progress/raceproj-task-003.needs-replan.md" <<'MARKER'
+# Root Task Needs Replanning
+
+Task-Root: 003
+Triggered-By: 003
+Trigger-Outcome: CHECKPOINT
+MARKER
+for _ in $(seq 1 100); do
+	[[ -e "$TEST_ROOT/manager-replan-called-003" ]] && break
+	sleep 0.05
+done
+[[ -e "$TEST_ROOT/manager-replan-called-003" ]]
+[[ -f "$project/control/raceproj-task-003.manager-replan-failed.md" ]]
+kill -0 "$supervisor_pid"
+! grep -Fq 'SUPERVISOR_FATAL' "$project/logs/events.log"
+grep -Fq 'SUPERVISOR_MANAGER_RECOVERY_FAILED root=003 status=70' "$project/logs/events.log"
 "$HARNESS_BIN/harness-supervisor-stop" "$TEST_ROOT/harness.env" >/dev/null
 
 printf 'supervisor result barrier tests passed.\n'
