@@ -418,6 +418,8 @@ grep -Fq 'edge EDGE-widget contract artifact is absent: include/missing-contract
 	"$TEST_ROOT/missing-producer-artifact.out"
 mv "$installed_edges.valid" "$installed_edges"
 "$HARNESS_BIN/manager-accept-task" "$TEST_ROOT/harness.env" 001 "$TEST_ROOT/contract-review.md" >/dev/null
+grep -Fqx 'validation_kind=DEFERRED_CUMULATIVE_INVARIANT' \
+	"$TEST_ROOT/state/projects/archguard/control/architecture/health-logs/001-invariant-INV-widget.log"
 
 write_task "$TEST_ROOT/coding-task.md" 002 coding.goal coding.done LOCAL_IMPLEMENTATION LOW LUNA contract \
 	'Implement canonical widget behavior' 'widget_value returns one' "grep -q 'return 1' src/widget.c" \

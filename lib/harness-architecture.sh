@@ -732,15 +732,37 @@ architecture_run_command()
 
 architecture_run_acceptance_gates()
 {
-	local node="$1" task="$2" invariants edges gates id kind validation gate trigger depends severity gate_invariants gate_edges log sha decision dependency consumer
+	local node="$1" task="$2" invariants edges gates id kind validation gate trigger depends severity gate_invariants gate_edges log sha decision dependency consumer affected affected_node defer_invariant
 	local -a ids=() dependency_ids=()
 	(( HARNESS_ARCHITECTURE_GUARDS == 1 )) || return 0
 	invariants="$(architecture_node_value "$node" invariant_ids)"
 	architecture_parse_id_list "$invariants" ids
 	for id in "${ids[@]}"; do
-		read -r kind validation < <(awk -F '\t' -v id="$id" 'NR>1 && $1==id {print $8, $9; exit}' "$(architecture_invariants_file)")
+		read -r kind validation affected < <(awk -F '\t' -v id="$id" 'NR>1 && $1==id {print $8, $9, $10; exit}' "$(architecture_invariants_file)")
 		if [[ "$kind" == COMMAND ]]; then
 			log="$(architecture_dir)/health-logs/$task-invariant-$id.log"
+			# A cross-node invariant is cumulative. Running it while another
+			# affected node is still pending creates a forward-dependency
+			# deadlock (for example, the first of two integration tests tries
+			# to execute both). The last affected node performs the command.
+			defer_invariant=0
+			local -a affected_nodes=()
+			architecture_parse_id_list "$affected" affected_nodes
+			for affected_node in "${affected_nodes[@]}"; do
+				[[ "$affected_node" == "$node" ]] && continue
+				if [[ "$(project_plan_item_status "$affected_node")" != COMPLETE ]]; then
+					defer_invariant=1
+					break
+				fi
+			done
+			if (( defer_invariant == 1 )); then
+				{
+					printf 'validation_kind=DEFERRED_CUMULATIVE_INVARIANT\n'
+					printf 'invariant=%s\n' "$id"
+					printf 'affected_nodes=%s\n' "$affected"
+				} > "$log"
+				continue
+			fi
 			architecture_run_command "$validation" "$log" || die "architecture invariant validation failed: $id (see $log)"
 		fi
 	done
