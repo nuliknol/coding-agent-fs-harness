@@ -4753,7 +4753,7 @@ initialize_project_plan_v2()
 	local node_id parent_id depends_on deliverable acceptance_evidence focused_validation field_index
 	local allowed_paths required_symbols leaf_type complexity_class worker_route dependency
 	local node_count luna_count luna_percent coding_count luna_coding_count luna_coding_percent has_leaf_type=0 has_complexity=0 route_column=11 type_column=9
-	local obligations_for_node provenance provenance_tmp route_violations
+	local obligations_for_node provenance provenance_tmp route_violations zero_write_scope
 	local -a fields=()
 	expected_header="$(decomposition_typed_header)"
 	complexity_header="$(decomposition_complexity_header)"
@@ -4851,7 +4851,16 @@ initialize_project_plan_v2()
 		[[ -n "$deliverable" && -n "$acceptance_evidence" && -n "$focused_validation" ]] ||
 			die "node $node_id requires deliverable, acceptance_evidence, and focused_validation"
 		architecture_require_scoped_validation "plan node $node_id focused_validation" "$focused_validation"
-		[[ -n "$allowed_paths" && "$allowed_paths" != - ]] || die "node $node_id requires explicit allowed_paths"
+		if [[ -z "$allowed_paths" || "$allowed_paths" == - ]]; then
+			zero_write_scope=0
+			if (( has_leaf_type == 1 )) &&
+				[[ "$leaf_type" =~ ^(VERIFICATION_ONLY|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]]; then
+				if (( has_complexity == 0 )) || [[ "${fields[16]}" == 0 ]]; then
+					zero_write_scope=1
+				fi
+			fi
+			(( zero_write_scope == 1 )) || die "node $node_id requires explicit allowed_paths"
+		fi
 		[[ -n "$required_symbols" ]] || die "node $node_id requires required_symbols or '-'"
 		if (( has_leaf_type == 1 )); then
 			[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]] ||
