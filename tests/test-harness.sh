@@ -1439,6 +1439,43 @@ grep -q $'^controlled_source_commit=' \
 	"$checkpoint_project/archive/checkpoints/checkpointproj-task-001/manifest.txt"
 grep -Eq $'^[0-9a-f]+\t001\tmanager-checkpoint\t[^\t]+\tsource.txt,source-two.txt$' \
 	"$checkpoint_project/control/agent-commits.tsv"
+# Simulate the malformed artifact produced by releases that interpreted one
+# comma-separated path field as a single deleted pseudo-path. A passing
+# zero-write acceptance review upgrades it to per-file hashes and recommits the
+# exact reviewed workspace under the original checkpoint task.
+git -C "$CHECKPOINT_ROOT/repo" reset -q --mixed HEAD^
+sed -i '1q' "$checkpoint_project/control/agent-commits.tsv"
+checkpoint_artifact="$checkpoint_project/archive/checkpoints/checkpointproj-task-001"
+awk '!/^path=/ && !/^controlled_source_commit=/' "$checkpoint_artifact/manifest.txt" \
+	> "$checkpoint_artifact/manifest.txt.tmp"
+printf 'path=source.txt,source-two.txt\ttype=deleted\n' >> "$checkpoint_artifact/manifest.txt.tmp"
+mv "$checkpoint_artifact/manifest.txt.tmp" "$checkpoint_artifact/manifest.txt"
+printf 'source.txt,source-two.txt\n' > "$checkpoint_artifact/checkpoint-paths.txt"
+cp "$checkpoint_project/archive/checkpointproj-task-001.assignment.md" \
+	"$checkpoint_project/archive/checkpointproj-task-001-revision-99.assignment.md"
+if grep -q '^Expected-Max-Implementation-Files:' \
+	"$checkpoint_project/archive/checkpointproj-task-001-revision-99.assignment.md"; then
+	sed -i 's/^Expected-Max-Implementation-Files:.*/Expected-Max-Implementation-Files: 0/' \
+		"$checkpoint_project/archive/checkpointproj-task-001-revision-99.assignment.md"
+else
+	printf 'Expected-Max-Implementation-Files: 0\n' >> \
+		"$checkpoint_project/archive/checkpointproj-task-001-revision-99.assignment.md"
+fi
+printf 'Decision: ACCEPT\n' > "$CHECKPOINT_ROOT/legacy-accept-review.md"
+(
+	source "$CHECKPOINT_ROOT/harness.env"
+	source "$HARNESS_HOME/lib/harness-common.sh"
+	export HARNESS_AGENT_COMMITS_ENABLED=1
+	source "$HARNESS_HOME/lib/harness-git-commit.sh"
+	source "$HARNESS_HOME/lib/harness-checkpoint-commit.sh"
+	checkpoint_reconcile_root_source_provenance 001-revision-99 \
+		"$CHECKPOINT_ROOT/legacy-accept-review.md"
+)
+git -C "$CHECKPOINT_ROOT/repo" diff --quiet HEAD -- source.txt source-two.txt
+test -f "$checkpoint_artifact/legacy-comma-path-artifact/manifest.txt"
+grep -q '^legacy_comma_path_repaired_by_review_sha256=' "$checkpoint_artifact/manifest.txt"
+grep -q $'^path=source.txt\ttype=file\t' "$checkpoint_artifact/manifest.txt"
+grep -q $'^path=source-two.txt\ttype=file\t' "$checkpoint_artifact/manifest.txt"
 (
 	source "$CHECKPOINT_ROOT/harness.env"
 	source "$HARNESS_HOME/lib/harness-common.sh"

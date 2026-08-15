@@ -1035,7 +1035,10 @@ the transaction creates a validated, path-bounded source commit attributed to
 the checkpoint task. A later zero-write recovery leaf may consume that commit
 within the same immutable root, but cannot claim or modify the inherited code.
 Legacy checkpoints are reconciled only when the live files exactly match their
-stored hash manifest. New root assignments declare stable `Root-Criterion` IDs; for
+stored hash manifest. Early comma-list artifacts that recorded the list as one
+deleted pseudo-path are upgraded only during a passing zero-write manager
+acceptance review; the original malformed artifact is retained beside the
+repaired per-file snapshots and hashes. New root assignments declare stable `Root-Criterion` IDs; for
 undecomposed roots checkpoint progress is calculated from passed versus
 declared criteria rather than estimated by the manager. Once a broad criterion
 has append-only children, the monotonic display percentage remains compatible

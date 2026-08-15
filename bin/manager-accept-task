@@ -180,7 +180,7 @@ plan_item_id="$(project_plan_item_for_root "$(task_root_id "$task_id")")"
 # modify that code. If an older verified checkpoint predates automatic
 # checkpoint commits, reconcile its exact reviewed snapshot now under the
 # original checkpoint task's authority before architecture provenance checks.
-checkpoint_reconcile_root_source_provenance "$task_id"
+checkpoint_reconcile_root_source_provenance "$task_id" "$note_file"
 # Produced architecture decisions are machine-owned node metadata with a
 # registered evidence path. Once the manager has independently accepted the
 # result, record those decisions deterministically instead of relying on a

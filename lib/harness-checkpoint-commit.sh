@@ -89,9 +89,83 @@ checkpoint_commit_verified_artifact()
 	printf 'controlled_source_commit=%s\n' "$commit" >> "$artifact_dir/manifest.txt"
 }
 
+checkpoint_upgrade_legacy_comma_artifact()
+{
+	local checkpoint_task="$1" artifact_dir="$2" acceptance_review="$3" raw_path assignment allowed_scope
+	local backup_dir path resolved snapshot_path manifest_tmp review_sha legacy_file
+	local -a paths=() raw_parts=()
+	[[ -f "$acceptance_review" ]] || return 0
+	[[ "$(metadata_value "$acceptance_review" Decision)" == ACCEPT ]] || return 0
+	[[ "$(wc -l < "$artifact_dir/checkpoint-paths.txt")" == 1 ]] || return 0
+	raw_path="$(< "$artifact_dir/checkpoint-paths.txt")"
+	[[ "$raw_path" == *,* ]] || return 0
+	grep -Fqx "path=$raw_path"$'\t''type=deleted' "$artifact_dir/manifest.txt" || return 0
+	assignment="$(project_dir)/archive/$(task_base "$checkpoint_task").assignment.md"
+	[[ -f "$assignment" ]] || die "legacy checkpoint repair lacks archived assignment: $checkpoint_task"
+	allowed_scope="$(metadata_value "$assignment" Allowed-Scope)"
+	IFS=',' read -r -a raw_parts <<< "$raw_path"
+	for path in "${raw_parts[@]}"; do
+		path="${path#"${path%%[![:space:]]*}"}"
+		path="${path%"${path##*[![:space:]]}"}"
+		[[ -n "$path" && "$path" != NONE ]] || die 'legacy checkpoint contains an empty path-list item'
+		[[ "$path" != /* && "$path" != '.' && "$path" != '..' && "$path" != ../* && "$path" != */../* && "$path" != */.. ]] ||
+			die "legacy checkpoint path is unsafe: $path"
+		resolved="$(realpath -m "$REPOSITORY/$path")"
+		[[ "$resolved" == "$REPOSITORY"/* ]] || die "legacy checkpoint path escapes repository: $path"
+		agent_commit_path_in_scope "$path" "$allowed_scope" || die "legacy checkpoint path is outside original assignment scope: $path"
+		paths+=("$path")
+	done
+	(( ${#paths[@]} > 1 )) || return 0
+	git -C "$REPOSITORY" diff --check -- "${paths[@]}"
+	review_sha="$(sha256sum "$acceptance_review" | awk '{print $1}')"
+	backup_dir="$artifact_dir/legacy-comma-path-artifact"
+	[[ ! -e "$backup_dir" ]] || die "legacy checkpoint repair backup already exists: $backup_dir"
+	mkdir -p "$backup_dir" "$artifact_dir/files"
+	chmod 700 "$backup_dir"
+	for legacy_file in checkpoint-paths.txt manifest.txt workspace.patch git-status.txt; do
+		[[ ! -f "$artifact_dir/$legacy_file" ]] || mv "$artifact_dir/$legacy_file" "$backup_dir/$legacy_file"
+	done
+	: > "$artifact_dir/checkpoint-paths.txt"
+	for path in "${paths[@]}"; do
+		printf '%s\n' "$path" >> "$artifact_dir/checkpoint-paths.txt"
+		snapshot_path="$artifact_dir/files/$path"
+		if [[ -L "$REPOSITORY/$path" ]]; then
+			mkdir -p "$(dirname "$snapshot_path")"
+			cp -P -- "$REPOSITORY/$path" "$snapshot_path"
+		elif [[ -f "$REPOSITORY/$path" ]]; then
+			mkdir -p "$(dirname "$snapshot_path")"
+			cp -p -- "$REPOSITORY/$path" "$snapshot_path"
+		elif [[ -d "$REPOSITORY/$path" ]]; then
+			die "legacy checkpoint path must name a file, symlink, or deletion: $path"
+		fi
+	done
+	git -C "$REPOSITORY" diff --binary --full-index HEAD -- "${paths[@]}" > "$artifact_dir/workspace.patch" 2>/dev/null || true
+	git -C "$REPOSITORY" status --porcelain=v1 -- "${paths[@]}" > "$artifact_dir/git-status.txt"
+	manifest_tmp="$artifact_dir/manifest.txt.tmp.$$"
+	awk '!/^path=/ && !/^controlled_source_commit=/ && !/^legacy_comma_path_repaired_/' \
+		"$backup_dir/manifest.txt" > "$manifest_tmp"
+	printf 'legacy_comma_path_repaired_at=%s\n' "$(timestamp_utc)" >> "$manifest_tmp"
+	printf 'legacy_comma_path_repaired_by_review_sha256=%s\n' "$review_sha" >> "$manifest_tmp"
+	for path in "${paths[@]}"; do
+		if [[ -L "$REPOSITORY/$path" ]]; then
+			printf 'path=%s\ttype=symlink\ttarget=%s\n' "$path" "$(readlink "$REPOSITORY/$path")" >> "$manifest_tmp"
+		elif [[ -f "$REPOSITORY/$path" ]]; then
+			printf 'path=%s\ttype=file\tmode=%s\tsha256=%s\n' "$path" \
+				"$(stat -c '%a' "$REPOSITORY/$path")" \
+				"$(sha256sum "$REPOSITORY/$path" | awk '{print $1}')" >> "$manifest_tmp"
+		else
+			printf 'path=%s\ttype=deleted\n' "$path" >> "$manifest_tmp"
+		fi
+	done
+	mv "$manifest_tmp" "$artifact_dir/manifest.txt"
+	chmod 600 "$artifact_dir/checkpoint-paths.txt" "$artifact_dir/manifest.txt" \
+		"$artifact_dir/workspace.patch" "$artifact_dir/git-status.txt"
+	log_event "LEGACY_CHECKPOINT_PATH_LIST_REPAIRED task=$checkpoint_task paths=$(printf '%q' "${paths[*]}") review_sha256=$review_sha"
+}
+
 checkpoint_reconcile_root_source_provenance()
 {
-	local current_task="$1" assignment expected_files root marker checkpoint_task artifact
+	local current_task="$1" acceptance_review="${2:-}" assignment expected_files root marker checkpoint_task artifact
 	assignment="$(project_dir)/archive/$(task_base "$current_task").assignment.md"
 	[[ -f "$assignment" ]] || return 0
 	expected_files="$(metadata_value "$assignment" Expected-Max-Implementation-Files)"
@@ -103,6 +177,7 @@ checkpoint_reconcile_root_source_provenance()
 		[[ -n "$checkpoint_task" && "$(task_root_id "$checkpoint_task")" == "$root" ]] || continue
 		artifact="$(metadata_value "$marker" Artifact-Directory)"
 		[[ -n "$artifact" && -d "$artifact" ]] || continue
+		checkpoint_upgrade_legacy_comma_artifact "$checkpoint_task" "$artifact" "$acceptance_review"
 		checkpoint_commit_verified_artifact "$checkpoint_task" "$artifact"
 	done
 	shopt -u nullglob
