@@ -162,6 +162,10 @@ resource_agent_phase="$(prompt_value AGENT_PHASE)"
 resource_goal_mode="$(prompt_value WORKER_GOAL_MODE)"
 resource_processed_token_limit="$HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION"
 resource_estimated_token_limit="$HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION"
+resource_item_limit="$HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION"
+if [[ "$role" == manager_review ]]; then
+	resource_item_limit="$HARNESS_MAX_MANAGER_REVIEW_ITEMS_PER_INVOCATION"
+fi
 if [[ "$resource_agent_phase" == specification_review ]]; then
 	resource_processed_token_limit="$HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION"
 	resource_estimated_token_limit="$HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION"
@@ -179,7 +183,8 @@ record_resource_guard()
 {
 	local alarm marker="-"
 	if [[ -n "$resource_task_root" && "$resource_task_root" != - ]] &&
-		[[ "$resource_guard_kind" =~ ^(TOKEN_LIMIT|ESTIMATED_TOKEN_LIMIT)$ ]]; then
+		{ [[ "$resource_guard_kind" =~ ^(TOKEN_LIMIT|ESTIMATED_TOKEN_LIMIT)$ ]] ||
+			{ [[ "$role" == manager_review ]] && [[ "$resource_guard_kind" == ITEM_LIMIT ]]; }; }; then
 		marker="$(mark_root_token_usage_anomaly "$resource_task_root" "$resource_guard_reason" \
 			"role=$role model=$model jsonl=$json_log estimated_processed_tokens=$agent_estimated_processed_tokens")"
 	# A non-token leaf-goal fuse closes only the current implementation episode.
@@ -267,10 +272,10 @@ while kill -0 "$pid" 2>/dev/null; do
 		terminate_process_tree "$pid"
 		break
 	fi
-	if (( agent_item_count >= HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION )); then
+	if (( agent_item_count >= resource_item_limit )); then
 		resource_guard_tripped=1
 		resource_guard_kind=ITEM_LIMIT
-		resource_guard_reason="live item-start budget reached ($agent_item_count/$HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION)"
+		resource_guard_reason="live item-start budget reached ($agent_item_count/$resource_item_limit; role=$role)"
 		terminate_process_tree "$pid"
 		break
 	fi

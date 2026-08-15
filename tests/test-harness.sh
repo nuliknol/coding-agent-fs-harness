@@ -509,12 +509,19 @@ grep -q -- '--add-dir /tmp/testproj' "$ARGS_LOG"
 review_prompt="$TEST_ROOT/state/projects/testproj/control/testproj-task-001.manager-review.prompt.md"
 review_digest="$TEST_ROOT/state/projects/testproj/control/testproj-task-001.worker-evidence-digest.md"
 review_context="$TEST_ROOT/state/projects/testproj/control/testproj-task-001.manager-review-context.md"
+accept_template="$TEST_ROOT/state/projects/testproj/control/testproj-task-001.accept-review-template.md"
+checkpoint_template="$TEST_ROOT/state/projects/testproj/control/testproj-task-001.checkpoint-review-template.md"
 [[ -f "$review_prompt" && -f "$review_digest" && -f "$review_context" ]]
+[[ -f "$accept_template" && -f "$checkpoint_template" ]]
 grep -Fq "WORKER_EVIDENCE_DIGEST_FILE=$review_digest" "$review_prompt"
 grep -Fq "REVIEW_CONTEXT_CAPSULE_FILE=$review_context" "$review_prompt"
 grep -Fq 'The capsule is authoritative and complete for plan, DAG, IR, and architecture context' "$review_prompt"
 grep -Fq 'Do not open the global files from which it was derived.' "$review_context"
 grep -Fq 'Reviewers must not open the raw worker JSONL' "$review_digest"
+grep -Fq "ACCEPT_REVIEW_TEMPLATE_FILE=$accept_template" "$review_prompt"
+grep -Fq "CHECKPOINT_REVIEW_TEMPLATE_FILE=$checkpoint_template" "$review_prompt"
+grep -Fqx '## Acceptance-criteria verification' "$accept_template"
+grep -Fqx '## Increment verification' "$checkpoint_template"
 (( $(stat -c %s "$review_digest") <= 32768 ))
 (( $(stat -c %s "$review_context") <= 65536 ))
 plan_prompt="$TEST_ROOT/state/projects/testproj/control/manager-plan-next-task.prompt.md"

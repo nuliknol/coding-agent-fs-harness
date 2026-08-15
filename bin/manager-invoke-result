@@ -99,6 +99,91 @@ write_worker_episode_evidence_digest "$task_id" "$worker_evidence_digest"
 review_context_capsule="$project_path/control/$base.manager-review-context.md"
 write_plan_node_context_capsule "$review_context_capsule" "$plan_item_id"
 
+reviewed_invariants="$(metadata_value "$assignment_archive" Affected-Invariants)"
+reviewed_edges="$(metadata_value "$assignment_archive" Edge-Contracts)"
+[[ -n "$reviewed_invariants" ]] || reviewed_invariants=-
+[[ -n "$reviewed_edges" ]] || reviewed_edges=-
+accept_review_template="$project_path/control/$base.accept-review-template.md"
+checkpoint_review_template="$project_path/control/$base.checkpoint-review-template.md"
+cat > "$accept_review_template.tmp.$$" <<TEMPLATE
+# Manager Review Record
+
+Task-ID: $task_id
+Decision: ACCEPT
+Progress-Percent: 100%
+Verified-Criterion: $first_unmet_criterion
+Impact-Assessment: PASS
+Reviewed-Invariants: $reviewed_invariants
+Reviewed-Edges: $reviewed_edges
+Debt-Recorded: NONE
+
+## Specification comparison
+
+Replace this line with the bounded authority comparison.
+
+## Acceptance-criteria verification
+
+- [PASS] criterion — independently verified evidence
+
+## Feature verification
+
+- [PASS] behavior — independently verified evidence
+
+## Validation executed
+
+- [PASS] command — exit status and retained evidence
+
+## Scope and regression review
+
+Replace this line with the bounded scope review.
+
+## Conclusion
+
+Replace this line with the acceptance conclusion.
+TEMPLATE
+cat > "$checkpoint_review_template.tmp.$$" <<TEMPLATE
+# Manager Review Record
+
+Task-ID: $task_id
+Decision: CHECKPOINT
+Target-Criterion: $first_unmet_criterion
+Verified-Increment: REPLACE_WITH_STABLE_INCREMENT_ID
+Checkpoint-Path: NONE
+Progress-Percent: $current_progress%
+Improvement-Percent: 0%
+Impact-Assessment: PASS
+Reviewed-Invariants: $reviewed_invariants
+Reviewed-Edges: $reviewed_edges
+Debt-Recorded: NONE
+
+## Specification comparison
+
+Replace this line with the bounded authority comparison.
+
+## Increment verification
+
+- [PASS] increment — independently verified evidence
+
+## Validation executed
+
+- [PASS] command — exit status and retained evidence
+
+## Scope and regression review
+
+Replace this line with the bounded scope review.
+
+## Remaining root criteria
+
+- $first_unmet_criterion — replace with the precise remaining boundary
+
+## Conclusion
+
+Replace this line with the checkpoint conclusion.
+TEMPLATE
+chmod 600 "$accept_review_template.tmp.$$" "$checkpoint_review_template.tmp.$$"
+mv "$accept_review_template.tmp.$$" "$accept_review_template"
+mv "$checkpoint_review_template.tmp.$$" "$checkpoint_review_template"
+
 prompt_file="$project_path/control/$base.manager-review.prompt.md"
 cat > "$prompt_file.tmp.$$" <<PROMPT
 A worker result is ready for review.
@@ -149,8 +234,10 @@ PREFERRED_WORKER_ROUTE=$HARNESS_PREFERRED_WORKER_ROUTE
 REVIEW_STATE_CHANGED=$review_state_changed
 WORKER_EVIDENCE_DIGEST_FILE=$worker_evidence_digest
 REVIEW_CONTEXT_CAPSULE_FILE=$review_context_capsule
+ACCEPT_REVIEW_TEMPLATE_FILE=$accept_review_template
+CHECKPOINT_REVIEW_TEMPLATE_FILE=$checkpoint_review_template
 
-This is one bounded event-driven manager review. Complete it in at most six shell actions: one read of REVIEW_CONTEXT_CAPSULE_FILE plus the root/result/digest files, one bounded source/diff inspection, one independent validation, one optional focused diagnostic, one review-note write, and one terminal harness command. The capsule is authoritative and complete for plan, DAG, IR, and architecture context; do not open the human specification, global project plan/DAG/coverage, architecture registries, repository inventory, prior agent logs, raw worker JSONL/stderr, or raw command/build logs. Do not invoke any harness command with --help. Exact common signatures are: harness-run-logged ENV_FILE TASK_ID LABEL -- COMMAND..., manager-accept-task ENV_FILE TASK_ID REVIEW_NOTE_FILE, manager-checkpoint-task ENV_FILE TASK_ID REVIEW_NOTE_FILE, manager-reject-task ENV_FILE TASK_ID REVIEW_NOTE_FILE, and manager-block-task ENV_FILE TASK_ID REVIEW_NOTE_FILE. Read DEVELOPMENT_POLICY_FILE when present, then REVIEW_CONTEXT_CAPSULE_FILE, ROOT_ASSIGNMENT_FILE, PROGRESS_FILE, CRITERIA_DEFINITION_FILE, CRITERION_DECOMPOSITION_FILE, CRITERION_LEDGER_FILE, RESULT_FILE, and WORKER_EVIDENCE_DIGEST_FILE when present. Inspect current bounded source and diffs directly, and run independent validation through harness-run-logged so only its bounded summary enters context. Bound every shell output to at most $HARNESS_VALIDATION_OUTPUT_MAX_LINES lines and $HARNESS_VALIDATION_OUTPUT_MAX_BYTES bytes, retaining full verbose output in PROJECT_TMP_DIR. When REVIEW_STATE_CHANGED=1, stable control state changed after a prior pending review: perform a fresh review; do not dismiss the event as a duplicate. Use the capsule and current repository HEAD. Reconcile cumulative root progress and project progress against the actual repository. Write review files under PROJECT_TMP_DIR. Every harness command receives ENV_FILE first. Checkpoint a correct verified increment that does not complete the root; accept only when the entire root passes; reject only faulty, regressive, out-of-scope, or independently unverified work. A continuation targets FIRST_UNMET_CRITERION. Do not publish a continuation after a terminal command returns a needs-replan, needs-human, blocked, or architecture-reassessment marker. Invalidate a disproved upstream dependency with MANAGER_DEPENDENCY_INVALIDATION_COMMAND. Acceptance completes only this plan item; after acceptance, terminate. Do not wait, sleep, poll, watch, or call manager-wait-result.
+This is one bounded event-driven manager review. Complete it in at most six shell actions: one read of REVIEW_CONTEXT_CAPSULE_FILE plus the root/result/digest files, one bounded source/diff inspection, one independent validation, one optional focused diagnostic, one review-note write, and one terminal harness command. The capsule is authoritative and complete for plan, DAG, IR, and architecture context; do not open the human specification, global project plan/DAG/coverage, architecture registries, repository inventory, prior agent logs, raw worker JSONL/stderr, raw command/build logs, or any file under HARNESS_BIN/HARNESS_HOME. Do not invoke any harness command with --help. ACCEPT_REVIEW_TEMPLATE_FILE and CHECKPOINT_REVIEW_TEMPLATE_FILE are complete validator-compatible schemas: copy exactly one to PROJECT_TMP_DIR, replace its prose placeholders with actual evidence, and preserve every heading, metadata key, and '[PASS] subject — evidence' form. Do not construct a review schema from memory. Exact common signatures are: harness-run-logged ENV_FILE TASK_ID LABEL -- COMMAND..., manager-accept-task ENV_FILE TASK_ID REVIEW_NOTE_FILE, manager-checkpoint-task ENV_FILE TASK_ID REVIEW_NOTE_FILE, manager-reject-task ENV_FILE TASK_ID REVIEW_NOTE_FILE, and manager-block-task ENV_FILE TASK_ID REVIEW_NOTE_FILE. Read DEVELOPMENT_POLICY_FILE when present, then REVIEW_CONTEXT_CAPSULE_FILE, ROOT_ASSIGNMENT_FILE, PROGRESS_FILE, CRITERIA_DEFINITION_FILE, CRITERION_DECOMPOSITION_FILE, CRITERION_LEDGER_FILE, RESULT_FILE, WORKER_EVIDENCE_DIGEST_FILE, and the selected review template once. Inspect current bounded source and diffs directly, and run independent validation through harness-run-logged so only its bounded summary enters context. Bound every shell output to at most $HARNESS_VALIDATION_OUTPUT_MAX_LINES lines and $HARNESS_VALIDATION_OUTPUT_MAX_BYTES bytes, retaining full verbose output in PROJECT_TMP_DIR. When REVIEW_STATE_CHANGED=1, stable control state changed after a prior pending review: perform a fresh review; do not dismiss the event as a duplicate. Use the capsule and current repository HEAD. Reconcile cumulative root progress and project progress against the actual repository. Write review files under PROJECT_TMP_DIR. Every harness command receives ENV_FILE first. Checkpoint a correct verified increment that does not complete the root; accept only when the entire root passes; reject only faulty, regressive, out-of-scope, or independently unverified work. A continuation targets FIRST_UNMET_CRITERION. Run one terminal review command. If it rejects the note, make at most one correction from that exact diagnostic; never search harness source for validator rules. Do not publish a continuation after a terminal command returns a needs-replan, needs-human, blocked, or architecture-reassessment marker. Invalidate a disproved upstream dependency with MANAGER_DEPENDENCY_INVALIDATION_COMMAND. Acceptance completes only this plan item; after acceptance, terminate. Do not wait, sleep, poll, watch, or call manager-wait-result.
 PROMPT
 if (( goal_mode == 1 )); then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT

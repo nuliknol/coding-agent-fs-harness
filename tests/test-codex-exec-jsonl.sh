@@ -164,6 +164,26 @@ grep -q '^resource_guard=ITEM_LIMIT$' "$TMP/item-loop.classification"
 grep -q 'agent invocation resource circuit breaker: live item-start budget reached' \
 	"$TMP/state/projects/jsonltest/control/progress/jsonltest-task-resource-root.needs-human.md"
 
+# Reviews have a tighter role-specific action budget. A review loop is a token
+# anomaly requiring inspection, not a product/authorization decision.
+cp "$TMP/env" "$TMP/env-review-items"
+printf 'export HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION="80"\n' >> "$TMP/env-review-items"
+printf 'export HARNESS_MAX_MANAGER_REVIEW_ITEMS_PER_INVOCATION="3"\n' >> "$TMP/env-review-items"
+review_resource_prompt="$TMP/review-resource-prompt"
+printf 'TASK_ID=review-resource\nTASK_ROOT=review-resource\n' > "$review_resource_prompt"
+set +e
+MOCK_MODE=item_loop "$ROOT/bin/codex-exec-jsonl" "$TMP/env-review-items" manager_review gpt-5.5 \
+	"$review_resource_prompt" "$TMP/review-item-loop.jsonl" "$TMP/review-item-loop.stderr" \
+	"$TMP/review-item-loop.last"
+review_item_status=$?
+set -e
+(( review_item_status != 0 ))
+grep -q '^classification=agent_item_budget_exceeded$' "$TMP/review-item-loop.classification"
+grep -q '^resource_guard=ITEM_LIMIT$' "$TMP/review-item-loop.classification"
+[[ -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-review-resource.token-usage-anomaly.md" ]]
+[[ ! -e "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-review-resource.needs-human.md" ]]
+rm -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-review-resource.token-usage-anomaly.md"
+
 # A leaf-goal guard closes one semantic episode in worker-invoke-task. It must
 # not be mislabeled as a human authorization/secret/external-state dependency.
 goal_resource_prompt="$TMP/goal-resource-prompt"
