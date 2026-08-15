@@ -151,6 +151,10 @@ architecture_validate_source_file()
 architecture_validation_is_broad_aggregate()
 {
 	local validation="$1"
+	# Typed review descriptors attest a validation class; they are not shell
+	# commands.  Searching their prose for words such as "ctest" must not make
+	# an exact FOCUSED selector look like an unfiltered aggregate invocation.
+	[[ "$validation" =~ ^(FOCUSED|INCREMENTAL|CLEAN_GLOBAL):[[:space:]]*[^[:space:]] ]] && return 1
 	[[ "$validation" =~ (^|[[:space:]])--[[:alnum:]_-]*-all([[:space:]]|$) ]] ||
 		[[ "$validation" =~ (^|[[:space:]])ctest([[:space:]]|$) &&
 			! "$validation" =~ (^|[[:space:]])(-R|--tests-regex)([[:space:]]|=) ]]

@@ -145,6 +145,16 @@ if "$HARNESS_BIN/manager-init-architecture" "$TEST_ROOT/harness.env" "$broad_arc
 fi
 grep -Fq 'uses a broad aggregate as a mandatory success condition' "$TEST_ROOT/broad-gate.out"
 test ! -e "$TEST_ROOT/state/projects/archguard/control/architecture"
+# A typed review descriptor is not an executable ctest command. Its explicit
+# FOCUSED class must not be rejected merely because the prose names ctest.
+if bash -c '
+	source "$1/lib/harness-common.sh"
+	source "$1/lib/harness-architecture.sh"
+	architecture_validation_is_broad_aggregate "FOCUSED: ctest in the external build with exact selector ^IT-RCP-000$"
+' _ "$HARNESS_HOME"; then
+	printf 'focused ctest review descriptor was misclassified as a broad command\n' >&2
+	exit 1
+fi
 broad_edge_architecture="$TEST_ROOT/broad-edge-architecture"
 cp -a "$TEST_ROOT/architecture" "$broad_edge_architecture"
 awk -F '\t' 'BEGIN {OFS=FS} $1 == "EDGE-widget" {$9="./widget-smoke --computing-all"} {print}' \
