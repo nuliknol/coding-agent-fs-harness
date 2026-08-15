@@ -550,12 +550,12 @@ human_watch_max_row_lines="$(awk '
 (( human_watch_max_row_lines <= 3 ))
 human_watch_color="$(HARNESS_WATCH_COLOR=always COLUMNS=100 LINES=24 \
 	"$HARNESS_BIN/harness-watch-many" --once "$TEST_ROOT/watch-mixed")"
-grep -Eq $'^\033\[7mdecompv2 +\| *0\| paused' <<< "$human_watch_color"
-grep -Eq $'\033\[0m$' <<< "$(grep $'^\033\[7mdecompv2 ' <<< "$human_watch_color")"
+grep -Eq $'^decompv2 +\| *0\| \033\[31mpaused\033\[0m +\|' <<< "$human_watch_color"
+! grep -Fq $'\033[7m' <<< "$human_watch_color"
 # Stopped supervisors are an intentional operator-controlled state, not an
 # irregular harness condition, and must remain visually normal.
 grep -Eq '^dispatchlight +\| *0\| m/stopped' <<< "$human_watch_color"
-! grep -Eq $'^\033\[7mdispatchlight +\| *0\| m/stopped' <<< "$human_watch_color"
+! grep -Eq $'dispatchlight +\| *0\| \033\[31mm/stopped' <<< "$human_watch_color"
 rm -f -- "$project_dir/control/progress/decompv2-task-n1.needs-human.md"
 light_watch="$(COLUMNS=100 LINES=24 "$HARNESS_BIN/harness-watch-many" --once "$TEST_ROOT/watch-light")"
 grep -q '^dispatchlight ' <<< "$light_watch"

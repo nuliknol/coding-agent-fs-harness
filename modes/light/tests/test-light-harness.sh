@@ -779,6 +779,12 @@ if awk 'length($0) > 80 { found = 1 } END { exit !found }' \
 	exit 1
 fi
 grep -Eq '^ +\| +\| +\| +\|' <<< "$watch_many_output"
+watch_many_color="$(HARNESS_WATCH_COLOR=always COLUMNS=80 LINES=24 \
+	"$ROOT/bin/harness-watch-many" --once "$watch_many_dir")"
+grep -Eq $'^broken-watch-project \| *-\| \033\[31mconfig er\033\[0m' \
+	<<< "$watch_many_color"
+! grep -Fq $'\033[7m' <<< "$watch_many_color"
+! grep -Eq $'light-smoke .*\| *2\| \033\[31mdone' <<< "$watch_many_color"
 watch_many_max_row_lines="$(awk '
 	NR <= 2 { next }
 	/^[^[:space:]]/ { if (height > maximum) maximum=height; height=1; next }
@@ -845,6 +851,8 @@ percentage_watch_color="$(HARNESS_WATCH_COLOR=always COLUMNS=130 LINES=24 \
 grep -q '^percentage-watch .*| *12| w/stopped' <<< "$percentage_watch_color"
 ! grep -q $'^\033\[7mpercentage-watch .*| *12| w/stopped' \
 	<<< "$percentage_watch_color"
+! grep -Eq $'percentage-watch .*\| *12\| \033\[31mw/stopped' \
+	<<< "$percentage_watch_color"
 sed -i 's/^phase=WORKER_REQUIRED$/phase=REVIEW_REQUIRED/' \
 	"$percentage_watch_project/control/state.env"
 percentage_watch_output="$(COLUMNS=130 LINES=24 \
@@ -854,6 +862,8 @@ percentage_watch_color="$(HARNESS_WATCH_COLOR=always COLUMNS=130 LINES=24 \
 	"$ROOT/bin/harness-watch-many" --once "$percentage_watch_dir")"
 grep -q '^percentage-watch .*| *12| m/stopped' <<< "$percentage_watch_color"
 ! grep -q $'^\033\[7mpercentage-watch .*| *12| m/stopped' \
+	<<< "$percentage_watch_color"
+! grep -Eq $'percentage-watch .*\| *12\| \033\[31mm/stopped' \
 	<<< "$percentage_watch_color"
 
 repair_repo="$TEST_DIR/protocol-repair-repository"

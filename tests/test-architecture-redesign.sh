@@ -140,7 +140,7 @@ grep -Fq '### ARCH-ownership — OWNERSHIP_MODEL_INCOMPATIBLE' <<< "$show_output
 grep -Fq 'Configure and run a separate Full harness' <<< "$show_output"
 grep -Fq 'harness-start --background --force-decomposition' <<< "$show_output"
 watch_output="$(HARNESS_WATCH_COLOR=always COLUMNS=120 LINES=30 "$HARNESS_BIN/harness-watch-many" --once "$TEST_ROOT/configs")"
-grep -Eq $'^\033\[7mredesign-test +\| *0\| redesign' <<< "$watch_output"
+grep -Eq $'^redesign-test +\| *0\| \033\[31mredesign\033\[0m +\|' <<< "$watch_output"
 
 set +e
 start_output="$($HARNESS_BIN/harness-start "$env_file" 2>&1)"

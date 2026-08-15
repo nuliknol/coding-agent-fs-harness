@@ -200,7 +200,7 @@ status_output="$("$HARNESS_BIN/harness-status" --full "$env_file")"
 grep -Fq "Specification review: SPEC_CLARIFICATION_REQUIRED ($record_output)" <<< "$status_output"
 grep -Fq "Project status: SPEC_CLARIFICATION_REQUIRED. Review $record_output before DAG registration." <<< "$status_output"
 watch_output="$(HARNESS_WATCH_COLOR=always COLUMNS=120 LINES=30 "$HARNESS_BIN/harness-watch-many" --once "$TEST_ROOT/configs")"
-grep -Eq $'^\033\[7mspec-review-test +\| *0\| clarify' <<< "$watch_output"
+grep -Eq $'^spec-review-test +\| *0\| \033\[31mclarify\033\[0m +\|' <<< "$watch_output"
 grep -Fq "$record_output" <<< "$watch_output"
 
 plan="$TEST_ROOT/plan.tsv"
@@ -429,7 +429,7 @@ mv "$project_dir/control/specification-coverage.tsv" "$TEST_ROOT/preserved-cover
 invalid_status="$("$HARNESS_BIN/harness-status" --full "$env_file")"
 grep -Fq 'Project status: SPECIFICATION_IR_INVALID.' <<< "$invalid_status"
 invalid_watch="$(HARNESS_WATCH_COLOR=always COLUMNS=120 LINES=30 "$HARNESS_BIN/harness-watch-many" --once "$TEST_ROOT/configs")"
-grep -Eq $'^\033\[7mspec-review-test +\| *0\| paused' <<< "$invalid_watch"
+grep -Eq $'^spec-review-test +\| *0\| \033\[31mpaused\033\[0m +\|' <<< "$invalid_watch"
 if "$HARNESS_BIN/manager-plan-next-task" "$env_file" >/dev/null 2>&1; then
 	printf 'manager planning unexpectedly bypassed missing registered Specification IR coverage\n' >&2
 	exit 1

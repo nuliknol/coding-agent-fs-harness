@@ -46,11 +46,11 @@ if (( ! render_once )); then
 		"${HARNESS_WATCH_ENTRYPOINT:-$SCRIPT_DIR/harness-watch-many}" --once "$config_dir"
 fi
 
-reverse_rows=0
+color_status=0
 case "${HARNESS_WATCH_COLOR:-auto}" in
-	always) reverse_rows=1 ;;
+	always) color_status=1 ;;
 	never) ;;
-	auto|'') [[ -t 1 && "${TERM:-dumb}" != dumb && -z "${NO_COLOR:-}" ]] && reverse_rows=1 ;;
+	auto|'') [[ -t 1 && "${TERM:-dumb}" != dumb && -z "${NO_COLOR:-}" ]] && color_status=1 ;;
 	*) printf 'Invalid HARNESS_WATCH_COLOR: %s (expected auto, always, or never)\n' "$HARNESS_WATCH_COLOR" >&2; exit 2 ;;
 esac
 
@@ -170,10 +170,13 @@ status_requires_attention()
 
 print_row_line()
 {
-	local status="$1" line="$2" padded
-	if (( reverse_rows )) && status_requires_attention "$status"; then
-		printf -v padded '%-*s' "$columns" "$line"
-		printf '\033[7m%s\033[0m\n' "$padded"
+	local status="$1" line="$2" status_offset visible_status
+	status_offset=$((project_width + cycle_width + 4))
+	visible_status="${status:0:status_width}"
+	if (( color_status )) && status_requires_attention "$status" &&
+		[[ "${line:status_offset:${#visible_status}}" == "$visible_status" ]]; then
+		printf '%s\033[31m%s\033[0m%s\n' \
+			"${line:0:status_offset}" "$visible_status" "${line:status_offset+${#visible_status}}}"
 	else
 		printf '%s\n' "$line"
 	fi

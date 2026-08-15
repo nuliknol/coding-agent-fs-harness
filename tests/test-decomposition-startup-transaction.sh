@@ -346,7 +346,7 @@ status_output="$($HARNESS_BIN/harness-status --machine "$env_file")"
 grep -Fq 'Startup transaction: FAILED exit=75' <<< "$status_output"
 grep -Fq 'Project status: STARTUP_FAILED.' <<< "$status_output"
 watch_output="$(HARNESS_WATCH_COLOR=always COLUMNS=120 LINES=30 "$HARNESS_BIN/harness-watch-many" --once "$TEST_ROOT/configs")"
-grep -Eq $'^\033\[7mstartup-split +\| *0\| paused' <<< "$watch_output"
+grep -Eq $'^startup-split +\| *0\| \033\[31mpaused\033\[0m +\|' <<< "$watch_output"
 
 "$HARNESS_BIN/manager-submit-decomposition" --recover "$env_file" >/dev/null
 grep -Fqx 'status=INSTALLED' "$project_dir/control/decomposition-candidate.env"

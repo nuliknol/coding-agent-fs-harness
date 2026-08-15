@@ -62,6 +62,9 @@ compatibility alias; new files should use the uppercase shell variable.
   traceability and may create bounded remediation plan items.
 - Filesystem observability: assignments, results, reviews, JSONL streams,
   checkpoints, progress, and lifecycle events remain inspectable on disk.
+- Attention-only watcher color: problematic states render only their STATUS
+  text in red; normal, stopped, and completed rows retain ordinary terminal
+  colors without row-wide inversion.
 - Safe restart and recovery: supervisor restarts preserve plans, task state,
   checkpoints, retained threads, and completed evidence; child processes do
   not inherit supervisor lifetime locks.
