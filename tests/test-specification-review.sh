@@ -169,6 +169,14 @@ grep -Fqx 'state=SPEC_CLARIFICATION_REQUIRED' "$background_status_file"
 grep -Fqx 'exit_status=3' "$background_status_file"
 grep -Fq "Specification clarification required: $record_output" "$background_log"
 test ! -e "$project_dir/control/harness-start-background.pid"
+# Starting registers only known harness-generated response artifacts in the
+# repository-local exclude file, so later clean-worktree criteria do not fail
+# on scaffolding that the harness itself owns.
+[[ -z "$(git -C "$repo" status --short --untracked-files=all -- "$record_output")" ]]
+grep -Fqx "/$record_output" "$(git -C "$repo" rev-parse --absolute-git-dir)/info/exclude"
+printf 'operator-authored review note\n' > "$repo/spec-review/operator-note.md"
+[[ -n "$(git -C "$repo" status --short --untracked-files=all -- spec-review/operator-note.md)" ]]
+rm -f "$repo/spec-review/operator-note.md"
 
 set +e
 printf 'must block review startup\n' > "$repo/untracked-before-start.txt"

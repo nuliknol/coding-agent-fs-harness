@@ -1712,6 +1712,7 @@ require_clean_repository_start_state()
 		die "repository is not a Git working tree: $REPOSITORY"
 	git -C "$REPOSITORY" rev-parse --verify 'HEAD^{commit}' >/dev/null 2>&1 ||
 		die "repository does not have a valid HEAD commit: $REPOSITORY"
+	register_harness_generated_review_artifacts
 	# spec-review/ and architecture-review/ are harness-owned response channels written before a project
 	# has an execution DAG. Its untracked artifacts must survive clarification
 	# and renormalization restarts without weakening the clean-source boundary.
@@ -1725,6 +1726,44 @@ require_clean_repository_start_state()
 		printf '%s\n' "$changes" >&2
 		die 'repository has staged, unstaged, or non-ignored untracked files; commit or clean it before harness-start'
 	fi
+}
+
+harness_generated_review_artifact()
+{
+	case "$1" in
+		spec-review/domain-profiles-*|spec-review/repository-facts-*|\
+		spec-review/repository-inventory-*|spec-review/specification-clarifications-*|\
+		spec-review/specification-obligations-*|spec-review/specification-relations-*|\
+		spec-review/specification-review-*|spec-review/specification-critic-challenge-*|\
+		spec-review/specification-critic-issues-*|spec-review/architecture-fit-review-*|\
+		architecture-review/architecture-fit-*|architecture-review/architecture-redesign-*|\
+		architecture-review/architecture-redesign-issues-*|\
+		architecture-review/architecture-redesign-specification-*) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+register_harness_generated_review_artifacts()
+{
+	local git_dir exclude_file lock_file relative artifact exclude_lock_fd
+	git_dir="$(git -C "$REPOSITORY" rev-parse --git-dir 2>/dev/null || true)"
+	[[ -n "$git_dir" ]] || return 0
+	[[ "$git_dir" == /* ]] || git_dir="$REPOSITORY/$git_dir"
+	exclude_file="$git_dir/info/exclude"
+	lock_file="$git_dir/info/coding-harness-exclude.lock"
+	mkdir -p "$git_dir/info"
+	exec {exclude_lock_fd}>"$lock_file"
+	flock -x "$exclude_lock_fd"
+	touch "$exclude_file"
+	while IFS= read -r -d '' artifact; do
+		relative="${artifact#"$REPOSITORY/"}"
+		harness_generated_review_artifact "$relative" || continue
+		grep -Fqx "/$relative" "$exclude_file" 2>/dev/null ||
+			printf '/%s\n' "$relative" >> "$exclude_file"
+	done < <(find "$REPOSITORY/spec-review" "$REPOSITORY/architecture-review" \
+		-maxdepth 1 -type f -print0 2>/dev/null)
+	flock -u "$exclude_lock_fd"
+	exec {exclude_lock_fd}>&-
 }
 
 worker_thread_state_file()

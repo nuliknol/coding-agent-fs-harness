@@ -86,7 +86,7 @@ printf 'git -C %q add -- %q\n' "$REPOSITORY" "$specification_relative"
 printf 'git -C %q commit -m %q\n' "$REPOSITORY" "resolve $PROJECT specification clarification"
 printf 'git -C %q status --short\n' "$REPOSITORY"
 printf '```\n\n'
-printf 'Before relaunching, `git status --short` must produce no staged, unstaged, or non-ignored untracked entries. Preserve generated `spec-review/` audit files according to repository policy; if they are intentionally local harness artifacts, exclude that directory through the repository-local Git exclude file.\n\n'
+printf 'Before relaunching, `git status --short` must produce no staged, unstaged, or non-ignored untracked entries other than recognized harness-generated review artifacts. Preserve generated `spec-review/` audit files; `harness-start` registers those exact generated paths in the repository-local Git exclude file. Do not broadly ignore the entire directory.\n\n'
 
 printf '## Relaunch and verify\n\n'
 printf 'After the commit and clean-worktree check, schedule the potentially long review/decomposition/bootstrap sequence in the background:\n\n```bash\n'
