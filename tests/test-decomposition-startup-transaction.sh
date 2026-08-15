@@ -133,6 +133,26 @@ EOF
 cat > "$TEST_ROOT/bad-coverage.tsv" <<'EOF'
 obligation_id	node_ids	evidence_plan
 EOF
+cat > "$TEST_ROOT/reorder-dag.tsv" <<'EOF'
+node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route
+n01	-	-	Expose target behavior	Focused source exists	test -f src/a.c	src/a.c	target	LOCAL_IMPLEMENTATION	LOW	LUNA
+n02	-	-	Implement target behavior	Focused source exists	test -f src/a.c	src/a.c	target	LOCAL_IMPLEMENTATION	LOW	LUNA
+EOF
+cat > "$TEST_ROOT/reorder-coverage.tsv" <<'EOF'
+obligation_id	node_ids	evidence_plan
+REQ-ONE	n02	n02 implements the prerequisite
+REQ-TWO	n01	n01 exposes the dependent behavior
+EOF
+
+set +e
+"$HARNESS_BIN/manager-stage-decomposition-dag" "$env_file" "$TEST_ROOT/reorder-dag.tsv" "$TEST_ROOT/reorder-coverage.tsv" >/dev/null 2>&1
+reorder_status=$?
+set -e
+(( reorder_status != 0 ))
+"$HARNESS_BIN/manager-repair-decomposition-relations" "$env_file" >/dev/null
+reordered_dag="$(awk -F= '$1=="dag" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
+[[ "$(awk -F '\t' 'NR==2 {print $1}' "$reordered_dag")" == n02 ]]
+[[ "$(awk -F '\t' 'NR==3 {print $1 " " $3}' "$reordered_dag")" == 'n01 n02' ]]
 
 set +e
 "$HARNESS_BIN/manager-stage-decomposition-dag" "$env_file" "$TEST_ROOT/dag.tsv" "$TEST_ROOT/bad-coverage.tsv" >/dev/null 2>&1
