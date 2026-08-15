@@ -103,6 +103,7 @@ if [[ "$mode" == --reset-orphaned ]]; then
 		if [[ -f "$dir/tasks/$base.ready.md" ||
 			-f "$dir/running/$base.running.md" ||
 			-f "$dir/results/$base.result.md" ||
+			-f "$dir/control/$base.abort.md" ||
 			-f "$dir/archive/$base.accepted.md" ||
 			-f "$dir/archive/$base.checkpointed.md" ||
 			-f "$dir/archive/$base.rejected.md" ||
@@ -127,6 +128,10 @@ for file in "$(goal_control_dir)"/"$PROJECT-task-"*.goal; do
 	[[ "$goal_state" =~ ^(READY|RUNNING|ITERATING|STRATEGY_REVIEW|REVIEW)$ ]] || continue
 	task_id="$(kv_file_value "$file" task_id)"
 	base="$(task_base "$task_id")"
+	# An explicit operator abort is terminal even when a crash had already
+	# moved the assignment into the archive before harness-abort-task ran.
+	# Do not diagnose (or later resurrect) that goal as an orphan.
+	[[ -f "$dir/control/$base.abort.md" ]] && continue
 	if [[ ! -f "$dir/tasks/$base.ready.md" &&
 		! -f "$dir/running/$base.running.md" &&
 		! -f "$dir/results/$base.result.md" ]]; then

@@ -854,6 +854,21 @@ rm -f "$rotation_project/control/goalrotate-task-001.lease"
 grep -q 'ORPHAN_ARCHIVED_ASSIGNMENT task=001 reason=incomplete-completion-transaction' \
 	"$ROTATE_ROOT/transaction-recover.out"
 [[ -f "$rotation_project/tasks/goalrotate-task-001.ready.md" ]]
+
+# An explicit abort remains terminal when the assignment was already archived
+# by an interrupted completion transaction. Crash recovery must never restore
+# the aborted assignment merely because no *.aborted.assignment.md rename was
+# possible at abort time.
+mv "$rotation_project/tasks/goalrotate-task-001.ready.md" \
+	"$rotation_project/archive/goalrotate-task-001.assignment.md"
+"$HARNESS_BIN/harness-abort-task" "$ROTATE_ROOT/harness.env" 001 \
+	'interrupted transaction was explicitly abandoned' >/dev/null
+"$HARNESS_BIN/harness-recover" "$ROTATE_ROOT/harness.env" --reset-orphaned \
+	> "$ROTATE_ROOT/aborted-transaction-recover.out"
+! grep -q 'ORPHAN_ARCHIVED_ASSIGNMENT task=001' \
+	"$ROTATE_ROOT/aborted-transaction-recover.out"
+[[ ! -e "$rotation_project/tasks/goalrotate-task-001.ready.md" ]]
+[[ -f "$rotation_project/control/goalrotate-task-001.abort.md" ]]
 printf 'export HARNESS_WORKER_GOAL_MODE="0"\n' >> "$ROTATE_ROOT/harness.env"
 if "$HARNESS_BIN/worker-invoke-task" "$ROTATE_ROOT/harness.env" 001 \
 	>"$ROTATE_ROOT/invoke.out" 2>"$ROTATE_ROOT/invoke.err"; then
