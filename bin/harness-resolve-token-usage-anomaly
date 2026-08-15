@@ -94,6 +94,11 @@ fi
 chmod 600 "$archive.tmp.$$"
 mv "$archive.tmp.$$" "$archive"
 rm -f "$marker"
+# The failed-replan marker suppresses an unchanged recovery fingerprint for the
+# lifetime of a supervisor.  An explicit operator resolution changes the safe
+# continuation context even when the needs-replan file itself is unchanged, so
+# retaining that suppression marker would leave the root permanently idle.
+rm -f "$(project_dir)/control/$PROJECT-task-$root.manager-replan-failed.md"
 # A token anomaly proves that the current transcript is not a safe continuation
 # capsule. Rotate both legacy root-thread state and goal-mode thread state; a
 # repaired task may reuse the logical Goal-ID, but never the amplified context.

@@ -417,6 +417,8 @@ resource_base="$resource_project/control/goalresource-task-001"
 printf 'fingerprint=stale\n' > "$resource_base.reviewed-event"
 printf '# Manager Invocation Failed\n' > "$resource_base.manager-failed.md"
 printf '# Manager Review Stalled\n' > "$resource_base.manager-review-stalled.md"
+printf '# Automatic Manager Replan Invocation Failed\n' > \
+	"$resource_project/control/goalresource-task-001.manager-replan-failed.md"
 cat > "$RESOURCE_ROOT/token-resolution.md" <<'NOTE'
 Partial-Edit-Disposition: DISCARD_PRESERVED
 Partial-Edit-Task: 001
@@ -440,6 +442,7 @@ printf 'unverified partial worker output\n' > "$RESOURCE_ROOT/repo/goal-output.t
 [[ ! -e "$resource_base.reviewed-event" ]]
 [[ ! -e "$resource_base.manager-failed.md" ]]
 [[ ! -e "$resource_base.manager-review-stalled.md" ]]
+[[ ! -e "$resource_project/control/goalresource-task-001.manager-replan-failed.md" ]]
 resource_goal_state="$resource_project/control/goals/goalresource-task-001.goal"
 grep -Fqx 'thread_id=' "$resource_goal_state"
 grep -Fqx 'thread_context=token-anomaly-resolved' "$resource_goal_state"

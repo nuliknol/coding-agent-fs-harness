@@ -212,6 +212,8 @@ PROMPT
 
 For manager remediation, Allowed-Scope must include exactly the directly implicated Remediation-Scope plus the original focused validation surface. Consider TRIGGER_BLOCKER_CLASS and TRIGGER_REMEDIATION_SCOPE as evidence, then refine them from repository inspection rather than copying an overbroad placeholder. Baseline-Boundary must name the observed local failure. Use LOCAL_SCOPE_PREREQUISITE when the only obstacle is an ordinary worker ownership, exclusive-file, forbidden-file, or baseline-source rule and the repair preserves observable behavior. Hard-Block-Conditions must be reserved for a genuinely human-dependent requirement such as missing authorization, unavailable secrets, an external manual state change, or incompatible observable product outcomes that the specification does not resolve; ordinary coding, private testability, build, test, integration, worker-scope, ownership, and baseline-source restrictions are not human hard blocks.
 
+Set Terra-Exception: - exactly. Manager remediation is bounded execution authority, not a new architecture, contract, concurrency, ambiguity, or integration decision.
+
 Validation sources that are read or compiled but are not concretely defective belong in Context-Paths and validation commands, not Allowed-Scope or Remediation-Scope. Expand mutation authority beyond the immutable root only when observed evidence identifies a required edit in that exact path; never grant speculative authority merely because a test file is part of the focused validation seam.
 PROMPT
 	fi

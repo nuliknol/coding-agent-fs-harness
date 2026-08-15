@@ -46,6 +46,7 @@ goal_publish_summary=""
 goal_publish_thread=""
 goal_publish_ready=0
 measured_recovery_route_override=0
+architecture_recovery_authority=0
 cleanup_publish()
 {
 	local status="$?"
@@ -170,6 +171,10 @@ normalize_measured_assignment_metadata()
 	architecture_decisions="$requested_architecture"
 	if (( manager_remediation == 1 )); then
 		worker_route=TERRA
+		# Remediation is execution authority granted by the recovery protocol,
+		# not a new semantic decision.  Do not inherit the plan node's decision
+		# exception into the bounded repair leaf.
+		terra_exception=-
 	elif (( recovery_publish == 1 )); then
 		luna_failures="$(root_luna_strategy_failure_count "$root")"
 		verified_items="$(task_verified_item_count "$root")"
@@ -853,6 +858,16 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 			planned_complexity="$(project_plan_node_value "$plan_item_id" complexity_class)"
 			planned_route="$(project_plan_node_value "$plan_item_id" worker_route)"
 			planned_leaf_type="$(project_plan_node_value "$plan_item_id" leaf_type)"
+			if (( recovery_publish == 1 && measured_recovery_route_override == 0 )) &&
+				[[ "$planned_route" == TERRA &&
+				"$planned_leaf_type" =~ ^(CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]]; then
+				# A bounded coding continuation can still be part of an unresolved
+				# Terra-owned decision node.  Until that decision is accepted it must
+				# not be forced through Luna merely because the continuation's local
+				# executable shape is implementation work.
+				architecture_recovery_authority=1
+				preferred_route_override=1
+			fi
 			if [[ -n "$planned_leaf_type" ]]; then
 				[[ "$leaf_type" == "$planned_leaf_type" ]] || die 'leaf Leaf-Type does not match its DAG node'
 			fi
@@ -875,7 +890,7 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 			operator_route_override=1
 			preferred_route_override=1
 		fi
-		if (( manager_remediation == 0 && operator_route_override == 0 )) && [[ "$HARNESS_PREFERRED_WORKER_ROUTE" == LUNA && "$leaf_worker_route" == TERRA &&
+		if (( manager_remediation == 0 && operator_route_override == 0 && architecture_recovery_authority == 0 )) && [[ "$HARNESS_PREFERRED_WORKER_ROUTE" == LUNA && "$leaf_worker_route" == TERRA &&
 			"$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY)$ ]] &&
 			(( luna_failures < HARNESS_MAX_LUNA_STRATEGY_FAILURES )); then
 			die "$leaf_type is coding work and must be decomposed to a LOW/LUNA leaf while HARNESS_PREFERRED_WORKER_ROUTE=LUNA; Terra is allowed after $HARNESS_MAX_LUNA_STRATEGY_FAILURES failed Luna strategies"
