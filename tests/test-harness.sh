@@ -1615,10 +1615,14 @@ grep -q 'MANAGER_REPLAN_COMMITTED root=001 task=001-revision-08' "$auto_project/
 grep -q '^Progress-Percent: 99%$' "$auto_progress/autoreplanproj-task-001.progress.md"
 args_after_replan="$(wc -l < "$ARGS_LOG")"
 (( args_after_replan == args_before_replan + 1 ))
-if ! tail -n 1 "$ARGS_LOG" | grep -q 'resume auto-manager-thread'; then
-	printf 'Expected automatic replanning to resume the persistent manager context.\n' >&2
+if tail -n 1 "$ARGS_LOG" | grep -q 'resume auto-manager-thread'; then
+	printf 'Automatic replanning unexpectedly replayed the persistent manager context.\n' >&2
 	exit 1
 fi
+grep -q 'MANAGER_REPLAN_STARTED root=001.*context=fresh previous_thread_id=auto-manager-thread' \
+	"$auto_project/logs/events.log"
+grep -q 'MANAGER_CONTEXT_ROTATED previous=auto-manager-thread current=mock-thread-001 reason=bounded_replan' \
+	"$auto_project/logs/events.log"
 
 cat > "$AUTO_ROOT/nonfirst.md" <<'TASK'
 # Task

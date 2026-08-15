@@ -133,7 +133,7 @@ else
 fi
 
 cat > "$prompt_file.tmp.$$" <<PROMPT
-The root hit a convergence guard after its latest outcome was safely archived. Perform one automatic recovery turn in the persistent project-scoped manager thread. Treat the durable files below as authoritative over older conversation context. Preserve checkpoints and the project plan.
+The root hit a convergence guard after its latest outcome was safely archived. Perform one automatic recovery turn in a fresh bounded manager context. Durable files provide all continuity; do not replay a previous review or planning thread. Preserve checkpoints and the project plan.
 
 ENV_FILE=$HARNESS_ENV_FILE
 PROJECT=$PROJECT
@@ -245,28 +245,33 @@ while true; do
 	json_log="$project_path/logs/manager-replan-$root-$stamp-attempt-$attempt_label.jsonl"
 	stderr_log="$project_path/logs/manager-replan-$root-$stamp-attempt-$attempt_label.stderr.log"
 	last_message="$project_path/logs/manager-replan-$root-$stamp-attempt-$attempt_label.md"
-	log_event "MANAGER_REPLAN_STARTED root=$root trigger=$trigger_task expected_task=$expected_task_id recovery_mode=$recovery_mode attempt=$attempt context=persistent thread_id=$manager_thread_id"
-	trace_event MANAGER_REPLAN_ATTEMPT "root=$root" "trigger_task=$trigger_task" "expected_task=$expected_task_id" "recovery_mode=$recovery_mode" "attempt=$attempt" "context=persistent" "thread_id=$manager_thread_id" "json_log=$json_log"
+	log_event "MANAGER_REPLAN_STARTED root=$root trigger=$trigger_task expected_task=$expected_task_id recovery_mode=$recovery_mode attempt=$attempt context=fresh previous_thread_id=$manager_thread_id"
+	trace_event MANAGER_REPLAN_ATTEMPT "root=$root" "trigger_task=$trigger_task" "expected_task=$expected_task_id" "recovery_mode=$recovery_mode" "attempt=$attempt" "context=fresh" "previous_thread_id=$manager_thread_id" "json_log=$json_log"
 	set +e
 	"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" manager_replan "$current_model" \
-		"$prompt_file" "$json_log" "$stderr_log" "$last_message" resume "$manager_thread_id"
+		"$prompt_file" "$json_log" "$stderr_log" "$last_message"
 	status=$?
 	set -e
 	classification="$(kv_file_value "${json_log%.jsonl}.classification" classification 2>/dev/null || true)"
 	record_root_agent_tokens "$root" manager_replan "${json_log%.jsonl}.classification"
 	if task_published; then
+		new_thread_id="$(codex_thread_id_from_jsonl "$json_log" 2>/dev/null || true)"
+		if [[ "$new_thread_id" =~ ^[A-Za-z0-9-]+$ ]]; then
+			"$HARNESS_BIN/manager-register-thread" "$HARNESS_ENV_FILE" "$new_thread_id" >/dev/null
+			log_event "MANAGER_CONTEXT_ROTATED previous=$manager_thread_id current=$new_thread_id reason=bounded_replan"
+		fi
 		log_event "MANAGER_REPLAN_COMMITTED root=$root task=$expected_task_id recovery_mode=$recovery_mode attempt=$attempt"
 		trace_event MANAGER_REPLAN_COMMITTED "root=$root" "task_id=$expected_task_id" "recovery_mode=$recovery_mode" "attempt=$attempt"
 		if [[ "$recovery_mode" == MANAGER_REMEDIATION ]]; then
-			printf 'Persistent manager published remediation task %s for root %s.\n' "$expected_task_id" "$root"
+			printf 'Fresh manager published remediation task %s for root %s.\n' "$expected_task_id" "$root"
 		else
-			printf 'Persistent manager automatically replanned root %s as %s.\n' "$root" "$expected_task_id"
+			printf 'Fresh manager automatically replanned root %s as %s.\n' "$root" "$expected_task_id"
 		fi
 		exit 0
 	fi
 	if (( status == 0 )); then
 		log_event "MANAGER_RECOVERY_NOT_PUBLISHED root=$root trigger=$trigger_task recovery_mode=$recovery_mode classification=${classification:-unknown}"
-		printf 'Persistent manager did not publish a valid %s continuation for root %s; recovery remains pending.\n' \
+		printf 'Fresh manager did not publish a valid %s continuation for root %s; recovery remains pending.\n' \
 			"$recovery_mode" "$root" >&2
 		exit 70
 	fi
