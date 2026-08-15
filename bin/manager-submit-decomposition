@@ -105,6 +105,7 @@ if (( HARNESS_ARCHITECTURE_GUARDS == 1 )) && [[ "$architecture_stage" != - ]] &&
 		printf 'rejection_stage=architecture\n' >> "$state"
 		printf 'rejection_log=%s\n' "$rejection_log" >> "$state"
 		log_event "DECOMPOSITION_CANDIDATE_REJECTED directory=$candidate_dir stage=architecture status=$architecture_status"
+		printf 'REJECTION_LOG=%s\n' "$rejection_log" >&2
 		die 'decomposition candidate architecture registry was rejected'
 	fi
 	registered_by_candidate=1
@@ -126,6 +127,7 @@ if (( plan_status != 0 )); then
 	printf 'rejection_stage=plan\n' >> "$state"
 	printf 'rejection_log=%s\n' "$rejection_log" >> "$state"
 	log_event "DECOMPOSITION_CANDIDATE_REJECTED directory=$candidate_dir stage=plan status=$plan_status"
+	printf 'REJECTION_LOG=%s\n' "$rejection_log" >&2
 	die "decomposition candidate failed deterministic validation with status $plan_status"
 fi
 rm -f "$rejection_log"

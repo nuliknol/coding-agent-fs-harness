@@ -140,6 +140,13 @@ while true; do
 		printf 'Decomposition DAG and coverage staged for architecture binding.\n'
 		exit 0
 	fi
+	if decomposition_dag_candidate_matches_current_inputs &&
+		[[ "$(decomposition_dag_candidate_state_value status)" == REJECTED ]]; then
+		cp -f "$message" "$last_message" 2>/dev/null || true
+		log_event "DECOMPOSITION_DAG_REPAIR_REQUIRED attempts=$attempt"
+		printf 'Decomposition DAG candidate requires deterministic repair.\n'
+		exit 0
+	fi
 	if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )) && specification_review_requires_clarification; then
 		cp -f "$message" "$last_message" 2>/dev/null || true
 		log_event "DECOMPOSITION_CRITIC_CLARIFICATION report=$(specification_review_report_relative_path) attempts=$attempt"

@@ -109,7 +109,7 @@ export HARNESS_DECOMPOSITION_V2="1"
 export HARNESS_DECOMPOSITION_CRITIC_ENABLED="1"
 export HARNESS_SPECIFICATION_REVIEW_ENABLED="1"
 export HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS="1"
-export HARNESS_START_MAX_AGENT_INVOCATIONS="6"
+export HARNESS_START_MAX_AGENT_INVOCATIONS="7"
 export HARNESS_DOMAIN_PROFILES=""  # optional comma-separated profile IDs
 export HARNESS_MAX_LUNA_STRATEGY_FAILURES="3"
 export HARNESS_MAX_LUNA_ALLOWED_PATHS="8"
@@ -225,7 +225,9 @@ stages only the DAG and obligation coverage. A second fresh Sol turn binds that
 fixed DAG to architecture invariants, decisions, edges, health gates, and debt.
 `manager-submit-decomposition` stages the complete candidate before
 deterministic validation and installs all sidecars as one transaction. A
-schema rejection is handled by a bounded repair-only turn. If startup is
+schema rejection is handled by a bounded repair-only turn. DAG/coverage
+validation also stages before checking and uses its own bounded repair turn.
+If startup is
 interrupted after either staging boundary, the next `harness-start` continues
 without repeating earlier global model exploration. Failed detached startup
 is reported explicitly as `STARTUP_FAILED` instead of looking merely stopped.
@@ -670,7 +672,7 @@ export HARNESS_DECOMPOSITION_V2="1"
 export HARNESS_DECOMPOSITION_CRITIC_ENABLED="1"
 export HARNESS_SPECIFICATION_REVIEW_ENABLED="1"
 export HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS="1"
-export HARNESS_START_MAX_AGENT_INVOCATIONS="6"
+export HARNESS_START_MAX_AGENT_INVOCATIONS="7"
 export HARNESS_DOMAIN_PROFILES=""
 export HARNESS_MAX_LUNA_STRATEGY_FAILURES="3"
 export HARNESS_MAX_LUNA_ALLOWED_PATHS="8"

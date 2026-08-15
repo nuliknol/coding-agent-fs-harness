@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 1 ]] || { printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+require_manager_configuration
+require_manager_codex
+project_plan_exists && { printf 'Decomposition DAG already exists.\n'; exit 0; }
+decomposition_dag_candidate_matches_current_inputs || die 'no rejected DAG candidate matches the current inputs'
+[[ "$(decomposition_dag_candidate_state_value status)" == REJECTED ]] || die 'DAG repair requires a rejected candidate'
+architecture_fit_is_accepted || die 'DAG repair requires a current accepted architecture-fit review or force waiver'
+
+trace_init manager_decomposition_dag_repair
+trace_script_start "$@"
+trap 'trace_script_exit $?' EXIT
+dir="$(project_dir)"
+candidate_dir="$(decomposition_dag_candidate_state_value directory)"
+rejection_log="$(decomposition_dag_candidate_state_value rejection_log "$candidate_dir/rejection.log")"
+[[ -s "$rejection_log" ]] || die 'rejected DAG candidate has no deterministic validator diagnostics'
+candidate_id="${candidate_dir##*/}"
+repair_dir="$PROJECT_TMP_DIR/decomposition-dag-repair-$candidate_id"
+rm -rf -- "$repair_dir"
+mkdir -p "$repair_dir"
+install -m 600 "$candidate_dir/dag.tsv" "$repair_dir/dag.tsv"
+install -m 600 "$candidate_dir/coverage.tsv" "$repair_dir/coverage.tsv"
+
+prompt="$dir/control/manager-decomposition-dag-repair.prompt.md"
+cat > "$prompt.tmp.$$" <<PROMPT
+You are a fresh, bounded decomposition DAG/coverage repair agent. Do not edit the repository and do not perform architecture binding or global decomposition.
+
+ENV_FILE=$HARNESS_ENV_FILE
+HARNESS_BIN=$HARNESS_BIN
+PROJECT=$PROJECT
+AGENT_PHASE=decomposition_repair
+DAG_FILE=$repair_dir/dag.tsv
+SPECIFICATION_COVERAGE_FILE=$repair_dir/coverage.tsv
+VALIDATOR_DIAGNOSTICS=$rejection_log
+
+Read only VALIDATOR_DIAGNOSTICS, DAG_FILE, and SPECIFICATION_COVERAGE_FILE. Do not inspect repository files, the specification, normalized IR, inventory, harness source, development policy, Git history, prior agent logs, or unrelated temporary files.
+
+Correct only the reported deterministic DAG/coverage defect. Preserve deliverables, routes, allowed paths, validations, and obligation meaning. For typed dependency violations, make the consumer's allocated nodes follow the producer's allocated nodes through explicit DAG dependencies; do not erase the relation or collapse unrelated work. For an unjustified node, remove or merge only that node while preserving every normalized obligation exactly once in coverage and retaining all still-justified work. Apply the same reported defect class across all affected rows before submitting.
+
+Submit once with:
+
+$HARNESS_BIN/manager-stage-decomposition-dag "$HARNESS_ENV_FILE" "$repair_dir/dag.tsv" "$repair_dir/coverage.tsv"
+
+If validation rejects it, read only the new rejection log printed by that staged candidate, make at most one additional bounded correction, and submit once more. After success, terminate. Never create architecture files, launch tests, or search the repository.
+PROMPT
+chmod 600 "$prompt.tmp.$$"
+mv "$prompt.tmp.$$" "$prompt"
+
+stamp="$(timestamp_compact_utc)"
+json="$dir/logs/manager-decomposition-dag-repair-$stamp-attempt-001.jsonl"
+stderr="$dir/logs/manager-decomposition-dag-repair-$stamp-attempt-001.stderr.log"
+message="$dir/logs/manager-decomposition-dag-repair-$stamp-attempt-001.md"
+set +e
+"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" decomposition "$DECOMPOSITION_MODEL" "$prompt" "$json" "$stderr" "$message"
+status=$?
+set -e
+if decomposition_dag_candidate_matches_current_inputs &&
+	[[ "$(decomposition_dag_candidate_state_value status)" == STAGED ]]; then
+	log_event "DECOMPOSITION_DAG_REPAIR_ACCEPTED candidate=$candidate_id"
+	printf 'Decomposition DAG candidate repaired and staged.\n'
+	exit 0
+fi
+(( status == 0 )) && die 'DAG repair exited without staging a valid candidate'
+die "DAG repair failed with status $status; see $json"

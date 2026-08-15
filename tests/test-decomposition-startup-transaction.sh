@@ -109,6 +109,18 @@ cat > "$TEST_ROOT/coverage.tsv" <<'EOF'
 obligation_id	node_ids	evidence_plan
 REQ-ONE	n01	n01 focused source validation
 EOF
+cat > "$TEST_ROOT/bad-coverage.tsv" <<'EOF'
+obligation_id	node_ids	evidence_plan
+EOF
+
+set +e
+"$HARNESS_BIN/manager-stage-decomposition-dag" "$env_file" "$TEST_ROOT/dag.tsv" "$TEST_ROOT/bad-coverage.tsv" >/dev/null 2>&1
+bad_dag_status=$?
+set -e
+(( bad_dag_status != 0 ))
+grep -Fqx 'status=REJECTED' "$project_dir/control/decomposition-dag-candidate.env"
+dag_rejection_log="$(awk -F= '$1=="rejection_log" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
+test -s "$dag_rejection_log"
 
 "$HARNESS_BIN/manager-stage-decomposition-dag" "$env_file" "$TEST_ROOT/dag.tsv" "$TEST_ROOT/coverage.tsv" >/dev/null
 grep -Fqx 'status=STAGED' "$project_dir/control/decomposition-dag-candidate.env"
@@ -117,9 +129,6 @@ cmp -s "$TEST_ROOT/dag.tsv" "$staged_dag"
 
 # Deterministic rejection must retain exact diagnostics so startup can repair
 # the staged artifact without another global decomposition pass.
-cat > "$TEST_ROOT/bad-coverage.tsv" <<'EOF'
-obligation_id	node_ids	evidence_plan
-EOF
 set +e
 "$HARNESS_BIN/manager-submit-decomposition" "$env_file" "$TEST_ROOT/dag.tsv" "$TEST_ROOT/bad-coverage.tsv" - >/dev/null 2>&1
 bad_status=$?

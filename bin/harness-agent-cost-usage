@@ -46,6 +46,7 @@ log_phase()
 		manager-decomposition-critic-*) printf '20\tdecomposition-critic\tscaffolding' ;;
 		manager-architecture-binding-critic-*) printf '22\tarchitecture-binding\tscaffolding' ;;
 		manager-decomposition-repair-*) printf '25\tdecomposition-repair\tscaffolding' ;;
+		manager-decomposition-dag-repair-*) printf '24\tdecomposition-dag-repair\tscaffolding' ;;
 		manager-bootstrap-*) printf '30\tdecomposition-bootstrap\tscaffolding' ;;
 		manager-plan-*) printf '40\ttask-planning\tscaffolding' ;;
 		manager-replan-*) printf '50\troot-replanning\tscaffolding' ;;

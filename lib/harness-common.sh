@@ -303,7 +303,7 @@ load_harness_env()
 	# transaction so a malformed source or non-converging critic cannot consume
 	# an unlimited number of manager turns.
 	HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS="${HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS:-1}"
-	HARNESS_START_MAX_AGENT_INVOCATIONS="${HARNESS_START_MAX_AGENT_INVOCATIONS:-6}"
+	HARNESS_START_MAX_AGENT_INVOCATIONS="${HARNESS_START_MAX_AGENT_INVOCATIONS:-7}"
 	# Optional, explicitly selected domain-theory profiles contribute reusable
 	# human-owned invariants to specification normalization. An empty list adds
 	# no product semantics. Names resolve first from the repository and then from
