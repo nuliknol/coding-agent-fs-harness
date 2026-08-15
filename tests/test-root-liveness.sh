@@ -88,6 +88,13 @@ MD
 	"$TEST_ROOT/harness.env" consumer "$TEST_ROOT/resolution.md" >/dev/null
 [[ ! -f "$reassessment" ]]
 [[ -f "$project/control/progress/livenessproj-task-consumer.needs-replan.md" ]]
+[[ -f "$project/control/progress/livenessproj-task-consumer.liveness-epoch.env" ]]
+(
+	source "$TEST_ROOT/harness.env"
+	source "$HARNESS_HOME/lib/harness-common.sh"
+	[[ "$(root_liveness_epoch_delta consumer reviewed_attempts "$(root_reviewed_attempt_count consumer)")" == 0 ]]
+	[[ "$(root_liveness_epoch_delta consumer total_replans "$(root_total_replan_count consumer)")" == 0 ]]
+)
 "$HARNESS_BIN/harness-unblock-root" "$TEST_ROOT/harness.env" consumer >/dev/null
 find "$project/archive/architecture-reassessments" -type f -name '*.resolved.md' | grep -q .
 # An explicit operator architecture epoch may raise a budget; automatic
@@ -287,5 +294,28 @@ TSV
 criterionless_marker="$("$HARNESS_BIN/harness-audit-root-liveness" "$TEST_ROOT/harness.env" criterionless)"
 grep -Fqx 'Category: NO_CRITERION_PROGRESS' "$criterionless_marker"
 grep -Fqx 'Reviews-Without-Criterion: 3' "$criterionless_marker"
+
+# An operator-audited manager remediation may persist only the exact bounded
+# additional source path named by the architecture resolution.
+scope_root=scopeexp
+scope_marker="$project/control/progress/livenessproj-task-$scope_root.architecture-reassessment-required.md"
+cat > "$scope_marker" <<'MD'
+# Architecture Reassessment Required
+
+Project: livenessproj
+Task-Root: scopeexp
+Triggered-By: scopeexp-revision-01
+Category: MANAGER_REMEDIATION_SCOPE_EXPANSION
+MD
+cat > "$TEST_ROOT/scope-resolution.md" <<'MD'
+Authorized-Additional-Scope: src/companion.c
+
+The companion implementation is the audited owner of the already-authorized public header contract.
+MD
+"$HARNESS_BIN/harness-resolve-architecture-reassessment" \
+	"$TEST_ROOT/harness.env" "$scope_root" "$TEST_ROOT/scope-resolution.md" >/dev/null
+scope_override="$project/control/progress/livenessproj-task-$scope_root.architecture-scope-override.env"
+grep -Fqx 'additional_scope=src/companion.c' "$scope_override"
+grep -Fqx 'authorized_for=manager_remediation' "$scope_override"
 
 printf 'root liveness and dependency invalidation tests passed\n'

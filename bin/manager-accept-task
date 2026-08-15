@@ -240,6 +240,10 @@ if (( ${#accepted_criteria[@]} > 0 )); then
 fi
 update_task_progress "$task_id" 100 "$accept_improvement" ACCEPT "$note_file"
 complete_project_plan_item_for_task "$task_id"
+# A sibling review can cross the acceptance boundary with a usage alarm. The
+# accepted plan state is authoritative; preserve the alarm for accounting and
+# diagnosis without allowing it to pause completed work.
+archive_superseded_root_token_usage_anomaly "$root" "$task_id" acceptance >/dev/null || true
 goal_record_manager_decision "$task_id" ACCEPTED
 clear_worker_thread_for_root "$task_id" accepted
 

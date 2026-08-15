@@ -1574,6 +1574,8 @@ grep -q 'project paused for replanning; verified checkpoints are preserved' "$ch
 mv "$checkpoint_project/tasks/checkpointproj-task-001-revision-03.ready.md" \
 	"$checkpoint_project/archive/checkpointproj-task-001-revision-03.assignment.md"
 printf 'completed root\n' > "$CHECKPOINT_ROOT/repo/source.txt"
+git -C "$CHECKPOINT_ROOT/repo" add source.txt
+git -C "$CHECKPOINT_ROOT/repo" commit -qm 'complete projection criterion'
 checkpoint_worker_result 001-revision-03 \
 	"$checkpoint_project/results/checkpointproj-task-001-revision-03.result.md"
 cat > "$CHECKPOINT_ROOT/accept.md" <<'NOTE'

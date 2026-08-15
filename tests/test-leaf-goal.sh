@@ -650,6 +650,13 @@ NOTE
 	"$TEST_ROOT/accept.md" >/dev/null
 grep -q '^state=ACCEPTED$' "$revision_state"
 [[ -f "$project_dir/control/oracle/oracle.pending.md" ]]
+# A late usage alarm from a sibling review must not pause an already accepted
+# DAG node. Its diagnostic event remains visible without recreating a marker.
+bash -c 'source "$1"; load_harness_env "$2"; mark_root_token_usage_anomaly 001-revision-01 late-review-race >/dev/null' \
+	_ "$HARNESS_HOME/lib/harness-common.sh" "$TEST_ROOT/harness.env"
+[[ ! -e "$project_dir/control/progress/goalproj-task-001.token-usage-anomaly.md" ]]
+grep -q 'TOKEN_USAGE_ANOMALY_SUPERSEDED_BY_ACCEPTANCE root=001 trigger=001-revision-01' \
+	"$project_dir/logs/events.log"
 "$HARNESS_BIN/oracle-invoke-final-audit" "$TEST_ROOT/harness.env" >/dev/null
 [[ -f "$project_dir/control/project.complete" ]]
 
@@ -688,11 +695,11 @@ Task-ID: 001
 Decision: REJECT
 Progress-Percent: 0%
 Improvement-Percent: 0%
-Blocking-Fingerprint: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
 The claimed completion lacks independent acceptance evidence. Preserve the implementation and repair the same leaf goal.
 NOTE
 "$HARNESS_BIN/manager-reject-task" "$REPAIR_ROOT/harness.env" 001 "$REPAIR_ROOT/reject.md" >/dev/null
+grep -Eq '^Blocking-Fingerprint: sha256:[0-9a-f]{64}$' "$REPAIR_ROOT/reject.md"
 repair_project="$REPAIR_ROOT/state/projects/goalrepair"
 rejected_goal_state="$repair_project/control/goals/goalrepair-task-001.goal"
 grep -q '^state=REJECTED$' "$rejected_goal_state"

@@ -675,9 +675,16 @@ normalize_revision_execution_metadata
 
 enforce_revision_authority()
 {
-	local root_scope root_architecture reason="" category=IMMUTABLE_ROOT_AUTHORITY
+	local root_scope effective_root_scope root_architecture scope_override additional_scope reason="" category=IMMUTABLE_ROOT_AUTHORITY
 	[[ "$task_id" != "$root" && -f "$root_assignment" ]] || return 0
 	root_scope="$(metadata_value "$root_assignment" Allowed-Scope)"
+	effective_root_scope="$root_scope"
+	scope_override="$(task_root_architecture_scope_override_file "$root")"
+	if (( manager_remediation == 1 )) && [[ -f "$scope_override" ]] &&
+		[[ "$(kv_file_value "$scope_override" authorized_for 2>/dev/null || true)" == manager_remediation ]]; then
+		additional_scope="$(kv_file_value "$scope_override" additional_scope 2>/dev/null || true)"
+		[[ -z "$additional_scope" ]] || effective_root_scope="$root_scope,$additional_scope"
+	fi
 	root_architecture="$(metadata_value "$root_assignment" Architecture-Decisions)"
 	# A zero-write root may need additional repository documents to diagnose or
 	# attest its criterion. Those paths belong in Context-Paths, not in its write
@@ -689,8 +696,8 @@ enforce_revision_authority()
 		log_event "READ_ONLY_REVISION_SCOPE_NORMALIZED root=$root task=$task_id requested=$(printf '%q' "$goal_allowed_scope") authority=$(printf '%q' "$root_scope")"
 		goal_allowed_scope="$root_scope"
 	fi
-	if [[ -n "$root_scope" ]] && ! scope_is_within_root_authority "$goal_allowed_scope" "$root_scope"; then
-		reason="revision scope exceeds immutable root authority: root=[$root_scope] revision=[$goal_allowed_scope]"
+	if [[ -n "$root_scope" ]] && ! scope_is_within_root_authority "$goal_allowed_scope" "$effective_root_scope"; then
+		reason="revision scope exceeds immutable root authority: root=[$root_scope] audited_additional=[${additional_scope:--}] revision=[$goal_allowed_scope]"
 	elif [[ "$root_architecture" == NONE && "$leaf_architecture_decisions" != NONE ]]; then
 		reason="revision introduces architecture decisions although the immutable root declares Architecture-Decisions: NONE"
 	elif [[ -n "$root_architecture" && "$root_architecture" != NONE &&

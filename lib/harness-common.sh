@@ -960,6 +960,22 @@ task_root_operator_route_override_file()
 		"$(project_dir)" "$PROJECT" "$root"
 }
 
+task_root_architecture_scope_override_file()
+{
+	local root
+	root="$(task_root_id "$1")"
+	printf '%s/control/progress/%s-task-%s.architecture-scope-override.env' \
+		"$(project_dir)" "$PROJECT" "$root"
+}
+
+task_root_liveness_epoch_file()
+{
+	local root
+	root="$(task_root_id "$1")"
+	printf '%s/control/progress/%s-task-%s.liveness-epoch.env' \
+		"$(project_dir)" "$PROJECT" "$root"
+}
+
 task_context_capsule_file()
 {
 	printf '%s/control/context-capsules/%s.md' "$(project_dir)" "$(task_base "$1")"
@@ -2422,16 +2438,47 @@ record_worker_complexity_outcome()
 	flock -u 6
 }
 
+root_liveness_epoch_delta()
+{
+	local root="$1" key="$2" current="$3" baseline=0 epoch
+	epoch="$(task_root_liveness_epoch_file "$root")"
+	if [[ -f "$epoch" ]]; then
+		baseline="$(kv_file_value "$epoch" "$key" 2>/dev/null || printf 0)"
+	fi
+	[[ "$baseline" =~ ^[0-9]+$ ]] || baseline=0
+	[[ "$current" =~ ^[0-9]+$ ]] || current=0
+	(( current >= baseline )) || baseline=0
+	printf '%s\n' "$((current - baseline))"
+}
+
+record_root_liveness_epoch()
+{
+	local root="$1" source="${2:-explicit-architecture-resolution}" epoch tmp
+	epoch="$(task_root_liveness_epoch_file "$root")"
+	tmp="$epoch.tmp.$$"
+	{
+		printf 'reviewed_attempts=%s\n' "$(root_reviewed_attempt_count "$root")"
+		printf 'criterionless_reviews=%s\n' "$(root_reviews_without_criterion_completion "$root")"
+		printf 'total_replans=%s\n' "$(root_total_replan_count "$root")"
+		printf 'lifetime_seconds=%s\n' "$(root_lifetime_seconds "$root")"
+		printf 'processed_tokens=%s\n' "$(root_processed_token_count "$root")"
+		printf 'source=%s\n' "$source"
+		printf 'started_at=%s\n' "$(timestamp_utc)"
+	} > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$epoch"
+}
+
 root_liveness_violation_reason()
 {
 	local root="$1" reviews criterionless_reviews replans children depth lifetime tokens
-	reviews="$(root_reviewed_attempt_count "$root")"
-	criterionless_reviews="$(root_reviews_without_criterion_completion "$root")"
-	replans="$(root_total_replan_count "$root")"
+	reviews="$(root_liveness_epoch_delta "$root" reviewed_attempts "$(root_reviewed_attempt_count "$root")")"
+	criterionless_reviews="$(root_liveness_epoch_delta "$root" criterionless_reviews "$(root_reviews_without_criterion_completion "$root")")"
+	replans="$(root_liveness_epoch_delta "$root" total_replans "$(root_total_replan_count "$root")")"
 	children="$(root_child_criterion_count "$root")"
 	depth="$(root_criterion_max_depth "$root")"
-	lifetime="$(root_lifetime_seconds "$root")"
-	tokens="$(root_processed_token_count "$root")"
+	lifetime="$(root_liveness_epoch_delta "$root" lifetime_seconds "$(root_lifetime_seconds "$root")")"
+	tokens="$(root_liveness_epoch_delta "$root" processed_tokens "$(root_processed_token_count "$root")")"
 	if (( criterionless_reviews >= HARNESS_MAX_ROOT_REVIEWS_WITHOUT_CRITERION )); then
 		printf 'NO_CRITERION_PROGRESS: reviews without a completed root criterion reached the monotonic limit (%s/%s)' "$criterionless_reviews" "$HARNESS_MAX_ROOT_REVIEWS_WITHOUT_CRITERION"
 	elif (( reviews >= HARNESS_MAX_TOTAL_ROOT_REVIEWS )); then
@@ -2471,6 +2518,9 @@ mark_root_architecture_reassessment()
 			printf 'Total-Root-Reviews: %s\n' "$(root_reviewed_attempt_count "$root")"
 			printf 'Reviews-Without-Criterion: %s\n' "$(root_reviews_without_criterion_completion "$root")"
 			printf 'Total-Root-Replans: %s\n' "$(root_total_replan_count "$root")"
+			printf 'Epoch-Root-Reviews: %s\n' "$(root_liveness_epoch_delta "$root" reviewed_attempts "$(root_reviewed_attempt_count "$root")")"
+			printf 'Epoch-Reviews-Without-Criterion: %s\n' "$(root_liveness_epoch_delta "$root" criterionless_reviews "$(root_reviews_without_criterion_completion "$root")")"
+			printf 'Epoch-Root-Replans: %s\n' "$(root_liveness_epoch_delta "$root" total_replans "$(root_total_replan_count "$root")")"
 			printf 'Child-Criteria: %s\n' "$(root_child_criterion_count "$root")"
 			printf 'Criterion-Depth: %s\n' "$(root_criterion_max_depth "$root")"
 			printf 'Root-Lifetime-Seconds: %s\n' "$(root_lifetime_seconds "$root")"
@@ -2496,9 +2546,20 @@ mark_root_architecture_reassessment()
 mark_root_token_usage_anomaly()
 {
 	local task_id="$1" reason="$2" evidence="${3:--}"
-	local root marker tmp alarm created=0 plan_node planner_model planner_effort
+	local root marker tmp alarm created=0 plan_node plan_status planner_model planner_effort
 	root="$(task_root_id "$task_id")"
 	plan_node="$(project_plan_item_for_root "$root" 2>/dev/null || printf '-')"
+	plan_status=""
+	if [[ -n "$plan_node" && "$plan_node" != - ]]; then
+		plan_status="$(project_plan_item_status "$plan_node" 2>/dev/null || true)"
+	fi
+	# A review invocation may finish after a concurrent review has already
+	# accepted this root. Its usage evidence remains in JSONL/classification
+	# logs, but it must not resurrect a pause for a completed DAG node.
+	if [[ "$plan_status" == COMPLETE ]]; then
+		log_event "TOKEN_USAGE_ANOMALY_SUPERSEDED_BY_ACCEPTANCE root=$root trigger=$task_id plan_node=$plan_node reason=$(printf '%q' "$reason") evidence=$(printf '%q' "$evidence")"
+		return 0
+	fi
 	planner_model="$(decomposition_provenance_value planner_model "$DECOMPOSITION_MODEL" 2>/dev/null || printf '%s' "$DECOMPOSITION_MODEL")"
 	planner_effort="$(decomposition_provenance_value planner_reasoning_effort "$DECOMPOSITION_REASONING_EFFORT" 2>/dev/null || printf '%s' "$DECOMPOSITION_REASONING_EFFORT")"
 	marker="$(task_root_token_usage_anomaly_file "$root")"
@@ -2523,6 +2584,17 @@ mark_root_token_usage_anomaly()
 		mv "$tmp" "$marker"
 		created=1
 	fi
+	# Close the opposite race ordering: acceptance may have committed while the
+	# marker above was being assembled. Re-check after publication; otherwise a
+	# late alarm can leave an already-complete project globally paused.
+	plan_status=""
+	if [[ -n "$plan_node" && "$plan_node" != - ]]; then
+		plan_status="$(project_plan_item_status "$plan_node" 2>/dev/null || true)"
+	fi
+	if [[ "$plan_status" == COMPLETE ]]; then
+		archive_superseded_root_token_usage_anomaly "$root" "$task_id" post-publication >/dev/null
+		return 0
+	fi
 	# Preserve the durable needs-replan transaction.  The anomaly marker already
 	# suppresses every agent launch, and deleting the recovery intent here turns
 	# an explicitly paused replan into an unrelated planning gap after operator
@@ -2537,6 +2609,27 @@ mark_root_token_usage_anomaly()
 		log_event "TOKEN_USAGE_ANOMALY root=$root trigger=$task_id plan_node=${plan_node:--} planner_model=$planner_model planner_effort=$planner_effort reason=$(printf '%q' "$reason") evidence=$(printf '%q' "$evidence") marker=$marker"
 	fi
 	printf '%s\n' "$marker"
+}
+
+archive_superseded_root_token_usage_anomaly()
+{
+	local root="$1" trigger="${2:--}" ordering="${3:-acceptance}"
+	local marker archive_dir archive stamp
+	marker="$(task_root_token_usage_anomaly_file "$root")"
+	[[ -f "$marker" ]] || return 0
+	archive_dir="$(project_dir)/archive/token-usage-anomalies"
+	mkdir -p "$archive_dir"
+	chmod 700 "$archive_dir"
+	stamp="$(timestamp_compact_utc)"
+	archive="$archive_dir/$PROJECT-task-$root.$stamp.superseded-by-acceptance.md"
+	while [[ -e "$archive" ]]; do
+		archive="$archive_dir/$PROJECT-task-$root.$stamp.$$.superseded-by-acceptance.md"
+	done
+	if mv "$marker" "$archive" 2>/dev/null; then
+		chmod 600 "$archive"
+		log_event "TOKEN_USAGE_ANOMALY_SUPERSEDED_BY_ACCEPTANCE root=$root trigger=$trigger ordering=$ordering archive=$archive"
+		printf '%s\n' "$archive"
+	fi
 }
 
 migrate_legacy_token_limit_human_markers()

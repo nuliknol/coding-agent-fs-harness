@@ -24,6 +24,24 @@ marker="$(task_root_architecture_reassessment_file "$root")"
 [[ -f "$marker" ]] || die "root does not require architecture reassessment: $root"
 trigger_task="$(metadata_value "$marker" Triggered-By)"
 [[ -n "$trigger_task" ]] || trigger_task="$root"
+category="$(metadata_value "$marker" Category)"
+additional_scope="$(metadata_value "$note_file" Authorized-Additional-Scope)"
+if [[ -n "$additional_scope" ]]; then
+	[[ "$category" == MANAGER_REMEDIATION_SCOPE_EXPANSION ]] ||
+		die 'Authorized-Additional-Scope is valid only for a manager-remediation scope reassessment'
+	[[ "$additional_scope" != / && "$additional_scope" != . && "$additional_scope" != *'*'* &&
+		"$additional_scope" != *$'\t'* ]] ||
+		die 'Authorized-Additional-Scope must contain bounded repository-relative paths'
+	IFS=',' read -r -a additional_entries <<< "${additional_scope//;/,}"
+	(( ${#additional_entries[@]} > 0 && ${#additional_entries[@]} <= 4 )) ||
+		die 'Authorized-Additional-Scope may name one through four bounded paths'
+	for additional_entry in "${additional_entries[@]}"; do
+		additional_entry="$(trim_surrounding_whitespace "$additional_entry")"
+		[[ -n "$additional_entry" && "$additional_entry" != /* && "$additional_entry" != ../* &&
+			"$additional_entry" != */../* ]] ||
+			die "invalid Authorized-Additional-Scope path: $additional_entry"
+	done
+fi
 archive_dir="$(project_dir)/archive/architecture-reassessments"
 mkdir -p "$archive_dir"
 chmod 700 "$archive_dir"
@@ -37,6 +55,18 @@ archive="$archive_dir/$PROJECT-task-$root.$stamp.resolved.md"
 } > "$archive.tmp.$$"
 chmod 600 "$archive.tmp.$$"
 mv "$archive.tmp.$$" "$archive"
+
+if [[ -n "$additional_scope" ]]; then
+	scope_override="$(task_root_architecture_scope_override_file "$root")"
+	{
+		printf 'additional_scope=%s\n' "$additional_scope"
+		printf 'authorized_for=manager_remediation\n'
+		printf 'resolution_archive=%s\n' "$archive"
+		printf 'authorized_at=%s\n' "$(timestamp_utc)"
+	} > "$scope_override.tmp.$$"
+	chmod 600 "$scope_override.tmp.$$"
+	mv "$scope_override.tmp.$$" "$scope_override"
+fi
 
 if [[ -d "$(plan_dependency_invalidation_dir)" ]]; then
 	invalid_archive="$archive_dir/plan-invalidations"
@@ -78,5 +108,6 @@ if [[ -n "$plan_item" && "$(project_plan_item_status "$plan_item")" == ACTIVE ]]
 fi
 record_root_convergence_baseline "$root"
 record_root_replan_baseline "$root"
-log_event "ARCHITECTURE_REASSESSMENT_RESOLVED root=$root resolution=$archive replan_restored=$replan_restored live_artifact=$root_has_live_artifact"
+record_root_liveness_epoch "$root" "$archive"
+log_event "ARCHITECTURE_REASSESSMENT_RESOLVED root=$root resolution=$archive replan_restored=$replan_restored live_artifact=$root_has_live_artifact additional_scope=$(printf '%q' "${additional_scope:--}")"
 printf '%s\n' "$archive"
