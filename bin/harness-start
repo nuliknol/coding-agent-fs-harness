@@ -192,8 +192,9 @@ while ! project_plan_exists; do
 				fi
 			fi
 			if [[ -f "$full_rejection_log" ]] &&
-				grep -Eq 'duplicate architecture node binding:' "$full_rejection_log"; then
-				printf 'Merging duplicate architecture node bindings without an agent turn.\n'
+				grep -Eq 'duplicate architecture node binding:|edge .* is absent from (consumer|producer) binding|decision .* is absent from producer binding|invariant .* is absent from affected node binding|health gate .* is absent from trigger binding' \
+					"$full_rejection_log"; then
+				printf 'Normalizing architecture node bindings without an agent turn.\n'
 				if "$HARNESS_BIN/manager-repair-decomposition-node-bindings" "$HARNESS_ENV_FILE"; then
 					continue
 				fi

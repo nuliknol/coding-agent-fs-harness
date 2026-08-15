@@ -18,8 +18,9 @@ architecture_source="$(decomposition_candidate_state_value architecture_director
 rejection_log="$(decomposition_candidate_state_value rejection_log "$candidate_dir/rejection.log")"
 [[ "$architecture_source" != - && -d "$architecture_source" ]] ||
 	die 'node-binding repair requires an architecture registry'
-grep -Eq 'duplicate architecture node binding:' "$rejection_log" ||
-	die 'candidate rejection is not a mechanically repairable duplicate node binding'
+grep -Eq 'duplicate architecture node binding:|edge .* is absent from (consumer|producer) binding|decision .* is absent from producer binding|invariant .* is absent from affected node binding|health gate .* is absent from trigger binding' \
+	"$rejection_log" ||
+	die 'candidate rejection is not a mechanically repairable node-binding defect'
 
 repair_dir="$PROJECT_TMP_DIR/decomposition-node-binding-repair-${candidate_dir##*/}"
 rm -rf -- "$repair_dir"
@@ -30,11 +31,23 @@ for name in invariants decisions edges health-gates debt; do
 	install -m 600 "$architecture_source/$name.tsv" "$repair_dir/architecture/$name.tsv"
 done
 
-# Duplicate rows describe one node and therefore one authority closure. Merge
-# each comma-separated binding column as an ordered set; never discard the
-# richer row merely because a minimal binding appeared first.
-awk -F '\t' -v OFS='\t' '
+# Duplicate rows describe one node and therefore one authority closure. The
+# registries also define binding membership mechanically: affected invariants,
+# produced/consumed decisions, producer/consumer edges, and trigger gates.
+# Reconstruct that closure as ordered sets instead of spending a Sol turn on
+# one missing registry ID at a time.
+awk -F '\t' -v OFS='\t' \
+	-v bindings_file="$architecture_source/node-bindings.tsv" \
+	-v invariants_file="$architecture_source/invariants.tsv" \
+	-v decisions_file="$architecture_source/decisions.tsv" \
+	-v edges_file="$architecture_source/edges.tsv" \
+	-v gates_file="$architecture_source/health-gates.tsv" '
+	function add_node(node) {
+		if (node == "" || node == "-") return
+		if (!seen[node]++) order[++nodes]=node
+	}
 	function add_list(node, column, value,    count, values, i, item, key) {
+		add_node(node)
 		count=split(value, values, ",")
 		for (i=1; i<=count; i++) {
 			item=values[i]
@@ -45,11 +58,35 @@ awk -F '\t' -v OFS='\t' '
 			merged[node,column]=(merged[node,column] == "" ? item : merged[node,column] "," item)
 		}
 	}
-	NR == 1 {header=$0; next}
-	{
+	FILENAME == bindings_file {
+		if (FNR == 1) {header=$0; next}
 		node=$1
-		if (!seen[node]++) order[++nodes]=node
+		add_node(node)
 		for (column=2; column<=6; column++) add_list(node, column, $column)
+		next
+	}
+	FILENAME == invariants_file {
+		if (FNR > 1) {
+			count=split($10, affected, ",")
+			for (i=1; i<=count; i++) add_list(affected[i], 2, $1)
+		}
+		next
+	}
+	FILENAME == decisions_file {
+		if (FNR > 1) add_list($3, 4, $1)
+		next
+	}
+	FILENAME == edges_file {
+		if (FNR > 1) {
+			add_list($2, 5, $1)
+			add_list($3, 5, $1)
+			add_list($3, 3, $10)
+		}
+		next
+	}
+	FILENAME == gates_file {
+		if (FNR > 1) add_list($2, 6, $1)
+		next
 	}
 	END {
 		print header
@@ -61,7 +98,10 @@ awk -F '\t' -v OFS='\t' '
 			printf "\n"
 		}
 	}
-' "$architecture_source/node-bindings.tsv" > "$repair_dir/architecture/node-bindings.tsv"
+' "$architecture_source/node-bindings.tsv" "$architecture_source/invariants.tsv" \
+	"$architecture_source/decisions.tsv" "$architecture_source/edges.tsv" \
+	"$architecture_source/health-gates.tsv" \
+	> "$repair_dir/architecture/node-bindings.tsv"
 chmod 600 "$repair_dir/architecture/node-bindings.tsv"
 
 set +e
@@ -71,14 +111,14 @@ status=$?
 set -e
 if project_plan_exists; then
 	log_event "DECOMPOSITION_NODE_BINDINGS_REPAIRED source=$candidate_dir"
-	printf 'Duplicate architecture node bindings merged and installed.\n'
+	printf 'Architecture node bindings normalized and installed.\n'
 	exit 0
 fi
 new_candidate_dir="$(decomposition_candidate_state_value directory -)"
 if [[ "$new_candidate_dir" != - && "$new_candidate_dir" != "$candidate_dir" ]] &&
 	decomposition_candidate_matches_current_inputs; then
 	log_event "DECOMPOSITION_NODE_BINDINGS_PROGRESS previous=${candidate_dir##*/} current=${new_candidate_dir##*/} status=$(decomposition_candidate_state_value status -)"
-	printf 'Duplicate architecture node bindings merged; continuing with the next bounded diagnostic.\n'
+	printf 'Architecture node bindings normalized; continuing with the next bounded diagnostic.\n'
 	exit 0
 fi
 (( status == 0 )) && die 'node-binding normalization returned success without installing or advancing the candidate'
