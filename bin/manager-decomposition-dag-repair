@@ -67,25 +67,42 @@ if grep -q 'LUNA_COMPLEXITY_OVER_BUDGET.*status=OVER_BUDGET' "$rejection_log"; t
 		END{print excess+0}
 	' "$complexity_report")"
 	complexity_scope="$(awk -F '\t' 'NR>1 && $19!="READY" {scope += $14} END {print scope+0}' "$complexity_report")"
+	complexity_max_score="$(awk -F '\t' 'NR>1 && $19!="READY" && $4+0>max {max=$4+0} END {print max+0}' "$complexity_report")"
+	complexity_max_actions="$(awk -F '\t' 'NR>1 && $19!="READY" && $15+0>max {max=$15+0} END {print max+0}' "$complexity_report")"
+	complexity_max_p95="$(awk -F '\t' 'NR>1 && $19!="READY" && $17+0>max {max=$17+0} END {print max+0}' "$complexity_report")"
 	complexity_state="$(project_dir)/control/complexity-decomposition-state.env"
 	complexity_input_key="$(printf '%s\n%s\n%s\n' "$(specification_sha256)" "$(specification_review_repository_baseline)" "$(complexity_contract_sha256)" | sha256sum | awk '{print $1}')"
-	previous_candidate=""; previous_excess=0; previous_scope=0; previous_measurable=0; previous_passes=0; previous_input_key=""
+	previous_candidate=""; previous_excess=0; previous_scope=0; previous_max_score=0; previous_max_actions=0; previous_max_p95=0
+	previous_measurable=0; previous_passes=0; previous_input_key=""
 	if [[ -f "$complexity_state" ]]; then
 		previous_input_key="$(kv_file_value "$complexity_state" input_key 2>/dev/null || true)"
 		previous_candidate="$(kv_file_value "$complexity_state" candidate 2>/dev/null || true)"
 		previous_excess="$(kv_file_value "$complexity_state" excess 2>/dev/null || printf 0)"
 		previous_scope="$(kv_file_value "$complexity_state" scope 2>/dev/null || printf 0)"
+		previous_max_score="$(kv_file_value "$complexity_state" max_score 2>/dev/null || printf 0)"
+		previous_max_actions="$(kv_file_value "$complexity_state" max_actions 2>/dev/null || printf 0)"
+		previous_max_p95="$(kv_file_value "$complexity_state" max_p95 2>/dev/null || printf 0)"
 		previous_measurable="$(kv_file_value "$complexity_state" measurable 2>/dev/null || true)"
 		previous_passes="$(kv_file_value "$complexity_state" passes 2>/dev/null || printf 0)"
 	fi
 	if [[ "$previous_input_key" != "$complexity_input_key" ]]; then
-		previous_candidate=""; previous_excess=0; previous_scope=0; previous_measurable=0; previous_passes=0
+		previous_candidate=""; previous_excess=0; previous_scope=0; previous_max_score=0; previous_max_actions=0; previous_max_p95=0
+		previous_measurable=0; previous_passes=0
 	fi
 	[[ "$previous_excess" =~ ^[0-9]+$ ]] || previous_excess=0
 	[[ "$previous_scope" =~ ^[0-9]+$ ]] || previous_scope=0
-	if (( previous_scope == 0 )) && [[ -n "$previous_candidate" ]]; then
+	[[ "$previous_max_score" =~ ^[0-9]+$ ]] || previous_max_score=0
+	[[ "$previous_max_actions" =~ ^[0-9]+$ ]] || previous_max_actions=0
+	[[ "$previous_max_p95" =~ ^[0-9]+$ ]] || previous_max_p95=0
+	if [[ -n "$previous_candidate" ]] &&
+		(( previous_scope == 0 || previous_max_score == 0 || previous_max_actions == 0 || previous_max_p95 == 0 )); then
 		previous_report="$(project_dir)/control/decomposition-dag-candidates/$previous_candidate/complexity.tsv"
-		[[ ! -f "$previous_report" ]] || previous_scope="$(awk -F '\t' 'NR>1 && $19!="READY" {scope += $14} END {print scope+0}' "$previous_report")"
+		if [[ -f "$previous_report" ]]; then
+			(( previous_scope > 0 )) || previous_scope="$(awk -F '\t' 'NR>1 && $19!="READY" {scope += $14} END {print scope+0}' "$previous_report")"
+			(( previous_max_score > 0 )) || previous_max_score="$(awk -F '\t' 'NR>1 && $19!="READY" && $4+0>max {max=$4+0} END {print max+0}' "$previous_report")"
+			(( previous_max_actions > 0 )) || previous_max_actions="$(awk -F '\t' 'NR>1 && $19!="READY" && $15+0>max {max=$15+0} END {print max+0}' "$previous_report")"
+			(( previous_max_p95 > 0 )) || previous_max_p95="$(awk -F '\t' 'NR>1 && $19!="READY" && $17+0>max {max=$17+0} END {print max+0}' "$previous_report")"
+		fi
 	fi
 	if [[ ! "$previous_measurable" =~ ^[01]$ ]]; then
 		(( previous_excess > 0 )) && previous_measurable=1 || previous_measurable=0
@@ -97,8 +114,10 @@ if grep -q 'LUNA_COMPLEXITY_OVER_BUDGET.*status=OVER_BUDGET' "$rejection_log"; t
 		(( previous_measurable == 1 )); then
 		(( complexity_measurable == 1 )) ||
 			die 'recursive complexity decomposition replaced a measured report with an unmeasurable one'
-		(( complexity_excess < previous_excess || complexity_scope < previous_scope )) ||
-			die "recursive complexity decomposition made no measured progress (excess $complexity_excess >= $previous_excess; unready implementation scope $complexity_scope >= $previous_scope)"
+		(( complexity_excess < previous_excess || complexity_scope < previous_scope ||
+			complexity_max_score < previous_max_score || complexity_max_actions < previous_max_actions ||
+			complexity_max_p95 < previous_max_p95 )) ||
+			die "recursive complexity decomposition made no measured progress (excess $complexity_excess >= $previous_excess; scope $complexity_scope >= $previous_scope; max score $complexity_max_score >= $previous_max_score; max actions $complexity_max_actions >= $previous_max_actions; max p95 $complexity_max_p95 >= $previous_max_p95)"
 	fi
 	complexity_passes=$((previous_passes + 1))
 	(( complexity_passes <= HARNESS_MAX_COMPLEXITY_DECOMPOSITION_PASSES )) ||
@@ -108,6 +127,9 @@ if grep -q 'LUNA_COMPLEXITY_OVER_BUDGET.*status=OVER_BUDGET' "$rejection_log"; t
 		printf 'candidate=%s\n' "$candidate_id"
 		printf 'excess=%s\n' "$complexity_excess"
 		printf 'scope=%s\n' "$complexity_scope"
+		printf 'max_score=%s\n' "$complexity_max_score"
+		printf 'max_actions=%s\n' "$complexity_max_actions"
+		printf 'max_p95=%s\n' "$complexity_max_p95"
 		printf 'measurable=%s\n' "$complexity_measurable"
 		printf 'passes=%s\n' "$complexity_passes"
 		printf 'updated_at=%s\n' "$(timestamp_utc)"
