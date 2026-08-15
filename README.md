@@ -42,6 +42,9 @@ compatibility alias; new files should use the uppercase shell variable.
   work exists; no Codex process remains alive while waiting.
 - Provider resilience: transient network, capacity, rate-limit, and quota
   failures retry while preserving ownership and heartbeat state.
+- Bootstrap recovery: when a first task was durably published before bootstrap
+  failed, restart registers its captured manager thread without another model
+  invocation or duplicate publication attempt.
 - Focused closure mode: high-progress tasks receive a bounded
   diagnose-correct-rebuild-smoke budget instead of unbounded revision churn.
 - Independent final audit: an optional fresh Oracle checks specification

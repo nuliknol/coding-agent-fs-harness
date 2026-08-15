@@ -24,6 +24,53 @@ write_manager_snapshot
 project_path="$(project_dir)"
 last_message="$project_path/logs/manager-bootstrap-last-message.md"
 prompt_file="$project_path/control/manager-bootstrap.prompt.md"
+
+extract_thread_id()
+{
+	local log_file="$1"
+	if command -v jq >/dev/null 2>&1; then
+		jq -r 'select(.type == "thread.started") | .thread_id' "$log_file" | head -n 1
+	else
+		sed -n 's/.*"type"[[:space:]]*:[[:space:]]*"thread.started".*"thread_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$log_file" | head -n 1
+	fi
+}
+
+bootstrap_task_published()
+{
+	compgen -G "$project_path/tasks/$PROJECT-task-*.ready.md" >/dev/null
+}
+
+bootstrap_task_in_flight()
+{
+	compgen -G "$project_path/tasks/$PROJECT-task-*.ready.md" >/dev/null ||
+		compgen -G "$project_path/running/$PROJECT-task-*.running.md" >/dev/null ||
+		compgen -G "$project_path/results/$PROJECT-task-*.result.md" >/dev/null
+}
+
+recover_bootstrap_thread_for_published_task()
+{
+	local candidate thread_id
+	project_plan_exists && bootstrap_task_in_flight || return 1
+	while IFS= read -r candidate; do
+		[[ -f "$candidate" ]] || continue
+		thread_id="$(extract_thread_id "$candidate")"
+		[[ -n "$thread_id" && "$thread_id" != null ]] || continue
+		cp -f "${candidate%.jsonl}.md" "$last_message" 2>/dev/null || true
+		"$HARNESS_BIN/manager-register-thread" "$HARNESS_ENV_FILE" "$thread_id" >/dev/null
+		log_event "MANAGER_BOOTSTRAPPED thread_id=$thread_id outcome=recovered_existing_published_task source_log=$candidate"
+		trace_event MANAGER_BOOTSTRAP_RECOVERED "thread_id=$thread_id" "outcome=existing_published_task" "source_log=$candidate"
+		printf 'Recovered manager thread %s for the already-published active task; bootstrap was not repeated.\n' "$thread_id"
+		return 0
+	done < <(find "$project_path/logs" -maxdepth 1 -type f -name 'manager-bootstrap-*-attempt-*.jsonl' -printf '%T@\t%p\n' 2>/dev/null |
+		sort -rn | cut -f2-)
+	return 1
+}
+
+if [[ ! -f "$project_path/control/manager.thread" ]] &&
+	recover_bootstrap_thread_for_published_task; then
+	exit 0
+fi
+
 development_policy_file="$REPOSITORY/design/development-policy.txt"
 [[ -f "$development_policy_file" ]] || development_policy_file=""
 decomposition_file="$(project_decomposition_plan_file)"
@@ -131,21 +178,6 @@ PROMPT
 fi
 chmod 600 "$prompt_file.tmp.$$"
 mv "$prompt_file.tmp.$$" "$prompt_file"
-
-extract_thread_id()
-{
-	local log_file="$1"
-	if command -v jq >/dev/null 2>&1; then
-		jq -r 'select(.type == "thread.started") | .thread_id' "$log_file" | head -n 1
-	else
-		sed -n 's/.*"type"[[:space:]]*:[[:space:]]*"thread.started".*"thread_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$log_file" | head -n 1
-	fi
-}
-
-bootstrap_task_published()
-{
-	compgen -G "$project_path/tasks/$PROJECT-task-*.ready.md" >/dev/null
-}
 
 attempt=1
 provider_retries=0
