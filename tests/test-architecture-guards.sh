@@ -361,6 +361,34 @@ All required behavior was independently verified. Accept.
 REVIEW
 }
 
+# Planning publication restores architecture-binding metadata from durable
+# registries instead of spending model corrections on five exact TSV fields.
+sed \
+	-e 's/export PROJECT="archguard"/export PROJECT="archguardplanned"/' \
+	-e "s|export HARNESS_ROOT=\"$TEST_ROOT/state\"|export HARNESS_ROOT=\"$TEST_ROOT/planned-state\"|" \
+	"$TEST_ROOT/harness.env" > "$TEST_ROOT/planned-harness.env"
+chmod 600 "$TEST_ROOT/planned-harness.env"
+"$HARNESS_BIN/harness-init" "$TEST_ROOT/planned-harness.env" >/dev/null
+"$HARNESS_BIN/manager-init-architecture" "$TEST_ROOT/planned-harness.env" \
+	"$TEST_ROOT/architecture" >/dev/null
+"$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/planned-harness.env" \
+	"$TEST_ROOT/plan.tsv" >/dev/null
+write_task "$TEST_ROOT/planned-contract-source.md" invented contract.planned.goal contract.done \
+	CONTRACT_DESIGN HIGH TERRA - 'Define widget ownership contract' \
+	'ADR and public contract exist' \
+	'test -f design/adr/widget-ownership.md && test -f include/widget.h' \
+	'design/adr/widget-ownership.md,include/widget.h' ADR-widget - ADR-widget -
+grep -Ev '^(Affected-Invariants|Consumed-Decisions|Produced-Decisions|Edge-Contracts|Health-Gates):' \
+	"$TEST_ROOT/planned-contract-source.md" > "$TEST_ROOT/planned-contract.md"
+"$HARNESS_BIN/manager-publish-planned-task" "$TEST_ROOT/planned-harness.env" \
+	"$TEST_ROOT/planned-contract.md" >/dev/null
+planned_ready="$TEST_ROOT/planned-state/projects/archguardplanned/tasks/archguardplanned-task-contract.ready.md"
+grep -Fqx 'Affected-Invariants: INV-widget' "$planned_ready"
+grep -Fqx 'Consumed-Decisions: -' "$planned_ready"
+grep -Fqx 'Produced-Decisions: ADR-widget' "$planned_ready"
+grep -Fqx 'Edge-Contracts: EDGE-widget' "$planned_ready"
+grep -Fqx 'Health-Gates: -' "$planned_ready"
+
 write_task "$TEST_ROOT/contract-task.md" 001 contract.goal contract.done CONTRACT_DESIGN HIGH TERRA - \
 	'Define widget ownership contract' 'ADR and public contract exist' \
 	'test -f design/adr/widget-ownership.md && test -f include/widget.h' \

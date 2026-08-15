@@ -97,6 +97,19 @@ if [[ -z "$root_assignment" ]]; then
 	[[ -z "$node_leaf_type" ]] || normalize_metadata "$publish_file" Leaf-Type "$node_leaf_type"
 	normalize_metadata "$publish_file" Complexity-Class "$(project_plan_node_value "$plan_item_id" complexity_class)"
 	normalize_metadata "$publish_file" Worker-Route "$(project_plan_node_value "$plan_item_id" worker_route)"
+	if architecture_registered &&
+		architecture_registry_has_id "$(architecture_node_bindings_file)" "$plan_item_id"; then
+		normalize_metadata "$publish_file" Affected-Invariants \
+			"$(architecture_node_value "$plan_item_id" invariant_ids)"
+		normalize_metadata "$publish_file" Consumed-Decisions \
+			"$(architecture_node_value "$plan_item_id" consumes_decisions)"
+		normalize_metadata "$publish_file" Produced-Decisions \
+			"$(architecture_node_value "$plan_item_id" produces_decisions)"
+		normalize_metadata "$publish_file" Edge-Contracts \
+			"$(architecture_node_value "$plan_item_id" edge_contracts)"
+		normalize_metadata "$publish_file" Health-Gates \
+			"$(architecture_node_value "$plan_item_id" health_gates)"
+	fi
 fi
 
 # Criterion IDs are identifiers, while models often append an explanatory
