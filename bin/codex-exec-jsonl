@@ -165,7 +165,8 @@ resource_estimated_token_limit="$HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PE
 if [[ "$resource_agent_phase" == specification_review ]]; then
 	resource_processed_token_limit="$HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION"
 	resource_estimated_token_limit="$HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION"
-elif [[ "$resource_agent_phase" == decomposition || "$resource_agent_phase" == architecture_fit ]]; then
+elif [[ "$resource_agent_phase" == decomposition || "$resource_agent_phase" == architecture_fit ||
+	"$resource_agent_phase" == architecture_binding ]]; then
 	resource_processed_token_limit="$HARNESS_MAX_DECOMPOSITION_PROCESSED_TOKENS_PER_INVOCATION"
 	resource_estimated_token_limit="$HARNESS_MAX_DECOMPOSITION_PROCESSED_TOKENS_PER_INVOCATION"
 fi

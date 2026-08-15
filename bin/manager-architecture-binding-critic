@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 1 ]] || { printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+require_manager_configuration
+require_manager_codex
+project_plan_exists && { printf 'Decomposition DAG already exists.\n'; exit 0; }
+decomposition_dag_candidate_matches_current_inputs || die 'architecture binding requires a current staged DAG candidate'
+[[ "$(decomposition_dag_candidate_state_value status)" == STAGED ]] || die 'architecture binding requires a STAGED DAG candidate'
+architecture_fit_is_accepted || die 'architecture binding requires a current accepted architecture-fit review or force waiver'
+
+trace_init manager_architecture_binding_critic
+trace_script_start "$@"
+trap 'trace_script_exit $?' EXIT
+dir="$(project_dir)"
+dag="$(decomposition_dag_candidate_state_value dag)"
+coverage="$(decomposition_dag_candidate_state_value coverage)"
+prompt="$dir/control/manager-architecture-binding-critic.prompt.md"
+fit_report="$(architecture_fit_state_value report force-waiver)"
+[[ "$fit_report" == /* ]] || fit_report="$REPOSITORY/$fit_report"
+
+cat > "$prompt.tmp.$$" <<PROMPT
+You are a fresh Sol architecture-binding planner for a filesystem-backed coding harness. Do not edit the repository and do not redesign or re-decompose the fixed DAG.
+
+ENV_FILE=$HARNESS_ENV_FILE
+HARNESS_BIN=$HARNESS_BIN
+PROJECT=$PROJECT
+REPOSITORY=$REPOSITORY
+PROJECT_TMP_DIR=$PROJECT_TMP_DIR
+AGENT_PHASE=architecture_binding
+DAG_FILE=$dag
+SPECIFICATION_COVERAGE_FILE=$coverage
+ARCHITECTURE_FIT_REPORT=$fit_report
+SPECIFICATION_OBLIGATIONS_FILE=$(specification_obligations_file)
+SPECIFICATION_RELATIONS_FILE=$(specification_relations_file)
+REPOSITORY_FACTS_FILE=$REPOSITORY/$(specification_review_state_value facts)
+ARCHITECTURE_GUARDS=$HARNESS_ARCHITECTURE_GUARDS
+
+The architecture-fit decision and DAG/coverage are durable and authoritative. Read those bounded files. Do not change DAG_FILE or SPECIFICATION_COVERAGE_FILE. Do not inspect the complete repository inventory, development policy, harness source, unrelated Git history, prior agent logs, or broad source trees. Search only exact repository paths or symbols already named by the DAG when a validation binding requires confirmation. Retain verbose output in files and return bounded excerpts.
+
+If ARCHITECTURE_GUARDS=1 and the DAG is exactly one dependency-free LOW/LUNA TEST_IMPLEMENTATION node, submit it with '-' as ARCH_DIR. Otherwise create ARCH_DIR under PROJECT_TMP_DIR containing six exact tab-separated files.
+
+invariants.tsv:
+invariant_id<TAB>category<TAB>authority<TAB>severity<TAB>statement<TAB>scope<TAB>source_requirement<TAB>validation_kind<TAB>validation_ref<TAB>affected_nodes
+
+decisions.tsv:
+decision_id<TAB>status<TAB>producer_node<TAB>problem<TAB>chosen_contract<TAB>affected_interfaces<TAB>supersedes<TAB>evidence
+
+edges.tsv:
+edge_id<TAB>producer_node<TAB>consumer_node<TAB>contract_artifact<TAB>public_symbols<TAB>ownership_model<TAB>representation<TAB>versioning_rule<TAB>compatibility_validation<TAB>decision_ids<TAB>invariant_ids
+
+node-bindings.tsv:
+node_id<TAB>invariant_ids<TAB>consumes_decisions<TAB>produces_decisions<TAB>edge_contracts<TAB>health_gates
+
+health-gates.tsv:
+gate_id<TAB>trigger_node<TAB>depends_on<TAB>validation<TAB>severity<TAB>invariant_ids<TAB>edge_ids
+
+debt.tsv:
+debt_id<TAB>introduced_by_task<TAB>introduced_by_commit<TAB>category<TAB>affected_invariants<TAB>consequence<TAB>remediation_node<TAB>severity<TAB>expires_at<TAB>status<TAB>waiver_authority
+
+Use '-' for intentionally empty identifiers. Every DAG node has exactly one binding. Use only invariant categories CANONICAL_REPRESENTATION, DEPENDENCY_CYCLE, DEVICE_AUTHORITY, ERROR_MODEL, LAYERING, OTHER, OWNERSHIP, PUBLIC_API, or SERIALIZATION. SPECIFIED invariants cite original obligations; DERIVED invariants are necessary consequences; PROPOSED invariants do not constrain implementation. Every API, representation, ownership, serialization, concurrency, or error contract crossing a dependency has an edge. contract_artifact is '-', a bounded repository-relative path, or decision:DECISION_ID. Decision references also appear in decision_ids. Terra decision nodes produce explicit decisions; Luna nodes consume accepted decisions but produce none.
+
+Bind milestone gates after coherent groups and final integration. Every invariant command, compatibility check, and non-final gate uses the focused selector already owned by the fixed DAG. Never require an unrelated broad aggregate to exit zero. When an aggregate is useful as baseline evidence, capture or tolerate its exit and assert the owned stage result separately. HARNESS_BROAD_GATE_REQUIRED=1 is permitted only when the human specification explicitly requires whole-project aggregate success. Keep verbose build/test output in PROJECT_TMP_DIR logs and print only bounded tails on failure. An invariant's affected_nodes exactly matches nodes whose bindings contain it. Start debt.tsv empty except for explicitly forced redesign debt already required by the accepted force waiver.
+
+Submit the fixed DAG, fixed coverage, and architecture registry once:
+
+$HARNESS_BIN/manager-submit-decomposition "$HARNESS_ENV_FILE" "$dag" "$coverage" ARCH_DIR
+
+Pass '-' instead of ARCH_DIR only for the deterministic single-test profile described above. If deterministic validation rejects the candidate, terminate immediately; harness-start will preserve it and invoke a bounded repair-only turn. Do not repair schema inside this global architecture-binding turn. After success, terminate. Never publish work or run implementation tests.
+PROMPT
+chmod 600 "$prompt.tmp.$$"
+mv "$prompt.tmp.$$" "$prompt"
+
+attempt=1
+while true; do
+	stamp="$(timestamp_compact_utc)"
+	json="$dir/logs/manager-architecture-binding-critic-$stamp-attempt-$(printf '%03d' "$attempt").jsonl"
+	stderr="$dir/logs/manager-architecture-binding-critic-$stamp-attempt-$(printf '%03d' "$attempt").stderr.log"
+	message="$dir/logs/manager-architecture-binding-critic-$stamp-attempt-$(printf '%03d' "$attempt").md"
+	set +e
+	"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" decomposition "$DECOMPOSITION_MODEL" "$prompt" "$json" "$stderr" "$message"
+	status=$?
+	set -e
+	if project_plan_exists; then
+		log_event "ARCHITECTURE_BINDING_ACCEPTED nodes=$(project_plan_total_count) attempts=$attempt"
+		printf 'Architecture bindings accepted for %s DAG nodes.\n' "$(project_plan_total_count)"
+		exit 0
+	fi
+	if decomposition_candidate_matches_current_inputs &&
+		[[ "$(decomposition_candidate_state_value status)" == REJECTED ]]; then
+		log_event "ARCHITECTURE_BINDING_REPAIR_REQUIRED attempts=$attempt"
+		printf 'Architecture binding candidate requires deterministic repair.\n'
+		exit 0
+	fi
+	classification="$(kv_file_value "${json%.jsonl}.classification" classification 2>/dev/null || true)"
+	retry_kind="$(codex_provider_retry_kind "$classification" 2>/dev/null || true)"
+	if [[ -n "$retry_kind" ]]; then
+		delay="$(codex_provider_retry_delay "$classification")"
+		printf 'Architecture-binding provider retry in %s seconds (%s).\n' "$delay" "$retry_kind" >&2
+		sleep "$delay"
+		attempt=$((attempt + 1))
+		continue
+	fi
+	(( status == 0 )) && die 'architecture-binding critic exited without submitting a candidate'
+	die "architecture-binding critic failed with status $status; see $json"
+done

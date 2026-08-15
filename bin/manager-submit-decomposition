@@ -34,7 +34,9 @@ acquire_project_lock
 state="$(decomposition_candidate_state_file)"
 if (( recover == 1 )); then
 	decomposition_candidate_matches_current_inputs || die 'no staged decomposition candidate matches the current inputs'
-	[[ "$(decomposition_candidate_state_value status)" == STAGED ]] || die 'no recoverable staged decomposition candidate exists'
+	candidate_status="$(decomposition_candidate_state_value status)"
+	[[ "$candidate_status" == STAGED || "$candidate_status" == REJECTED ]] ||
+		die 'no recoverable staged or rejected decomposition candidate exists'
 	candidate_dir="$(decomposition_candidate_state_value directory)"
 	dag_stage="$candidate_dir/dag.tsv"
 	coverage_stage="$candidate_dir/coverage.tsv"
@@ -88,15 +90,21 @@ else
 fi
 
 registered_by_candidate="$(decomposition_candidate_state_value architecture_registered_by_candidate 0)"
+rejection_log="$candidate_dir/rejection.log"
+rm -f "$rejection_log"
 if (( HARNESS_ARCHITECTURE_GUARDS == 1 )) && [[ "$architecture_stage" != - ]] && ! architecture_registered; then
 	set +e
 	(
 		architecture_initialize "$architecture_stage"
-	)
+	) > >(tee "$rejection_log") 2>&1
 	architecture_status=$?
 	set -e
 	if (( architecture_status != 0 )); then
 		sed -i 's/^status=.*/status=REJECTED/' "$state"
+		sed -i '/^rejection_stage=/d; /^rejection_log=/d' "$state"
+		printf 'rejection_stage=architecture\n' >> "$state"
+		printf 'rejection_log=%s\n' "$rejection_log" >> "$state"
+		log_event "DECOMPOSITION_CANDIDATE_REJECTED directory=$candidate_dir stage=architecture status=$architecture_status"
 		die 'decomposition candidate architecture registry was rejected'
 	fi
 	registered_by_candidate=1
@@ -106,7 +114,7 @@ fi
 set +e
 (
 	initialize_project_plan "$dag_stage" "$coverage_stage"
-)
+) > >(tee "$rejection_log") 2>&1
 plan_status=$?
 set -e
 if (( plan_status != 0 )); then
@@ -114,10 +122,18 @@ if (( plan_status != 0 )); then
 		rm -rf -- "$(architecture_dir)"
 	fi
 	sed -i 's/^status=.*/status=REJECTED/' "$state"
-	log_event "DECOMPOSITION_CANDIDATE_REJECTED directory=$candidate_dir status=$plan_status"
+	sed -i '/^rejection_stage=/d; /^rejection_log=/d' "$state"
+	printf 'rejection_stage=plan\n' >> "$state"
+	printf 'rejection_log=%s\n' "$rejection_log" >> "$state"
+	log_event "DECOMPOSITION_CANDIDATE_REJECTED directory=$candidate_dir stage=plan status=$plan_status"
 	die "decomposition candidate failed deterministic validation with status $plan_status"
 fi
+rm -f "$rejection_log"
 sed -i 's/^status=.*/status=INSTALLED/' "$state"
 printf 'installed_at=%s\n' "$(timestamp_utc)" >> "$state"
+if decomposition_dag_candidate_matches_current_inputs; then
+	sed -i 's/^status=.*/status=BOUND/' "$(decomposition_dag_candidate_state_file)"
+	printf 'bound_at=%s\n' "$(timestamp_utc)" >> "$(decomposition_dag_candidate_state_file)"
+fi
 log_event "DECOMPOSITION_CANDIDATE_INSTALLED directory=$candidate_dir nodes=$(project_plan_total_count)"
 printf '%s\n' "$(project_plan_definition_file)"

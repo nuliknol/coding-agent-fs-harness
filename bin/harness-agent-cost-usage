@@ -44,6 +44,8 @@ log_phase()
 		manager-specification-review-*) printf '10\tspecification-review\tscaffolding' ;;
 		manager-architecture-fit-critic-*) printf '15\tarchitecture-fit\tscaffolding' ;;
 		manager-decomposition-critic-*) printf '20\tdecomposition-critic\tscaffolding' ;;
+		manager-architecture-binding-critic-*) printf '22\tarchitecture-binding\tscaffolding' ;;
+		manager-decomposition-repair-*) printf '25\tdecomposition-repair\tscaffolding' ;;
 		manager-bootstrap-*) printf '30\tdecomposition-bootstrap\tscaffolding' ;;
 		manager-plan-*) printf '40\ttask-planning\tscaffolding' ;;
 		manager-replan-*) printf '50\troot-replanning\tscaffolding' ;;

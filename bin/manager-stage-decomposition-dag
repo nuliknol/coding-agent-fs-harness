@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 3 ]] || { printf 'Usage: %s ENV_FILE DAG_TSV COVERAGE_TSV\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+require_manager_configuration
+specification_review_is_accepted || die 'DAG staging requires an accepted current specification review'
+architecture_fit_is_accepted || die 'DAG staging requires an accepted current architecture-fit review or force waiver'
+project_plan_exists && { printf '%s\n' "$(project_plan_definition_file)"; exit 0; }
+dag_source="$2"
+coverage_source="$3"
+[[ -f "$dag_source" && -f "$coverage_source" ]] || die 'DAG staging requires DAG and coverage TSV files'
+
+expected_dag_header=$'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tleaf_type\tcomplexity_class\tworker_route'
+expected_coverage_header=$'obligation_id\tnode_ids\tevidence_plan'
+IFS= read -r dag_header < "$dag_source" || die 'decomposition DAG is empty'
+IFS= read -r coverage_header < "$coverage_source" || die 'specification coverage is empty'
+[[ "$dag_header" == "$expected_dag_header" ]] || die "decomposition DAG header must be: $expected_dag_header"
+[[ "$coverage_header" == "$expected_coverage_header" ]] || die "specification coverage header must be: $expected_coverage_header"
+(( $(awk 'END {print NR+0}' "$dag_source") > 1 )) || die 'decomposition DAG has no nodes'
+validate_specification_coverage_file "$coverage_source" "$dag_source"
+
+acquire_project_lock
+candidate_id="$({ sha256sum "$dag_source" "$coverage_source"; } | sha256sum | awk '{print $1}')"
+candidate_dir="$(project_dir)/control/decomposition-dag-candidates/$candidate_id"
+mkdir -p "$candidate_dir"
+chmod 700 "$(project_dir)/control/decomposition-dag-candidates" "$candidate_dir"
+install -m 600 "$dag_source" "$candidate_dir/dag.tsv.tmp.$$"
+install -m 600 "$coverage_source" "$candidate_dir/coverage.tsv.tmp.$$"
+mv "$candidate_dir/dag.tsv.tmp.$$" "$candidate_dir/dag.tsv"
+mv "$candidate_dir/coverage.tsv.tmp.$$" "$candidate_dir/coverage.tsv"
+state="$(decomposition_dag_candidate_state_file)"
+tmp="$state.tmp.$$"
+{
+	printf 'status=STAGED\n'
+	printf 'specification_sha256=%s\n' "$(specification_sha256)"
+	printf 'repository_baseline=%s\n' "$(specification_review_repository_baseline)"
+	printf 'domain_profiles_sha256=%s\n' "$(domain_profiles_sha256)"
+	printf 'directory=%s\n' "$candidate_dir"
+	printf 'dag=%s\n' "$candidate_dir/dag.tsv"
+	printf 'coverage=%s\n' "$candidate_dir/coverage.tsv"
+	printf 'staged_at=%s\n' "$(timestamp_utc)"
+} > "$tmp"
+chmod 600 "$tmp"
+mv "$tmp" "$state"
+log_event "DECOMPOSITION_DAG_STAGED directory=$candidate_dir nodes=$(( $(wc -l < "$candidate_dir/dag.tsv") - 1 ))"
+printf '%s\n' "$candidate_dir"

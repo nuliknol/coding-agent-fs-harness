@@ -303,7 +303,7 @@ load_harness_env()
 	# transaction so a malformed source or non-converging critic cannot consume
 	# an unlimited number of manager turns.
 	HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS="${HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS:-1}"
-	HARNESS_START_MAX_AGENT_INVOCATIONS="${HARNESS_START_MAX_AGENT_INVOCATIONS:-4}"
+	HARNESS_START_MAX_AGENT_INVOCATIONS="${HARNESS_START_MAX_AGENT_INVOCATIONS:-6}"
 	# Optional, explicitly selected domain-theory profiles contribute reusable
 	# human-owned invariants to specification normalization. An empty list adds
 	# no product semantics. Names resolve first from the repository and then from
@@ -2946,6 +2946,11 @@ decomposition_candidate_state_file()
 	printf '%s/control/decomposition-candidate.env' "$(project_dir)"
 }
 
+decomposition_dag_candidate_state_file()
+{
+	printf '%s/control/decomposition-dag-candidate.env' "$(project_dir)"
+}
+
 architecture_redesign_force_file()
 {
 	printf '%s/control/architecture-redesign-force.env' "$(project_dir)"
@@ -3327,6 +3332,27 @@ decomposition_candidate_matches_current_inputs()
 	[[ "$(decomposition_candidate_state_value specification_sha256)" == "$(specification_sha256)" ]] || return 1
 	[[ "$(decomposition_candidate_state_value repository_baseline)" == "$(specification_review_repository_baseline)" ]] || return 1
 	[[ "$(decomposition_candidate_state_value domain_profiles_sha256 none)" == "$(domain_profiles_sha256)" ]]
+}
+
+decomposition_dag_candidate_state_value()
+{
+	local key="$1" fallback="${2:-}" state value=""
+	state="$(decomposition_dag_candidate_state_file)"
+	if [[ -f "$state" ]]; then
+		value="$(awk -F= -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' "$state")"
+	fi
+	[[ -n "$value" ]] || value="$fallback"
+	printf '%s' "$value"
+}
+
+decomposition_dag_candidate_matches_current_inputs()
+{
+	local state
+	state="$(decomposition_dag_candidate_state_file)"
+	[[ -f "$state" ]] || return 1
+	[[ "$(decomposition_dag_candidate_state_value specification_sha256)" == "$(specification_sha256)" ]] || return 1
+	[[ "$(decomposition_dag_candidate_state_value repository_baseline)" == "$(specification_review_repository_baseline)" ]] || return 1
+	[[ "$(decomposition_dag_candidate_state_value domain_profiles_sha256 none)" == "$(domain_profiles_sha256)" ]]
 }
 
 architecture_redesign_matches_current_inputs()

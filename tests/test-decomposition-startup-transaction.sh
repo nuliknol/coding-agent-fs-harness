@@ -110,6 +110,26 @@ obligation_id	node_ids	evidence_plan
 REQ-ONE	n01	n01 focused source validation
 EOF
 
+"$HARNESS_BIN/manager-stage-decomposition-dag" "$env_file" "$TEST_ROOT/dag.tsv" "$TEST_ROOT/coverage.tsv" >/dev/null
+grep -Fqx 'status=STAGED' "$project_dir/control/decomposition-dag-candidate.env"
+staged_dag="$(awk -F= '$1=="dag" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
+cmp -s "$TEST_ROOT/dag.tsv" "$staged_dag"
+
+# Deterministic rejection must retain exact diagnostics so startup can repair
+# the staged artifact without another global decomposition pass.
+cat > "$TEST_ROOT/bad-coverage.tsv" <<'EOF'
+obligation_id	node_ids	evidence_plan
+EOF
+set +e
+"$HARNESS_BIN/manager-submit-decomposition" "$env_file" "$TEST_ROOT/dag.tsv" "$TEST_ROOT/bad-coverage.tsv" - >/dev/null 2>&1
+bad_status=$?
+set -e
+(( bad_status != 0 ))
+grep -Fqx 'status=REJECTED' "$project_dir/control/decomposition-candidate.env"
+rejection_log="$(awk -F= '$1=="rejection_log" {print $2}' "$project_dir/control/decomposition-candidate.env" | tail -1)"
+test -s "$rejection_log"
+grep -Eq 'coverage|obligation|mapped' "$rejection_log"
+
 # A killed submission may leave a complete staged candidate before plan
 # installation. Startup must report the failure, then recover it without a new
 # model invocation.

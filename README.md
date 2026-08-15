@@ -109,7 +109,7 @@ export HARNESS_DECOMPOSITION_V2="1"
 export HARNESS_DECOMPOSITION_CRITIC_ENABLED="1"
 export HARNESS_SPECIFICATION_REVIEW_ENABLED="1"
 export HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS="1"
-export HARNESS_START_MAX_AGENT_INVOCATIONS="4"
+export HARNESS_START_MAX_AGENT_INVOCATIONS="6"
 export HARNESS_DOMAIN_PROFILES=""  # optional comma-separated profile IDs
 export HARNESS_MAX_LUNA_STRATEGY_FAILURES="3"
 export HARNESS_MAX_LUNA_ALLOWED_PATHS="8"
@@ -220,13 +220,15 @@ Terra `CROSS_COMPONENT_ARCHITECTURE` node and one open critical debt record per
 redesign issue, a focused critical health gate, and dependency ordering that
 keeps affected Luna work unavailable until remediation is accepted.
 
-After architecture fit is accepted, a separate fresh Sol turn constructs the
-DAG, obligation coverage, and architecture registry from a bounded semantic
-capsule. `manager-submit-decomposition` stages every candidate artifact before
-deterministic validation and installs all sidecars as one transaction. If
-startup is interrupted after staging, the next `harness-start` recovers the
-candidate without repeating model exploration. Failed detached startup is
-reported explicitly as `STARTUP_FAILED` instead of looking merely stopped.
+After architecture fit is accepted, one fresh Sol turn constructs and durably
+stages only the DAG and obligation coverage. A second fresh Sol turn binds that
+fixed DAG to architecture invariants, decisions, edges, health gates, and debt.
+`manager-submit-decomposition` stages the complete candidate before
+deterministic validation and installs all sidecars as one transaction. A
+schema rejection is handled by a bounded repair-only turn. If startup is
+interrupted after either staging boundary, the next `harness-start` continues
+without repeating earlier global model exploration. Failed detached startup
+is reported explicitly as `STARTUP_FAILED` instead of looking merely stopped.
 
 Reusable domain theory is opt-in through `HARNESS_DOMAIN_PROFILES`. A profile
 resolves first from `$REPOSITORY/.harness/domain-profiles/NAME.tsv`, then from
@@ -668,7 +670,7 @@ export HARNESS_DECOMPOSITION_V2="1"
 export HARNESS_DECOMPOSITION_CRITIC_ENABLED="1"
 export HARNESS_SPECIFICATION_REVIEW_ENABLED="1"
 export HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS="1"
-export HARNESS_START_MAX_AGENT_INVOCATIONS="4"
+export HARNESS_START_MAX_AGENT_INVOCATIONS="6"
 export HARNESS_DOMAIN_PROFILES=""
 export HARNESS_MAX_LUNA_STRATEGY_FAILURES="3"
 export HARNESS_MAX_LUNA_ALLOWED_PATHS="8"

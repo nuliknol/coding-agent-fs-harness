@@ -167,6 +167,18 @@ while ! project_plan_exists; do
 				continue
 			fi
 		fi
+		if decomposition_candidate_matches_current_inputs &&
+			[[ "$(decomposition_candidate_state_value status)" == REJECTED ]]; then
+			printf 'Repairing the durably rejected decomposition candidate before launching another global Sol turn.\n'
+			"$HARNESS_BIN/manager-decomposition-repair" "$HARNESS_ENV_FILE"
+			continue
+		fi
+		if decomposition_dag_candidate_matches_current_inputs &&
+			[[ "$(decomposition_dag_candidate_state_value status)" == STAGED ]]; then
+			printf 'Binding architecture to the durably staged DAG in a fresh Sol turn.\n'
+			"$HARNESS_BIN/manager-architecture-binding-critic" "$HARNESS_ENV_FILE"
+			continue
+		fi
 
 		if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )); then
 			set +e
@@ -239,6 +251,10 @@ while ! project_plan_exists; do
 				;;
 			*) exit "$critic_status" ;;
 		esac
+		if decomposition_dag_candidate_matches_current_inputs &&
+			[[ "$(decomposition_dag_candidate_state_value status)" == STAGED ]]; then
+			continue
+		fi
 	fi
 	break
 done

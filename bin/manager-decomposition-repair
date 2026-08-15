@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 1 ]] || { printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+require_manager_configuration
+require_manager_codex
+project_plan_exists && { printf 'Decomposition DAG already exists.\n'; exit 0; }
+decomposition_candidate_matches_current_inputs || die 'no rejected decomposition candidate matches the current inputs'
+[[ "$(decomposition_candidate_state_value status)" == REJECTED ]] || die 'decomposition repair requires a rejected candidate'
+architecture_fit_is_accepted || die 'decomposition repair requires a current accepted architecture-fit review or force waiver'
+
+trace_init manager_decomposition_repair
+trace_script_start "$@"
+trap 'trace_script_exit $?' EXIT
+dir="$(project_dir)"
+
+# Revalidate once under the current deterministic validators. This can install
+# a candidate rejected by an older release and records exact diagnostics for
+# candidates created before rejection logging existed.
+set +e
+"$HARNESS_BIN/manager-submit-decomposition" --recover "$HARNESS_ENV_FILE"
+revalidate_status=$?
+set -e
+project_plan_exists && { printf 'Rejected decomposition candidate passed current validation.\n'; exit 0; }
+(( revalidate_status != 0 )) || die 'candidate revalidation returned success without installing a plan'
+
+candidate_dir="$(decomposition_candidate_state_value directory)"
+architecture_dir="$(decomposition_candidate_state_value architecture_directory -)"
+rejection_log="$(decomposition_candidate_state_value rejection_log "$candidate_dir/rejection.log")"
+[[ -s "$rejection_log" ]] || die 'rejected candidate has no deterministic validator diagnostics'
+candidate_id="${candidate_dir##*/}"
+repair_dir="$PROJECT_TMP_DIR/decomposition-repair-$candidate_id"
+rm -rf -- "$repair_dir"
+mkdir -p "$repair_dir"
+install -m 600 "$candidate_dir/dag.tsv" "$repair_dir/dag.tsv"
+install -m 600 "$candidate_dir/coverage.tsv" "$repair_dir/coverage.tsv"
+repair_architecture=-
+if [[ "$architecture_dir" != - ]]; then
+	repair_architecture="$repair_dir/architecture"
+	mkdir -p "$repair_architecture"
+	for name in invariants decisions edges node-bindings health-gates debt; do
+		install -m 600 "$architecture_dir/$name.tsv" "$repair_architecture/$name.tsv"
+	done
+fi
+
+prompt="$dir/control/manager-decomposition-repair.prompt.md"
+cat > "$prompt.tmp.$$" <<PROMPT
+You are a fresh, bounded decomposition-candidate schema repair agent. Do not edit the repository and do not redesign or re-decompose the task.
+
+ENV_FILE=$HARNESS_ENV_FILE
+HARNESS_BIN=$HARNESS_BIN
+PROJECT=$PROJECT
+PROJECT_TMP_DIR=$PROJECT_TMP_DIR
+AGENT_PHASE=decomposition_repair
+DAG_FILE=$repair_dir/dag.tsv
+SPECIFICATION_COVERAGE_FILE=$repair_dir/coverage.tsv
+ARCH_DIR=$repair_architecture
+VALIDATOR_DIAGNOSTICS=$rejection_log
+
+The expensive Sol architecture review and DAG construction are already complete. Read only VALIDATOR_DIAGNOSTICS and the candidate TSV files named above. Do not inspect repository files, the specification, normalized IR, repository inventory, harness source, development policy, Git history, prior agent logs, or unrelated temporary files.
+
+Correct only the deterministic schema or validation defect reported in VALIDATOR_DIAGNOSTICS. Preserve node intent, obligation allocation, dependencies, routes, allowed paths, and architecture semantics unless the diagnostic explicitly identifies one of those fields as invalid. Do not add requirements or broaden validation. For a broad-aggregate rejection, capture or tolerate the unrelated aggregate exit and independently assert the owned focused result; do not make the broad aggregate's exit code a success condition unless the governing command already contains HARNESS_BROAD_GATE_REQUIRED=1.
+
+After one bounded inspection and correction, submit the repaired copy with exactly:
+
+$HARNESS_BIN/manager-submit-decomposition "$HARNESS_ENV_FILE" "$repair_dir/dag.tsv" "$repair_dir/coverage.tsv" "$repair_architecture"
+
+If deterministic validation rejects it, read only the new candidate rejection log reported by the command, make at most one further local correction, and submit once more. After success, terminate. Never launch tests, builds, workers, or repository searches.
+PROMPT
+chmod 600 "$prompt.tmp.$$"
+mv "$prompt.tmp.$$" "$prompt"
+
+attempt=1
+while true; do
+	stamp="$(timestamp_compact_utc)"
+	json="$dir/logs/manager-decomposition-repair-$stamp-attempt-$(printf '%03d' "$attempt").jsonl"
+	stderr="$dir/logs/manager-decomposition-repair-$stamp-attempt-$(printf '%03d' "$attempt").stderr.log"
+	message="$dir/logs/manager-decomposition-repair-$stamp-attempt-$(printf '%03d' "$attempt").md"
+	set +e
+	"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" decomposition "$DECOMPOSITION_MODEL" "$prompt" "$json" "$stderr" "$message"
+	status=$?
+	set -e
+	if project_plan_exists; then
+		log_event "DECOMPOSITION_REPAIR_ACCEPTED candidate=$candidate_id attempts=$attempt"
+		printf 'Decomposition candidate repaired and installed.\n'
+		exit 0
+	fi
+	classification="$(kv_file_value "${json%.jsonl}.classification" classification 2>/dev/null || true)"
+	retry_kind="$(codex_provider_retry_kind "$classification" 2>/dev/null || true)"
+	if [[ -n "$retry_kind" ]]; then
+		delay="$(codex_provider_retry_delay "$classification")"
+		printf 'Decomposition repair provider retry in %s seconds (%s).\n' "$delay" "$retry_kind" >&2
+		sleep "$delay"
+		attempt=$((attempt + 1))
+		continue
+	fi
+	(( status == 0 )) && die 'decomposition repair exited without installing the candidate'
+	die "decomposition repair failed with status $status; see $json"
+done

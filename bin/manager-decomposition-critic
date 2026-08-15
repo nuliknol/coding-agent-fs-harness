@@ -99,39 +99,13 @@ Include exactly one row for every obligation in SPECIFICATION_OBLIGATIONS_FILE. 
 
 Draft the DAG and perform one bounded critic pass over every node. Attempt to identify hidden prerequisites, multiple implementation concerns, undeclared symbols, broad file scopes, validation chains, or architecture decisions. Split or reroute every failing node. Count routes and confirm the Luna percentage. Do not manually read harness source or manually replay deterministic validators; the submission command performs those checks and preserves the candidate before validation.
 
-When ARCHITECTURE_GUARDS=1, a DAG containing exactly one dependency-free LOW/LUNA TEST_IMPLEMENTATION node receives a deterministic minimal architecture profile automatically when manager-init-project-plan runs. For that case, do not create ARCH_DIR or call manager-init-architecture: register the DAG directly. The generated profile has one specified test obligation, no decisions or edges, one node binding, one critical acceptance health gate using focused_validation, and no debt.
+Do not create architecture registry files in this turn. Architecture binding is a separate fresh Sol transaction after the DAG is durable.
 
-For every other guarded DAG, create ARCH_DIR under PROJECT_TMP_DIR with six exact files before registering the DAG:
+Stage the DAG and coverage with exactly:
 
-invariants.tsv:
-invariant_id<TAB>category<TAB>authority<TAB>severity<TAB>statement<TAB>scope<TAB>source_requirement<TAB>validation_kind<TAB>validation_ref<TAB>affected_nodes
+$HARNESS_BIN/manager-stage-decomposition-dag "$HARNESS_ENV_FILE" DAG_FILE SPECIFICATION_COVERAGE_FILE
 
-decisions.tsv:
-decision_id<TAB>status<TAB>producer_node<TAB>problem<TAB>chosen_contract<TAB>affected_interfaces<TAB>supersedes<TAB>evidence
-
-edges.tsv:
-edge_id<TAB>producer_node<TAB>consumer_node<TAB>contract_artifact<TAB>public_symbols<TAB>ownership_model<TAB>representation<TAB>versioning_rule<TAB>compatibility_validation<TAB>decision_ids<TAB>invariant_ids
-
-contract_artifact must be '-' when no durable artifact crosses the edge, a bounded repository-relative path, or decision:DECISION_ID. A decision reference resolves to that accepted decision's committed evidence path and the same DECISION_ID must appear in decision_ids. Do not invent URI-like placeholders such as architecture:DECISION_ID; unsupported namespaces are rejected. A future repository path may be absent during decomposition, but the producer must create and commit it before acceptance.
-
-node-bindings.tsv:
-node_id<TAB>invariant_ids<TAB>consumes_decisions<TAB>produces_decisions<TAB>edge_contracts<TAB>health_gates
-
-health-gates.tsv:
-gate_id<TAB>trigger_node<TAB>depends_on<TAB>validation<TAB>severity<TAB>invariant_ids<TAB>edge_ids
-
-debt.tsv:
-debt_id<TAB>introduced_by_task<TAB>introduced_by_commit<TAB>category<TAB>affected_invariants<TAB>consequence<TAB>remediation_node<TAB>severity<TAB>expires_at<TAB>status<TAB>waiver_authority
-
-Use '-' for an intentionally empty identifier list. Every DAG node must have exactly one node binding. Categories, authority, severity, and statuses must follow the architecture templates. SPECIFIED invariants must cite an original requirement; DERIVED invariants must be necessary consequences, not model preferences; PROPOSED invariants cannot silently constrain implementation. Every dependency carrying an API, representation, ownership, serialization, concurrency, or error contract needs an edge row. Terra decision nodes produce explicit ADR-like decisions; Luna nodes may consume accepted decisions but produce none. Add milestone health gates after coherent component groups and at final integration, using deterministic commands. Every invariant command, edge compatibility check, and lane/component/leaf gate must use its focused selector and must not require an unrelated aggregate test to exit zero. If an aggregate is useful as evidence, capture or tolerate its exit and assert the owned stage's exact result separately. Use HARNESS_BROAD_GATE_REQUIRED=1 in a validation command only when the human-owned governing specification explicitly requires whole-project aggregate success. Every enforceable invariant's affected_nodes must list only nodes whose bindings contain that invariant; do not classify a contract-decision node as runtime-affected when enforcement belongs to its implementation descendants. Start debt.tsv with only known, explicitly waived debt; do not invent debt to make the plan pass.
-
-Submit the DAG, coverage, and architecture registry in one durable transaction:
-
-$HARNESS_BIN/manager-submit-decomposition "$HARNESS_ENV_FILE" DAG_FILE SPECIFICATION_COVERAGE_FILE ARCH_DIR
-
-For the deterministic single-node TEST_IMPLEMENTATION profile, pass '-' as ARCH_DIR. The command stages all candidate files before deterministic validation. If it rejects the candidate, correct only the reported validation defect and resubmit; do not restart repository exploration.
-
-After the command succeeds, terminate. Do not publish a worker task, wait, poll, or modify repository files.
+After the command succeeds, terminate. Do not publish a worker task, construct architecture bindings, wait, poll, or modify repository files.
 PROMPT
 chmod 600 "$prompt.tmp.$$"
 mv "$prompt.tmp.$$" "$prompt"
@@ -157,6 +131,13 @@ while true; do
 		cp -f "$message" "$last_message" 2>/dev/null || true
 		log_event "DECOMPOSITION_CRITIC_APPROVED nodes=$(project_plan_total_count) attempts=$attempt"
 		printf 'Decomposition critic approved %s DAG nodes.\n' "$(project_plan_total_count)"
+		exit 0
+	fi
+	if decomposition_dag_candidate_matches_current_inputs &&
+		[[ "$(decomposition_dag_candidate_state_value status)" == STAGED ]]; then
+		cp -f "$message" "$last_message" 2>/dev/null || true
+		log_event "DECOMPOSITION_DAG_APPROVED nodes=$(( $(wc -l < "$(decomposition_dag_candidate_state_value dag)") - 1 )) attempts=$attempt"
+		printf 'Decomposition DAG and coverage staged for architecture binding.\n'
 		exit 0
 	fi
 	if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )) && specification_review_requires_clarification; then
