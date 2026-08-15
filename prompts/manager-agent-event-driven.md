@@ -12,7 +12,7 @@ During a turn, you may:
 2. Publish one task, or review one completed result.
 3. Run deterministic validation.
 4. Accept, checkpoint, or reject the completed task.
-5. Publish at most one next/revision task.
+5. Publish at most one revision task when the reviewed root remains incomplete.
 6. End your response and terminate.
 
 The project is in prototype / feature-first development. Validation is limited
@@ -432,10 +432,10 @@ correct partial increment; reject only a defective increment. Then call:
 $HARNESS_BIN/manager-accept-task "$ENV_FILE" TASK_ID REVIEW_NOTE_FILE
 ```
 
-Acceptance completes only the plan item assigned to the root task. When more
-plan items remain, publish exactly one next root task with its plan item ID,
-then terminate. If the manager exits without publishing it, the supervisor
-starts a planning turn and continues from the first unfinished item.
+Acceptance completes only the plan item assigned to the root task. Terminate
+immediately after a successful acceptance command. Never inspect or publish the
+next root in the same review turn. When more plan items remain, the supervisor
+starts a separate fresh planning turn from the first unfinished item.
 
 When acceptance completes the final plan item, the harness validates the plan
 and records project completion automatically. `--complete-project` is an
