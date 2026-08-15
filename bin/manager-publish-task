@@ -185,6 +185,30 @@ normalize_measured_assignment_metadata()
 
 normalize_measured_assignment_metadata
 
+normalize_recovery_architecture_metadata()
+{
+	local tmp
+	(( recovery_publish == 1 && HARNESS_ARCHITECTURE_GUARDS == 1 )) || return 0
+	[[ -n "$plan_item_id" ]] || return 0
+	tmp="$task_file.architecture.$$"
+	awk -F': ' '
+		$1 ~ /^(Affected-Invariants|Consumed-Decisions|Produced-Decisions|Edge-Contracts|Health-Gates)$/ {next}
+		{print}
+	' "$task_file" > "$tmp"
+	{
+		printf 'Affected-Invariants: %s\n' "$(architecture_node_value "$plan_item_id" invariant_ids)"
+		printf 'Consumed-Decisions: %s\n' "$(architecture_node_value "$plan_item_id" consumes_decisions)"
+		printf 'Produced-Decisions: %s\n' "$(architecture_node_value "$plan_item_id" produces_decisions)"
+		printf 'Edge-Contracts: %s\n' "$(architecture_node_value "$plan_item_id" edge_contracts)"
+		printf 'Health-Gates: %s\n' "$(architecture_node_value "$plan_item_id" health_gates)"
+	} >> "$tmp"
+	chmod --reference="$task_file" "$tmp"
+	mv "$tmp" "$task_file"
+	log_event "RECOVERY_ARCHITECTURE_METADATA_NORMALIZED task=$task_id plan_item=$plan_item_id"
+}
+
+normalize_recovery_architecture_metadata
+
 [[ ! -e "$ready" ]] || die "task already ready: $task_id"
 [[ ! -e "$running" ]] || die "task already running: $task_id"
 [[ ! -e "$result" ]] || die "task already has a result: $task_id"

@@ -66,6 +66,10 @@ compatibility alias; new files should use the uppercase shell variable.
 - Aggregate decomposition diagnostics: malformed complexity vectors and
   Terra-routed routine coding leaves are reported together across the complete
   candidate, avoiding one paid Sol correction turn per defective node.
+- Machine-owned recovery bindings: automatic replans and manager remediation
+  restore invariant, decision, edge, and health-gate metadata from the accepted
+  architecture registry before validation instead of asking an agent to copy
+  five exact fields and spending a publication attempt on transcription.
 
 ## Process model
 
