@@ -517,6 +517,13 @@ grep -Fq 'Do not open the global files from which it was derived.' "$review_cont
 grep -Fq 'Reviewers must not open the raw worker JSONL' "$review_digest"
 (( $(stat -c %s "$review_digest") <= 32768 ))
 (( $(stat -c %s "$review_context") <= 65536 ))
+plan_prompt="$TEST_ROOT/state/projects/testproj/control/manager-plan-next-task.prompt.md"
+plan_context="$TEST_ROOT/state/projects/testproj/control/manager-plan-next-task.context.md"
+[[ -f "$plan_prompt" && -f "$plan_context" ]]
+grep -Fq 'Complete it in at most six shell actions' "$plan_prompt"
+grep -Fq 'Never invoke a harness command with --help.' "$plan_prompt"
+grep -Fq "PLAN_NODE_CONTEXT_FILE=$plan_context" "$plan_prompt"
+grep -Fq 'Do not open the global files from which it was derived.' "$plan_context"
 [[ -f "$TEST_ROOT/state/projects/testproj/archive/testproj-task-001.assignment.md" ]]
 [[ -f "$TEST_ROOT/state/projects/testproj/archive/testproj-task-002.assignment.md" ]]
 normalized_result="$TEST_ROOT/state/projects/testproj/archive/testproj-task-002.result.md"
