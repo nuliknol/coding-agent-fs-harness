@@ -409,7 +409,12 @@ architecture_validate_registries()
 		[[ "$category" =~ ^(OWNERSHIP|CANONICAL_REPRESENTATION|LAYERING|SERIALIZATION|CONCURRENCY|ERROR_MODEL|DEVICE_AUTHORITY|PUBLIC_API|DEPENDENCY_CYCLE|SECURITY|PERFORMANCE|OTHER)$ ]] || die "invalid invariant category for $id"
 		[[ "$authority" =~ ^(SPECIFIED|DERIVED|PROPOSED)$ ]] || die "invalid invariant authority for $id"
 		[[ "$severity" =~ ^(INFO|WARNING|CRITICAL)$ ]] || die "invalid invariant severity for $id"
-		[[ -n "$statement" && -n "$scope" && "$source" != - && "$validation_kind" =~ ^(COMMAND|REVIEW)$ && -n "$validation_ref" && -n "$nodes" ]] || die "invariant $id has empty required fields"
+		[[ -n "$statement" ]] || die "invariant $id has empty statement"
+		[[ -n "$scope" ]] || die "invariant $id has empty scope"
+		[[ -n "$source" && "$source" != - ]] || die "invariant $id has empty source_requirement"
+		[[ "$validation_kind" =~ ^(COMMAND|REVIEW)$ ]] || die "invalid invariant validation_kind for $id: ${validation_kind:-<empty>}"
+		[[ -n "$validation_ref" ]] || die "invariant $id has empty validation_ref"
+		[[ -n "$nodes" ]] || die "invariant $id has empty affected_nodes"
 		[[ "$authority" == PROPOSED || "$nodes" != - ]] || die "enforceable invariant $id requires affected_nodes"
 		invariant_count=$((invariant_count + 1))
 	done < "$(architecture_invariants_file)"

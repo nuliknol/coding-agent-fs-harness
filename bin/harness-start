@@ -171,7 +171,7 @@ while ! project_plan_exists; do
 			[[ "$(decomposition_candidate_state_value status)" == REJECTED ]]; then
 			full_rejection_log="$(decomposition_candidate_state_value rejection_log "$(decomposition_candidate_state_value directory)/rejection.log")"
 			if [[ -f "$full_rejection_log" ]] &&
-				grep -Eq 'invalid invariant severity' "$full_rejection_log"; then
+				grep -Eq 'invalid invariant severity|invariant .* has empty required fields|invalid invariant validation_kind' "$full_rejection_log"; then
 				printf 'Normalizing mechanical architecture severity aliases without an agent turn.\n'
 				if "$HARNESS_BIN/manager-repair-decomposition-schema" "$HARNESS_ENV_FILE"; then
 					continue

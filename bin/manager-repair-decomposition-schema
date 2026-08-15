@@ -16,7 +16,8 @@ candidate_dir="$(decomposition_candidate_state_value directory)"
 architecture_source="$(decomposition_candidate_state_value architecture_directory -)"
 rejection_log="$(decomposition_candidate_state_value rejection_log "$candidate_dir/rejection.log")"
 [[ "$architecture_source" != - && -d "$architecture_source" ]] || die 'schema repair requires an architecture registry'
-grep -Eq 'invalid invariant severity' "$rejection_log" || die 'candidate rejection is not a supported schema alias defect'
+grep -Eq 'invalid invariant severity|invariant .* has empty required fields|invalid invariant validation_kind' "$rejection_log" ||
+	die 'candidate rejection is not a supported schema alias defect'
 
 repair_dir="$PROJECT_TMP_DIR/decomposition-schema-repair-${candidate_dir##*/}"
 rm -rf -- "$repair_dir"
@@ -37,6 +38,14 @@ awk -F '\t' -v OFS='\t' '
 	$4 == "LOW" || $4 == "ADVISORY" { $4="INFO" }
 	{ print }
 ' "$architecture_source/invariants.tsv" > "$repair_dir/architecture/invariants.tsv"
+chmod 600 "$repair_dir/architecture/invariants.tsv"
+
+awk -F '\t' -v OFS='\t' '
+	NR == 1 { print; next }
+	$8 == "FOCUSED" || $8 == "FOCUSED_SELECTOR" || $8 == "FOCUSED_INSPECTION" { $8="REVIEW" }
+	{ print }
+' "$repair_dir/architecture/invariants.tsv" > "$repair_dir/architecture/invariants.tsv.normalized"
+mv "$repair_dir/architecture/invariants.tsv.normalized" "$repair_dir/architecture/invariants.tsv"
 chmod 600 "$repair_dir/architecture/invariants.tsv"
 
 set +e
