@@ -142,6 +142,7 @@ sed \
 	-e 's/^Worker-Route: TERRA$/Worker-Route: LUNA/' \
 	-e 's/^Architecture-Decisions: NONE$/Architecture-Decisions: -/' \
 	"$TEST_ROOT/revised-root.md" > "$TEST_ROOT/planned-revision.md"
+printf '# stale planning marker\n' > "$project/control/manager-plan-stalled.md"
 "$HARNESS_BIN/manager-publish-planned-task" "$TEST_ROOT/harness.env" \
 	"$TEST_ROOT/planned-revision.md" >/dev/null
 planned="$project/tasks/revisionproj-task-contract-revision-01.ready.md"
@@ -150,5 +151,6 @@ grep -Fqx 'Task-ID: contract-revision-01' "$planned"
 grep -Fqx 'Project-Plan-Item-ID: contract' "$planned"
 grep -Fqx 'Worker-Route: TERRA' "$planned"
 grep -Fqx 'Architecture-Decisions: NONE' "$planned"
+[[ ! -e "$project/control/manager-plan-stalled.md" ]]
 
 printf 'active plan node revision tests passed\n'

@@ -848,6 +848,11 @@ if (( recovery_publish == 1 )); then
 	rm -f "$(task_root_replan_file "$root")" "$(task_root_replanning_file "$root")"
 fi
 activate_project_plan_item "$plan_item_id" "$root"
+# A successful atomic publication is itself the durable state change that
+# resolves a prior planning-gap circuit breaker. Do not let its stale marker
+# mask READY work in status output or suppress future planning transitions.
+rm -f "$dir/control/manager-plan-stalled.md" \
+	"$dir/control/manager-plan-structural-error.md"
 
 log_event "TASK_PUBLISHED task=$task_id root=$root plan_item=$plan_item_id starting_progress=$starting_progress target_criterion=${target_criterion:--} auto_replan=$auto_replan manager_remediation=$manager_remediation goal_mode=$goal_mode goal_id=${goal_id:--} worker_route=${leaf_worker_route:--} leaf_type=${leaf_type:--} validation_class=${leaf_validation_class:--} decomposition_model=$leaf_planner_model preferred_route_override=$preferred_route_override file=$ready"
 trace_event TASK_PUBLISHED "task_id=$task_id" "task_root=$root" "plan_item=$plan_item_id" "starting_progress=$starting_progress" "target_criterion=${target_criterion:--}" "auto_replan=$auto_replan" "manager_remediation=$manager_remediation" "goal_mode=$goal_mode" "goal_id=${goal_id:-}" "worker_route=${leaf_worker_route:-}" "leaf_type=${leaf_type:-}" "validation_class=${leaf_validation_class:-}" "decomposition_model=$leaf_planner_model" "preferred_route_override=$preferred_route_override" "source_file=$task_file" "ready_file=$ready" "progress_file=$progress"
