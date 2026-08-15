@@ -233,6 +233,18 @@ grep -q '^classification=success$' "$TMP/token-phase.classification"
 grep -q '^agent_phase=specification_review$' "$TMP/token-phase.classification"
 grep -q '^processed_token_limit=120$' "$TMP/token-phase.classification"
 
+# Candidate repair is still a global decomposition operation. It receives the
+# decomposition allowance instead of the ordinary per-turn worker allowance.
+repair_prompt="$TMP/decomposition-repair-prompt"
+printf 'AGENT_PHASE=decomposition_repair\n' > "$repair_prompt"
+printf 'export HARNESS_MAX_DECOMPOSITION_PROCESSED_TOKENS_PER_INVOCATION="200"\n' >> "$TMP/env-resource"
+MOCK_MODE=token_heavy "$ROOT/bin/codex-exec-jsonl" "$TMP/env-resource" decomposition gpt-5.5 \
+	"$repair_prompt" "$TMP/decomposition-repair.jsonl" "$TMP/decomposition-repair.stderr" \
+	"$TMP/decomposition-repair.last"
+grep -q '^classification=success$' "$TMP/decomposition-repair.classification"
+grep -q '^agent_phase=decomposition_repair$' "$TMP/decomposition-repair.classification"
+grep -q '^processed_token_limit=200$' "$TMP/decomposition-repair.classification"
+
 # One harness-start transaction has a hard process budget independent of the
 # time-based limiter. Exhaustion must fail before the model executable starts.
 startup_budget="$TMP/state/projects/jsonltest/control/test-startup-budget.env"

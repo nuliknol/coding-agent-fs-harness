@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TASK_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 2 ]] || usage
+load_harness_env "$1"
+candidate="$2"
+ensure_project
+require_registered_specification_ir
+[[ -f "$candidate" ]] || die "task file does not exist: $candidate"
+
+plan_state="$(project_plan_state_file)"
+active_item="$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" {print $1; exit}' "$plan_state")"
+active_root="$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" {print $3; exit}' "$plan_state")"
+if [[ -n "$active_item" && -n "$active_root" && "$active_root" != - ]]; then
+	plan_item_id="$active_item"
+	task_id="$(next_task_revision_id "$active_root")"
+	root_assignment="$(task_root_assignment_file "$active_root")"
+	[[ -f "$root_assignment" ]] || die "active root assignment is missing: $active_root"
+else
+	plan_item_id="$(project_plan_first_ready_item 2>/dev/null || true)"
+	[[ -n "$plan_item_id" ]] || die 'no dependency-ready pending plan node exists'
+	task_id="$plan_item_id"
+	active_root=""
+	root_assignment=""
+fi
+
+publish_file="$PROJECT_TMP_DIR/$PROJECT-task-$task_id.planned.md"
+install -m 600 "$candidate" "$publish_file"
+
+normalize_metadata()
+{
+	local file="$1" field="$2" value="$3" tmp
+	[[ "$value" != *$'\n'* && "$value" != *$'\r'* ]] || die "multiline metadata is invalid: $field"
+	tmp="$file.tmp.$$"
+	awk -v field="$field" -v value="$value" '
+		BEGIN {prefix = field ": "}
+		index($0, prefix) == 1 {
+			if (!seen++) print prefix value
+			next
+		}
+		{print}
+		END {if (!seen) print prefix value}
+	' "$file" > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$file"
+}
+
+# Durable state owns publication identity. The planner authors the task, but
+# it must not infer revision numbering or the active plan-node identifier.
+normalize_metadata "$publish_file" Task-ID "$task_id"
+normalize_metadata "$publish_file" Project-Plan-Item-ID "$plan_item_id"
+
+if [[ -n "$root_assignment" ]]; then
+	# A continuation may narrow its objective and evidence, but it cannot mutate
+	# the accepted root's DAG routing or architecture authority. Fill omissions
+	# and replace accidental sentinel/spelling changes deterministically.
+	for field in \
+		Leaf-Type Complexity-Class Worker-Route Depends-On Deliverable \
+		Required-Symbols Context-Paths Architecture-Decisions Validation-Class \
+		Expected-Max-Implementation-Files Expected-Max-Worker-Turns \
+		Affected-Invariants Consumed-Decisions Produced-Decisions \
+		Edge-Contracts Health-Gates; do
+		value="$(metadata_value "$root_assignment" "$field")"
+		[[ -n "$value" ]] || continue
+		normalize_metadata "$publish_file" "$field" "$value"
+	done
+fi
+
+"$HARNESS_BIN/manager-publish-task" "$HARNESS_ENV_FILE" \
+	"$task_id" "$publish_file" "$plan_item_id"

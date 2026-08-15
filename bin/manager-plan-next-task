@@ -126,6 +126,14 @@ plan_context_node="$active_item_before"
 [[ -n "$plan_context_node" && "$plan_context_node" != - ]] || plan_context_node="$ready_plan_node"
 plan_context_capsule="$project_path/control/manager-plan-next-task.context.md"
 write_plan_node_context_capsule "$plan_context_capsule" "$plan_context_node"
+if [[ -n "$active_root_before" && "$active_root_before" != - ]]; then
+	publish_task_id="$(next_task_revision_id "$active_root_before")"
+	publish_plan_item_id="$active_item_before"
+else
+	publish_task_id="$ready_plan_node"
+	publish_plan_item_id="$ready_plan_node"
+fi
+task_output="$PROJECT_TMP_DIR/$PROJECT-task-$publish_task_id.planning.md"
 
 cat > "$prompt_file.tmp.$$" <<PROMPT
 The previous root task is resolved, or an ACTIVE root was explicitly resumed after replanning; the project has no active task process and its specification is not complete.
@@ -161,8 +169,15 @@ SPECIFICATION_RELATIONS_FILE=-
 SPECIFICATION_COVERAGE_FILE=-
 READY_PLAN_NODE=$ready_plan_node
 PLAN_NODE_CONTEXT_FILE=$plan_context_capsule
+PUBLISH_TASK_ID=$publish_task_id
+PUBLISH_PLAN_ITEM_ID=$publish_plan_item_id
+TASK_OUTPUT=$task_output
 
-This is one bounded event-driven planning turn in fresh context. Complete it in at most six shell actions: one context/root read, one bounded source inspection, one optional exact dependency check, one task write, one publication command, and at most one correction. Read DEVELOPMENT_POLICY_FILE when present, PLAN_NODE_CONTEXT_FILE once, and the ACTIVE root files listed above when present. PLAN_NODE_CONTEXT_FILE is the complete plan, DAG, normalized-IR, and architecture authority for this turn; do not open global project files, the human specification, repository inventory, architecture registries, prior agent logs, harness source, or the generic manager protocol. Never invoke a harness command with --help. Publish with exactly `$HARNESS_BIN/manager-publish-task "$HARNESS_ENV_FILE" TASK_ID TASK_FILE PLAN_ITEM_ID`; a dependency wait uses `$HARNESS_BIN/manager-wait-dependency "$HARNESS_ENV_FILE" REQUEST_ID PLAN_ITEM_ID TASK_ROOT REQUIREMENTS_TSV NOTE_FILE`. If ACTIVE_TASK_ROOT is set, publish one bounded continuation with Target-Criterion equal to ACTIVE_FIRST_UNMET_CRITERION. Otherwise publish READY_PLAN_NODE; never publish a node whose dependencies are incomplete. Bound every shell output to at most $HARNESS_VALIDATION_OUTPUT_MAX_LINES lines and $HARNESS_VALIDATION_OUTPUT_MAX_BYTES bytes. Inspect only repository paths named by the capsule or active assignment, using exact symbols and bounded excerpts rather than dumping complete headers. Write exactly one task under PROJECT_TMP_DIR and publish it. Preserve completed implementation and terminate after publication. Do not wait, sleep, poll, watch, or repeat completed items.
+This is one bounded event-driven planning turn in fresh context. Complete it in at most six shell actions: one context/root read, one bounded source inspection, one optional exact dependency check, one task write, one publication command, and at most one correction. Read DEVELOPMENT_POLICY_FILE when present, PLAN_NODE_CONTEXT_FILE once, and the ACTIVE root files listed above when present. PLAN_NODE_CONTEXT_FILE is the complete plan, DAG, normalized-IR, and architecture authority for this turn; do not open global project files, the human specification, repository inventory, architecture registries, prior agent logs, harness source, or the generic manager protocol. Never invoke a harness command with --help. Write the assignment to exactly TASK_OUTPUT with Task-ID PUBLISH_TASK_ID and Project-Plan-Item-ID PUBLISH_PLAN_ITEM_ID, then run exactly:
+
+  $HARNESS_BIN/manager-publish-planned-task "$HARNESS_ENV_FILE" "$task_output"
+
+The publisher derives identity again from durable state and preserves immutable root DAG/architecture metadata. A dependency wait runs $HARNESS_BIN/manager-wait-dependency with ENV_FILE, REQUEST_ID, PLAN_ITEM_ID, TASK_ROOT, REQUIREMENTS_TSV, and NOTE_FILE in that order. If ACTIVE_TASK_ROOT is set, publish one bounded continuation with Target-Criterion equal to ACTIVE_FIRST_UNMET_CRITERION and copy its immutable root metadata exactly. Otherwise publish READY_PLAN_NODE; never publish a node whose dependencies are incomplete. Bound every shell output to at most $HARNESS_VALIDATION_OUTPUT_MAX_LINES lines and $HARNESS_VALIDATION_OUTPUT_MAX_BYTES bytes. Inspect only repository paths named by the capsule or active assignment, using exact symbols and bounded excerpts rather than dumping complete headers. Write exactly one task and publish it. Preserve completed implementation and terminate after publication. Do not wait, sleep, poll, watch, or repeat completed items.
 
 Before publishing, verify mandatory cross-harness Git refs named by PLAN_NODE_CONTEXT_FILE or the active root assignment. When one is absent, write the exact seven-column requirements TSV and supplier note, call manager-wait-dependency for ACTIVE_PLAN_ITEM and ACTIVE_TASK_ROOT, and terminate. Do not publish another absence audit or count repeated absence as gain. When all mandatory refs exist, include them in Mandatory-Git-Refs metadata.
 PROMPT

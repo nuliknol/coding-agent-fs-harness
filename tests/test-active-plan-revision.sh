@@ -134,4 +134,21 @@ revision_archive="$(find "$project/archive/plan-node-revisions/contract" -mindep
 grep -Fqx 'old_allowed_paths=src/api.h' "$revision_archive/revision.env"
 grep -Fqx 'new_allowed_paths=src/api.h,src/api.c' "$revision_archive/revision.env"
 
+# Planning publication derives revision identity from durable state and restores
+# immutable DAG metadata from the accepted root instead of trusting model prose.
+sed \
+	-e 's/^Task-ID: contract$/Task-ID: invented-task-name/' \
+	-e 's/^Project-Plan-Item-ID: contract$/Project-Plan-Item-ID: invented-node/' \
+	-e 's/^Worker-Route: TERRA$/Worker-Route: LUNA/' \
+	-e 's/^Architecture-Decisions: NONE$/Architecture-Decisions: -/' \
+	"$TEST_ROOT/revised-root.md" > "$TEST_ROOT/planned-revision.md"
+"$HARNESS_BIN/manager-publish-planned-task" "$TEST_ROOT/harness.env" \
+	"$TEST_ROOT/planned-revision.md" >/dev/null
+planned="$project/tasks/revisionproj-task-contract-revision-01.ready.md"
+[[ -f "$planned" ]]
+grep -Fqx 'Task-ID: contract-revision-01' "$planned"
+grep -Fqx 'Project-Plan-Item-ID: contract' "$planned"
+grep -Fqx 'Worker-Route: TERRA' "$planned"
+grep -Fqx 'Architecture-Decisions: NONE' "$planned"
+
 printf 'active plan node revision tests passed\n'
