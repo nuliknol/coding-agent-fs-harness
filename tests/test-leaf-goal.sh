@@ -790,9 +790,19 @@ printf 'P0\tRotating goal\n' > "$ROTATE_ROOT/plan.tsv"
 sed 's/goalproj/goalrotate/g; s/goal.001.behavior/goal.rotate.behavior/g' \
 	"$TEST_ROOT/task.md" > "$ROTATE_ROOT/task.md"
 "$HARNESS_BIN/manager-publish-task" "$ROTATE_ROOT/harness.env" 001 "$ROTATE_ROOT/task.md" P0 >/dev/null
+rotation_project="$ROTATE_ROOT/state/projects/goalrotate"
+printf 'export HARNESS_WORKER_GOAL_MODE="0"\n' >> "$ROTATE_ROOT/harness.env"
+if "$HARNESS_BIN/worker-invoke-task" "$ROTATE_ROOT/harness.env" 001 \
+	>"$ROTATE_ROOT/invoke.out" 2>"$ROTATE_ROOT/invoke.err"; then
+	printf 'goal mode was disabled over a ready goal assignment\n' >&2
+	exit 1
+fi
+grep -q 'refusing to claim an active LEAF_GOAL' "$ROTATE_ROOT/invoke.err"
+[[ -f "$rotation_project/tasks/goalrotate-task-001.ready.md" ]]
+[[ ! -e "$rotation_project/running/goalrotate-task-001.running.md" ]]
+printf 'export HARNESS_WORKER_GOAL_MODE="1"\n' >> "$ROTATE_ROOT/harness.env"
 rotation_session="$("$HARNESS_BIN/harness-new-session" "$ROTATE_ROOT/harness.env" worker)"
 "$HARNESS_BIN/worker-claim-task" "$ROTATE_ROOT/harness.env" 001 "$rotation_session" >/dev/null
-rotation_project="$ROTATE_ROOT/state/projects/goalrotate"
 rotation_state="$rotation_project/control/goals/goalrotate-task-001.goal"
 rotation_boundary="$(awk -F= '$1 == "last_boundary" {sub(/^[^=]*=/, ""); print}' "$rotation_state")"
 rotation_workspace="$(awk -F= '$1 == "last_workspace" {sub(/^[^=]*=/, ""); print}' "$rotation_state")"
@@ -877,15 +887,6 @@ mv "$rotation_project/tasks/goalrotate-task-001.ready.md" \
 	"$ROTATE_ROOT/aborted-transaction-recover.out"
 [[ ! -e "$rotation_project/tasks/goalrotate-task-001.ready.md" ]]
 [[ -f "$rotation_project/control/goalrotate-task-001.abort.md" ]]
-printf 'export HARNESS_WORKER_GOAL_MODE="0"\n' >> "$ROTATE_ROOT/harness.env"
-if "$HARNESS_BIN/worker-invoke-task" "$ROTATE_ROOT/harness.env" 001 \
-	>"$ROTATE_ROOT/invoke.out" 2>"$ROTATE_ROOT/invoke.err"; then
-	printf 'goal mode was disabled over an active goal assignment\n' >&2
-	exit 1
-fi
-grep -q 'refusing to claim an active LEAF_GOAL' "$ROTATE_ROOT/invoke.err"
-[[ -f "$rotation_project/tasks/goalrotate-task-001.ready.md" ]]
-[[ ! -e "$rotation_project/running/goalrotate-task-001.running.md" ]]
 
 # A terminal decomposition request preserves a verified diagnostic checkpoint
 # and immediately enters the existing automatic replan/decomposition path.

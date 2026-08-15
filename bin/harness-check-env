@@ -59,6 +59,11 @@ if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 	printf 'Architecture guards: %s\n' "$([[ "$HARNESS_ARCHITECTURE_GUARDS" == 1 ]] && printf enabled || printf disabled)"
 	printf 'Luna strategy failures before escalation: %s\n' "$HARNESS_MAX_LUNA_STRATEGY_FAILURES"
 	printf 'Maximum Luna Allowed-Scope path groups: %s\n' "$HARNESS_MAX_LUNA_ALLOWED_PATHS"
+	printf 'Measured Luna bounds: obligations<=%s score<=%s actions<=%s p95-tokens<=%s files<=%s risk-domains<=%s\n' \
+		"$HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF" "$HARNESS_MAX_LUNA_COMPLEXITY_SCORE" \
+		"$HARNESS_MAX_LUNA_PREDICTED_ACTIONS" "$HARNESS_MAX_LUNA_PREDICTED_P95_TOKENS" \
+		"$HARNESS_MAX_LUNA_IMPLEMENTATION_FILES" "$HARNESS_MAX_LUNA_RISK_DOMAINS"
+	printf 'Recursive Sol complexity passes: %s\n' "$HARNESS_MAX_COMPLEXITY_DECOMPOSITION_PASSES"
 else
 	printf 'Complexity decomposition: legacy v1\n'
 fi

@@ -27,11 +27,56 @@ rm -rf -- "$repair_dir"
 mkdir -p "$repair_dir"
 install -m 600 "$candidate_dir/dag.tsv" "$repair_dir/dag.tsv"
 install -m 600 "$candidate_dir/coverage.tsv" "$repair_dir/coverage.tsv"
+[[ ! -f "$candidate_dir/complexity.tsv" ]] || install -m 600 "$candidate_dir/complexity.tsv" "$repair_dir/complexity.tsv"
+
+repair_phase=decomposition_repair
+complexity_repair=0
+complexity_context='Correct only the reported deterministic DAG/coverage defect.'
+if grep -q 'LUNA_COMPLEXITY_' "$rejection_log"; then
+	complexity_repair=1
+	repair_phase=decomposition
+	complexity_report="$candidate_dir/complexity.tsv"
+	[[ -s "$complexity_report" ]] || die 'complexity rejection has no measured complexity report'
+	complexity_excess="$(awk -F '\t' '
+		NR>1 && $19!="READY" {n=split($20,v,";"); for(i=1;i<=n;i++) if(match(v[i],/=[0-9]+>[0-9]+/)){s=substr(v[i],RSTART+1,RLENGTH-1); split(s,a,">"); excess+=a[1]-a[2]}}
+		END{print excess+0}
+	' "$complexity_report")"
+	complexity_state="$(project_dir)/control/complexity-decomposition-state.env"
+	complexity_input_key="$(printf '%s\n%s\n%s\n' "$(specification_sha256)" "$(specification_review_repository_baseline)" "$(complexity_contract_sha256)" | sha256sum | awk '{print $1}')"
+	previous_candidate=""; previous_excess=0; previous_passes=0; previous_input_key=""
+	if [[ -f "$complexity_state" ]]; then
+		previous_input_key="$(kv_file_value "$complexity_state" input_key 2>/dev/null || true)"
+		previous_candidate="$(kv_file_value "$complexity_state" candidate 2>/dev/null || true)"
+		previous_excess="$(kv_file_value "$complexity_state" excess 2>/dev/null || printf 0)"
+		previous_passes="$(kv_file_value "$complexity_state" passes 2>/dev/null || printf 0)"
+	fi
+	if [[ "$previous_input_key" != "$complexity_input_key" ]]; then
+		previous_candidate=""; previous_excess=0; previous_passes=0
+	fi
+	[[ "$previous_excess" =~ ^[0-9]+$ ]] || previous_excess=0
+	[[ "$previous_passes" =~ ^[0-9]+$ ]] || previous_passes=0
+	if [[ -n "$previous_candidate" && "$previous_candidate" != "$candidate_id" ]]; then
+		(( complexity_excess < previous_excess )) ||
+			die "recursive complexity decomposition made no measured progress ($complexity_excess >= $previous_excess)"
+	fi
+	complexity_passes=$((previous_passes + 1))
+	(( complexity_passes <= HARNESS_MAX_COMPLEXITY_DECOMPOSITION_PASSES )) ||
+		die "recursive complexity decomposition exceeded $HARNESS_MAX_COMPLEXITY_DECOMPOSITION_PASSES bounded Sol repair passes"
+	{
+		printf 'input_key=%s\n' "$complexity_input_key"
+		printf 'candidate=%s\n' "$candidate_id"
+		printf 'excess=%s\n' "$complexity_excess"
+		printf 'passes=%s\n' "$complexity_passes"
+		printf 'updated_at=%s\n' "$(timestamp_utc)"
+	} > "$complexity_state.tmp.$$"
+	chmod 600 "$complexity_state.tmp.$$"
+	mv "$complexity_state.tmp.$$" "$complexity_state"
+	complexity_context="The deterministic complexity contract rejected one or more routine leaves. Read COMPLEXITY_REPORT and recursively split every OVER_BUDGET Luna node into ordered, independently acceptance-complete children. Preserve exact obligation coverage and typed dependencies. Reduce the measured excess across this pass and make every routine coding leaf LOW/LUNA. Do not merely lower declared numbers, weaken evidence, erase obligations, or route coding to Terra. Terra is allowed only for an irreducible decision or integration boundary with the exact justified terra_exception vocabulary."
+fi
 
 obligation_count="$(awk 'NR > 1 {count++} END {print count + 0}' "$(specification_obligations_file)")"
-repair_phase=decomposition_repair
 large_ir_global_repair=0
-if (( obligation_count >= HARNESS_LARGE_DECOMPOSITION_OBLIGATION_THRESHOLD )); then
+if (( complexity_repair == 0 && obligation_count >= HARNESS_LARGE_DECOMPOSITION_OBLIGATION_THRESHOLD )); then
 	large_ir_global_repair=1
 	repair_phase=decomposition
 	global_repair_key="$(printf '%s\n%s\n' "$(specification_sha256)" "$(specification_review_repository_baseline)" | sha256sum | awk '{print $1}')"
@@ -47,23 +92,28 @@ if (( obligation_count >= HARNESS_LARGE_DECOMPOSITION_OBLIGATION_THRESHOLD )); t
 	mv "$global_repair_marker.tmp.$$" "$global_repair_marker"
 fi
 
+[[ "$complexity_repair" == 1 ]] && repair_identity='recursive complexity-decomposition agent' || repair_identity='decomposition DAG/coverage repair agent'
 prompt="$dir/control/manager-decomposition-dag-repair.prompt.md"
 cat > "$prompt.tmp.$$" <<PROMPT
-You are a fresh, bounded decomposition DAG/coverage repair agent. Do not edit the repository and do not perform architecture binding or global decomposition.
+You are a fresh, bounded $repair_identity. Do not edit the repository or perform architecture binding.
 
 ENV_FILE=$HARNESS_ENV_FILE
 HARNESS_BIN=$HARNESS_BIN
 PROJECT=$PROJECT
 AGENT_PHASE=$repair_phase
 LARGE_IR_GLOBAL_REPAIR=$large_ir_global_repair
+COMPLEXITY_REPAIR=$complexity_repair
 NORMALIZED_OBLIGATION_COUNT=$obligation_count
 DAG_FILE=$repair_dir/dag.tsv
 SPECIFICATION_COVERAGE_FILE=$repair_dir/coverage.tsv
 VALIDATOR_DIAGNOSTICS=$rejection_log
+COMPLEXITY_REPORT=$repair_dir/complexity.tsv
+SPECIFICATION_OBLIGATIONS_FILE=$(specification_obligations_file)
+SPECIFICATION_RELATIONS_FILE=$(specification_relations_file)
 
-Read only VALIDATOR_DIAGNOSTICS, DAG_FILE, and SPECIFICATION_COVERAGE_FILE. Do not inspect repository files, the specification, normalized IR, inventory, harness source, development policy, Git history, prior agent logs, or unrelated temporary files.
+Read VALIDATOR_DIAGNOSTICS, DAG_FILE, SPECIFICATION_COVERAGE_FILE, and COMPLEXITY_REPORT. During COMPLEXITY_REPAIR=1 you may additionally read only the normalized obligation rows allocated to rejected nodes and semantic relations touching those obligation IDs. Do not inspect repository files, the human specification, inventory, harness source, development policy, Git history, prior agent logs, or unrelated temporary files.
 
-Correct only the reported deterministic DAG/coverage defect. Preserve deliverables, routes, allowed paths, validations, and obligation meaning. For typed dependency violations, make the consumer's allocated nodes follow the producer's allocated nodes through explicit DAG dependencies. If that would create a cycle because the current coverage groups obligations at the wrong semantic boundary, reassign those obligations to the semantically correct existing node or split that one node into bounded ordered leaves; never add a cyclic edge, erase a relation, map everything to an integration node, or collapse unrelated work. For an unjustified node, remove or merge only that node while preserving every normalized obligation exactly once in coverage and retaining all still-justified work. Apply the same reported defect class across all affected rows before submitting. LARGE_IR_GLOBAL_REPAIR=1 means this is the single permitted global repair for a large normalized IR: resolve all diagnostics as one coherent relation-aware DAG correction, but remain confined to the three supplied files.
+$complexity_context Preserve deliverables, routes, allowed paths, validations, and obligation meaning except where splitting requires narrower child-local values. For typed dependency violations, make the consumer's allocated nodes follow the producer's allocated nodes through explicit DAG dependencies. If that would create a cycle because the current coverage groups obligations at the wrong semantic boundary, reassign those obligations to the semantically correct existing node or split that one node into bounded ordered leaves; never add a cyclic edge, erase a relation, map everything to an integration node, or collapse unrelated work. For an unjustified node, remove or merge only that node while preserving every normalized obligation exactly once in coverage and retaining all still-justified work. Apply the same reported defect class across all affected rows before submitting. LARGE_IR_GLOBAL_REPAIR=1 means this is the single permitted global repair for a large normalized IR: resolve all diagnostics as one coherent relation-aware DAG correction, but remain confined to the supplied bounded semantic files.
 
 Submit once with:
 

@@ -122,27 +122,48 @@ fit_relative="$($HARNESS_BIN/manager-record-architecture-fit "$env_file" "$fit_r
 grep -Fqx 'status=ACCEPTED' "$project_dir/control/architecture-fit-review.env"
 
 cat > "$TEST_ROOT/dag.tsv" <<'EOF'
-node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route
-n01	-	-	Implement target behavior	Focused source exists	test -f src/a.c	src/a.c	target	LOCAL_IMPLEMENTATION	LOW	LUNA
+node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route	behavioral_concerns	failure_paths	ownership_transitions	concurrency_boundaries	validation_surfaces	implementation_files	predicted_worker_actions	predicted_p95_tokens	terra_exception
+n01	-	-	Implement target behavior	Focused source exists	test -f src/a.c	src/a.c	target	LOCAL_IMPLEMENTATION	LOW	LUNA	1	0	0	0	1	1	4	100000	-
+n02	-	n01	Expose target behavior	Focused source exists	test -f src/a.c	src/a.c	target	LOCAL_IMPLEMENTATION	LOW	LUNA	1	0	0	0	1	1	4	100000	-
 EOF
 cat > "$TEST_ROOT/coverage.tsv" <<'EOF'
 obligation_id	node_ids	evidence_plan
 REQ-ONE	n01	n01 focused source validation
-REQ-TWO	n01	n01 jointly satisfies the prerequisite and dependent behavior
+REQ-TWO	n02	n02 exposes the accepted prerequisite behavior
+EOF
+cat > "$TEST_ROOT/over-budget-dag.tsv" <<'EOF'
+node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route	behavioral_concerns	failure_paths	ownership_transitions	concurrency_boundaries	validation_surfaces	implementation_files	predicted_worker_actions	predicted_p95_tokens	terra_exception
+n01	-	-	Implement target behavior	Focused source exists	test -f src/a.c	src/a.c	target	LOCAL_IMPLEMENTATION	LOW	LUNA	2	0	0	0	1	1	4	100000	-
+EOF
+cat > "$TEST_ROOT/over-budget-coverage.tsv" <<'EOF'
+obligation_id	node_ids	evidence_plan
+REQ-ONE	n01	n01 combined behavior validation
+REQ-TWO	n01	n01 combined behavior validation
 EOF
 cat > "$TEST_ROOT/bad-coverage.tsv" <<'EOF'
 obligation_id	node_ids	evidence_plan
 EOF
 cat > "$TEST_ROOT/reorder-dag.tsv" <<'EOF'
-node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route
-n01	-	-	Expose target behavior	Focused source exists	test -f src/a.c	src/a.c	target	LOCAL_IMPLEMENTATION	LOW	LUNA
-n02	-	-	Implement target behavior	Focused source exists	test -f src/a.c	src/a.c	target	LOCAL_IMPLEMENTATION	LOW	LUNA
+node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route	behavioral_concerns	failure_paths	ownership_transitions	concurrency_boundaries	validation_surfaces	implementation_files	predicted_worker_actions	predicted_p95_tokens	terra_exception
+n01	-	-	Expose target behavior	Focused source exists	test -f src/a.c	src/a.c	target	LOCAL_IMPLEMENTATION	LOW	LUNA	1	0	0	0	1	1	4	100000	-
+n02	-	-	Implement target behavior	Focused source exists	test -f src/a.c	src/a.c	target	LOCAL_IMPLEMENTATION	LOW	LUNA	1	0	0	0	1	1	4	100000	-
 EOF
 cat > "$TEST_ROOT/reorder-coverage.tsv" <<'EOF'
 obligation_id	node_ids	evidence_plan
 REQ-ONE	n02	n02 implements the prerequisite
 REQ-TWO	n01	n01 exposes the dependent behavior
 EOF
+
+# A subjective LOW/LUNA label cannot bypass the deterministic complexity
+# vector. The candidate remains repairable and exposes its exact excess.
+set +e
+"$HARNESS_BIN/manager-stage-decomposition-dag" "$env_file" "$TEST_ROOT/over-budget-dag.tsv" "$TEST_ROOT/over-budget-coverage.tsv" >/dev/null 2>&1
+complexity_status=$?
+set -e
+(( complexity_status != 0 ))
+complexity_rejection_log="$(awk -F= '$1=="rejection_log" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
+grep -Fq 'LUNA_COMPLEXITY_OVER_BUDGET node=n01' "$complexity_rejection_log"
+grep -Fq 'behavioral_concerns=2>1' "$complexity_rejection_log"
 
 set +e
 "$HARNESS_BIN/manager-stage-decomposition-dag" "$env_file" "$TEST_ROOT/reorder-dag.tsv" "$TEST_ROOT/reorder-coverage.tsv" >/dev/null 2>&1
@@ -214,6 +235,35 @@ grep -Eq $'^\033\[7mstartup-split +\| *0\| paused' <<< "$watch_output"
 "$HARNESS_BIN/manager-submit-decomposition" --recover "$env_file" >/dev/null
 grep -Fqx 'status=INSTALLED' "$project_dir/control/decomposition-candidate.env"
 test -f "$project_dir/control/project-decomposition-v2.tsv"
+test -f "$project_dir/control/decomposition-complexity.tsv"
 grep -Fq $'n01\tPENDING\t-' "$project_dir/control/project-plan-state.tsv"
+complexity_output="$($HARNESS_BIN/harness-complexity "$env_file")"
+grep -Fq 'n01' <<< "$complexity_output"
+grep -Fq 'READY' <<< "$complexity_output"
+
+# Observed execution and manager outcome feed model- and planner-specific
+# calibration without changing the immutable plan.
+cat > "$TEST_ROOT/worker.classification" <<'EOF'
+classification=success
+invocation_processed_delta=80000
+estimated_processed_tokens=80000
+item_started_count=4
+changed_file_count=1
+changed_line_count=12
+invocation_duration_seconds=30
+EOF
+cat > "$TEST_ROOT/worker.jsonl" <<'EOF'
+{"type":"item.completed","item":{"type":"command_execution","command":"sed -n '1,20p' src/a.c","aggregated_output":"bounded source"}}
+EOF
+bash -c '
+	source "$1/lib/harness-common.sh"
+	load_harness_env "$2"
+	ensure_project
+	record_worker_complexity_observation leaf-task n01 worker "$LUNA_WORKER_MODEL" "$3" "$4"
+	record_worker_complexity_outcome leaf-task ACCEPTED
+' _ "$HARNESS_HOME" "$env_file" "$TEST_ROOT/worker.classification" "$TEST_ROOT/worker.jsonl"
+complexity_output="$($HARNESS_BIN/harness-complexity "$env_file")"
+grep -Fq $'gpt-5.6-luna\tLUNA\t1\t100.00' <<< "$complexity_output"
+grep -Fq $'gpt-5.6-sol\t1\t0.00\t100.00\t100.00\t80000' <<< "$complexity_output"
 
 printf 'split decomposition startup transaction tests passed\n'

@@ -79,6 +79,7 @@ else
 		printf 'specification_sha256=%s\n' "$(specification_sha256)"
 		printf 'repository_baseline=%s\n' "$(specification_review_repository_baseline)"
 		printf 'domain_profiles_sha256=%s\n' "$(domain_profiles_sha256)"
+		printf 'complexity_contract_sha256=%s\n' "$(complexity_contract_sha256)"
 		printf 'directory=%s\n' "$candidate_dir"
 		printf 'architecture_directory=%s\n' "$architecture_stage"
 		printf 'architecture_registered_by_candidate=0\n'

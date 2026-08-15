@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-mode.sh"
+harness_dispatch_mode "$SCRIPT_DIR/.." "${0##*/}" "$@"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2
+	printf '       %s --all\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 1 ]] || usage
+target="$1"
+observations="$(mktemp)"
+outcomes="$(mktemp)"
+trap 'rm -f "$observations" "$outcomes"' EXIT
+printf 'recorded_at\tproject\tplan_node\ttask_id\toutcome\troot_replans\tplanner_model\tplanner_effort\n' > "$outcomes"
+
+append_project()
+{
+	local env_file="$1" ledger outcome_ledger planner_model planner_effort
+	load_harness_env "$env_file"
+	ensure_project
+	ledger="$(project_dir)/logs/complexity-observations.tsv"
+	planner_model="$(decomposition_provenance_value planner_model "$DECOMPOSITION_MODEL" 2>/dev/null || printf '%s' "$DECOMPOSITION_MODEL")"
+	planner_effort="$(decomposition_provenance_value planner_reasoning_effort "$DECOMPOSITION_REASONING_EFFORT" 2>/dev/null || printf '%s' "$DECOMPOSITION_REASONING_EFFORT")"
+	[[ ! -f "$ledger" ]] || awk -F '\t' -v OFS='\t' -v planner="$planner_model" -v effort="$planner_effort" 'NR>1 {if(NF==21)print $0,0,planner,effort; else print $0,planner,effort}' "$ledger" >> "$observations"
+	outcome_ledger="$(project_dir)/logs/complexity-outcomes.tsv"
+	[[ ! -f "$outcome_ledger" ]] || tail -n +2 "$outcome_ledger" >> "$outcomes"
+	if [[ "$target" != --all ]]; then
+		printf 'Complexity contract: %s\n' "$([[ -f "$(decomposition_complexity_report_file)" ]] && printf measured || printf legacy-unmeasured)"
+		if [[ -f "$(decomposition_complexity_report_file)" ]]; then
+			printf '\nPredicted nodes\n'
+			printf 'NODE\tROUTE\tTYPE\tSCORE\tOBL\tPATHS\tSYMS\tACT\tP95\tRISKS\tSTATUS\tVIOLATIONS\n'
+			awk -F '\t' 'NR>1 {print $1,$2,$3,$4,$5,$7,$8,$15,$17,$18,$19,$20}' OFS='\t' \
+				"$(decomposition_complexity_report_file)"
+		fi
+	fi
+}
+
+if [[ "$target" == --all ]]; then
+	state_root="${HARNESS_ROOT:-$HOME/.local/state/coding-harness-full}"
+	while IFS= read -r config; do
+		env_file="$(kv_file_value "$config" env_file 2>/dev/null || true)"
+		[[ -f "$env_file" ]] || continue
+		append_project "$env_file"
+	done < <(find "$state_root/projects" -mindepth 2 -maxdepth 2 -type f -name project.conf 2>/dev/null | sort)
+else
+	append_project "$target"
+fi
+
+printf '\nObserved worker episodes\n'
+if [[ ! -s "$observations" ]]; then
+	printf 'No measured worker episodes recorded yet.\n'
+	exit 0
+fi
+printf 'PROJECT\tNODE\tTASK\tMODEL\tROUTE\tSCORE\tPRED_ACT\tACTUAL_ACT\tPRED_P95\tTOKENS\tSOURCE_READ_B\tREPEATED_READS\tCHANGED_FILES\tCHANGED_LINES\tCLASSIFICATION\n'
+awk -F '\t' '{print $2,$3,$4,$6,$7,$8,$9,$13,$10,$11,$17,$18,$19,$22,$21}' OFS='\t' "$observations"
+
+printf '\nModel calibration\n'
+printf 'MODEL\tROUTE\tEPISODES\tUNDER_250K_PCT\tFUSE_PCT\tPREDICTION_EXCEEDED_PCT\tACCEPTED_PCT\tSUCCESS_NO_REPLAN_PCT\tAVG_TOKENS\tP95_TOKENS\tAVG_ACTIONS\tP95_ACTIONS\n'
+awk -F '\t' '
+	function pct(n,d){return d?sprintf("%.2f",100*n/d):"N/A"}
+	NR==FNR {outcome[$2 SUBSEP $4]=$5; replans[$2 SUBSEP $4]=$6; next}
+	{
+		key=$6 SUBSEP $7; count[key]++; tokens[key]+=$11; actions[key]+=$13
+		if($11<=250000)under[key]++
+		if($21 ~ /token_budget_exceeded/)fuse[key]++
+		if($10>0 && $11>$10)exceeded[key]++
+		task_key=$2 SUBSEP $4
+		if(outcome[task_key]=="ACCEPTED"){accepted[key]++; if(replans[task_key]==0)no_replan[key]++}
+		token_values[key SUBSEP count[key]]=$11
+		action_values[key SUBSEP count[key]]=$13
+	}
+	END{
+		for(key in count){
+			split(key,p,SUBSEP); n=count[key]
+			for(i=1;i<=n;i++){tv[i]=token_values[key SUBSEP i]; av[i]=action_values[key SUBSEP i]}
+			for(i=1;i<=n;i++)for(j=i+1;j<=n;j++){if(tv[i]>tv[j]){x=tv[i];tv[i]=tv[j];tv[j]=x};if(av[i]>av[j]){x=av[i];av[i]=av[j];av[j]=x}}
+			rank=int((95*n+99)/100); if(rank<1)rank=1
+			print p[1],p[2],n,pct(under[key],n),pct(fuse[key],n),pct(exceeded[key],n),pct(accepted[key],n),pct(no_replan[key],n),int(tokens[key]/n),tv[rank],sprintf("%.2f",actions[key]/n),av[rank]
+			delete tv; delete av
+		}
+	}
+' OFS='\t' "$outcomes" "$observations" | sort
+
+printf '\nLuna-to-Terra escalation by decomposition model\n'
+printf 'PLANNER_MODEL\tLUNA_NODES\tTERRA_ESCALATION_PCT\tAVG_ESCALATION_TERRA_TOKENS\n'
+awk -F '\t' '
+	function pct(n,d){return d?sprintf("%.2f",100*n/d):"N/A"}
+	{
+		node=$2 SUBSEP $3
+		if($7=="LUNA" && !luna_seen[node]){luna_seen[node]=1; planner[node]=$23; luna_nodes[$23]++}
+		else if($7=="TERRA" && luna_seen[node]){if(!escalated[node]){escalated[node]=1; escalations[planner[node]]++}; escalation_tokens[planner[node]]+=$11}
+	}
+	END{for(p in luna_nodes){average=0; if(escalations[p]>0)average=int(escalation_tokens[p]/escalations[p]); print p,luna_nodes[p],pct(escalations[p],luna_nodes[p]),average}}
+' OFS='\t' "$observations" | sort
+
+printf '\nPlanner attribution\n'
+printf 'PLANNER_MODEL\tEPISODES\tWORKER_FUSE_PCT\tACCEPTED_PCT\tSUCCESS_NO_REPLAN_PCT\tAVG_WORKER_TOKENS\n'
+awk -F '\t' '
+	function pct(n,d){return d?sprintf("%.2f",100*n/d):"N/A"}
+	NR==FNR {outcome[$2 SUBSEP $4]=$5; replans[$2 SUBSEP $4]=$6; next}
+	{
+		planner=$23; n[planner]++; tokens[planner]+=$11
+		if($21 ~ /token_budget_exceeded/)fuse[planner]++
+		key=$2 SUBSEP $4
+		if(outcome[key]=="ACCEPTED"){accepted[planner]++; if(replans[key]==0)no_replan[planner]++}
+	}
+	END{for(planner in n)print planner,n[planner],pct(fuse[planner],n[planner]),pct(accepted[planner],n[planner]),pct(no_replan[planner],n[planner]),int(tokens[planner]/n[planner])}
+' OFS='\t' "$outcomes" "$observations" | sort

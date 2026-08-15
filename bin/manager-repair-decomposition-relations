@@ -103,7 +103,7 @@ awk -F '\t' -v OFS='\t' -v coverage_file="$coverage_source" \
 	}
 	FILENAME == dag_file {
 		if (FNR == 1) {header=$0; next}
-		row_count++; row[row_count]=$0; node=$1; node_order[node]=row_count; row_node[row_count]=node; node_parent[node]=$2; node_depends[node]=$3
+		row_count++; row[row_count]=$0; node=$1; node_order[node]=row_count; row_node[row_count]=node; node_parent[node]=$2; node_depends[node]=$3; row_fields[node]=NF
 		n=split($3,v,","); for(i=1;i<=n;i++) if(trim(v[i]) != "-") dependency[node SUBSEP trim(v[i])]=1
 		next
 	}
@@ -135,7 +135,7 @@ awk -F '\t' -v OFS='\t' -v coverage_file="$coverage_source" \
 			}
 			if (selected == "") {print "typed dependency repair produced a dependency or parent cycle" > "/dev/stderr"; exit 1}
 			emitted[selected]=1; node=selected; split(row[node_order[node]],f,"\t"); f[3]=node_depends[node]
-			out=f[1]; for(j=2;j<=11;j++) out=out OFS f[j]; print out
+			out=f[1]; for(j=2;j<=row_fields[node];j++) out=out OFS f[j]; print out
 		}
 	}
 ' "$coverage_source" "$(specification_relations_file)" "$dag_source" > "$repaired_dag"

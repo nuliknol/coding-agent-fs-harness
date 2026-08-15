@@ -164,6 +164,23 @@ grep -q '^resource_guard=ITEM_LIMIT$' "$TMP/item-loop.classification"
 grep -q 'agent invocation resource circuit breaker: live item-start budget reached' \
 	"$TMP/state/projects/jsonltest/control/progress/jsonltest-task-resource-root.needs-human.md"
 
+# A measured leaf tightens the global action ceiling to its own Sol-authored
+# upper bound. Two predicted actions permit two starts and stop on the third.
+cp "$TMP/env" "$TMP/env-measured-leaf"
+printf 'export HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION="100"\n' >> "$TMP/env-measured-leaf"
+measured_prompt="$TMP/measured-leaf-prompt"
+printf 'TASK_ID=measured-root\nTASK_ROOT=measured-root\nEXPECTED_MAX_AGENT_ACTIONS=2\nEFFECTIVE_P95_TOKENS=100000\n' > "$measured_prompt"
+set +e
+MOCK_MODE=item_loop "$ROOT/bin/codex-exec-jsonl" "$TMP/env-measured-leaf" worker gpt-5.5 \
+	"$measured_prompt" "$TMP/measured-item-loop.jsonl" "$TMP/measured-item-loop.stderr" "$TMP/measured-item-loop.last"
+measured_item_status=$?
+set -e
+(( measured_item_status != 0 ))
+grep -q '^classification=agent_item_budget_exceeded$' "$TMP/measured-item-loop.classification"
+grep -q '^item_limit=3$' "$TMP/measured-item-loop.classification"
+rm -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-measured-root.needs-human.md" \
+	"$TMP/state/projects/jsonltest/control/progress/jsonltest-task-measured-root.token-usage-anomaly.md"
+
 # Reviews have a tighter role-specific action budget. A review loop is a token
 # anomaly requiring inspection, not a product/authorization decision.
 cp "$TMP/env" "$TMP/env-review-items"
@@ -241,6 +258,19 @@ grep -q '^invocation_processed_delta=110$' "$TMP/token-heavy.classification"
 grep -q '^resource_guard=TOKEN_LIMIT$' "$TMP/token-heavy.classification"
 [[ -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-token-root.token-usage-anomaly.md" ]]
 rm -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-token-root.token-usage-anomaly.md"
+
+# The deterministic per-leaf p95 is also an invocation fuse even when the
+# project-wide worker allowance is larger.
+printf 'TASK_ID=predicted-token-root\nTASK_ROOT=predicted-token-root\nEXPECTED_MAX_AGENT_ACTIONS=8\nEFFECTIVE_P95_TOKENS=100\n' > "$TMP/predicted-token-prompt"
+set +e
+MOCK_MODE=token_heavy "$ROOT/bin/codex-exec-jsonl" "$TMP/env" worker gpt-5.5 \
+	"$TMP/predicted-token-prompt" "$TMP/predicted-token.jsonl" "$TMP/predicted-token.stderr" "$TMP/predicted-token.last"
+predicted_token_status=$?
+set -e
+(( predicted_token_status != 0 ))
+grep -q '^classification=agent_token_budget_exceeded$' "$TMP/predicted-token.classification"
+grep -q '^processed_token_limit=100$' "$TMP/predicted-token.classification"
+rm -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-predicted-token-root.token-usage-anomaly.md"
 
 # The named specification-normalization phase has a separate bounded allowance
 # while ordinary manager/worker turns retain the lower default limit.

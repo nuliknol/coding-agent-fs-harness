@@ -113,7 +113,11 @@ export HARNESS_START_MAX_AGENT_INVOCATIONS="7"
 export HARNESS_DOMAIN_PROFILES=""  # optional comma-separated profile IDs
 export HARNESS_MAX_LUNA_STRATEGY_FAILURES="3"
 export HARNESS_MAX_LUNA_ALLOWED_PATHS="8"
-export HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF="12"
+export HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF="2"
+export HARNESS_MAX_LUNA_COMPLEXITY_SCORE="24"
+export HARNESS_MAX_LUNA_PREDICTED_ACTIONS="8"
+export HARNESS_MAX_LUNA_PREDICTED_P95_TOKENS="250000"
+export HARNESS_MAX_COMPLEXITY_DECOMPOSITION_PASSES="3"
 export HARNESS_MAX_LUNA_CONTEXT_CAPSULE_BYTES="32768"
 export HARNESS_MIN_LUNA_NODE_PERCENT="80"
 export HARNESS_MIN_LUNA_CODING_NODE_PERCENT="80"
@@ -278,6 +282,22 @@ of imported obligations. A failed or resource-exceeded specification-review
 turn cannot make its candidate control state authoritative. Clarification
 omission claims against fenced registries are checked directly against the
 complete EOF-safe source region before they can be recorded.
+Fresh Sol DAGs also carry a deterministic complexity vector for every node:
+allocated obligation weight, bounded paths and symbols, behavioral concerns,
+failure paths, ownership and concurrency boundaries, validation surfaces,
+implementation-file and action estimates, predicted p95 tokens, and semantic
+risk domains. A routine leaf that exceeds any Luna budget is rejected before
+installation. Sol receives the measured excess and must recursively split the
+node; changing labels or routing ordinary coding to Terra cannot satisfy the
+validator. Terra is accepted only at an irreducible decision or integration
+boundary with an explicit exception class. Observed worker tokens, actions,
+output, reads, changes, duration, and outcome are retained as calibration data;
+after enough samples, model-specific p95 tokens per complexity point can only
+tighten future predictions.
+
+Run `bin/harness-complexity ENV_FILE` to compare each installed prediction with
+observed worker episodes and model-specific completion/fuse/prediction rates.
+Use `--all` to aggregate every project under the configured state root.
 Run `bin/harness-decomposition-tree ENV_FILE` to display the immutable DAG as a
 terminal tree with node state, complexity, configured worker route,
 dependencies, deliverable, and active task route. `--compact` shows one line
@@ -286,13 +306,15 @@ current criterion tree. New typed v2 plans must meet
 `HARNESS_MIN_LUNA_CODING_NODE_PERCENT` (80 by default). Its denominator is
 only coding-eligible nodes; Terra contract, architecture, concurrency,
 ambiguity, and integration nodes do not dilute the Luna target.
-For a stopped, incomplete Full-v2 project, run
+For a stopped, incomplete older Full-v2 project, run
 `bin/manager-reclassify-project-plan ENV_FILE` to have a fresh Sol critic
 reclassify only its `PENDING` nodes under the current Luna-first policy. The
 command refuses to run while harness processes are alive, preserves all DAG
 structure and every `ACTIVE` or `COMPLETE` route, validates the configured
 minimum pending Luna coding percentage, and stores the previous DAG plus an audit
 report under `control/reclassifications/` before installing the candidate.
+Measured plans intentionally reject label-only reclassification: their
+structure and complexity estimates must be revised together by Sol.
 With `HARNESS_PREFERRED_WORKER_ROUTE=LUNA`, typed new DAGs must classify every
 node with `leaf_type`; routine coding types cannot route to Terra. Existing
 immutable ten-column DAGs remain readable, but a manager may override an
@@ -676,7 +698,21 @@ export HARNESS_START_MAX_AGENT_INVOCATIONS="7"
 export HARNESS_DOMAIN_PROFILES=""
 export HARNESS_MAX_LUNA_STRATEGY_FAILURES="3"
 export HARNESS_MAX_LUNA_ALLOWED_PATHS="8"
-export HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF="12"
+export HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF="2"
+export HARNESS_MAX_LUNA_BEHAVIORAL_CONCERNS="1"
+export HARNESS_MAX_LUNA_FAILURE_PATHS="2"
+export HARNESS_MAX_LUNA_OWNERSHIP_TRANSITIONS="1"
+export HARNESS_MAX_LUNA_CONCURRENCY_BOUNDARIES="1"
+export HARNESS_MAX_LUNA_VALIDATION_SURFACES="1"
+export HARNESS_MAX_LUNA_IMPLEMENTATION_FILES="3"
+export HARNESS_MAX_LUNA_REQUIRED_SYMBOLS="3"
+export HARNESS_MAX_LUNA_PREDICTED_ACTIONS="8"
+export HARNESS_MAX_LUNA_PREDICTED_P95_TOKENS="250000"
+export HARNESS_MAX_LUNA_COMPLEXITY_SCORE="24"
+export HARNESS_MAX_LUNA_RISK_DOMAINS="2"
+export HARNESS_COMPLEXITY_TOKENS_PER_SCORE_POINT="10000"
+export HARNESS_COMPLEXITY_CALIBRATION_MIN_SAMPLES="10"
+export HARNESS_MAX_COMPLEXITY_DECOMPOSITION_PASSES="3"
 export HARNESS_MAX_LUNA_CONTEXT_CAPSULE_BYTES="32768"
 export HARNESS_MIN_LUNA_NODE_PERCENT="80"
 export HARNESS_MIN_LUNA_CODING_NODE_PERCENT="80"
@@ -1219,6 +1255,13 @@ Cumulative delivery, decomposition-quality, and token statistics:
 
 ```bash
 harness-statistics /path/to/repository/harness.env
+```
+
+Predicted versus observed per-leaf complexity and model calibration:
+
+```bash
+harness-complexity /path/to/repository/harness.env
+harness-complexity --all
 ```
 
 Model-aware estimated dollar cost by scaffolding phase, implementation route,

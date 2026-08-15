@@ -23,6 +23,8 @@ dir="$(project_dir)"
 dag="$(project_decomposition_plan_file)"
 state="$(project_plan_state_file)"
 typed_header=$'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tleaf_type\tcomplexity_class\tworker_route'
+[[ "$(sed -n '1p' "$dag")" != "$(decomposition_complexity_header)" ]] ||
+	die 'measured plans cannot be label-reclassified in place; use recursive Sol decomposition so structure and measured complexity change together'
 
 install_candidate()
 {

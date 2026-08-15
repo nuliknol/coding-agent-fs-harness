@@ -101,6 +101,21 @@ if [[ -z "$root_assignment" ]]; then
 	[[ -z "$node_leaf_type" ]] || normalize_metadata "$publish_file" Leaf-Type "$node_leaf_type"
 	normalize_metadata "$publish_file" Complexity-Class "$(project_plan_node_value "$plan_item_id" complexity_class)"
 	normalize_metadata "$publish_file" Worker-Route "$(project_plan_node_value "$plan_item_id" worker_route)"
+	if project_plan_has_column behavioral_concerns; then
+		normalize_metadata "$publish_file" Behavioral-Concerns "$(project_plan_node_value "$plan_item_id" behavioral_concerns)"
+		normalize_metadata "$publish_file" Failure-Paths "$(project_plan_node_value "$plan_item_id" failure_paths)"
+		normalize_metadata "$publish_file" Ownership-Transitions "$(project_plan_node_value "$plan_item_id" ownership_transitions)"
+		normalize_metadata "$publish_file" Concurrency-Boundaries "$(project_plan_node_value "$plan_item_id" concurrency_boundaries)"
+		normalize_metadata "$publish_file" Validation-Surfaces "$(project_plan_node_value "$plan_item_id" validation_surfaces)"
+		normalize_metadata "$publish_file" Expected-Max-Implementation-Files "$(project_plan_node_value "$plan_item_id" implementation_files)"
+		normalize_metadata "$publish_file" Expected-Max-Agent-Actions "$(project_plan_node_value "$plan_item_id" predicted_worker_actions)"
+		normalize_metadata "$publish_file" Predicted-P95-Tokens "$(project_plan_node_value "$plan_item_id" predicted_p95_tokens)"
+		normalize_metadata "$publish_file" Terra-Exception "$(project_plan_node_value "$plan_item_id" terra_exception)"
+		complexity_score="$(awk -F '\t' -v node="$plan_item_id" 'NR>1 && $1==node {print $4; exit}' "$(decomposition_complexity_report_file)")"
+		effective_p95="$(awk -F '\t' -v node="$plan_item_id" 'NR>1 && $1==node {print $17; exit}' "$(decomposition_complexity_report_file)")"
+		normalize_metadata "$publish_file" Complexity-Score "$complexity_score"
+		normalize_metadata "$publish_file" Effective-P95-Tokens "$effective_p95"
+	fi
 	node_validation="$(project_plan_node_value "$plan_item_id" focused_validation)"
 	case "$node_validation" in
 		CLEAN_GLOBAL:*) node_validation_class=CLEAN_GLOBAL ;;
@@ -170,6 +185,8 @@ if [[ -n "$root_assignment" ]]; then
 		Leaf-Type Complexity-Class Worker-Route Depends-On Deliverable \
 		Required-Symbols Context-Paths Architecture-Decisions Validation-Class \
 		Expected-Max-Implementation-Files Expected-Max-Worker-Turns \
+		Expected-Max-Agent-Actions Predicted-P95-Tokens Effective-P95-Tokens Complexity-Score \
+		Behavioral-Concerns Failure-Paths Ownership-Transitions Concurrency-Boundaries Validation-Surfaces Terra-Exception \
 		Affected-Invariants Consumed-Decisions Produced-Decisions \
 		Edge-Contracts Health-Gates; do
 		value="$(metadata_value "$root_assignment" "$field")"

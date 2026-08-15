@@ -92,6 +92,11 @@ if project_plan_uses_dag; then
 	printf '  Preferred route: %s\n' "$HARNESS_PREFERRED_WORKER_ROUTE"
 	printf '  Luna context bounds: obligations<=%s capsule<=%s bytes\n' \
 		"$HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF" "$HARNESS_MAX_LUNA_CONTEXT_CAPSULE_BYTES"
+	printf '  Measured Luna bounds: score<=%s actions<=%s p95-tokens<=%s files<=%s risk-domains<=%s\n' \
+		"$HARNESS_MAX_LUNA_COMPLEXITY_SCORE" "$HARNESS_MAX_LUNA_PREDICTED_ACTIONS" \
+		"$HARNESS_MAX_LUNA_PREDICTED_P95_TOKENS" "$HARNESS_MAX_LUNA_IMPLEMENTATION_FILES" \
+		"$HARNESS_MAX_LUNA_RISK_DOMAINS"
+	printf '  Complexity report: harness-complexity %s\n' "$HARNESS_ENV_FILE"
 	printf '  Tree: harness-decomposition-tree %s\n' "$HARNESS_ENV_FILE"
 elif project_plan_exists; then
 	printf '  Plan: legacy (%s items)\n' "$(project_plan_total_count)"

@@ -160,11 +160,24 @@ resource_task_id="$(prompt_value TASK_ID)"
 resource_task_root="$(prompt_value TASK_ROOT)"
 resource_agent_phase="$(prompt_value AGENT_PHASE)"
 resource_goal_mode="$(prompt_value WORKER_GOAL_MODE)"
+resource_expected_actions="$(prompt_value EXPECTED_MAX_AGENT_ACTIONS)"
+resource_effective_p95="$(prompt_value EFFECTIVE_P95_TOKENS)"
 resource_processed_token_limit="$HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION"
 resource_estimated_token_limit="$HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION"
 resource_item_limit="$HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION"
 if [[ "$role" == manager_review ]]; then
 	resource_item_limit="$HARNESS_MAX_MANAGER_REVIEW_ITEMS_PER_INVOCATION"
+fi
+if [[ "$role" =~ ^worker ]] && [[ "$resource_expected_actions" =~ ^[1-9][0-9]*$ ]] &&
+	(( resource_expected_actions + 1 < resource_item_limit )); then
+	# One extra start is the circuit-breaker boundary: the worker may complete
+	# every predicted action, but cannot silently turn a bounded leaf into a
+	# longer exploratory episode.
+	resource_item_limit=$((resource_expected_actions + 1))
+fi
+if [[ "$role" =~ ^worker ]] && [[ "$resource_effective_p95" =~ ^[1-9][0-9]*$ ]]; then
+	(( resource_effective_p95 < resource_processed_token_limit )) && resource_processed_token_limit="$resource_effective_p95"
+	(( resource_effective_p95 < resource_estimated_token_limit )) && resource_estimated_token_limit="$resource_effective_p95"
 fi
 if [[ "$resource_agent_phase" == specification_review ]]; then
 	resource_processed_token_limit="$HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION"
@@ -248,6 +261,7 @@ else
  "${cmd[@]}" < "$prompt" > "$json_log" 2> "$stderr_log" &
 fi
 pid=$!
+invocation_started_epoch="$(date +%s)"
 record_agent_invocation_started
 last_activity="$(date +%s)"
 while kill -0 "$pid" 2>/dev/null; do
@@ -400,11 +414,18 @@ elif ! jq -e 'select(.type == "turn.completed")' "$json_log" >/dev/null 2>&1; th
 elif [[ ! -s "$last_message" ]]; then classification="empty_final_output"
 fi
 classification_file="${json_log%.jsonl}.classification"
-printf 'classification=%s\nprovider_code=%s\nhttp_status=%s\nexit_status=%s\nidle_timeout=%s\nstop_requested=%s\npartial_edits=%s\ngit_head_changed=%s\nresume_requested=%s\nrole=%s\nmodel=%s\nthread_id=%s\ninput_tokens=%s\ncached_input_tokens=%s\noutput_tokens=%s\ninvocation_processed_delta=%s\ninvocation_delta_known=%s\nitem_started_count=%s\nestimated_processed_tokens=%s\nresource_guard=%s\nagent_phase=%s\nprocessed_token_limit=%s\nestimated_token_limit=%s\njsonl=%s\nstderr=%s\nlast_message=%s\n' \
+invocation_duration_seconds=$(( $(date +%s) - invocation_started_epoch ))
+changed_file_count=0
+changed_line_count=0
+if [[ -n "$git_head_before" ]] && git -C "$REPOSITORY" rev-parse HEAD >/dev/null 2>&1; then
+	changed_file_count="$(git -C "$REPOSITORY" diff --name-only "$git_head_before"..HEAD 2>/dev/null | awk 'NF {n++} END {print n+0}')"
+	changed_line_count="$(git -C "$REPOSITORY" diff --numstat "$git_head_before"..HEAD 2>/dev/null | awk '$1~/^[0-9]+$/&&$2~/^[0-9]+$/{n+=$1+$2} END{print n+0}')"
+fi
+printf 'classification=%s\nprovider_code=%s\nhttp_status=%s\nexit_status=%s\nidle_timeout=%s\nstop_requested=%s\npartial_edits=%s\ngit_head_changed=%s\nchanged_file_count=%s\nchanged_line_count=%s\nresume_requested=%s\nrole=%s\nmodel=%s\nthread_id=%s\ninput_tokens=%s\ncached_input_tokens=%s\noutput_tokens=%s\ninvocation_processed_delta=%s\ninvocation_delta_known=%s\nitem_started_count=%s\nestimated_processed_tokens=%s\ninvocation_duration_seconds=%s\nresource_guard=%s\nagent_phase=%s\nitem_limit=%s\nprocessed_token_limit=%s\nestimated_token_limit=%s\njsonl=%s\nstderr=%s\nlast_message=%s\n' \
 	"$classification" "$error_code" "$http_status" "$status" "$idle_timed_out" "$stop_requested" "$git_state_changed" \
-	"$git_head_changed" "$resume_requested" "$role" "$model" "$usage_thread" "$usage_input" "$usage_cached" "$usage_output" \
-	"$invocation_processed_delta" "$invocation_delta_known" "$agent_item_count" "$agent_estimated_processed_tokens" "${resource_guard_kind:--}" \
-	"${resource_agent_phase:-ordinary}" "$resource_processed_token_limit" "$resource_estimated_token_limit" \
+	"$git_head_changed" "$changed_file_count" "$changed_line_count" "$resume_requested" "$role" "$model" "$usage_thread" "$usage_input" "$usage_cached" "$usage_output" \
+	"$invocation_processed_delta" "$invocation_delta_known" "$agent_item_count" "$agent_estimated_processed_tokens" "$invocation_duration_seconds" \
+	"${resource_guard_kind:--}" "${resource_agent_phase:-ordinary}" "$resource_item_limit" "$resource_processed_token_limit" "$resource_estimated_token_limit" \
 	"$json_log" "$stderr_log" "$last_message" > "$classification_file"
 printf 'CODEX_CLASSIFICATION=%s\nCODEX_STDERR_LOG=%s\nCODEX_CLASSIFICATION_FILE=%s\n' "$classification" "$stderr_log" "$classification_file" >&2
 exit "$status"

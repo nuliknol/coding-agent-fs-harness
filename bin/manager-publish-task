@@ -392,6 +392,16 @@ leaf_planner_model="$(decomposition_provenance_value planner_model "$DECOMPOSITI
 leaf_planner_effort="$(decomposition_provenance_value planner_reasoning_effort "$DECOMPOSITION_REASONING_EFFORT" 2>/dev/null || printf '%s' "$DECOMPOSITION_REASONING_EFFORT")"
 leaf_expected_files=""
 leaf_expected_turns=""
+leaf_expected_actions=""
+leaf_predicted_p95=""
+leaf_effective_p95=""
+leaf_complexity_score=""
+leaf_behavioral_concerns=""
+leaf_failure_paths=""
+leaf_ownership_transitions=""
+leaf_concurrency_boundaries=""
+leaf_validation_surfaces=""
+leaf_terra_exception=""
 preferred_route_override=0
 if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 	goal_mode=1
@@ -420,6 +430,41 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 		[[ -n "$leaf_validation_class" ]] || leaf_validation_class=FOCUSED
 		leaf_expected_files="$(require_single_metadata_value "$task_file" Expected-Max-Implementation-Files 'v2 leaf assignment')"
 		leaf_expected_turns="$(require_single_metadata_value "$task_file" Expected-Max-Worker-Turns 'v2 leaf assignment')"
+		if project_plan_has_column behavioral_concerns; then
+			leaf_expected_actions="$(require_single_metadata_value "$task_file" Expected-Max-Agent-Actions 'measured leaf assignment')"
+			leaf_predicted_p95="$(require_single_metadata_value "$task_file" Predicted-P95-Tokens 'measured leaf assignment')"
+			leaf_effective_p95="$(require_single_metadata_value "$task_file" Effective-P95-Tokens 'measured leaf assignment')"
+			leaf_complexity_score="$(require_single_metadata_value "$task_file" Complexity-Score 'measured leaf assignment')"
+			leaf_behavioral_concerns="$(require_single_metadata_value "$task_file" Behavioral-Concerns 'measured leaf assignment')"
+			leaf_failure_paths="$(require_single_metadata_value "$task_file" Failure-Paths 'measured leaf assignment')"
+			leaf_ownership_transitions="$(require_single_metadata_value "$task_file" Ownership-Transitions 'measured leaf assignment')"
+			leaf_concurrency_boundaries="$(require_single_metadata_value "$task_file" Concurrency-Boundaries 'measured leaf assignment')"
+			leaf_validation_surfaces="$(require_single_metadata_value "$task_file" Validation-Surfaces 'measured leaf assignment')"
+			leaf_terra_exception="$(require_single_metadata_value "$task_file" Terra-Exception 'measured leaf assignment')"
+			for value in "$leaf_expected_actions" "$leaf_predicted_p95" "$leaf_effective_p95" "$leaf_complexity_score" \
+				"$leaf_behavioral_concerns" "$leaf_failure_paths" "$leaf_ownership_transitions" "$leaf_concurrency_boundaries" "$leaf_validation_surfaces"; do
+				[[ "$value" =~ ^[0-9]+$ ]] || die 'measured leaf complexity metadata must be nonnegative integers'
+			done
+			for mapping in \
+				"Behavioral-Concerns:behavioral_concerns:$leaf_behavioral_concerns" \
+				"Failure-Paths:failure_paths:$leaf_failure_paths" \
+				"Ownership-Transitions:ownership_transitions:$leaf_ownership_transitions" \
+				"Concurrency-Boundaries:concurrency_boundaries:$leaf_concurrency_boundaries" \
+				"Validation-Surfaces:validation_surfaces:$leaf_validation_surfaces" \
+				"Expected-Max-Implementation-Files:implementation_files:$leaf_expected_files" \
+				"Expected-Max-Agent-Actions:predicted_worker_actions:$leaf_expected_actions" \
+				"Predicted-P95-Tokens:predicted_p95_tokens:$leaf_predicted_p95" \
+				"Terra-Exception:terra_exception:$leaf_terra_exception"; do
+				IFS=: read -r metadata_field plan_field actual_value <<< "$mapping"
+				expected_value="$(project_plan_node_value "$plan_item_id" "$plan_field")"
+				[[ "$actual_value" == "$expected_value" ]] ||
+					die "$metadata_field must match the immutable measured decomposition value for $plan_item_id"
+			done
+			expected_value="$(awk -F '\t' -v node="$plan_item_id" 'NR>1 && $1==node {print $4; exit}' "$(decomposition_complexity_report_file)")"
+			[[ "$leaf_complexity_score" == "$expected_value" ]] || die 'Complexity-Score must match the deterministic complexity report'
+			expected_value="$(awk -F '\t' -v node="$plan_item_id" 'NR>1 && $1==node {print $17; exit}' "$(decomposition_complexity_report_file)")"
+			[[ "$leaf_effective_p95" == "$expected_value" ]] || die 'Effective-P95-Tokens must match the deterministic complexity report'
+		fi
 		[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]] ||
 			die "invalid Leaf-Type: $leaf_type"
 		[[ "$leaf_complexity" =~ ^(LOW|MEDIUM|HIGH)$ ]] || die "invalid Complexity-Class: $leaf_complexity"
@@ -439,8 +484,19 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 				die "Leaf-Type $leaf_type requires Terra"
 			[[ "$leaf_architecture_decisions" == NONE ]] || die 'Luna leaves must set Architecture-Decisions: NONE'
 			[[ "$leaf_validation_class" != CLEAN_GLOBAL ]] || die 'Luna leaves cannot use CLEAN_GLOBAL validation; publish a separate Terra INTEGRATION leaf'
-			(( leaf_expected_files <= 5 )) || die 'Luna leaves may expect at most five implementation files'
+			if [[ -n "$leaf_expected_actions" ]]; then
+				(( leaf_expected_files <= HARNESS_MAX_LUNA_IMPLEMENTATION_FILES )) ||
+					die "measured Luna leaves may expect at most $HARNESS_MAX_LUNA_IMPLEMENTATION_FILES implementation files"
+			else
+				(( leaf_expected_files <= 5 )) || die 'legacy Luna leaves may expect at most five implementation files'
+			fi
 			(( leaf_expected_turns <= 3 )) || die 'Luna leaves may expect at most three worker turns'
+			if [[ -n "$leaf_expected_actions" ]]; then
+				(( leaf_expected_actions <= HARNESS_MAX_LUNA_PREDICTED_ACTIONS )) || die 'Luna leaf action prediction exceeds its machine budget'
+				(( leaf_effective_p95 <= HARNESS_MAX_LUNA_PREDICTED_P95_TOKENS )) || die 'Luna leaf effective p95 token prediction exceeds its machine budget'
+				(( leaf_complexity_score <= HARNESS_MAX_LUNA_COMPLEXITY_SCORE )) || die 'Luna leaf complexity score exceeds its machine budget'
+				[[ "$leaf_terra_exception" == - ]] || die 'Luna leaf cannot declare a Terra exception'
+			fi
 			[[ "$goal_allowed_scope" != / && "$goal_allowed_scope" != . && "$goal_allowed_scope" != *'*'* ]] ||
 				die 'Luna Allowed-Scope must name bounded explicit paths without repository-wide wildcards'
 			(( $(awk -F',' '{print NF}' <<< "$goal_allowed_scope") <= HARNESS_MAX_LUNA_ALLOWED_PATHS )) ||
@@ -449,6 +505,10 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 				die 'Luna Context-Paths must use explicit paths without wildcards'
 			(( $(awk -F',' '{print NF}' <<< "$leaf_context_paths") <= 8 )) ||
 				die 'Luna Context-Paths may name at most eight bounded entries'
+		fi
+		if [[ -n "$leaf_expected_actions" && "$leaf_worker_route" == TERRA ]]; then
+			[[ "$leaf_terra_exception" =~ ^(CONTRACT_DECISION|ARCHITECTURE_DECISION|CONCURRENCY_DESIGN|AMBIGUOUS_SPECIFICATION|UNEXPLAINED_INTEGRATION|IRREDUCIBLE_CROSS_BOUNDARY)$ ]] ||
+				die 'measured Terra leaf requires an exact irreducible Terra-Exception'
 		fi
 		if (( manager_remediation == 1 )); then
 			[[ "$leaf_worker_route" == TERRA ]] || die 'manager remediation must use Worker-Route: TERRA'
@@ -783,6 +843,12 @@ if (( goal_mode == 1 )); then
 			fi
 			printf 'Expected-Max-Implementation-Files: %s\n' "$leaf_expected_files"
 			printf 'Expected-Max-Worker-Turns: %s\n' "$leaf_expected_turns"
+			if [[ -n "$leaf_expected_actions" ]]; then
+				printf 'Expected-Max-Agent-Actions: %s\n' "$leaf_expected_actions"
+				printf 'Predicted-P95-Tokens: %s\n' "$leaf_predicted_p95"
+				printf 'Effective-P95-Tokens: %s\n' "$leaf_effective_p95"
+				printf 'Complexity-Score: %s\n' "$leaf_complexity_score"
+			fi
 		fi
 		printf '\nIteration receipts are authoritative in: %s\n' "$goal_ledger"
 	} > "$goal_summary"
@@ -861,6 +927,18 @@ if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 		printf 'Baseline-Boundary: %s\n' "$goal_baseline_boundary"
 		printf 'Expected-Max-Implementation-Files: %s\n' "$leaf_expected_files"
 		printf 'Expected-Max-Worker-Turns: %s\n' "$leaf_expected_turns"
+		if [[ -n "$leaf_expected_actions" ]]; then
+			printf 'Expected-Max-Agent-Actions: %s\n' "$leaf_expected_actions"
+			printf 'Predicted-P95-Tokens: %s\n' "$leaf_predicted_p95"
+			printf 'Effective-P95-Tokens: %s\n' "$leaf_effective_p95"
+			printf 'Complexity-Score: %s\n' "$leaf_complexity_score"
+			printf 'Behavioral-Concerns: %s\n' "$leaf_behavioral_concerns"
+			printf 'Failure-Paths: %s\n' "$leaf_failure_paths"
+			printf 'Ownership-Transitions: %s\n' "$leaf_ownership_transitions"
+			printf 'Concurrency-Boundaries: %s\n' "$leaf_concurrency_boundaries"
+			printf 'Validation-Surfaces: %s\n' "$leaf_validation_surfaces"
+			printf 'Terra-Exception: %s\n' "$leaf_terra_exception"
+		fi
 		printf '\n## Dependency evidence\n\n'
 		if [[ "$leaf_depends_on" == - ]]; then
 			printf -- '- No plan-node prerequisites.\n'

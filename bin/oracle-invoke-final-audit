@@ -104,9 +104,9 @@ ORACLE-...<TAB>independently acceptance-complete remediation title
 When PROJECT_DECOMPOSITION_FILE exists, also include one matching row for every Oracle plan item using the exact column schema already present in PROJECT_DECOMPOSITION_FILE:
 
 ## Harness decomposition nodes
-ORACLE-...<TAB>parent_id<TAB>depends_on<TAB>deliverable<TAB>acceptance_evidence<TAB>focused_validation<TAB>allowed_paths<TAB>required_symbols<TAB>leaf_type<TAB>complexity_class<TAB>worker_route
+ORACLE-... followed by every remaining tab-separated field in PROJECT_DECOMPOSITION_FILE's exact header. For a measured DAG this includes behavioral_concerns, failure_paths, ownership_transitions, concurrency_boundaries, validation_surfaces, implementation_files, predicted_worker_actions, predicted_p95_tokens, and terra_exception after worker_route.
 
-The decomposition deliverable must exactly equal the corresponding Harness plan items title. Preserve the existing dependency DAG, use explicit narrow paths and deterministic validation, and route bounded implementation, test, mechanical API, focused bug, and documentation leaves to LOW/LUNA. Use Terra only for an actual contract, architecture, concurrency, ambiguity, or unexplained integration decision.
+The decomposition deliverable must exactly equal the corresponding Harness plan items title. Preserve the existing dependency DAG, use explicit narrow paths and deterministic validation, and route bounded implementation, test, mechanical API, focused bug, and documentation leaves to LOW/LUNA. Every measured field must be an honest positive/integer upper-bound estimate; recursively split an over-budget remediation before submission. Use Terra only for an irreducible contract, architecture, concurrency, ambiguity, or unexplained integration decision and provide the exact supported terra_exception.
 
 When ARCHITECTURE_GUARDS=1, additionally include one exact six-column binding for every Oracle node. Reuse applicable registered invariant, decision, edge, and health-gate IDs; use \`-\` where none apply. Do not invent unregistered architecture IDs:
 

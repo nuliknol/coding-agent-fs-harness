@@ -145,6 +145,7 @@ state="$(project_plan_state_file)"
 dag="$(project_decomposition_plan_file)"
 binding="$(architecture_node_bindings_file)"
 coverage="$(specification_coverage_file)"
+complexity="$(decomposition_complexity_report_file)"
 items_tmp="$oracle_dir/addendum-$audit_id.items.tsv"
 nodes_tmp="$oracle_dir/addendum-$audit_id.nodes.tsv"
 bindings_tmp="$oracle_dir/addendum-$audit_id.bindings.tsv"
@@ -160,9 +161,10 @@ state_tmp="$state.tmp.$$"
 dag_tmp="$dag.tmp.$$"
 binding_tmp="$binding.tmp.$$"
 coverage_tmp="$coverage.tmp.$$"
+complexity_tmp="$complexity.tmp.$$"
 cleanup_candidates()
 {
-	rm -f "$definition_tmp" "$state_tmp" "$dag_tmp" "$binding_tmp" "$coverage_tmp"
+	rm -f "$definition_tmp" "$state_tmp" "$dag_tmp" "$binding_tmp" "$coverage_tmp" "$complexity_tmp"
 }
 trap cleanup_candidates EXIT
 cp "$definition" "$definition_tmp"
@@ -188,8 +190,11 @@ if project_plan_uses_dag; then
 	cp "$dag" "$dag_tmp"
 	dag_header="$(sed -n '1p' "$dag")"
 	typed_header=$'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tleaf_type\tcomplexity_class\tworker_route'
+	complexity_header="$(decomposition_complexity_header)"
 	legacy_header=$'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tcomplexity_class\tworker_route'
-	if [[ "$dag_header" == "$typed_header" ]]; then
+	if [[ "$dag_header" == "$complexity_header" ]]; then
+		expected_fields=20
+	elif [[ "$dag_header" == "$typed_header" ]]; then
 		expected_fields=11
 	elif [[ "$dag_header" == "$legacy_header" ]]; then
 		expected_fields=10
@@ -205,7 +210,7 @@ if project_plan_uses_dag; then
 		node_id="${fields[0]}"; parent_id="${fields[1]}"; depends_on="${fields[2]}"
 		deliverable="${fields[3]}"; acceptance_evidence="${fields[4]}"; focused_validation="${fields[5]}"
 		allowed_paths="${fields[6]}"; required_symbols="${fields[7]}"
-		if (( expected_fields == 11 )); then
+		if (( expected_fields == 20 || expected_fields == 11 )); then
 			leaf_type="${fields[8]}"; complexity_class="${fields[9]}"; worker_route="${fields[10]}"
 		else
 			leaf_type=""; complexity_class="${fields[8]}"; worker_route="${fields[9]}"
@@ -225,7 +230,7 @@ if project_plan_uses_dag; then
 		[[ -n "$allowed_paths" && "$allowed_paths" != - ]] || die "Oracle decomposition node requires explicit allowed paths: $node_id"
 		[[ -n "$required_symbols" ]] || die "Oracle decomposition node requires symbols or '-': $node_id"
 		[[ "$complexity_class" =~ ^(LOW|MEDIUM|HIGH)$ && "$worker_route" =~ ^(LUNA|TERRA)$ ]] || die "invalid Oracle route or complexity: $node_id"
-		if (( expected_fields == 11 )); then
+		if (( expected_fields == 20 || expected_fields == 11 )); then
 			[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]] || die "invalid Oracle leaf type: $node_id"
 			if [[ "$worker_route" == LUNA ]]; then
 				[[ "$complexity_class" == LOW && "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]] || die "Oracle Luna node is not Luna-ready: $node_id"
@@ -294,6 +299,10 @@ if specification_ir_available; then
 		{print}
 	' "$coverage" > "$coverage_tmp"
 	validate_specification_coverage_file "$coverage_tmp" "$dag_tmp"
+	if (( expected_fields == 20 )); then
+		write_decomposition_complexity_report "$dag_tmp" "$coverage_tmp" "$complexity_tmp" ||
+			die 'Oracle remediation decomposition exceeds the measured worker-complexity contract'
+	fi
 fi
 
 chmod 600 "$definition_tmp" "$state_tmp" "$items_tmp"
@@ -302,11 +311,13 @@ chmod 600 "$definition_tmp" "$state_tmp" "$items_tmp"
 [[ ! -f "$dag_tmp" ]] || chmod 600 "$dag_tmp"
 [[ ! -f "$binding_tmp" ]] || chmod 600 "$binding_tmp"
 [[ ! -f "$coverage_tmp" ]] || chmod 600 "$coverage_tmp"
+[[ ! -f "$complexity_tmp" ]] || chmod 600 "$complexity_tmp"
 mv "$definition_tmp" "$definition"
 mv "$state_tmp" "$state"
 [[ ! -f "$dag_tmp" ]] || mv "$dag_tmp" "$dag"
 [[ ! -f "$binding_tmp" ]] || mv "$binding_tmp" "$binding"
 [[ ! -f "$coverage_tmp" ]] || mv "$coverage_tmp" "$coverage"
+[[ ! -f "$complexity_tmp" ]] || mv "$complexity_tmp" "$complexity"
 trap - EXIT
 cleanup_candidates
 rm -f "$pending"

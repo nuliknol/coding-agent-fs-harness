@@ -31,9 +31,11 @@ tmp="$state.tmp.$$"
 	printf 'specification_sha256=%s\n' "$(specification_sha256)"
 	printf 'repository_baseline=%s\n' "$(specification_review_repository_baseline)"
 	printf 'domain_profiles_sha256=%s\n' "$(domain_profiles_sha256)"
+	printf 'complexity_contract_sha256=%s\n' "$(complexity_contract_sha256)"
 	printf 'directory=%s\n' "$candidate_dir"
 	printf 'dag=%s\n' "$candidate_dir/dag.tsv"
 	printf 'coverage=%s\n' "$candidate_dir/coverage.tsv"
+	printf 'complexity=%s\n' "$candidate_dir/complexity.tsv"
 	printf 'staged_at=%s\n' "$(timestamp_utc)"
 } > "$tmp"
 chmod 600 "$tmp"
@@ -43,14 +45,23 @@ rejection_log="$candidate_dir/rejection.log"
 rm -f "$rejection_log"
 set +e
 (
-	expected_dag_header=$'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tleaf_type\tcomplexity_class\tworker_route'
+	expected_dag_header="$(decomposition_typed_header)"
+	complexity_dag_header="$(decomposition_complexity_header)"
 	expected_coverage_header=$'obligation_id\tnode_ids\tevidence_plan'
 	IFS= read -r dag_header < "$candidate_dir/dag.tsv" || die 'decomposition DAG is empty'
 	IFS= read -r coverage_header < "$candidate_dir/coverage.tsv" || die 'specification coverage is empty'
-	[[ "$dag_header" == "$expected_dag_header" ]] || die "decomposition DAG header must be: $expected_dag_header"
+	if (( HARNESS_DECOMPOSITION_CRITIC_ENABLED == 1 )); then
+		[[ "$dag_header" == "$complexity_dag_header" ]] || die "fresh Sol decomposition requires the measured DAG header: $complexity_dag_header"
+	else
+		[[ "$dag_header" == "$expected_dag_header" || "$dag_header" == "$complexity_dag_header" ]] ||
+			die "decomposition DAG header must be: $complexity_dag_header"
+	fi
 	[[ "$coverage_header" == "$expected_coverage_header" ]] || die "specification coverage header must be: $expected_coverage_header"
 	(( $(awk 'END {print NR+0}' "$candidate_dir/dag.tsv") > 1 )) || die 'decomposition DAG has no nodes'
 	validate_specification_coverage_file "$candidate_dir/coverage.tsv" "$candidate_dir/dag.tsv"
+	if [[ "$dag_header" == "$complexity_dag_header" ]]; then
+		write_decomposition_complexity_report "$candidate_dir/dag.tsv" "$candidate_dir/coverage.tsv" "$candidate_dir/complexity.tsv"
+	fi
 ) > >(tee "$rejection_log") 2>&1
 validation_status=$?
 set -e

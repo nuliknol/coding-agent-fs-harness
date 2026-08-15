@@ -41,7 +41,7 @@ declare -A parent=() depends=() deliverable=() evidence=() validation=()
 declare -A paths=() symbols=() leaf_type=() complexity=() route=() node_state=() task_root=()
 declare -a fields=()
 IFS= read -r dag_header < "$dag"
-[[ "$dag_header" == *$'\tleaf_type\tcomplexity_class\tworker_route' ]] && typed_dag=1 || typed_dag=0
+[[ "$dag_header" == *$'\tleaf_type\tcomplexity_class\tworker_route'* ]] && typed_dag=1 || typed_dag=0
 while IFS=$'\t' read -r -a fields; do
 	if (( typed_dag == 1 )); then
 		node_id="${fields[0]}"; parent_id="${fields[1]}"; depends_on="${fields[2]}"

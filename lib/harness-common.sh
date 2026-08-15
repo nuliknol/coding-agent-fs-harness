@@ -167,6 +167,13 @@ load_harness_env()
 	unset HARNESS_DOMAIN_PROFILES
 	unset HARNESS_MAX_LUNA_STRATEGY_FAILURES HARNESS_MAX_LUNA_ALLOWED_PATHS HARNESS_MIN_LUNA_NODE_PERCENT
 	unset HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF HARNESS_MAX_LUNA_CONTEXT_CAPSULE_BYTES
+	unset HARNESS_MAX_LUNA_BEHAVIORAL_CONCERNS HARNESS_MAX_LUNA_FAILURE_PATHS
+	unset HARNESS_MAX_LUNA_OWNERSHIP_TRANSITIONS HARNESS_MAX_LUNA_CONCURRENCY_BOUNDARIES
+	unset HARNESS_MAX_LUNA_VALIDATION_SURFACES HARNESS_MAX_LUNA_IMPLEMENTATION_FILES
+	unset HARNESS_MAX_LUNA_REQUIRED_SYMBOLS HARNESS_MAX_LUNA_PREDICTED_ACTIONS
+	unset HARNESS_MAX_LUNA_PREDICTED_P95_TOKENS HARNESS_MAX_LUNA_COMPLEXITY_SCORE
+	unset HARNESS_MAX_LUNA_RISK_DOMAINS HARNESS_COMPLEXITY_TOKENS_PER_SCORE_POINT
+	unset HARNESS_COMPLEXITY_CALIBRATION_MIN_SAMPLES HARNESS_MAX_COMPLEXITY_DECOMPOSITION_PASSES
 	unset HARNESS_VALIDATION_OUTPUT_MAX_LINES HARNESS_VALIDATION_OUTPUT_MAX_BYTES
 	unset HARNESS_MIN_LUNA_CODING_NODE_PERCENT HARNESS_ARCHITECTURE_GUARDS
 	unset HARNESS_PREFERRED_WORKER_ROUTE HARNESS_AGENT_COMMITS_ENABLED
@@ -323,8 +330,27 @@ load_harness_env()
 	# Cheap-worker leaves must be semantically bounded as well as path-bounded.
 	# A large obligation fan-in belongs in a decision/integration node or must be
 	# split before a Luna implementation leaf can be registered.
-	HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF="${HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF:-12}"
+	HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF="${HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF:-2}"
 	HARNESS_MAX_LUNA_CONTEXT_CAPSULE_BYTES="${HARNESS_MAX_LUNA_CONTEXT_CAPSULE_BYTES:-32768}"
+	# The complexity contract is deliberately multidimensional. A cheap-worker
+	# leaf must satisfy every limit; a low aggregate score cannot hide one hard
+	# concurrency, ownership, failure-atomicity, or context dimension. Sol emits
+	# the declared vector, while deterministic obligation/path/symbol/risk floors
+	# prevent optimistic labels from making a broad node executable.
+	HARNESS_MAX_LUNA_BEHAVIORAL_CONCERNS="${HARNESS_MAX_LUNA_BEHAVIORAL_CONCERNS:-1}"
+	HARNESS_MAX_LUNA_FAILURE_PATHS="${HARNESS_MAX_LUNA_FAILURE_PATHS:-2}"
+	HARNESS_MAX_LUNA_OWNERSHIP_TRANSITIONS="${HARNESS_MAX_LUNA_OWNERSHIP_TRANSITIONS:-1}"
+	HARNESS_MAX_LUNA_CONCURRENCY_BOUNDARIES="${HARNESS_MAX_LUNA_CONCURRENCY_BOUNDARIES:-1}"
+	HARNESS_MAX_LUNA_VALIDATION_SURFACES="${HARNESS_MAX_LUNA_VALIDATION_SURFACES:-1}"
+	HARNESS_MAX_LUNA_IMPLEMENTATION_FILES="${HARNESS_MAX_LUNA_IMPLEMENTATION_FILES:-3}"
+	HARNESS_MAX_LUNA_REQUIRED_SYMBOLS="${HARNESS_MAX_LUNA_REQUIRED_SYMBOLS:-3}"
+	HARNESS_MAX_LUNA_PREDICTED_ACTIONS="${HARNESS_MAX_LUNA_PREDICTED_ACTIONS:-8}"
+	HARNESS_MAX_LUNA_PREDICTED_P95_TOKENS="${HARNESS_MAX_LUNA_PREDICTED_P95_TOKENS:-250000}"
+	HARNESS_MAX_LUNA_COMPLEXITY_SCORE="${HARNESS_MAX_LUNA_COMPLEXITY_SCORE:-24}"
+	HARNESS_MAX_LUNA_RISK_DOMAINS="${HARNESS_MAX_LUNA_RISK_DOMAINS:-2}"
+	HARNESS_COMPLEXITY_TOKENS_PER_SCORE_POINT="${HARNESS_COMPLEXITY_TOKENS_PER_SCORE_POINT:-10000}"
+	HARNESS_COMPLEXITY_CALIBRATION_MIN_SAMPLES="${HARNESS_COMPLEXITY_CALIBRATION_MIN_SAMPLES:-10}"
+	HARNESS_MAX_COMPLEXITY_DECOMPOSITION_PASSES="${HARNESS_MAX_COMPLEXITY_DECOMPOSITION_PASSES:-3}"
 	# Build and test commands retain their complete output on disk. Only a
 	# bounded diagnostic summary is allowed back into an agent transcript.
 	HARNESS_VALIDATION_OUTPUT_MAX_LINES="${HARNESS_VALIDATION_OUTPUT_MAX_LINES:-200}"
@@ -540,6 +566,18 @@ load_harness_env()
 		die 'HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF must be a positive integer'
 	[[ "$HARNESS_MAX_LUNA_CONTEXT_CAPSULE_BYTES" =~ ^[1-9][0-9]*$ ]] ||
 		die 'HARNESS_MAX_LUNA_CONTEXT_CAPSULE_BYTES must be a positive integer'
+	local complexity_limit_name
+	for complexity_limit_name in \
+		HARNESS_MAX_LUNA_BEHAVIORAL_CONCERNS HARNESS_MAX_LUNA_FAILURE_PATHS \
+		HARNESS_MAX_LUNA_OWNERSHIP_TRANSITIONS HARNESS_MAX_LUNA_CONCURRENCY_BOUNDARIES \
+		HARNESS_MAX_LUNA_VALIDATION_SURFACES HARNESS_MAX_LUNA_IMPLEMENTATION_FILES \
+		HARNESS_MAX_LUNA_REQUIRED_SYMBOLS HARNESS_MAX_LUNA_PREDICTED_ACTIONS \
+		HARNESS_MAX_LUNA_PREDICTED_P95_TOKENS HARNESS_MAX_LUNA_COMPLEXITY_SCORE \
+		HARNESS_MAX_LUNA_RISK_DOMAINS HARNESS_COMPLEXITY_TOKENS_PER_SCORE_POINT \
+		HARNESS_COMPLEXITY_CALIBRATION_MIN_SAMPLES HARNESS_MAX_COMPLEXITY_DECOMPOSITION_PASSES; do
+		[[ "${!complexity_limit_name}" =~ ^[1-9][0-9]*$ ]] ||
+			die "$complexity_limit_name must be a positive integer"
+	done
 	[[ "$HARNESS_VALIDATION_OUTPUT_MAX_LINES" =~ ^[1-9][0-9]*$ ]] ||
 		die 'HARNESS_VALIDATION_OUTPUT_MAX_LINES must be a positive integer'
 	[[ "$HARNESS_VALIDATION_OUTPUT_MAX_BYTES" =~ ^[1-9][0-9]*$ ]] ||
@@ -645,6 +683,13 @@ load_harness_env()
 	export HARNESS_MAX_LUNA_STRATEGY_FAILURES
 	export HARNESS_MAX_LUNA_ALLOWED_PATHS
 	export HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF HARNESS_MAX_LUNA_CONTEXT_CAPSULE_BYTES
+	export HARNESS_MAX_LUNA_BEHAVIORAL_CONCERNS HARNESS_MAX_LUNA_FAILURE_PATHS
+	export HARNESS_MAX_LUNA_OWNERSHIP_TRANSITIONS HARNESS_MAX_LUNA_CONCURRENCY_BOUNDARIES
+	export HARNESS_MAX_LUNA_VALIDATION_SURFACES HARNESS_MAX_LUNA_IMPLEMENTATION_FILES
+	export HARNESS_MAX_LUNA_REQUIRED_SYMBOLS HARNESS_MAX_LUNA_PREDICTED_ACTIONS
+	export HARNESS_MAX_LUNA_PREDICTED_P95_TOKENS HARNESS_MAX_LUNA_COMPLEXITY_SCORE
+	export HARNESS_MAX_LUNA_RISK_DOMAINS HARNESS_COMPLEXITY_TOKENS_PER_SCORE_POINT
+	export HARNESS_COMPLEXITY_CALIBRATION_MIN_SAMPLES HARNESS_MAX_COMPLEXITY_DECOMPOSITION_PASSES
 	export HARNESS_VALIDATION_OUTPUT_MAX_LINES HARNESS_VALIDATION_OUTPUT_MAX_BYTES
 	export HARNESS_MIN_LUNA_NODE_PERCENT HARNESS_MIN_LUNA_CODING_NODE_PERCENT HARNESS_ARCHITECTURE_GUARDS
 	export HARNESS_PREFERRED_WORKER_ROUTE HARNESS_AGENT_COMMITS_ENABLED
@@ -1680,6 +1725,7 @@ goal_record_manager_decision()
 	fi
 	goal_state_set "$state_file" manager_reviewed_at "$(timestamp_utc)"
 	goal_state_set "$state_file" updated_at "$(timestamp_utc)"
+	record_worker_complexity_outcome "$task_id" "$decision"
 	archive_dir="$(project_dir)/archive/goals/$(task_base "$task_id")"
 	mkdir -p "$archive_dir"
 	chmod 700 "$archive_dir"
@@ -2271,6 +2317,89 @@ record_root_agent_tokens()
 		fi
 	fi
 	flock -u 7
+}
+
+record_worker_complexity_observation()
+{
+	local task_id="$1" plan_node="$2" role="$3" model="$4" classification="$5" json="$6"
+	local report score predicted_actions predicted_p95 actual usage_source items commands output_bytes max_output source_read_bytes repeated_reads
+	local changed_files changed_lines duration class route ledger lock metrics
+	[[ -f "$classification" && -f "$json" ]] || return 0
+	report="$(decomposition_complexity_report_file)"
+	score=0; predicted_actions=0; predicted_p95=0; route=UNKNOWN
+	if [[ -f "$report" && -n "$plan_node" ]]; then
+		IFS=$'\t' read -r route _ score _ _ _ _ _ _ _ _ _ _ predicted_actions _ predicted_p95 _ _ _ < <(
+			awk -F '\t' -v node="$plan_node" 'NR>1 && $1==node {for(i=2;i<=NF;i++) printf "%s%s",$i,(i==NF?"\n":"\t"); exit}' "$report"
+		) || true
+	fi
+	[[ "$score" =~ ^[0-9]+$ ]] || score=0
+	[[ "$predicted_actions" =~ ^[0-9]+$ ]] || predicted_actions=0
+	[[ "$predicted_p95" =~ ^[0-9]+$ ]] || predicted_p95=0
+	actual="$(kv_file_value "$classification" invocation_processed_delta 2>/dev/null || printf 0)"
+	[[ "$actual" =~ ^[0-9]+$ ]] || actual=0
+	usage_source=actual
+	if (( actual == 0 )); then
+		actual="$(kv_file_value "$classification" estimated_processed_tokens 2>/dev/null || printf 0)"
+		[[ "$actual" =~ ^[0-9]+$ ]] || actual=0
+		usage_source=estimated
+	fi
+	items="$(kv_file_value "$classification" item_started_count 2>/dev/null || printf 0)"
+	changed_files="$(kv_file_value "$classification" changed_file_count 2>/dev/null || printf 0)"
+	changed_lines="$(kv_file_value "$classification" changed_line_count 2>/dev/null || printf 0)"
+	duration="$(kv_file_value "$classification" invocation_duration_seconds 2>/dev/null || printf 0)"
+	class="$(kv_file_value "$classification" classification 2>/dev/null || printf unknown)"
+	metrics="$(jq -rs '
+		[.[] | select(.type=="item.completed" and .item.type=="command_execution")] as $commands |
+		[$commands[] | ((.item.aggregated_output // "")|tostring|length)] as $sizes |
+		[$commands[] | select((.item.command // "")|test("(^|[ ;|])(rg|grep|sed|awk|head)([ ;|]|$)")) |
+			((.item.aggregated_output // "")|tostring|length)] as $source_sizes |
+		[$commands[] | select((.item.command // "")|test("(^|[ ;|])(rg|grep|sed|awk|head)([ ;|]|$)")) | .item.command] as $reads |
+		[($commands|length), ($sizes|add // 0), ($sizes|max // 0), ($source_sizes|add // 0),
+		 (($reads|length) - ($reads|unique|length))] | @tsv
+	' "$json" 2>/dev/null || printf '0\t0\t0\t0\t0')"
+	IFS=$'\t' read -r commands output_bytes max_output source_read_bytes repeated_reads <<< "$metrics"
+	for value_name in items changed_files changed_lines duration commands output_bytes max_output source_read_bytes repeated_reads; do
+		[[ "${!value_name}" =~ ^[0-9]+$ ]] || printf -v "$value_name" 0
+	done
+	ledger="$(project_dir)/logs/complexity-observations.tsv"
+	lock="$(project_dir)/control/complexity-observations.lock"
+	exec 6>"$lock"
+	flock -x 6
+	if [[ ! -f "$ledger" ]]; then
+		printf 'recorded_at\tproject\tplan_node\ttask_id\trole\tmodel\tworker_route\tcomplexity_score\tpredicted_actions\tpredicted_p95_tokens\tprocessed_tokens\tusage_source\titems\tcommands\toutput_bytes\tmax_output_bytes\tsource_read_bytes\trepeated_source_reads\tchanged_files\tduration_seconds\tclassification\tchanged_lines\n' > "$ledger"
+		chmod 600 "$ledger"
+	fi
+	printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+		"$(timestamp_utc)" "$PROJECT" "${plan_node:--}" "$task_id" "$role" "$model" "$route" "$score" \
+		"$predicted_actions" "$predicted_p95" "$actual" "$usage_source" "$items" "$commands" "$output_bytes" \
+		"$max_output" "$source_read_bytes" "$repeated_reads" "$changed_files" "$duration" "$class" "$changed_lines" >> "$ledger"
+	flock -u 6
+}
+
+record_worker_complexity_outcome()
+{
+	local task_id="$1" outcome="$2" root plan_node replans planner_model planner_effort ledger lock
+	[[ "$outcome" =~ ^(ACCEPTED|CHECKPOINTED|REJECTED|BLOCKED|SUPERSEDED)$ ]] || return 0
+	root="$(task_root_id "$task_id")"
+	plan_node="$(project_plan_item_for_root "$root" 2>/dev/null || true)"
+	replans="$(root_total_replan_count "$root" 2>/dev/null || printf 0)"
+	[[ "$replans" =~ ^[0-9]+$ ]] || replans=0
+	planner_model="$(decomposition_provenance_value planner_model "$DECOMPOSITION_MODEL" 2>/dev/null || printf '%s' "$DECOMPOSITION_MODEL")"
+	planner_effort="$(decomposition_provenance_value planner_reasoning_effort "$DECOMPOSITION_REASONING_EFFORT" 2>/dev/null || printf '%s' "$DECOMPOSITION_REASONING_EFFORT")"
+	ledger="$(project_dir)/logs/complexity-outcomes.tsv"
+	lock="$(project_dir)/control/complexity-observations.lock"
+	exec 6>"$lock"
+	flock -x 6
+	if [[ ! -f "$ledger" ]]; then
+		printf 'recorded_at\tproject\tplan_node\ttask_id\toutcome\troot_replans\tplanner_model\tplanner_effort\n' > "$ledger"
+		chmod 600 "$ledger"
+	fi
+	if ! awk -F '\t' -v project="$PROJECT" -v task="$task_id" -v outcome="$outcome" \
+		'NR>1 && $2==project && $4==task && $5==outcome {found=1} END{exit found?0:1}' "$ledger"; then
+		printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(timestamp_utc)" "$PROJECT" "${plan_node:--}" \
+			"$task_id" "$outcome" "$replans" "$planner_model" "$planner_effort" >> "$ledger"
+	fi
+	flock -u 6
 }
 
 root_liveness_violation_reason()
@@ -3088,7 +3217,7 @@ env_process_lines()
 			case "$harness_command" in
 				harness-status|harness-agent-token-usage|harness-agent-cost-usage|harness-costs|\
 				harness-statistics|harness-info|harness-watch-*|harness-implementation-log|\
-				harness-decomposition-tree|harness-decomposition-metrics|harness-architecture-status|\
+				harness-decomposition-tree|harness-decomposition-metrics|harness-complexity|harness-architecture-status|\
 				harness-metrics|harness-token-outliers|harness-project-path|harness-repository-path|\
 				harness-state-path|harness-show-*|harness-check-env)
 					continue
@@ -3600,7 +3729,9 @@ decomposition_candidate_matches_current_inputs()
 	[[ -f "$state" ]] || return 1
 	[[ "$(decomposition_candidate_state_value specification_sha256)" == "$(specification_sha256)" ]] || return 1
 	[[ "$(decomposition_candidate_state_value repository_baseline)" == "$(specification_review_repository_baseline)" ]] || return 1
-	[[ "$(decomposition_candidate_state_value domain_profiles_sha256 none)" == "$(domain_profiles_sha256)" ]]
+	[[ "$(decomposition_candidate_state_value domain_profiles_sha256 none)" == "$(domain_profiles_sha256)" ]] || return 1
+	[[ -z "$(decomposition_candidate_state_value complexity_contract_sha256)" ||
+		"$(decomposition_candidate_state_value complexity_contract_sha256)" == "$(complexity_contract_sha256)" ]]
 }
 
 decomposition_dag_candidate_state_value()
@@ -3621,7 +3752,9 @@ decomposition_dag_candidate_matches_current_inputs()
 	[[ -f "$state" ]] || return 1
 	[[ "$(decomposition_dag_candidate_state_value specification_sha256)" == "$(specification_sha256)" ]] || return 1
 	[[ "$(decomposition_dag_candidate_state_value repository_baseline)" == "$(specification_review_repository_baseline)" ]] || return 1
-	[[ "$(decomposition_dag_candidate_state_value domain_profiles_sha256 none)" == "$(domain_profiles_sha256)" ]]
+	[[ "$(decomposition_dag_candidate_state_value domain_profiles_sha256 none)" == "$(domain_profiles_sha256)" ]] || return 1
+	[[ -z "$(decomposition_dag_candidate_state_value complexity_contract_sha256)" ||
+		"$(decomposition_dag_candidate_state_value complexity_contract_sha256)" == "$(complexity_contract_sha256)" ]]
 }
 
 architecture_redesign_matches_current_inputs()
@@ -4338,35 +4471,210 @@ initialize_project_plan()
 	trace_event PROJECT_PLAN_INITIALIZED "items=$(project_plan_total_count)" "complete=$(project_plan_complete_count)" "definition_file=$definition" "state_file=$state"
 }
 
+decomposition_complexity_header()
+{
+	printf '%s\n' $'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tleaf_type\tcomplexity_class\tworker_route\tbehavioral_concerns\tfailure_paths\townership_transitions\tconcurrency_boundaries\tvalidation_surfaces\timplementation_files\tpredicted_worker_actions\tpredicted_p95_tokens\tterra_exception'
+}
+
+decomposition_typed_header()
+{
+	printf '%s\n' $'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tleaf_type\tcomplexity_class\tworker_route'
+}
+
+decomposition_has_complexity_contract()
+{
+	local header
+	IFS= read -r header < "$1" || return 1
+	[[ "$header" == "$(decomposition_complexity_header)" ]]
+}
+
+decomposition_complexity_report_file()
+{
+	printf '%s/control/decomposition-complexity.tsv\n' "$(project_dir)"
+}
+
+complexity_contract_sha256()
+{
+	printf '%s\n' \
+		"$HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF" "$HARNESS_MAX_LUNA_ALLOWED_PATHS" \
+		"$HARNESS_MAX_LUNA_REQUIRED_SYMBOLS" "$HARNESS_MAX_LUNA_BEHAVIORAL_CONCERNS" \
+		"$HARNESS_MAX_LUNA_FAILURE_PATHS" "$HARNESS_MAX_LUNA_OWNERSHIP_TRANSITIONS" \
+		"$HARNESS_MAX_LUNA_CONCURRENCY_BOUNDARIES" "$HARNESS_MAX_LUNA_VALIDATION_SURFACES" \
+		"$HARNESS_MAX_LUNA_IMPLEMENTATION_FILES" "$HARNESS_MAX_LUNA_PREDICTED_ACTIONS" \
+		"$HARNESS_MAX_LUNA_PREDICTED_P95_TOKENS" "$HARNESS_MAX_LUNA_COMPLEXITY_SCORE" \
+		"$HARNESS_MAX_LUNA_RISK_DOMAINS" "$HARNESS_COMPLEXITY_TOKENS_PER_SCORE_POINT" \
+		"$HARNESS_COMPLEXITY_CALIBRATION_MIN_SAMPLES" "$LUNA_WORKER_MODEL" | sha256sum | awk '{print $1}'
+}
+
+complexity_calibrated_tokens_per_score()
+{
+	local model="$1" observations outcomes samples rate_file
+	rate_file="$(mktemp)"
+	while IFS= read -r observations; do
+		outcomes="${observations%/complexity-observations.tsv}/complexity-outcomes.tsv"
+		[[ -f "$outcomes" ]] || continue
+		awk -F '\t' -v model="$model" '
+			NR==FNR {if(FNR>1 && $5=="ACCEPTED") accepted[$2 SUBSEP $4]=1; next}
+			FNR > 1 && accepted[$2 SUBSEP $4] && $6 == model && $8 ~ /^[1-9][0-9]*$/ && $11 ~ /^[1-9][0-9]*$/ {
+				print int(($11 + $8 - 1) / $8)
+			}
+		' "$outcomes" "$observations" >> "$rate_file"
+	done < <(find "$HARNESS_ROOT/projects" -mindepth 3 -maxdepth 3 -type f \
+		-path '*/logs/complexity-observations.tsv' 2>/dev/null | sort)
+	samples="$(awk 'END {print NR+0}' "$rate_file")"
+	if (( samples < HARNESS_COMPLEXITY_CALIBRATION_MIN_SAMPLES )); then
+		rm -f "$rate_file"
+		printf '%s\n' "$HARNESS_COMPLEXITY_TOKENS_PER_SCORE_POINT"
+		return 0
+	fi
+	sort -n "$rate_file" -o "$rate_file"
+	# Nearest-rank p95. Calibration may make the contract stricter, never looser
+	# than the configured cold-start estimate.
+	rate="$(awk -v rank="$(( (95 * samples + 99) / 100 ))" 'NR == rank {print; exit}' "$rate_file")"
+	rm -f "$rate_file"
+	[[ "$rate" =~ ^[1-9][0-9]*$ ]] || rate="$HARNESS_COMPLEXITY_TOKENS_PER_SCORE_POINT"
+	(( rate >= HARNESS_COMPLEXITY_TOKENS_PER_SCORE_POINT )) || rate="$HARNESS_COMPLEXITY_TOKENS_PER_SCORE_POINT"
+	printf '%s\n' "$rate"
+}
+
+write_decomposition_complexity_report()
+{
+	local dag="$1" coverage="$2" output="$3" obligations_file calibration_rate
+	local node_id route leaf paths symbols behavioral failures ownership concurrency validations implementation_files actions declared_p95 exception
+	local obligation_count obligation_weight path_count symbol_count risk_domains score calibrated_p95 effective_p95 status violations text
+	local derived derived_behavioral derived_failures derived_ownership derived_concurrency derived_validations obligation_text
+	local -a fields=()
+	decomposition_has_complexity_contract "$dag" || return 2
+	obligations_file="$(specification_obligations_file)"
+	calibration_rate="$(complexity_calibrated_tokens_per_score "$LUNA_WORKER_MODEL")"
+	printf '%s\n' $'node_id\tworker_route\tleaf_type\tcomplexity_score\tobligations\tobligation_weight\tallowed_paths\trequired_symbols\tbehavioral_concerns\tfailure_paths\townership_transitions\tconcurrency_boundaries\tvalidation_surfaces\timplementation_files\tpredicted_worker_actions\tdeclared_p95_tokens\teffective_p95_tokens\trisk_domains\tstatus\tviolations' > "$output"
+	while IFS=$'\t' read -r -a fields; do
+		(( ${#fields[@]} == 20 )) || { printf 'LUNA_COMPLEXITY_INVALID row does not contain 20 fields\n' >&2; return 1; }
+		node_id="${fields[0]}"; paths="${fields[6]}"; symbols="${fields[7]}"; leaf="${fields[8]}"; route="${fields[10]}"
+		behavioral="${fields[11]}"; failures="${fields[12]}"; ownership="${fields[13]}"; concurrency="${fields[14]}"
+		validations="${fields[15]}"; implementation_files="${fields[16]}"; actions="${fields[17]}"; declared_p95="${fields[18]}"; exception="${fields[19]}"
+		for value in "$behavioral" "$failures" "$ownership" "$concurrency" "$validations" "$implementation_files" "$actions" "$declared_p95"; do
+			[[ "$value" =~ ^[0-9]+$ ]] || { printf 'LUNA_COMPLEXITY_INVALID node=%s requires nonnegative integer dimensions\n' "$node_id" >&2; return 1; }
+		done
+		(( behavioral > 0 && validations > 0 && implementation_files > 0 && actions > 0 && declared_p95 > 0 )) || {
+			printf 'LUNA_COMPLEXITY_INVALID node=%s requires positive behavioral, validation, implementation-file, action, and token predictions\n' "$node_id" >&2
+			return 1
+		}
+		path_count="$(awk -F, '{if ($0=="-" || $0=="") print 0; else print NF}' <<< "$paths")"
+		symbol_count="$(awk -F, '{if ($0=="-" || $0=="") print 0; else print NF}' <<< "$symbols")"
+		obligation_count="$(awk -F '\t' -v wanted="$node_id" 'NR>1 {n=split($2,a,","); for(i=1;i<=n;i++){gsub(/^[[:space:]]+|[[:space:]]+$/,"",a[i]); if(a[i]==wanted){c++; break}}} END{print c+0}' "$coverage")"
+		obligation_weight="$(awk -F '\t' -v wanted="$node_id" -v coverage="$coverage" '
+			BEGIN {while ((getline line < coverage)>0) {split(line,c,"\t"); n=split(c[2],a,","); for(i=1;i<=n;i++){gsub(/^[[:space:]]+|[[:space:]]+$/,"",a[i]); if(a[i]==wanted) selected[c[1]]=1}}}
+			NR>1 && ($1 in selected) {w=2; if($5=="CONTRACT"||$5=="INVARIANT"||$5=="PERFORMANCE")w=3; else if($5=="INTEGRATION"||$5=="RESOURCE_LIFETIME")w=4; else if($5=="TEST"||$5=="DOCUMENTATION"||$5=="COMPLETION")w=1; total+=w}
+			END{print total+0}
+		' "$obligations_file")"
+		derived="$(awk -F '\t' -v wanted="$node_id" -v coverage="$coverage" '
+			BEGIN {while ((getline line < coverage)>0) {split(line,c,"\t"); n=split(c[2],a,","); for(i=1;i<=n;i++){gsub(/^[[:space:]]+|[[:space:]]+$/,"",a[i]); if(a[i]==wanted) selected[c[1]]=1}}}
+			NR>1 && ($1 in selected) {
+				tolower_text=tolower($5 " " $6 " " $7); corpus=corpus " " tolower_text
+				if($5 ~ /^(FUNCTIONAL|CONTRACT|INTEGRATION|INTERFACE)$/) behavior++
+				if(tolower_text ~ /(fail|error|invalid|negative|overflow|rollback|unchanged|atomic)/) failure++
+				if(tolower_text ~ /(owner|ownership|publication|publish|lifetime|cleanup)/) ownership++
+				if(tolower_text ~ /(concurr|parallel|enqueue|synchron|multi-device|multidevice|shard|ordering)/) concurrency++
+				if($5 ~ /^(TEST|VALIDATION|COMPLETION)$/) validation++
+			}
+			END {gsub(/[[:space:]]+/," ",corpus); printf "%d\t%d\t%d\t%d\t%d\t%s\n",behavior+0,failure+0,ownership+0,concurrency+0,validation+0,corpus}
+		' "$obligations_file")"
+		IFS=$'\t' read -r derived_behavioral derived_failures derived_ownership derived_concurrency derived_validations obligation_text <<< "$derived"
+		(( behavioral >= derived_behavioral )) || behavioral="$derived_behavioral"
+		(( failures >= derived_failures )) || failures="$derived_failures"
+		(( ownership >= derived_ownership )) || ownership="$derived_ownership"
+		(( concurrency >= derived_concurrency )) || concurrency="$derived_concurrency"
+		(( validations >= derived_validations )) || validations="$derived_validations"
+		text="$(printf '%s %s %s' "${fields[3]}" "${fields[4]}" "$obligation_text" | tr '[:upper:]' '[:lower:]')"
+		risk_domains=0
+		grep -Eq 'concurr|parallel|enqueue|synchron|multi-device|multidevice|shard' <<< "$text" && risk_domains=$((risk_domains + 1))
+		grep -Eq 'owner|ownership|route|routing|publication|publish' <<< "$text" && risk_domains=$((risk_domains + 1))
+		grep -Eq 'cleanup|allocate|allocation|free|lifetime|resource' <<< "$text" && risk_domains=$((risk_domains + 1))
+		grep -Eq 'failure|failed|error|rollback|unchanged|atomic' <<< "$text" && risk_domains=$((risk_domains + 1))
+		grep -Eq 'telemetry|receipt|observability|metric' <<< "$text" && risk_domains=$((risk_domains + 1))
+		score=$((obligation_weight + behavioral * 3 + failures * 2 + ownership * 3 + concurrency * 4 + validations * 2 + implementation_files + (symbol_count + 1) / 2))
+		calibrated_p95=$((score * calibration_rate))
+		effective_p95="$declared_p95"
+		(( effective_p95 >= calibrated_p95 )) || effective_p95="$calibrated_p95"
+		status=READY
+		violations="-"
+		if [[ "$route" == LUNA ]]; then
+			[[ "$exception" == - ]] || violations="terra_exception=$exception"
+			for check in \
+				"obligations:$obligation_count:$HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF" \
+				"allowed_paths:$path_count:$HARNESS_MAX_LUNA_ALLOWED_PATHS" \
+				"required_symbols:$symbol_count:$HARNESS_MAX_LUNA_REQUIRED_SYMBOLS" \
+				"behavioral_concerns:$behavioral:$HARNESS_MAX_LUNA_BEHAVIORAL_CONCERNS" \
+				"failure_paths:$failures:$HARNESS_MAX_LUNA_FAILURE_PATHS" \
+				"ownership_transitions:$ownership:$HARNESS_MAX_LUNA_OWNERSHIP_TRANSITIONS" \
+				"concurrency_boundaries:$concurrency:$HARNESS_MAX_LUNA_CONCURRENCY_BOUNDARIES" \
+				"validation_surfaces:$validations:$HARNESS_MAX_LUNA_VALIDATION_SURFACES" \
+				"implementation_files:$implementation_files:$HARNESS_MAX_LUNA_IMPLEMENTATION_FILES" \
+				"predicted_worker_actions:$actions:$HARNESS_MAX_LUNA_PREDICTED_ACTIONS" \
+				"effective_p95_tokens:$effective_p95:$HARNESS_MAX_LUNA_PREDICTED_P95_TOKENS" \
+				"complexity_score:$score:$HARNESS_MAX_LUNA_COMPLEXITY_SCORE" \
+				"risk_domains:$risk_domains:$HARNESS_MAX_LUNA_RISK_DOMAINS"; do
+				IFS=: read -r name actual maximum <<< "$check"
+				if (( actual > maximum )); then
+					[[ "$violations" == - ]] && violations="" || violations+=";"
+					violations+="$name=$actual>$maximum"
+				fi
+			done
+			[[ "$violations" == - ]] || status=OVER_BUDGET
+		else
+			[[ "$exception" =~ ^(CONTRACT_DECISION|ARCHITECTURE_DECISION|CONCURRENCY_DESIGN|AMBIGUOUS_SPECIFICATION|UNEXPLAINED_INTEGRATION|IRREDUCIBLE_CROSS_BOUNDARY)$ ]] || {
+				status=INVALID_TERRA_EXCEPTION
+				violations="terra_exception=$exception"
+			}
+		fi
+		printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+			"$node_id" "$route" "$leaf" "$score" "$obligation_count" "$obligation_weight" "$path_count" "$symbol_count" \
+			"$behavioral" "$failures" "$ownership" "$concurrency" "$validations" "$implementation_files" "$actions" \
+			"$declared_p95" "$effective_p95" "$risk_domains" "$status" "$violations" >> "$output"
+	done < <(tail -n +2 "$dag")
+	chmod 600 "$output"
+	if awk -F '\t' 'NR>1 && $19!="READY" {found=1} END{exit found?0:1}' "$output"; then
+		awk -F '\t' 'NR>1 && $19!="READY" {printf "LUNA_COMPLEXITY_OVER_BUDGET node=%s route=%s score=%s status=%s violations=%s; continue recursive Sol decomposition or justify an irreducible Terra boundary\n",$1,$2,$4,$19,$20 > "/dev/stderr"}' "$output"
+		return 1
+	fi
+}
+
 initialize_project_plan_v2()
 {
-	local source_file="$1" coverage_source="${2:-}" header expected_header legacy_header definition state dag coverage
-	local definition_tmp state_tmp dag_tmp coverage_tmp seen_file
+	local source_file="$1" coverage_source="${2:-}" header expected_header complexity_header legacy_header definition state dag coverage complexity_report
+	local definition_tmp state_tmp dag_tmp coverage_tmp complexity_tmp seen_file
 	local node_id parent_id depends_on deliverable acceptance_evidence focused_validation field_index
 	local allowed_paths required_symbols leaf_type complexity_class worker_route dependency
-	local node_count luna_count luna_percent coding_count luna_coding_count luna_coding_percent has_leaf_type=0 route_column=11 type_column=9
+	local node_count luna_count luna_percent coding_count luna_coding_count luna_coding_percent has_leaf_type=0 has_complexity=0 route_column=11 type_column=9
 	local obligations_for_node provenance provenance_tmp
 	local -a fields=()
-	expected_header=$'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tleaf_type\tcomplexity_class\tworker_route'
+	expected_header="$(decomposition_typed_header)"
+	complexity_header="$(decomposition_complexity_header)"
 	legacy_header=$'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tcomplexity_class\tworker_route'
 	IFS= read -r header < "$source_file" || die 'decomposition DAG is empty'
-	if [[ "$header" == "$expected_header" ]]; then
+	if [[ "$header" == "$complexity_header" ]]; then
+		has_leaf_type=1
+		has_complexity=1
+	elif [[ "$header" == "$expected_header" ]]; then
 		has_leaf_type=1
 	elif [[ "$header" == "$legacy_header" ]]; then
 		route_column=10
 		[[ "$HARNESS_PREFERRED_WORKER_ROUTE" != LUNA ]] ||
 			die "Luna-preferred decomposition requires the leaf_type column: $expected_header"
 	else
-		die "decomposition DAG header must be: $expected_header"
+		die "decomposition DAG header must be: $complexity_header"
 	fi
 	definition="$(project_plan_definition_file)"
 	state="$(project_plan_state_file)"
 	dag="$(project_decomposition_plan_file)"
 	coverage="$(specification_coverage_file)"
+	complexity_report="$(decomposition_complexity_report_file)"
 	definition_tmp="$definition.tmp.$$"
 	state_tmp="$state.tmp.$$"
 	dag_tmp="$dag.tmp.$$"
 	coverage_tmp="$coverage.tmp.$$"
+	complexity_tmp="$complexity_report.tmp.$$"
 	seen_file="$state.seen.$$"
 	: > "$seen_file"
 	printf '%s\n' "$header" > "$dag_tmp"
@@ -4385,7 +4693,11 @@ initialize_project_plan_v2()
 	} > "$state_tmp"
 	while IFS=$'\t' read -r -a fields; do
 		if (( has_leaf_type == 1 )); then
-			(( ${#fields[@]} == 11 )) || die 'each decomposition node must contain exactly eleven tab-separated fields'
+			if (( has_complexity == 1 )); then
+				(( ${#fields[@]} == 20 )) || die 'each measured decomposition node must contain exactly twenty tab-separated fields'
+			else
+				(( ${#fields[@]} == 11 )) || die 'each decomposition node must contain exactly eleven tab-separated fields'
+			fi
 			for field_index in "${!fields[@]}"; do
 				fields[$field_index]="$(trim_surrounding_whitespace "${fields[$field_index]}")"
 			done
@@ -4444,9 +4756,7 @@ initialize_project_plan_v2()
 		printf '%s\t%s\n' "$node_id" "$deliverable" >> "$definition_tmp"
 		printf '%s\tPENDING\t-\t%s\n' "$node_id" "$(timestamp_utc)" >> "$state_tmp"
 		if (( has_leaf_type == 1 )); then
-			printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-				"$node_id" "$parent_id" "$depends_on" "$deliverable" "$acceptance_evidence" \
-				"$focused_validation" "$allowed_paths" "$required_symbols" "$leaf_type" "$complexity_class" "$worker_route" >> "$dag_tmp"
+			(IFS=$'\t'; printf '%s\n' "${fields[*]}") >> "$dag_tmp"
 		else
 			printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
 				"$node_id" "$parent_id" "$depends_on" "$deliverable" "$acceptance_evidence" \
@@ -4454,7 +4764,7 @@ initialize_project_plan_v2()
 		fi
 	done < <(tail -n +2 "$source_file")
 	rm -f "$seen_file"
-	node_count="$(awk -F '\t' -v fields="$route_column" 'NR > 1 && NF == fields {count++} END {print count + 0}' "$dag_tmp")"
+	node_count="$(awk -F '\t' 'NR > 1 {count++} END {print count + 0}' "$dag_tmp")"
 	(( node_count > 0 )) || die 'decomposition DAG must contain at least one node'
 	luna_count="$(awk -F '\t' -v route="$route_column" 'NR > 1 && $route == "LUNA" {count++} END {print count + 0}' "$dag_tmp")"
 	luna_percent=$((luna_count * 100 / node_count))
@@ -4490,6 +4800,12 @@ initialize_project_plan_v2()
 	elif [[ -n "$coverage_source" ]]; then
 		die 'coverage file supplied without normalized Specification IR'
 	fi
+	if (( has_complexity == 1 )); then
+		write_decomposition_complexity_report "$dag_tmp" "$coverage_source" "$complexity_tmp" ||
+			die "decomposition complexity contract rejected one or more nodes; inspect $complexity_tmp"
+	elif (( HARNESS_DECOMPOSITION_CRITIC_ENABLED == 1 )); then
+		die "fresh critic-checked decomposition requires the measured DAG schema: $complexity_header"
+	fi
 	# Delay automatic registry creation until all DAG rows, routing rules, and
 	# specification coverage have passed validation, so a rejected plan cannot
 	# leave durable sidecar state.
@@ -4503,18 +4819,21 @@ initialize_project_plan_v2()
 	mv "$state_tmp" "$state"
 	mv "$dag_tmp" "$dag"
 	[[ ! -f "$coverage_tmp" ]] || mv "$coverage_tmp" "$coverage"
+	[[ ! -f "$complexity_tmp" ]] || mv "$complexity_tmp" "$complexity_report"
 	if ! ( architecture_validate_against_plan ); then
-		rm -f -- "$definition" "$state" "$dag" "$coverage"
+		rm -f -- "$definition" "$state" "$dag" "$coverage" "$complexity_report"
 		die 'decomposition DAG conflicts with architecture registries; incomplete plan registration was rolled back'
 	fi
 	provenance="$(decomposition_provenance_file)"
 	provenance_tmp="$provenance.tmp.$$"
 	{
-		printf 'resource_contract_version=1\n'
+		printf 'resource_contract_version=%s\n' "$((has_complexity + 1))"
 		printf 'planner_model=%s\n' "$DECOMPOSITION_MODEL"
 		printf 'planner_reasoning_effort=%s\n' "$DECOMPOSITION_REASONING_EFFORT"
 		printf 'max_luna_obligations_per_leaf=%s\n' "$HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF"
 		printf 'max_luna_context_capsule_bytes=%s\n' "$HARNESS_MAX_LUNA_CONTEXT_CAPSULE_BYTES"
+		printf 'max_luna_complexity_score=%s\n' "$HARNESS_MAX_LUNA_COMPLEXITY_SCORE"
+		printf 'max_luna_predicted_p95_tokens=%s\n' "$HARNESS_MAX_LUNA_PREDICTED_P95_TOKENS"
 		printf 'created_at=%s\n' "$(timestamp_utc)"
 	} > "$provenance_tmp"
 	chmod 600 "$provenance_tmp"

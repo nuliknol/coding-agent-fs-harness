@@ -210,9 +210,9 @@ DEBT-ARCH-ownership	decomposition	-	OWNERSHIP	INV-atomic	ARCH-ownership blocks s
 EOF
 "$HARNESS_BIN/manager-init-architecture" "$env_file" "$architecture" >/dev/null
 cat > "$TEST_ROOT/bad-plan.tsv" <<'EOF'
-node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route
-archfix	-	-	Create atomic ownership architecture	ADR and focused gate pass	test -f src/architecture.c	src/architecture.c	legacy_split_owner_publication	CROSS_COMPONENT_ARCHITECTURE	HIGH	TERRA
-feature	-	-	Implement atomic feature behavior	Focused feature test passes	test -f src/architecture.c	src/architecture.c	legacy_split_owner_publication	LOCAL_IMPLEMENTATION	LOW	LUNA
+node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route	behavioral_concerns	failure_paths	ownership_transitions	concurrency_boundaries	validation_surfaces	implementation_files	predicted_worker_actions	predicted_p95_tokens	terra_exception
+archfix	-	-	Create atomic ownership architecture	ADR and focused gate pass	test -f src/architecture.c	src/architecture.c	legacy_split_owner_publication	CROSS_COMPONENT_ARCHITECTURE	HIGH	TERRA	1	1	1	0	1	1	6	200000	ARCHITECTURE_DECISION
+feature	-	-	Implement atomic feature behavior	Focused feature test passes	test -f src/architecture.c	src/architecture.c	legacy_split_owner_publication	LOCAL_IMPLEMENTATION	LOW	LUNA	1	1	1	0	1	1	5	200000	-
 EOF
 cat > "$TEST_ROOT/coverage.tsv" <<'EOF'
 obligation_id	node_ids	evidence_plan

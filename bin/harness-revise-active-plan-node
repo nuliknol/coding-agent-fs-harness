@@ -28,6 +28,7 @@ dir="$(project_dir)"
 dag="$(project_decomposition_plan_file)"
 state="$(project_plan_state_file)"
 typed_header=$'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tleaf_type\tcomplexity_class\tworker_route'
+complexity_header="$(decomposition_complexity_header)"
 active_item="$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" {print $1}' "$state")"
 active_count="$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" {count++} END {print count + 0}' "$state")"
 (( active_count == 1 )) || die "active-node revision requires exactly one ACTIVE plan item; found $active_count"
@@ -40,8 +41,10 @@ marker="$(task_root_architecture_reassessment_file "$root")"
 
 old_header="$(sed -n '1p' "$dag")"
 new_header="$(sed -n '1p' "$candidate_dag")"
-[[ "$old_header" == "$typed_header" ]] || die 'active-node revision supports only a typed eleven-column DAG'
-[[ "$new_header" == "$typed_header" ]] || die "candidate DAG header must be: $typed_header"
+[[ "$old_header" == "$typed_header" || "$old_header" == "$complexity_header" ]] || die 'active-node revision requires a typed or measured DAG'
+[[ "$new_header" == "$old_header" ]] || die 'candidate DAG must preserve the installed DAG schema'
+measured=0
+[[ "$old_header" != "$complexity_header" ]] || measured=1
 [[ "$(awk 'END {print NR - 1}' "$dag")" == "$(awk 'END {print NR - 1}' "$candidate_dag")" ]] ||
 	die 'candidate DAG must preserve the node count'
 
@@ -52,11 +55,19 @@ new_active="$(awk -F '\t' -v item="$active_item" '$1 == item {print; exit}' "$ca
 	"$(awk -F '\t' -v item="$active_item" 'NR == 1 || $1 != item' "$candidate_dag")" ]] ||
 	die 'candidate DAG changed a non-active node; only the active node may be revised'
 
-IFS=$'\t' read -r old_id old_parent old_deps old_deliverable old_evidence old_validation \
-	old_paths old_symbols old_type old_complexity old_route <<< "$old_active"
-IFS=$'\t' read -r new_id new_parent new_deps new_deliverable new_evidence new_validation \
-	new_paths new_symbols new_type new_complexity new_route new_extra <<< "$new_active"
-[[ -z "${new_extra:-}" ]] || die 'candidate active node has more than eleven fields'
+IFS=$'\t' read -r -a old_fields <<< "$old_active"
+IFS=$'\t' read -r -a new_fields <<< "$new_active"
+expected_fields=$((11 + measured * 9))
+(( ${#old_fields[@]} == expected_fields && ${#new_fields[@]} == expected_fields )) ||
+	die "active-node revision requires exactly $expected_fields fields per active row"
+old_id="${old_fields[0]}"; old_parent="${old_fields[1]}"; old_deps="${old_fields[2]}"
+old_deliverable="${old_fields[3]}"; old_evidence="${old_fields[4]}"; old_validation="${old_fields[5]}"
+old_paths="${old_fields[6]}"; old_symbols="${old_fields[7]}"; old_type="${old_fields[8]}"
+old_complexity="${old_fields[9]}"; old_route="${old_fields[10]}"
+new_id="${new_fields[0]}"; new_parent="${new_fields[1]}"; new_deps="${new_fields[2]}"
+new_deliverable="${new_fields[3]}"; new_evidence="${new_fields[4]}"; new_validation="${new_fields[5]}"
+new_paths="${new_fields[6]}"; new_symbols="${new_fields[7]}"; new_type="${new_fields[8]}"
+new_complexity="${new_fields[9]}"; new_route="${new_fields[10]}"
 [[ "$new_id" == "$old_id" && "$new_parent" == "$old_parent" && "$new_deps" == "$old_deps" ]] ||
 	die 'candidate must preserve active node identity, parent, and dependencies'
 [[ "$new_deliverable" == "$old_deliverable" ]] || die 'candidate must preserve the active deliverable'
@@ -121,6 +132,17 @@ list_is_subset "$old_symbols" "$new_symbols" || die 'revised required symbols ma
 	die 'revised root assignment Worker-Route does not match the revised DAG'
 [[ "$(require_single_metadata_value "$candidate_assignment" Depends-On 'revised root assignment')" == "$new_deps" ]] ||
 	die 'revised root assignment Depends-On does not match the revised DAG'
+if (( measured == 1 )); then
+	for mapping in \
+		"Behavioral-Concerns:11" "Failure-Paths:12" "Ownership-Transitions:13" \
+		"Concurrency-Boundaries:14" "Validation-Surfaces:15" \
+		"Expected-Max-Implementation-Files:16" "Expected-Max-Agent-Actions:17" \
+		"Predicted-P95-Tokens:18" "Terra-Exception:19"; do
+		IFS=: read -r metadata_field field_index <<< "$mapping"
+		[[ "$(require_single_metadata_value "$candidate_assignment" "$metadata_field" 'revised measured assignment')" == "${new_fields[$field_index]}" ]] ||
+			die "revised root assignment $metadata_field does not match the revised measured DAG"
+	done
+fi
 
 old_criteria="$(awk -F': ' '$1 == "Root-Criterion" {print $2}' "$root_assignment")"
 new_criteria="$(awk -F': ' '$1 == "Root-Criterion" {print $2}' "$candidate_assignment")"
@@ -129,6 +151,18 @@ new_criteria="$(awk -F': ' '$1 == "Root-Criterion" {print $2}' "$candidate_assig
 
 if specification_ir_available; then
 	validate_specification_coverage_file "$(specification_coverage_file)" "$candidate_dag"
+fi
+candidate_complexity=""
+if (( measured == 1 )); then
+	candidate_complexity="$dir/control/revised-complexity-$active_item-$$.tsv"
+	write_decomposition_complexity_report "$candidate_dag" "$(specification_coverage_file)" "$candidate_complexity" || {
+		rm -f "$candidate_complexity"
+		die 'revised active node exceeds the measured worker-complexity contract'
+	}
+	expected_score="$(awk -F '\t' -v node="$active_item" 'NR>1 && $1==node {print $4; exit}' "$candidate_complexity")"
+	expected_p95="$(awk -F '\t' -v node="$active_item" 'NR>1 && $1==node {print $17; exit}' "$candidate_complexity")"
+	[[ "$(require_single_metadata_value "$candidate_assignment" Complexity-Score 'revised measured assignment')" == "$expected_score" ]] || die 'revised assignment Complexity-Score is not deterministic'
+	[[ "$(require_single_metadata_value "$candidate_assignment" Effective-P95-Tokens 'revised measured assignment')" == "$expected_p95" ]] || die 'revised assignment Effective-P95-Tokens is not deterministic'
 fi
 architecture_require_scoped_validation "revised plan node $active_item focused_validation" "$new_validation"
 
@@ -142,6 +176,9 @@ install -m 600 "$dag" "$archive_dir/project-decomposition-v2.before.tsv"
 install -m 600 "$root_assignment" "$archive_dir/root-assignment.before.md"
 install -m 600 "$marker" "$archive_dir/architecture-reassessment.md"
 install -m 600 "$resolution_note" "$archive_dir/resolution.md"
+if [[ -f "$(decomposition_complexity_report_file)" ]]; then
+	install -m 600 "$(decomposition_complexity_report_file)" "$archive_dir/decomposition-complexity.before.tsv"
+fi
 if [[ -f "$dir/control/manager.thread" ]]; then
 	install -m 600 "$dir/control/manager.thread" "$archive_dir/manager-thread.before.env"
 fi
@@ -156,6 +193,9 @@ if ! ( architecture_validate_against_plan ); then
 	install -m 600 "$archive_dir/project-decomposition-v2.before.tsv" "$dag"
 	install -m 600 "$archive_dir/root-assignment.before.md" "$root_assignment"
 	die 'revised active node conflicts with architecture registries; original DAG and root assignment were restored'
+fi
+if [[ -n "$candidate_complexity" ]]; then
+	mv "$candidate_complexity" "$(decomposition_complexity_report_file)"
 fi
 rm -f "$marker" "$(task_root_replan_file "$root")" "$(task_root_replanning_file "$root")"
 route_override="$(task_root_operator_route_override_file "$root")"

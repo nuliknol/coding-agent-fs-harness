@@ -367,17 +367,18 @@ architecture_revise()
 
 architecture_initialize_minimal_test_profile()
 {
-	local plan="$1" expected_header row node parent depends deliverable evidence validation
+	local plan="$1" expected_header complexity_header row node parent depends deliverable evidence validation
 	local paths symbols leaf complexity route profile_dir invariant gate profile_file
 	local -a rows=() fields=()
 	expected_header=$'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tleaf_type\tcomplexity_class\tworker_route'
+	complexity_header="$(decomposition_complexity_header)"
 	[[ -f "$plan" ]] || return 1
-	[[ "$(sed -n '1p' "$plan")" == "$expected_header" ]] || return 1
+	[[ "$(sed -n '1p' "$plan")" == "$expected_header" || "$(sed -n '1p' "$plan")" == "$complexity_header" ]] || return 1
 	mapfile -t rows < <(tail -n +2 "$plan" | sed '/^[[:space:]]*$/d')
 	(( ${#rows[@]} == 1 )) || return 1
 	row="${rows[0]}"
 	IFS=$'\t' read -r -a fields <<< "$row"
-	(( ${#fields[@]} == 11 )) || return 1
+	(( ${#fields[@]} == 11 || ${#fields[@]} == 20 )) || return 1
 	node="${fields[0]}"; parent="${fields[1]}"; depends="${fields[2]}"
 	deliverable="${fields[3]}"; evidence="${fields[4]}"; validation="${fields[5]}"
 	paths="${fields[6]}"; symbols="${fields[7]}"; leaf="${fields[8]}"
