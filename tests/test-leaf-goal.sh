@@ -290,6 +290,8 @@ tail -n 1 "$TEST_ROOT/status-pending.out" |
 rm -f "$pending_log"
 
 "$HARNESS_BIN/worker-invoke-task" "$TEST_ROOT/harness.env" 001 >/dev/null
+grep -Fq 'cap applies to the combined stdout/stderr of the whole command' \
+	"$project_dir/control/goalproj-task-001.worker.prompt.md"
 result="$project_dir/results/goalproj-task-001.result.md"
 [[ -f "$result" ]]
 grep -Fqx 'Goal-Outcome: COMPLETE' "$result"
