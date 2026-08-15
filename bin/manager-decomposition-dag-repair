@@ -31,8 +31,8 @@ install -m 600 "$candidate_dir/coverage.tsv" "$repair_dir/coverage.tsv"
 
 repair_phase=decomposition_repair
 complexity_repair=0
-complexity_context='Correct only the reported deterministic DAG/coverage defect.'
-if grep -q 'LUNA_COMPLEXITY_OVER_BUDGET' "$rejection_log"; then
+complexity_context='Correct only the reported deterministic DAG/coverage defect. Every DAG row is executable through LUNA or TERRA; never emit SOL or grouping nodes. Routine LOCAL_IMPLEMENTATION, TEST_IMPLEMENTATION, MECHANICAL_API, FOCUSED_BUG, and DOCUMENTATION rows remain LOW/LUNA and must be split rather than converted to Terra with an invented exception.'
+if grep -q 'LUNA_COMPLEXITY_OVER_BUDGET.*status=OVER_BUDGET' "$rejection_log"; then
 	complexity_repair=1
 	repair_phase=decomposition
 	complexity_report="$candidate_dir/complexity.tsv"
