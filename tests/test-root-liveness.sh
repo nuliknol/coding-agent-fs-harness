@@ -119,8 +119,12 @@ Expand beyond the immutable root scope.
 
 true
 MD
+set +e
 publish_output="$("$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" \
 	consumer-revision-03 "$TEST_ROOT/expanded-revision.md")"
+publish_status=$?
+set -e
+[[ "$publish_status" -eq 6 ]]
 [[ "$publish_output" == "$reassessment" ]]
 grep -Fqx 'Category: IMMUTABLE_ROOT_AUTHORITY' "$reassessment"
 [[ ! -f "$project/tasks/livenessproj-task-consumer-revision-03.ready.md" ]]
@@ -180,6 +184,56 @@ fi
 grep -Fqx 'Allowed-Scope: src/consumer' "$read_only_ready"
 [[ ! -f "$reassessment" ]]
 rm -f "$read_only_ready"
+
+# Generated build trees are validation context, not writable source authority;
+# execution budgets are clamped to the immutable root ceiling instead of
+# creating a false architecture reassessment.
+cat > "$TEST_ROOT/generated-validation-revision.md" <<'MD'
+# Generated Validation Recovery
+
+Task-ID: consumer-revision-05
+Task-Root: consumer
+Execution-Mode: LEAF_GOAL
+Goal-ID: consumer.generated-validation
+Target-Criterion: consumer.validation
+Goal-Success-Evidence: deterministic validation passes
+Focused-Validation: cmake --build build
+Allowed-Scope: build
+Baseline-Boundary: accepted consumer root
+Hard-Block-Conditions: explicit external authority only
+Leaf-Type: LOCAL_IMPLEMENTATION
+Complexity-Class: LOW
+Worker-Route: LUNA
+Depends-On: UPSTREAM
+Deliverable: consumer
+Required-Symbols: -
+Context-Paths: build,src/consumer
+Architecture-Decisions: NONE
+Validation-Class: FOCUSED
+Expected-Max-Implementation-Files: 3
+Expected-Max-Worker-Turns: 3
+
+## Objective
+
+Run the generated validation target without broadening source authority.
+
+## Acceptance criteria
+
+- Deterministic validation passes.
+
+## Validation commands
+
+cmake --build build
+MD
+generated_output="$("$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" \
+	consumer-revision-05 "$TEST_ROOT/generated-validation-revision.md")"
+generated_ready="$project/tasks/livenessproj-task-consumer-revision-05.ready.md"
+[[ "$generated_output" == "$generated_ready" ]]
+grep -Fqx 'Allowed-Scope: src/consumer' "$generated_ready"
+grep -Fqx 'Expected-Max-Implementation-Files: 2' "$generated_ready"
+grep -Fqx 'Expected-Max-Worker-Turns: 2' "$generated_ready"
+[[ ! -f "$reassessment" ]]
+rm -f "$generated_ready"
 
 cat > "$TEST_ROOT/invalidation.md" <<'MD'
 The consumer's deterministic validation disproves the accepted upstream serialization contract.

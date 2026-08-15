@@ -470,14 +470,85 @@ scope_authorizes_governing_specification()
 	return 1
 }
 
+scope_is_generated_validation_only()
+{
+	local scope="$1" entry
+	local -a entries=()
+	scope="${scope//;/,}"
+	IFS=',' read -r -a entries <<< "$scope"
+	(( ${#entries[@]} > 0 )) || return 1
+	for entry in "${entries[@]}"; do
+		entry="$(trim_surrounding_whitespace "$entry")"
+		entry="${entry%/}"
+		case "$entry" in
+			build|build/*|build-*|build-*/*|cmake-build-*|cmake-build-*/*|*/build|*/build/*|*/build-*|*/build-*/*|*/cmake-build-*|*/cmake-build-*/*)
+				;;
+			*) return 1 ;;
+		esac
+	done
+	return 0
+}
+
+normalize_revision_execution_metadata()
+{
+	local root_scope root_max_files root_max_turns requested_scope requested_files requested_turns
+	local normalized_scope normalized_files normalized_turns tmp changed=0
+	[[ "$task_id" != "$root" && -f "$root_assignment" ]] || return 0
+	root_scope="$(metadata_value "$root_assignment" Allowed-Scope)"
+	root_max_files="$(metadata_value "$root_assignment" Expected-Max-Implementation-Files)"
+	root_max_turns="$(metadata_value "$root_assignment" Expected-Max-Worker-Turns)"
+	requested_scope="$(metadata_value "$task_file" Allowed-Scope)"
+	requested_files="$(metadata_value "$task_file" Expected-Max-Implementation-Files)"
+	requested_turns="$(metadata_value "$task_file" Expected-Max-Worker-Turns)"
+	normalized_scope="$requested_scope"
+	normalized_files="$requested_files"
+	normalized_turns="$requested_turns"
+
+	# Generated build trees are validation workspaces, never source mutation
+	# authority. Keep them in Context-Paths and validation commands while
+	# preserving the root's tracked-source authority.
+	if [[ -n "$root_scope" ]] && scope_is_generated_validation_only "$requested_scope" &&
+		! scope_is_within_root_authority "$requested_scope" "$root_scope"; then
+		normalized_scope="$root_scope"
+		changed=1
+	fi
+	# File and process-turn counts are execution budgets, not architecture
+	# authority. A revision may narrow them but cannot raise the immutable root
+	# ceiling merely by restating metadata.
+	if [[ "$root_max_files" =~ ^[0-9]+$ && "$requested_files" =~ ^[0-9]+$ ]] &&
+		(( requested_files > root_max_files )); then
+		normalized_files="$root_max_files"
+		changed=1
+	fi
+	if [[ "$root_max_turns" =~ ^[1-9][0-9]*$ && "$requested_turns" =~ ^[1-9][0-9]*$ ]] &&
+		(( requested_turns > root_max_turns )); then
+		normalized_turns="$root_max_turns"
+		changed=1
+	fi
+	(( changed == 1 )) || return 0
+
+	tmp="$task_file.execution-authority.$$"
+	HARNESS_NORMALIZED_ALLOWED_SCOPE="$normalized_scope" \
+	HARNESS_NORMALIZED_EXPECTED_FILES="$normalized_files" \
+	HARNESS_NORMALIZED_EXPECTED_TURNS="$normalized_turns" awk -F': ' '
+		$1 == "Allowed-Scope" {print "Allowed-Scope: " ENVIRON["HARNESS_NORMALIZED_ALLOWED_SCOPE"]; next}
+		$1 == "Expected-Max-Implementation-Files" {print "Expected-Max-Implementation-Files: " ENVIRON["HARNESS_NORMALIZED_EXPECTED_FILES"]; next}
+		$1 == "Expected-Max-Worker-Turns" {print "Expected-Max-Worker-Turns: " ENVIRON["HARNESS_NORMALIZED_EXPECTED_TURNS"]; next}
+		{print}
+	' "$task_file" > "$tmp"
+	chmod --reference="$task_file" "$tmp"
+	mv "$tmp" "$task_file"
+	log_event "REVISION_EXECUTION_METADATA_NORMALIZED root=$root task=$task_id requested_scope=$(printf '%q' "$requested_scope") allowed_scope=$(printf '%q' "$normalized_scope") requested_files=${requested_files:--} expected_files=${normalized_files:--} requested_turns=${requested_turns:--} expected_turns=${normalized_turns:--}"
+}
+
+normalize_revision_execution_metadata
+
 enforce_revision_authority()
 {
-	local root_scope root_architecture root_max_files root_max_turns reason="" category=IMMUTABLE_ROOT_AUTHORITY
+	local root_scope root_architecture reason="" category=IMMUTABLE_ROOT_AUTHORITY
 	[[ "$task_id" != "$root" && -f "$root_assignment" ]] || return 0
 	root_scope="$(metadata_value "$root_assignment" Allowed-Scope)"
 	root_architecture="$(metadata_value "$root_assignment" Architecture-Decisions)"
-	root_max_files="$(metadata_value "$root_assignment" Expected-Max-Implementation-Files)"
-	root_max_turns="$(metadata_value "$root_assignment" Expected-Max-Worker-Turns)"
 	# A zero-write root may need additional repository documents to diagnose or
 	# attest its criterion. Those paths belong in Context-Paths, not in its write
 	# authority. Preserve the immutable root Allowed-Scope deterministically so a
@@ -495,10 +566,6 @@ enforce_revision_authority()
 	elif [[ -n "$root_architecture" && "$root_architecture" != NONE &&
 		"$leaf_architecture_decisions" != NONE && "$leaf_architecture_decisions" != "$root_architecture" ]]; then
 		reason="revision introduces architecture authority not granted by the root: root=[$root_architecture] revision=[$leaf_architecture_decisions]"
-	elif [[ "$root_max_files" =~ ^[0-9]+$ ]] && (( leaf_expected_files > root_max_files )); then
-		reason="revision expected-file budget exceeds immutable root authority ($leaf_expected_files/$root_max_files)"
-	elif [[ "$root_max_turns" =~ ^[1-9][0-9]*$ ]] && (( leaf_expected_turns > root_max_turns )); then
-		reason="revision expected-turn budget exceeds immutable root authority ($leaf_expected_turns/$root_max_turns)"
 	fi
 	if [[ -n "$reason" ]]; then
 		if (( manager_remediation == 1 )); then
@@ -507,7 +574,7 @@ enforce_revision_authority()
 		mark_root_architecture_reassessment "$task_id" "$category" "$reason" \
 			"root_assignment=$root_assignment candidate=$task_file" >/dev/null
 		printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
-		exit 0
+		exit 6
 	fi
 }
 

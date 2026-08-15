@@ -47,6 +47,9 @@ compatibility alias; new files should use the uppercase shell variable.
   invocation or duplicate publication attempt.
 - Recovery routing names the exact controlled Terra exception after the bounded
   Luna strategy budget is exhausted, preventing schema-rejection replan loops.
+- Revision publication keeps generated build trees in validation context,
+  clamps execution budgets to root ceilings, and returns a failure status for
+  genuine authority expansion so managers cannot report a false publication.
 - Focused closure mode: high-progress tasks receive a bounded
   diagnose-correct-rebuild-smoke budget instead of unbounded revision churn.
 - Independent final audit: an optional fresh Oracle checks specification
