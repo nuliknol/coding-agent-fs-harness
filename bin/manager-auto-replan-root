@@ -177,7 +177,7 @@ PLAN_NODE_CONTEXT_FILE=$replan_context_capsule
 LUNA_STRATEGY_FAILURES=$(root_luna_strategy_failure_count "$root")
 MAX_LUNA_STRATEGY_FAILURES=$HARNESS_MAX_LUNA_STRATEGY_FAILURES
 
-Read DEVELOPMENT_POLICY_FILE when present, PLAN_NODE_CONTEXT_FILE once, and the root/replan/criterion files above that exist. PLAN_NODE_CONTEXT_FILE is the complete plan, DAG, normalized-IR, and architecture authority for this turn. Do not open the generic manager protocol, human specification, global plan/DAG/IR/architecture files, repository inventory, prior agent logs, or unrelated progress files. Inspect only bounded repository evidence needed for the first unmet boundary, with at most six shell actions and bounded output. Preserve every verified checkpoint.
+Read DEVELOPMENT_POLICY_FILE when present, PLAN_NODE_CONTEXT_FILE once, and the root/replan/criterion files above that exist. PLAN_NODE_CONTEXT_FILE is the complete plan, DAG, normalized-IR, and architecture authority for this turn. Do not open the generic manager protocol, human specification, global plan/DAG/IR/architecture files, repository inventory, prior agent logs, or unrelated progress files. Inspect only bounded repository evidence needed for the first unmet boundary, with at most six shell actions and bounded output. Every source search or diff command must end with both a line bound (`head -n $HARNESS_VALIDATION_OUTPUT_MAX_LINES`) and a byte bound (`head -c $HARNESS_VALIDATION_OUTPUT_MAX_BYTES`); retain any complete output in PROJECT_TMP_DIR. Never combine an unrestricted diff with a contextual search in one command. Preserve every verified checkpoint.
 
 $criteria_instruction
 

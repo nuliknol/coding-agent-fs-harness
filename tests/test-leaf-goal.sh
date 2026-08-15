@@ -411,6 +411,11 @@ resource_anomaly="$resource_project/control/progress/goalresource-task-001.token
 [[ -f "$resource_anomaly" ]]
 grep -q 'worker task processed-token budget reached (110/50)' "$resource_anomaly"
 grep -q 'WORKER_TASK_TOKEN_BUDGET_PAUSED task=001.*processed_tokens=110 limit=50' "$resource_project/logs/events.log"
+printf '# Root Task Needs Replanning\n' > \
+	"$resource_project/control/progress/goalresource-task-001.needs-replan.md"
+bash -c 'source "$1"; load_harness_env "$2"; mark_root_token_usage_anomaly 001 repeated-test >/dev/null' \
+	_ "$HARNESS_HOME/lib/harness-common.sh" "$RESOURCE_ROOT/harness.env"
+[[ -f "$resource_project/control/progress/goalresource-task-001.needs-replan.md" ]]
 "$HARNESS_BIN/harness-status" "$RESOURCE_ROOT/harness.env" > "$RESOURCE_ROOT/status.out"
 grep -Fq 'Project status: TOKEN_USAGE_ANOMALY.' "$RESOURCE_ROOT/status.out"
 resource_base="$resource_project/control/goalresource-task-001"

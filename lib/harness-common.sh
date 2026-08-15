@@ -2523,7 +2523,11 @@ mark_root_token_usage_anomaly()
 		mv "$tmp" "$marker"
 		created=1
 	fi
-	rm -f "$(task_root_replan_file "$root")" "$(task_root_replanning_file "$root")"
+	# Preserve the durable needs-replan transaction.  The anomaly marker already
+	# suppresses every agent launch, and deleting the recovery intent here turns
+	# an explicitly paused replan into an unrelated planning gap after operator
+	# resolution.  Only the in-flight PID marker is stale once this episode ends.
+	rm -f "$(task_root_replanning_file "$root")"
 	clear_worker_thread_for_root "$root" token-usage-anomaly
 	if (( created == 1 )); then
 		alarm="$(project_dir)/logs/token-usage-alarms.log"
