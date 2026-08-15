@@ -375,10 +375,11 @@ grep -q 'WORKER_GOAL_SEMANTIC_REPLAN task=001' "$replan_project/logs/events.log"
 RESOURCE_ROOT="$TEST_ROOT/goal-resource"
 mkdir -p "$RESOURCE_ROOT/repo" "$RESOURCE_ROOT/manager-home" "$RESOURCE_ROOT/worker-home"
 printf 'resource episode specification\n' > "$RESOURCE_ROOT/repo/spec.md"
+printf 'baseline goal output\n' > "$RESOURCE_ROOT/repo/goal-output.txt"
 git -C "$RESOURCE_ROOT/repo" init -q
 git -C "$RESOURCE_ROOT/repo" config user.name 'Harness Test'
 git -C "$RESOURCE_ROOT/repo" config user.email 'harness@example.invalid'
-git -C "$RESOURCE_ROOT/repo" add spec.md
+git -C "$RESOURCE_ROOT/repo" add spec.md goal-output.txt
 git -C "$RESOURCE_ROOT/repo" commit -qm baseline
 cat > "$RESOURCE_ROOT/harness.env" <<ENV
 export PROJECT="goalresource"
@@ -417,6 +418,9 @@ printf 'fingerprint=stale\n' > "$resource_base.reviewed-event"
 printf '# Manager Invocation Failed\n' > "$resource_base.manager-failed.md"
 printf '# Manager Review Stalled\n' > "$resource_base.manager-review-stalled.md"
 cat > "$RESOURCE_ROOT/token-resolution.md" <<'NOTE'
+Partial-Edit-Disposition: DISCARD_PRESERVED
+Partial-Edit-Task: 001
+
 ## Cause
 
 The simulated worker exceeded the deliberately tiny cumulative leaf budget.
@@ -429,6 +433,7 @@ The test records a decomposition handoff and does not resume the same context.
 
 Any continuation must be published as a new bounded leaf.
 NOTE
+printf 'unverified partial worker output\n' > "$RESOURCE_ROOT/repo/goal-output.txt"
 "$HARNESS_BIN/harness-resolve-token-usage-anomaly" "$RESOURCE_ROOT/harness.env" 001 \
 	"$RESOURCE_ROOT/token-resolution.md" >/dev/null
 [[ ! -e "$resource_anomaly" ]]
@@ -438,7 +443,10 @@ NOTE
 resource_goal_state="$resource_project/control/goals/goalresource-task-001.goal"
 grep -Fqx 'thread_id=' "$resource_goal_state"
 grep -Fqx 'thread_context=token-anomaly-resolved' "$resource_goal_state"
-grep -q 'TOKEN_USAGE_ANOMALY_RESOLVED root=001.*review_suppression_cleared=1.*goal_threads_rotated=1' "$resource_project/logs/events.log"
+grep -Fqx 'baseline goal output' "$RESOURCE_ROOT/repo/goal-output.txt"
+resource_resolution_patch="$(find "$resource_project/archive/token-usage-anomalies" -maxdepth 1 -type f -name '*.workspace.patch')"
+grep -Fq 'unverified partial worker output' "$resource_resolution_patch"
+grep -q 'TOKEN_USAGE_ANOMALY_RESOLVED root=001.*review_suppression_cleared=1.*goal_threads_rotated=1.*discarded_partial_paths=1' "$resource_project/logs/events.log"
 
 # Releases before 5.11 mislabeled token fuses as NEEDS_HUMAN. The state
 # migration is exact, evidence-preserving, and idempotent; unrelated human

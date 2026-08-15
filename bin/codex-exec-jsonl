@@ -181,11 +181,14 @@ require_no_project_token_usage_anomaly
 
 record_resource_guard()
 {
-	local alarm marker="-"
+	local alarm marker="-" anomaly_task
 	if [[ -n "$resource_task_root" && "$resource_task_root" != - ]] &&
 		{ [[ "$resource_guard_kind" =~ ^(TOKEN_LIMIT|ESTIMATED_TOKEN_LIMIT)$ ]] ||
 			{ [[ "$role" == manager_review ]] && [[ "$resource_guard_kind" == ITEM_LIMIT ]]; }; }; then
-		marker="$(mark_root_token_usage_anomaly "$resource_task_root" "$resource_guard_reason" \
+		anomaly_task="$resource_task_id"
+		[[ -n "$anomaly_task" && "$(task_root_id "$anomaly_task")" == "$(task_root_id "$resource_task_root")" ]] ||
+			anomaly_task="$resource_task_root"
+		marker="$(mark_root_token_usage_anomaly "$anomaly_task" "$resource_guard_reason" \
 			"role=$role model=$model jsonl=$json_log estimated_processed_tokens=$agent_estimated_processed_tokens")"
 	# A non-token leaf-goal fuse closes only the current implementation episode.
 	# worker-invoke-task converts it into a preserved NEEDS_DECOMPOSITION handoff,
