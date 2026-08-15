@@ -81,7 +81,7 @@ if grep -q 'LUNA_COMPLEXITY_' "$rejection_log"; then
 	} > "$complexity_state.tmp.$$"
 	chmod 600 "$complexity_state.tmp.$$"
 	mv "$complexity_state.tmp.$$" "$complexity_state"
-	complexity_context="The deterministic complexity contract rejected one or more routine leaves. Read COMPLEXITY_REPORT and recursively split every OVER_BUDGET Luna node into ordered, independently acceptance-complete children. Preserve exact obligation coverage and typed dependencies. Reduce the measured excess across this pass and make every routine coding leaf LOW/LUNA. Do not merely lower declared numbers, weaken evidence, erase obligations, or route coding to Terra. Terra is allowed only for an irreducible decision or integration boundary with the exact justified terra_exception vocabulary."
+	complexity_context="The deterministic complexity contract rejected one or more routine leaves. Read the complete diagnostics and COMPLEXITY_REPORT and recursively split every invalid or OVER_BUDGET Luna node into ordered, independently acceptance-complete children. Every DAG row is executable work and must use an allowed leaf_type plus worker_route LUNA or TERRA; never emit DECOMPOSITION, SOL, planner-only, or grouping rows. Preserve exact obligation coverage and typed dependencies. Reduce the measured excess across this pass and make every routine coding leaf LOW/LUNA. Do not merely lower declared numbers, weaken evidence, erase obligations, or route coding to Terra. Terra is allowed only for an irreducible decision or integration boundary with the exact justified terra_exception vocabulary."
 fi
 
 obligation_count="$(awk 'NR > 1 {count++} END {print count + 0}' "$(specification_obligations_file)")"

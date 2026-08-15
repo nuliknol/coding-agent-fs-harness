@@ -48,6 +48,23 @@ chmod 600 "$TEST_ROOT/harness.env"
 
 "$HARNESS_BIN/harness-init" "$TEST_ROOT/harness.env" >/dev/null
 
+cat > "$TEST_ROOT/invalid-measured-plan.tsv" <<'PLAN'
+node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route	behavioral_concerns	failure_paths	ownership_transitions	concurrency_boundaries	validation_surfaces	implementation_files	predicted_worker_actions	predicted_p95_tokens	terra_exception
+planner-one	-	-	Group work	Children exist	printf PASS	src/a.c	-	DECOMPOSITION	HIGH	SOL	1	0	0	0	1	0	2	30000	-
+planner-two	-	planner-one	Group more work	Children exist	printf PASS	src/a.c	-	DECOMPOSITION	HIGH	SOL	1	0	0	0	1	0	2	30000	-
+PLAN
+if (
+	source "$HARNESS_HOME/lib/harness-common.sh"
+	validate_decomposition_measured_schema_file "$TEST_ROOT/invalid-measured-plan.tsv"
+) > "$TEST_ROOT/invalid-measured-plan.out" 2>&1; then
+	printf 'measured schema accepted non-executable Sol grouping rows\n' >&2
+	exit 1
+fi
+grep -Fq 'node=planner-one has non-executable leaf_type=DECOMPOSITION' "$TEST_ROOT/invalid-measured-plan.out"
+grep -Fq 'node=planner-one has non-executable worker_route=SOL' "$TEST_ROOT/invalid-measured-plan.out"
+grep -Fq 'node=planner-two has non-executable leaf_type=DECOMPOSITION' "$TEST_ROOT/invalid-measured-plan.out"
+grep -Fq 'node=planner-two has non-executable worker_route=SOL' "$TEST_ROOT/invalid-measured-plan.out"
+
 # Prompt construction uses an interpolated heredoc. Literal shell backticks in
 # prose must not accidentally execute commands while the prompt is generated.
 set +e

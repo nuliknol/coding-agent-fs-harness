@@ -4488,6 +4488,49 @@ decomposition_has_complexity_contract()
 	[[ "$header" == "$(decomposition_complexity_header)" ]]
 }
 
+validate_decomposition_measured_schema_file()
+{
+	local dag="$1" node_id leaf_type complexity_class worker_route errors=0 index value
+	local -a fields=()
+	while IFS=$'\t' read -r -a fields; do
+		node_id="${fields[0]:-}"
+		[[ "$node_id" != node_id && -n "$node_id" ]] || continue
+		if (( ${#fields[@]} != 20 )); then
+			printf 'LUNA_COMPLEXITY_INVALID node=%s row must contain exactly 20 fields\n' "$node_id"
+			errors=$((errors + 1))
+			continue
+		fi
+		leaf_type="${fields[8]}"; complexity_class="${fields[9]}"; worker_route="${fields[10]}"
+		if [[ ! "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]]; then
+			printf 'LUNA_COMPLEXITY_INVALID node=%s has non-executable leaf_type=%s; every DAG row must be an executable Luna or Terra leaf, never a planner/grouping node\n' "$node_id" "$leaf_type"
+			errors=$((errors + 1))
+		fi
+		if [[ ! "$complexity_class" =~ ^(LOW|MEDIUM|HIGH)$ ]]; then
+			printf 'LUNA_COMPLEXITY_INVALID node=%s has invalid complexity_class=%s\n' "$node_id" "$complexity_class"
+			errors=$((errors + 1))
+		fi
+		if [[ ! "$worker_route" =~ ^(LUNA|TERRA)$ ]]; then
+			printf 'LUNA_COMPLEXITY_INVALID node=%s has non-executable worker_route=%s; Sol decomposes but never executes DAG rows\n' "$node_id" "$worker_route"
+			errors=$((errors + 1))
+		fi
+		for index in 11 12 13 14 15 16 17 18; do
+			value="${fields[$index]}"
+			if [[ ! "$value" =~ ^[0-9]+$ ]]; then
+				printf 'LUNA_COMPLEXITY_INVALID node=%s dimension_%s=%s must be a nonnegative integer\n' "$node_id" "$((index + 1))" "$value"
+				errors=$((errors + 1))
+			fi
+		done
+		for index in 11 15 16 17 18; do
+			value="${fields[$index]}"
+			if [[ "$value" =~ ^[0-9]+$ ]] && (( value == 0 )); then
+				printf 'LUNA_COMPLEXITY_INVALID node=%s dimension_%s must be positive\n' "$node_id" "$((index + 1))"
+				errors=$((errors + 1))
+			fi
+		done
+	done < "$dag"
+	(( errors == 0 ))
+}
+
 decomposition_complexity_report_file()
 {
 	printf '%s/control/decomposition-complexity.tsv\n' "$(project_dir)"

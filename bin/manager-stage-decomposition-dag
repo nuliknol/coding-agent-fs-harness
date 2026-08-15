@@ -58,6 +58,10 @@ set +e
 	fi
 	[[ "$coverage_header" == "$expected_coverage_header" ]] || die "specification coverage header must be: $expected_coverage_header"
 	(( $(awk 'END {print NR+0}' "$candidate_dir/dag.tsv") > 1 )) || die 'decomposition DAG has no nodes'
+	if [[ "$dag_header" == "$complexity_dag_header" ]]; then
+		validate_decomposition_measured_schema_file "$candidate_dir/dag.tsv" ||
+			die 'measured decomposition DAG contains invalid or non-executable rows'
+	fi
 	validate_specification_coverage_file "$candidate_dir/coverage.tsv" "$candidate_dir/dag.tsv"
 	if [[ "$dag_header" == "$complexity_dag_header" ]]; then
 		write_decomposition_complexity_report "$candidate_dir/dag.tsv" "$candidate_dir/coverage.tsv" "$candidate_dir/complexity.tsv"
