@@ -70,6 +70,9 @@ compatibility alias; new files should use the uppercase shell variable.
   restore invariant, decision, edge, and health-gate metadata from the accepted
   architecture registry before validation instead of asking an agent to copy
   five exact fields and spending a publication attempt on transcription.
+- Linearized DAG ancestry: specification-relation validation exploits the
+  already-enforced topological node order to build ancestor sets once, avoiding
+  repeated pairwise transitive-closure scans on large decomposition graphs.
 
 ## Process model
 

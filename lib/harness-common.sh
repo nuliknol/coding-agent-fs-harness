@@ -3950,8 +3950,20 @@ validate_specification_coverage_relations()
 		}
 		FILENAME == dag_file {
 			if (FNR == 1) next
+			node=$1
 			n=split($3, values, ",")
-			for (i=1; i<=n; i++) if (trim(values[i]) != "-") reach[$1 SUBSEP trim(values[i])]=1
+			for (i=1; i<=n; i++) {
+				dependency=trim(values[i])
+				if (dependency == "-") continue
+				reach[node SUBSEP dependency]=1
+				# The decomposition validator guarantees topological order, so
+				# every dependency already has its complete ancestor set.
+				for (key in reach) {
+					split(key, parts, SUBSEP)
+					if (parts[1] == dependency)
+						reach[node SUBSEP parts[2]]=1
+				}
+			}
 			next
 		}
 		FILENAME == relations_file {
@@ -3962,20 +3974,6 @@ validate_specification_coverage_relations()
 			next
 		}
 		END {
-			do {
-				changed=0
-				for (left in reach) {
-					split(left, lparts, SUBSEP)
-					for (right in reach) {
-						split(right, rparts, SUBSEP)
-						if (lparts[2] == rparts[1] && !((lparts[1] SUBSEP rparts[2]) in reach)) {
-							added[lparts[1] SUBSEP rparts[2]]=1
-							changed=1
-						}
-					}
-				}
-				for (key in added) {reach[key]=1; delete added[key]}
-			} while (changed)
 			for (i=1; i<=count; i++) {
 				if (authority[i] == "PLANNING_HINT") continue
 				if (type[i] == "DEPENDS_ON" || type[i] == "REQUIRES_ACCEPTED") {
