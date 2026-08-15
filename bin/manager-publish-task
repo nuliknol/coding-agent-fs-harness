@@ -765,7 +765,7 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 						die "$metadata_field must match the deterministic complexity report for $plan_item_id"
 				fi
 			done
-			if (( measured_recovery_route_override == 0 )); then
+			if (( measured_recovery_route_override == 0 && manager_remediation == 0 )); then
 				expected_value="$(project_plan_node_value "$plan_item_id" terra_exception)"
 				[[ "$leaf_terra_exception" == "$expected_value" ]] ||
 					die "Terra-Exception must match the immutable measured decomposition value for $plan_item_id"
