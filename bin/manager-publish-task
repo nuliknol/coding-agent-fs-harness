@@ -123,7 +123,10 @@ normalize_measured_assignment_metadata()
 {
 	local report decomposition report_row dag_row tmp
 	local complexity_score behavioral failures ownership concurrency validations implementation_files actions declared_p95 effective_p95 terra_exception
-	[[ "$task_id" == "$root" && -n "$plan_item_id" ]] || return 0
+	# Every task bound to a measured plan node uses the installed deterministic
+	# vector.  Revisions and recovery tasks must not ask a planning agent to
+	# reproduce these machine-owned fields by hand.
+	[[ -n "$plan_item_id" ]] || return 0
 	decomposition="$(project_decomposition_plan_file)"
 	report="$(decomposition_complexity_report_file)"
 	[[ -f "$decomposition" && -f "$report" ]] || return 0

@@ -271,4 +271,33 @@ complexity_output="$($HARNESS_BIN/harness-complexity "$env_file")"
 grep -Fq $'gpt-5.6-luna\tLUNA\t1\t100.00' <<< "$complexity_output"
 grep -Fq $'gpt-5.6-sol\t1\t0.00\t100.00\t100.00\t80000' <<< "$complexity_output"
 
+# Recovery revisions inherit the same machine-owned measured vector as their
+# active plan node. Even an ultimately invalid draft is normalized before
+# semantic validation, so an agent never has to guess these fields.
+sed -i $'s/^n01\tPENDING\t-/n01\tACTIVE\tleaf-root/' "$project_dir/control/project-plan-state.tsv"
+mkdir -p "$project_dir/control/progress"
+cat > "$project_dir/control/progress/startup-split-task-leaf-root.needs-replan.md" <<'EOF'
+# Root Task Needs Replanning
+
+Task-Root: leaf-root
+Triggered-By: leaf-root
+Trigger-Outcome: REJECT
+EOF
+cat > "$TEST_ROOT/revision-draft.md" <<'EOF'
+# Revision draft
+
+Task-ID: leaf-root-revision-01
+EOF
+set +e
+"$HARNESS_BIN/manager-publish-task" "$env_file" leaf-root-revision-01 \
+	"$TEST_ROOT/revision-draft.md" --auto-replan >/dev/null 2>&1
+revision_status=$?
+set -e
+(( revision_status != 0 ))
+for field in Complexity-Score Behavioral-Concerns Failure-Paths Ownership-Transitions \
+	Concurrency-Boundaries Validation-Surfaces Expected-Max-Implementation-Files \
+	Expected-Max-Agent-Actions Predicted-P95-Tokens Effective-P95-Tokens Terra-Exception; do
+	[[ "$(grep -c "^$field:" "$TEST_ROOT/revision-draft.md")" == 1 ]]
+done
+
 printf 'split decomposition startup transaction tests passed\n'
