@@ -53,6 +53,9 @@ compatibility alias; new files should use the uppercase shell variable.
 - Reassessment resolution atomically restores replanning for taskless active
   roots, and publication rejects a stale planner's second live revision of the
   same root.
+- Luna worker-turn metadata is capped independently from predicted agent-action
+  counts, and remediation prompts keep validation-only sources outside mutation
+  authority unless evidence identifies a required edit there.
 - Focused closure mode: high-progress tasks receive a bounded
   diagnose-correct-rebuild-smoke budget instead of unbounded revision churn.
 - Independent final audit: an optional fresh Oracle checks specification

@@ -708,6 +708,21 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 		fi
 		[[ "$leaf_expected_files" =~ ^[0-9]+$ ]] || die 'Expected-Max-Implementation-Files must be a non-negative integer'
 		[[ "$leaf_expected_turns" =~ ^[1-9][0-9]*$ ]] || die 'Expected-Max-Worker-Turns must be positive'
+		if [[ "$leaf_worker_route" == LUNA ]] && (( leaf_expected_turns > 3 )); then
+			requested_luna_turns="$leaf_expected_turns"
+			leaf_expected_turns=3
+			tmp_turns="$task_file.luna-turns.$$"
+			awk '
+				index($0, "Expected-Max-Worker-Turns: ") == 1 {
+					if (!seen++) print "Expected-Max-Worker-Turns: 3"
+					next
+				}
+				{print}
+			' "$task_file" > "$tmp_turns"
+			chmod --reference="$task_file" "$tmp_turns"
+			mv "$tmp_turns" "$task_file"
+			log_event "LUNA_TURN_BUDGET_NORMALIZED root=$root task=$task_id requested=$requested_luna_turns expected=3"
+		fi
 		[[ "$leaf_context_paths" != / && "$leaf_context_paths" != . && "$leaf_context_paths" != '*' && "$leaf_context_paths" != '**' ]] ||
 			die 'Context-Paths must be a bounded path or symbol capsule, not the whole repository'
 		if [[ "$leaf_worker_route" == LUNA ]]; then

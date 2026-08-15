@@ -93,8 +93,12 @@ Run the focused API smoke.
 
 ./focused-smoke
 MD
-"$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" contract "$TEST_ROOT/root.md" contract >/dev/null
+sed 's/^Expected-Max-Worker-Turns: 2$/Expected-Max-Worker-Turns: 5/' \
+	"$TEST_ROOT/root.md" > "$TEST_ROOT/root-overturn.md"
+"$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" contract "$TEST_ROOT/root-overturn.md" contract >/dev/null
 project="$TEST_ROOT/state/projects/revisionproj"
+grep -Fqx 'Expected-Max-Worker-Turns: 3' \
+	"$project/tasks/revisionproj-task-contract.ready.md"
 printf 'thread_id=stale-manager-thread\nregistered_at=2026-01-01T00:00:00Z\n' \
 	> "$project/control/manager.thread"
 
