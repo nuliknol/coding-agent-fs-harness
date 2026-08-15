@@ -412,6 +412,10 @@ grep -q 'worker task processed-token budget reached (110/50)' "$resource_anomaly
 grep -q 'WORKER_TASK_TOKEN_BUDGET_PAUSED task=001.*processed_tokens=110 limit=50' "$resource_project/logs/events.log"
 "$HARNESS_BIN/harness-status" "$RESOURCE_ROOT/harness.env" > "$RESOURCE_ROOT/status.out"
 grep -Fq 'Project status: TOKEN_USAGE_ANOMALY.' "$RESOURCE_ROOT/status.out"
+resource_base="$resource_project/control/goalresource-task-001"
+printf 'fingerprint=stale\n' > "$resource_base.reviewed-event"
+printf '# Manager Invocation Failed\n' > "$resource_base.manager-failed.md"
+printf '# Manager Review Stalled\n' > "$resource_base.manager-review-stalled.md"
 cat > "$RESOURCE_ROOT/token-resolution.md" <<'NOTE'
 ## Cause
 
@@ -428,7 +432,10 @@ NOTE
 "$HARNESS_BIN/harness-resolve-token-usage-anomaly" "$RESOURCE_ROOT/harness.env" 001 \
 	"$RESOURCE_ROOT/token-resolution.md" >/dev/null
 [[ ! -e "$resource_anomaly" ]]
-grep -q 'TOKEN_USAGE_ANOMALY_RESOLVED root=001' "$resource_project/logs/events.log"
+[[ ! -e "$resource_base.reviewed-event" ]]
+[[ ! -e "$resource_base.manager-failed.md" ]]
+[[ ! -e "$resource_base.manager-review-stalled.md" ]]
+grep -q 'TOKEN_USAGE_ANOMALY_RESOLVED root=001.*review_suppression_cleared=1' "$resource_project/logs/events.log"
 
 # Releases before 5.11 mislabeled token fuses as NEEDS_HUMAN. The state
 # migration is exact, evidence-preserving, and idempotent; unrelated human
