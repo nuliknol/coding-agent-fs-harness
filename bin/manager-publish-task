@@ -473,6 +473,11 @@ validate_decomposition_for_root()
 	candidate_rows="$(( $(wc -l < "$candidate") - 1 ))"
 	existing_rows="$(root_child_criterion_count "$root")"
 	if (( existing_rows + candidate_rows > HARNESS_MAX_ROOT_CHILD_CRITERIA )); then
+		if (( recovery_publish == 1 )) &&
+			(( ${publish_attempts:-0} < ${max_publish_attempts:-$HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS} )); then
+			log_event "RECOVERY_CHILD_BUDGET_REJECTED root=$root task=$task_id attempt=${publish_attempts:-0} children=$((existing_rows + candidate_rows)) limit=$HARNESS_MAX_ROOT_CHILD_CRITERIA"
+			die "candidate decomposition would exceed the append-only child budget ($((existing_rows + candidate_rows))/$HARNESS_MAX_ROOT_CHILD_CRITERIA); keep the existing first-unmet leaf and publish a bounded continuation without a child decomposition"
+		fi
 		marker="$(mark_root_architecture_reassessment "$task_id" ROOT_CHILD_CRITERIA \
 			"candidate decomposition would exceed the append-only child budget ($((existing_rows + candidate_rows))/$HARNESS_MAX_ROOT_CHILD_CRITERIA)" \
 			"candidate=$candidate parent=$expected_parent")"
@@ -488,6 +493,11 @@ validate_decomposition_for_root()
 	fi
 	prospective_depth=$((parent_depth + 1))
 	if (( prospective_depth > HARNESS_MAX_CRITERION_DEPTH )); then
+		if (( recovery_publish == 1 )) &&
+			(( ${publish_attempts:-0} < ${max_publish_attempts:-$HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS} )); then
+			log_event "RECOVERY_DEPTH_EXPANSION_REJECTED root=$root task=$task_id attempt=${publish_attempts:-0} depth=$prospective_depth limit=$HARNESS_MAX_CRITERION_DEPTH"
+			die "candidate decomposition would exceed the depth budget ($prospective_depth/$HARNESS_MAX_CRITERION_DEPTH); keep the existing first-unmet leaf $expected_parent and publish a bounded continuation without a child decomposition"
+		fi
 		marker="$(mark_root_architecture_reassessment "$task_id" CRITERION_DEPTH \
 			"candidate decomposition would exceed the depth budget ($prospective_depth/$HARNESS_MAX_CRITERION_DEPTH)" \
 			"candidate=$candidate parent=$expected_parent")"
