@@ -252,6 +252,20 @@ grep -Fqx 'Focused-Validation: FOCUSED: inspect target_symbol' \
 	"$TEST_ROOT/read-only-state/projects/decompv2readonly/tasks/decompv2readonly-task-evidence.ready.md"
 grep -Fqx 'Root-Criterion: evidence.recorded' \
 	"$TEST_ROOT/read-only-state/projects/decompv2readonly/tasks/decompv2readonly-task-evidence.ready.md"
+read_only_session="$("$HARNESS_BIN/harness-new-session" "$TEST_ROOT/read-only-harness.env" worker)"
+"$HARNESS_BIN/worker-claim-task" "$TEST_ROOT/read-only-harness.env" evidence \
+	"$read_only_session" >/dev/null
+printf 'int target_symbol(void) { return 2; }\n' > "$TEST_ROOT/repo/src/a.c"
+printf 'Invalid zero-write commit attempt.\n' > "$TEST_ROOT/read-only-message.txt"
+if "$HARNESS_BIN/harness-commit-source" "$TEST_ROOT/read-only-harness.env" evidence \
+	"$read_only_session" "$TEST_ROOT/read-only-message.txt" src/a.c \
+	> "$TEST_ROOT/read-only-commit.out" 2>&1; then
+	printf 'zero-write task committed source despite its implementation-file budget\n' >&2
+	exit 1
+fi
+grep -Fq 'source commit would exceed Expected-Max-Implementation-Files (1/0)' \
+	"$TEST_ROOT/read-only-commit.out"
+git -C "$TEST_ROOT/repo" restore --worktree -- src/a.c
 
 # Decomposition TSV fields are canonicalized at registration. In particular,
 # generated validation commands may contain harmless surrounding whitespace,

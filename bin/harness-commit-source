@@ -34,10 +34,15 @@ lease="$dir/control/$(task_base "$task_id").lease"
 owner="$(lease_value "$lease" owner)"
 [[ "$owner" == "$session" ]] || die "task is owned by $owner, not $session"
 AGENT_COMMIT_SCOPE="$(metadata_value "$running" Allowed-Scope)"
+AGENT_COMMIT_MAX_FILES="$(metadata_value "$running" Expected-Max-Implementation-Files)"
+AGENT_COMMIT_PRIOR_PATHS=""
+ledger="$dir/control/agent-commits.tsv"
+if [[ -f "$ledger" ]]; then
+	AGENT_COMMIT_PRIOR_PATHS="$(awk -F '\t' -v task="$task_id" 'NR > 1 && $2 == task {print $5}' "$ledger" | paste -sd, -)"
+fi
 AGENT_COMMIT_ACTOR="task=$task_id session=$session"
 commit="$(agent_commit_source "$message_file" "$@")"
 
-ledger="$dir/control/agent-commits.tsv"
 if [[ ! -f "$ledger" ]]; then
 	printf 'commit\ttask_id\tsession\tcreated_at\tpaths\n' > "$ledger"
 	chmod 600 "$ledger"

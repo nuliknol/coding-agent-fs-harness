@@ -97,7 +97,8 @@ agent_commit_source()
 	local message_file="$1"
 	shift
 	local raw path absolute staged_file add_count=0
-	local -A requested=()
+	local prior_path implementation_file_count=0
+	local -A requested=() implementation_paths=()
 	local -a agent_commit_paths=()
 
 	(( HARNESS_AGENT_COMMITS_ENABLED == 1 )) || die 'agent source commits are disabled by HARNESS_AGENT_COMMITS_ENABLED=0'
@@ -135,6 +136,18 @@ agent_commit_source()
 		requested[$path]=1
 		agent_commit_paths+=("$path")
 	done
+	if [[ -n "${AGENT_COMMIT_MAX_FILES:-}" ]]; then
+		[[ "$AGENT_COMMIT_MAX_FILES" =~ ^[0-9]+$ ]] ||
+			die 'Expected-Max-Implementation-Files must be a non-negative integer before committing'
+		IFS=',' read -r -a prior_paths <<< "${AGENT_COMMIT_PRIOR_PATHS:-}"
+		for prior_path in "${prior_paths[@]}"; do
+			[[ -n "$prior_path" ]] && implementation_paths[$prior_path]=1
+		done
+		for path in "${agent_commit_paths[@]}"; do implementation_paths[$path]=1; done
+		implementation_file_count="${#implementation_paths[@]}"
+		(( implementation_file_count <= AGENT_COMMIT_MAX_FILES )) ||
+			die "source commit would exceed Expected-Max-Implementation-Files ($implementation_file_count/$AGENT_COMMIT_MAX_FILES)"
+	fi
 
 	trap 'agent_commit_unstage' ERR EXIT
 	git -C "$REPOSITORY" add -A -- "${agent_commit_paths[@]}"
