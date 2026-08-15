@@ -747,4 +747,17 @@ grep -Fqx $'ORACLE-widget-fix\tINV-widget\tADR-widget\t-\t-\t-' \
 	"$project_dir/control/architecture/node-bindings.tsv"
 "$HARNESS_BIN/harness-architecture-status" "$TEST_ROOT/harness.env" >/dev/null
 
+# Review-scoped validation descriptors are manager-attested evidence classes,
+# not shell commands named `FOCUSED:`.
+bash -c '
+	set -Eeuo pipefail
+	source "$1/lib/harness-common.sh"
+	source "$1/lib/harness-architecture.sh"
+	load_harness_env "$2"
+	architecture_run_command "FOCUSED: independently reviewed bounded evidence" "$3"
+' _ "$HARNESS_HOME" "$TEST_ROOT/harness.env" "$TEST_ROOT/review-attested-gate.log"
+grep -Fqx 'validation_kind=REVIEW_ATTESTED' "$TEST_ROOT/review-attested-gate.log"
+grep -Fqx 'descriptor=FOCUSED: independently reviewed bounded evidence' \
+	"$TEST_ROOT/review-attested-gate.log"
+
 printf 'architecture guard tests passed\n'
