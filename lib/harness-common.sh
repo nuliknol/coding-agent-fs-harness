@@ -1174,7 +1174,7 @@ dependency_requirement_failures()
 
 assignment_mandatory_git_refs()
 {
-	local file="$1" refs ref
+	local file="$1" refs ref ref_name pinned_commit
 	refs="$(metadata_value "$file" Mandatory-Git-Refs)"
 	[[ -n "$refs" && "$refs" != NONE && "$refs" != - ]] || return 0
 	refs="${refs//,/;}"
@@ -1183,10 +1183,43 @@ assignment_mandatory_git_refs()
 		ref="${ref#"${ref%%[![:space:]]*}"}"
 		ref="${ref%"${ref##*[![:space:]]}"}"
 		[[ -n "$ref" ]] || continue
+		# A local immutable baseline may be named directly by its full object ID.
+		# Cross-harness delivery can additionally pin a branch to an expected
+		# commit as refs/heads/name=<oid>. Do not reinterpret either form as a
+		# branch whose literal name is the hash or contains '=...'.
+		if [[ "$ref" =~ ^[[:xdigit:]]{40}([[:xdigit:]]{24})?$ ]]; then
+			printf '%s\n' "$ref"
+			continue
+		fi
+		if [[ "$ref" == *=* ]]; then
+			ref_name="${ref%%=*}"
+			pinned_commit="${ref#*=}"
+			[[ "$pinned_commit" =~ ^[[:xdigit:]]{40}([[:xdigit:]]{24})?$ ]] ||
+				die "invalid pinned commit in Mandatory-Git-Refs entry: $ref"
+			[[ "$ref_name" == refs/heads/* ]] || ref_name="refs/heads/$ref_name"
+			git check-ref-format "$ref_name" >/dev/null 2>&1 ||
+				die "invalid Mandatory-Git-Refs entry: $ref"
+			printf '%s=%s\n' "$ref_name" "$pinned_commit"
+			continue
+		fi
 		[[ "$ref" == refs/heads/* ]] || ref="refs/heads/$ref"
 		git check-ref-format "$ref" >/dev/null 2>&1 || die "invalid Mandatory-Git-Refs entry: $ref"
 		printf '%s\n' "$ref"
 	done
+}
+
+mandatory_git_ref_satisfied()
+{
+	local requirement="$1" ref expected actual expected_commit
+	if [[ "$requirement" == *=* ]]; then
+		ref="${requirement%%=*}"
+		expected="${requirement#*=}"
+		actual="$(git -C "$REPOSITORY" rev-parse --verify "$ref^{commit}" 2>/dev/null || true)"
+		expected_commit="$(git -C "$REPOSITORY" rev-parse --verify "$expected^{commit}" 2>/dev/null || true)"
+		[[ -n "$actual" && -n "$expected_commit" && "$actual" == "$expected_commit" ]]
+		return
+	fi
+	git -C "$REPOSITORY" rev-parse --verify "$requirement^{commit}" >/dev/null 2>&1
 }
 
 assignment_mandatory_git_refs_satisfied()
@@ -1195,7 +1228,7 @@ assignment_mandatory_git_refs_satisfied()
 	while IFS= read -r ref; do
 		[[ -n "$ref" ]] || continue
 		found=1
-		git -C "$REPOSITORY" rev-parse --verify "$ref^{commit}" >/dev/null 2>&1 || return 1
+		mandatory_git_ref_satisfied "$ref" || return 1
 	done < <(assignment_mandatory_git_refs "$file")
 	(( found == 1 )) || return 0
 }
@@ -1205,7 +1238,7 @@ assignment_missing_mandatory_git_refs()
 	local file="$1" ref
 	while IFS= read -r ref; do
 		[[ -n "$ref" ]] || continue
-		git -C "$REPOSITORY" rev-parse --verify "$ref^{commit}" >/dev/null 2>&1 || printf '%s\n' "$ref"
+		mandatory_git_ref_satisfied "$ref" || printf '%s\n' "$ref"
 	done < <(assignment_mandatory_git_refs "$file")
 }
 

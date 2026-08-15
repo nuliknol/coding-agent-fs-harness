@@ -19,6 +19,26 @@ git -C "$TEST_ROOT/repo" add spec.md src/a.c docs/owner.md
 git -C "$TEST_ROOT/repo" commit -qm seed
 seed="$(git -C "$TEST_ROOT/repo" rev-parse HEAD)"
 
+# Mandatory baselines accept a local immutable commit, a branch, or a branch
+# pinned to an exact commit. A pin mismatch remains an unsatisfied dependency.
+git -C "$TEST_ROOT/repo" branch baseline/test "$seed"
+cat > "$TEST_ROOT/mandatory-refs.md" <<REFS
+Mandatory-Git-Refs: $seed;baseline/test;refs/heads/baseline/test=$seed
+REFS
+bash -c 'set -Eeuo pipefail; source "$1/lib/harness-common.sh"; REPOSITORY="$2"; assignment_mandatory_git_refs_satisfied "$3"' \
+	_ "$HARNESS_HOME" "$TEST_ROOT/repo" "$TEST_ROOT/mandatory-refs.md"
+cat > "$TEST_ROOT/mandatory-pin-mismatch.md" <<REFS
+Mandatory-Git-Refs: refs/heads/baseline/test=0000000000000000000000000000000000000000
+REFS
+if bash -c 'set -Eeuo pipefail; source "$1/lib/harness-common.sh"; REPOSITORY="$2"; assignment_mandatory_git_refs_satisfied "$3"' \
+	_ "$HARNESS_HOME" "$TEST_ROOT/repo" "$TEST_ROOT/mandatory-pin-mismatch.md"; then
+	printf 'mismatched mandatory branch pin was accepted\n' >&2
+	exit 1
+fi
+missing_pin="$(bash -c 'set -Eeuo pipefail; source "$1/lib/harness-common.sh"; REPOSITORY="$2"; assignment_missing_mandatory_git_refs "$3"' \
+	_ "$HARNESS_HOME" "$TEST_ROOT/repo" "$TEST_ROOT/mandatory-pin-mismatch.md")"
+[[ "$missing_pin" == refs/heads/baseline/test=0000000000000000000000000000000000000000 ]]
+
 cat > "$TEST_ROOT/harness.env" <<ENV
 export PROJECT="gitdependency"
 export REPOSITORY="$TEST_ROOT/repo"
