@@ -75,9 +75,11 @@ EOF
 cat > "$repo/spec-review/obligations.tsv" <<'EOF'
 obligation_id	authority	source_requirement	source_location	obligation_type	statement	observable_outcome	acceptance_authority
 REQ-ONE	SPECIFIED	REQ-ONE	spec.md:1	FUNCTIONAL	Implement target behavior	Focused target validation passes	SPECIFICATION
+REQ-TWO	SPECIFIED	REQ-TWO	spec.md:1	FUNCTIONAL	Expose the completed target behavior	The same focused target validation passes	SPECIFICATION
 EOF
 cat > "$repo/spec-review/relations.tsv" <<'EOF'
 relation_id	relation_type	subject	object	authority	evidence
+REL-TWO-ONE	DEPENDS_ON	REQ-TWO	REQ-ONE	SPECIFIED	spec.md:1
 EOF
 cat > "$repo/spec-review/facts.tsv" <<'EOF'
 fact_id	kind	subject	value	evidence	authority	confidence
@@ -98,8 +100,8 @@ relations=spec-review/relations.tsv
 inventory=spec-review/inventory.tsv
 domain_manifest=spec-review/domain.tsv
 issue_count=0
-obligation_count=1
-relation_count=0
+obligation_count=2
+relation_count=1
 reviewed_at=2026-08-14T00:00:00Z
 EOF
 
@@ -126,6 +128,7 @@ EOF
 cat > "$TEST_ROOT/coverage.tsv" <<'EOF'
 obligation_id	node_ids	evidence_plan
 REQ-ONE	n01	n01 focused source validation
+REQ-TWO	n01	n01 jointly satisfies the prerequisite and dependent behavior
 EOF
 cat > "$TEST_ROOT/bad-coverage.tsv" <<'EOF'
 obligation_id	node_ids	evidence_plan

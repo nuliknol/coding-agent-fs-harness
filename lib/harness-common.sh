@@ -3516,7 +3516,7 @@ validate_specification_coverage_relations()
 		function node_follows_obligation(node, object, key, parts) {
 			for (key in covers) {
 				split(key, parts, SUBSEP)
-				if (parts[1] == object && ((node SUBSEP parts[2]) in reach)) return 1
+				if (parts[1] == object && (parts[2] == node || ((node SUBSEP parts[2]) in reach))) return 1
 			}
 			return 0
 		}

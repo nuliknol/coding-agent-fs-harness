@@ -60,7 +60,7 @@ awk -F '\t' -v OFS='\t' -v coverage_file="$coverage_source" \
 	function follows(node, obligation,  key,p) {
 		for (key in covered) {
 			split(key,p,SUBSEP)
-			if (p[1] == obligation && ((node SUBSEP p[2]) in reach)) return 1
+			if (p[1] == obligation && (p[2] == node || ((node SUBSEP p[2]) in reach))) return 1
 		}
 		return 0
 	}
