@@ -426,11 +426,20 @@ for file in "$dir/archive/$PROJECT-task-"*.checkpointed.md; do
 done
 
 for file in "$dir/control/$PROJECT-task-"*.abort.md; do
-	found=1
-	aborted_count=$((aborted_count + 1))
 	name="${file##*/}"
 	task_id="${name#${PROJECT}-task-}"
 	task_id="${task_id%.abort.md}"
+	abort_root="$(task_root_id "$task_id")"
+	abort_item="$(project_plan_item_for_root "$abort_root" 2>/dev/null || true)"
+	# A task-level abort is a terminal crash-recovery record, but it no longer
+	# represents an operator block after the containing plan item completes via
+	# a later revision. Keep the forensic marker for recovery without poisoning
+	# the current project status forever.
+	if [[ -n "$abort_item" && "$(project_plan_item_status "$abort_item")" == COMPLETE ]]; then
+		continue
+	fi
+	found=1
+	aborted_count=$((aborted_count + 1))
 	progress="$(task_progress_percent "$task_id")%"
 	printf -v task_row '%-32s %-12s %-13s %-10s %-28s %-10s' "$task_id" 'ABORTED' '-' "$progress" '-' '-'
 	task_rows+=("$task_row")

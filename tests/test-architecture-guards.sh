@@ -420,6 +420,10 @@ mv "$installed_edges.valid" "$installed_edges"
 "$HARNESS_BIN/manager-accept-task" "$TEST_ROOT/harness.env" 001 "$TEST_ROOT/contract-review.md" >/dev/null
 grep -Fqx 'validation_kind=DEFERRED_CUMULATIVE_INVARIANT' \
 	"$TEST_ROOT/state/projects/archguard/control/architecture/health-logs/001-invariant-INV-widget.log"
+printf '# Historical aborted revision\n' > \
+	"$TEST_ROOT/state/projects/archguard/control/archguard-task-001-revision-99.abort.md"
+! "$HARNESS_BIN/harness-status" "$TEST_ROOT/harness.env" | \
+	grep -Fq 'Project status: ABORTED.'
 
 write_task "$TEST_ROOT/coding-task.md" 002 coding.goal coding.done LOCAL_IMPLEMENTATION LOW LUNA contract \
 	'Implement canonical widget behavior' 'widget_value returns one' "grep -q 'return 1' src/widget.c" \
