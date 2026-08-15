@@ -45,6 +45,7 @@ goal_publish_ledger=""
 goal_publish_summary=""
 goal_publish_thread=""
 goal_publish_ready=0
+measured_recovery_route_override=0
 cleanup_publish()
 {
 	local status="$?"
@@ -123,6 +124,7 @@ normalize_measured_assignment_metadata()
 {
 	local report decomposition report_row dag_row tmp
 	local complexity_score behavioral failures ownership concurrency validations implementation_files actions declared_p95 effective_p95 complexity_class worker_route terra_exception
+	local requested_route requested_exception luna_failures
 	# Every task bound to a measured plan node uses the installed deterministic
 	# vector.  Revisions and recovery tasks must not ask a planning agent to
 	# reproduce these machine-owned fields by hand.
@@ -137,7 +139,20 @@ normalize_measured_assignment_metadata()
 	IFS=$'\t' read -r _ _ _ complexity_score _ _ _ _ behavioral failures ownership concurrency \
 		validations implementation_files actions declared_p95 effective_p95 _ _ _ <<< "$report_row"
 	IFS=$'\t' read -r _ _ _ _ _ _ _ _ _ complexity_class worker_route _ _ _ _ _ _ _ _ terra_exception <<< "$dag_row"
-	(( manager_remediation == 0 )) || worker_route=TERRA
+	if (( manager_remediation == 1 )); then
+		worker_route=TERRA
+	elif (( recovery_publish == 1 )); then
+		requested_route="$(metadata_value "$task_file" Worker-Route)"
+		luna_failures="$(root_luna_strategy_failure_count "$root")"
+		if [[ "$requested_route" == TERRA ]] &&
+			(( luna_failures >= HARNESS_MAX_LUNA_STRATEGY_FAILURES )); then
+			requested_exception="$(metadata_value "$task_file" Terra-Exception)"
+			worker_route=TERRA
+			complexity_class=HIGH
+			terra_exception="$requested_exception"
+			measured_recovery_route_override=1
+		fi
+	fi
 	tmp="$task_file.measured.$$"
 	awk -F': ' \
 		-v complexity="$complexity_score" -v behavioral="$behavioral" -v failures="$failures" \
@@ -573,20 +588,24 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 				[[ "$value" =~ ^[0-9]+$ ]] || die 'measured leaf complexity metadata must be nonnegative integers'
 			done
 			for mapping in \
-				"Behavioral-Concerns:behavioral_concerns:$leaf_behavioral_concerns" \
-				"Failure-Paths:failure_paths:$leaf_failure_paths" \
-				"Ownership-Transitions:ownership_transitions:$leaf_ownership_transitions" \
-				"Concurrency-Boundaries:concurrency_boundaries:$leaf_concurrency_boundaries" \
-				"Validation-Surfaces:validation_surfaces:$leaf_validation_surfaces" \
-				"Expected-Max-Implementation-Files:implementation_files:$leaf_expected_files" \
-				"Expected-Max-Agent-Actions:predicted_worker_actions:$leaf_expected_actions" \
-				"Predicted-P95-Tokens:predicted_p95_tokens:$leaf_predicted_p95" \
-				"Terra-Exception:terra_exception:$leaf_terra_exception"; do
-				IFS=: read -r metadata_field plan_field actual_value <<< "$mapping"
-				expected_value="$(project_plan_node_value "$plan_item_id" "$plan_field")"
+				"Behavioral-Concerns:9:$leaf_behavioral_concerns" \
+				"Failure-Paths:10:$leaf_failure_paths" \
+				"Ownership-Transitions:11:$leaf_ownership_transitions" \
+				"Concurrency-Boundaries:12:$leaf_concurrency_boundaries" \
+				"Validation-Surfaces:13:$leaf_validation_surfaces" \
+				"Expected-Max-Implementation-Files:14:$leaf_expected_files" \
+				"Expected-Max-Agent-Actions:15:$leaf_expected_actions" \
+				"Predicted-P95-Tokens:16:$leaf_predicted_p95"; do
+				IFS=: read -r metadata_field report_field actual_value <<< "$mapping"
+				expected_value="$(awk -F '\t' -v node="$plan_item_id" -v field="$report_field" 'NR>1 && $1==node {print $field; exit}' "$(decomposition_complexity_report_file)")"
 				[[ "$actual_value" == "$expected_value" ]] ||
-					die "$metadata_field must match the immutable measured decomposition value for $plan_item_id"
+					die "$metadata_field must match the deterministic complexity report for $plan_item_id"
 			done
+			if (( measured_recovery_route_override == 0 )); then
+				expected_value="$(project_plan_node_value "$plan_item_id" terra_exception)"
+				[[ "$leaf_terra_exception" == "$expected_value" ]] ||
+					die "Terra-Exception must match the immutable measured decomposition value for $plan_item_id"
+			fi
 			expected_value="$(awk -F '\t' -v node="$plan_item_id" 'NR>1 && $1==node {print $4; exit}' "$(decomposition_complexity_report_file)")"
 			[[ "$leaf_complexity_score" == "$expected_value" ]] || die 'Complexity-Score must match the deterministic complexity report'
 			expected_value="$(awk -F '\t' -v node="$plan_item_id" 'NR>1 && $1==node {print $17; exit}' "$(decomposition_complexity_report_file)")"

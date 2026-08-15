@@ -73,6 +73,10 @@ compatibility alias; new files should use the uppercase shell variable.
 - Linearized DAG ancestry: specification-relation validation exploits the
   already-enforced topological node order to build ancestor sets once, avoiding
   repeated pairwise transitive-closure scans on large decomposition graphs.
+- Effective measured metadata: task publication compares normalized dimensions
+  with the deterministic complexity report rather than stale lower declarations.
+  After the configured Luna-strategy limit, a fresh measured recovery may keep
+  its vector while escalating to a justified HIGH/TERRA boundary.
 
 ## Process model
 
