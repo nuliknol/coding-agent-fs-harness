@@ -363,9 +363,12 @@ installation. Sol receives the measured excess and must recursively split the
 node; changing labels or routing ordinary coding to Terra cannot satisfy the
 validator. Terra is accepted only at an irreducible decision or integration
 boundary with an explicit exception class. Observed worker tokens, actions,
-output, reads, changes, duration, and outcome are retained as calibration data;
-after enough samples, model-specific p95 tokens per complexity point can only
-tighten future predictions.
+output, reads, changes, duration, and outcome are retained for analysis. Only
+clean successful episodes that are ultimately accepted enter executable-leaf
+calibration; resource fuses, item-budget exits, and other anomalous episodes
+remain visible but cannot inflate every future child. After enough clean
+samples, model-specific p95 tokens per complexity point can only tighten future
+predictions.
 
 Run `bin/harness-complexity ENV_FILE` to compare each installed prediction with
 observed worker episodes and model-specific completion/fuse/prediction rates.

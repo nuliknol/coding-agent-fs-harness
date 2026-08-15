@@ -4560,7 +4560,7 @@ decomposition_complexity_report_file()
 complexity_contract_sha256()
 {
 	printf '%s\n' \
-		'node-local-risk-domains-v2' \
+		'node-local-risk-domains-v2' 'accepted-success-only-calibration-v1' \
 		"$HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF" "$HARNESS_MAX_LUNA_ALLOWED_PATHS" \
 		"$HARNESS_MAX_LUNA_REQUIRED_SYMBOLS" "$HARNESS_MAX_LUNA_BEHAVIORAL_CONCERNS" \
 		"$HARNESS_MAX_LUNA_FAILURE_PATHS" "$HARNESS_MAX_LUNA_OWNERSHIP_TRANSITIONS" \
@@ -4580,7 +4580,8 @@ complexity_calibrated_tokens_per_score()
 		[[ -f "$outcomes" ]] || continue
 		awk -F '\t' -v model="$model" '
 			NR==FNR {if(FNR>1 && $5=="ACCEPTED") accepted[$2 SUBSEP $4]=1; next}
-			FNR > 1 && accepted[$2 SUBSEP $4] && $6 == model && $8 ~ /^[1-9][0-9]*$/ && $11 ~ /^[1-9][0-9]*$/ {
+			FNR > 1 && accepted[$2 SUBSEP $4] && $6 == model && $21 == "success" &&
+				$8 ~ /^[1-9][0-9]*$/ && $11 ~ /^[1-9][0-9]*$/ {
 				print int(($11 + $8 - 1) / $8)
 			}
 		' "$outcomes" "$observations" >> "$rate_file"

@@ -411,6 +411,31 @@ complexity_output="$($HARNESS_BIN/harness-complexity "$env_file")"
 grep -Fq $'gpt-5.6-luna\tLUNA\t1\t100.00' <<< "$complexity_output"
 grep -Fq $'gpt-5.6-sol\t1\t0.00\t100.00\t100.00\t80000' <<< "$complexity_output"
 
+# A truncated or resource-fused episode remains reportable but must not poison
+# the accepted-success calibration population used to admit future leaves.
+cat > "$TEST_ROOT/anomalous-worker.classification" <<'EOF'
+classification=agent_estimated_token_budget_exceeded
+invocation_processed_delta=500000
+estimated_processed_tokens=500000
+item_started_count=20
+changed_file_count=0
+changed_line_count=0
+invocation_duration_seconds=300
+EOF
+bash -c '
+	source "$1/lib/harness-common.sh"
+	load_harness_env "$2"
+	ensure_project
+	record_worker_complexity_observation anomaly-task n01 worker "$LUNA_WORKER_MODEL" "$3" "$4"
+	record_worker_complexity_outcome anomaly-task ACCEPTED
+' _ "$HARNESS_HOME" "$env_file" "$TEST_ROOT/anomalous-worker.classification" "$TEST_ROOT/worker.jsonl"
+calibrated_rate="$(HARNESS_COMPLEXITY_CALIBRATION_MIN_SAMPLES=2 bash -c '
+	source "$1/lib/harness-common.sh"
+	load_harness_env "$2"
+	complexity_calibrated_tokens_per_score "$LUNA_WORKER_MODEL"
+' _ "$HARNESS_HOME" "$env_file")"
+[[ "$calibrated_rate" == 10000 ]]
+
 # Recovery revisions inherit the same machine-owned measured vector as their
 # active plan node. Even an ultimately invalid draft is normalized before
 # semantic validation, so an agent never has to guess these fields.
