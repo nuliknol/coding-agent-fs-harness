@@ -67,8 +67,14 @@ while IFS=$'\t' read -r id status producer problem contract interfaces supersede
 				break
 			fi
 		done
+		if [[ -z "$replacement" ]]; then
+			specification_relative="$(realpath --relative-to="$REPOSITORY" "$SPECIFICATION")"
+			if is_committed_repository_path "$specification_relative"; then
+				replacement="$specification_relative"
+			fi
+		fi
 		[[ -n "$replacement" ]] ||
-			die "accepted decision $id has no committed affected-interface anchor for deterministic evidence repair"
+			die "accepted decision $id has no committed affected-interface or governing-specification anchor for deterministic evidence repair"
 		evidence="$replacement"
 	elif [[ "$status" == PROPOSED ]]; then
 		evidence="$(clean_proposed_path "$evidence" "$id")"

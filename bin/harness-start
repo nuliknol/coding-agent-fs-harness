@@ -185,6 +185,13 @@ while ! project_plan_exists; do
 				fi
 			fi
 			if [[ -f "$full_rejection_log" ]] &&
+				grep -Eq 'invalid health gate|health gate .* (cannot depend on its own trigger node|is bound to node .* but declares trigger node|depends on unknown node|is absent from trigger binding)' "$full_rejection_log"; then
+				printf 'Normalizing mechanical architecture health-gate bindings without an agent turn.\n'
+				if "$HARNESS_BIN/manager-repair-decomposition-health-gates" "$HARNESS_ENV_FILE"; then
+					continue
+				fi
+			fi
+			if [[ -f "$full_rejection_log" ]] &&
 				grep -Eq 'consumer .* must directly depend on producer' "$full_rejection_log"; then
 				printf 'Repairing mechanical architecture producer/consumer links without an agent turn.\n'
 				if "$HARNESS_BIN/manager-repair-decomposition-links" "$HARNESS_ENV_FILE"; then
