@@ -513,7 +513,7 @@ Complexity-Class: LOW
 Worker-Route: LUNA
 Depends-On: n02
 Deliverable: Retained focused validation evidence.
-Required-Symbols: target
+Required-Symbols: target,target_contract,target_validate,target_encode,target_decode
 Context-Paths: src/a.c
 Architecture-Decisions: NONE
 Validation-Class: FOCUSED

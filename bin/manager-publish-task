@@ -202,8 +202,7 @@ normalize_measured_assignment_metadata()
 			residual_p95=$((complexity_score * calibration_rate))
 			effective_p95="$declared_p95"
 			(( effective_p95 >= residual_p95 )) || effective_p95="$residual_p95"
-			(( symbol_count <= HARNESS_MAX_LUNA_REQUIRED_SYMBOLS &&
-				complexity_score <= HARNESS_MAX_LUNA_COMPLEXITY_SCORE &&
+			(( complexity_score <= HARNESS_MAX_LUNA_COMPLEXITY_SCORE &&
 				actions <= HARNESS_MAX_LUNA_PREDICTED_ACTIONS &&
 				effective_p95 <= HARNESS_MAX_LUNA_PREDICTED_P95_TOKENS )) ||
 				die "residual evidence leaf exceeds the measured Luna budget (score=$complexity_score actions=$actions p95=$effective_p95)"
