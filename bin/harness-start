@@ -224,8 +224,12 @@ while ! project_plan_exists; do
 			# turn after two consecutive identical diagnostic fingerprints.
 			diagnostic_fingerprint="$(grep '^ERROR:' "$full_rejection_log" | sha256sum | awk '{print $1}')"
 			diagnostic_state="$dir/control/decomposition-repair-diagnostic.env"
-			previous_fingerprint="$(kv_file_value "$diagnostic_state" fingerprint 2>/dev/null || true)"
-			previous_count="$(kv_file_value "$diagnostic_state" count 2>/dev/null || printf 0)"
+			previous_fingerprint=""
+			previous_count=0
+			if [[ -f "$diagnostic_state" ]]; then
+				previous_fingerprint="$(kv_file_value "$diagnostic_state" fingerprint)"
+				previous_count="$(kv_file_value "$diagnostic_state" count)"
+			fi
 			[[ "$previous_count" =~ ^[0-9]+$ ]] || previous_count=0
 			if [[ "$diagnostic_fingerprint" == "$previous_fingerprint" ]]; then
 				diagnostic_count=$((previous_count + 1))
