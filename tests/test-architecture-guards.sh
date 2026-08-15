@@ -570,6 +570,16 @@ if "$HARNESS_BIN/manager-accept-task" "$TEST_ROOT/harness.env" 002 "$TEST_ROOT/c
 fi
 printf 'Duplicate representation removed and focused gate passes.\n' > "$TEST_ROOT/debt-resolution.md"
 "$HARNESS_BIN/manager-resolve-debt" "$TEST_ROOT/harness.env" DEBT-widget "$TEST_ROOT/debt-resolution.md" >/dev/null
+printf 'int widget_value(void) { return 1; } /* uncommitted after review */\n' > \
+	"$TEST_ROOT/repo/src/widget.c"
+if "$HARNESS_BIN/manager-accept-task" "$TEST_ROOT/harness.env" 002 \
+	"$TEST_ROOT/coding-review.md" > "$TEST_ROOT/uncommitted-acceptance.out" 2>&1; then
+	printf 'final acceptance stranded an uncommitted task-scope path\n' >&2
+	exit 1
+fi
+grep -Fq 'acceptance has an uncommitted task-scope path: src/widget.c' \
+	"$TEST_ROOT/uncommitted-acceptance.out"
+printf 'int widget_value(void) { return 1; }\n' > "$TEST_ROOT/repo/src/widget.c"
 "$HARNESS_BIN/manager-accept-task" "$TEST_ROOT/harness.env" 002 "$TEST_ROOT/coding-review.md" >/dev/null
 
 test -f "$project_dir/control/project.complete"

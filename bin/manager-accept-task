@@ -133,6 +133,21 @@ fi
 validate_worker_result "$result"
 validate_acceptance_evidence "$note_file"
 architecture_validate_manager_review "$note_file" "$assignment_archive"
+# Final acceptance must never strand verified source as an uncommitted working
+# tree delta.  Normal workers commit before completion; a manager that recovers
+# a partial worker edit must first use manager-checkpoint-task so the exact
+# reviewed paths receive a controlled source commit and durable provenance.
+allowed_scope="$(metadata_value "$assignment_archive" Allowed-Scope)"
+while IFS= read -r dirty_path; do
+	[[ -n "$dirty_path" ]] || continue
+	if agent_commit_path_in_scope "$dirty_path" "$allowed_scope"; then
+		die "acceptance has an uncommitted task-scope path: $dirty_path; checkpoint the independently reviewed result before final acceptance"
+	fi
+done < <({
+	git -C "$REPOSITORY" diff --name-only -z
+	git -C "$REPOSITORY" diff --cached --name-only -z
+	git -C "$REPOSITORY" ls-files --others --exclude-standard -z
+} | sort -zu | tr '\0' '\n')
 initialize_task_progress "$task_id" "$assignment_archive"
 current_progress="$(task_progress_percent "$task_id")"
 accept_improvement=$((100 - current_progress))
