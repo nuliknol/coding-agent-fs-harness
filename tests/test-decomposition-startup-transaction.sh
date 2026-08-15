@@ -42,6 +42,24 @@ ENV
 chmod 600 "$env_file"
 "$HARNESS_BIN/harness-init" "$env_file" >/dev/null
 project_dir="$state/projects/startup-split"
+
+# Concurrent read-only reporting must never be mistaken for an owning startup
+# or agent process, while a mutating harness command remains detectable.
+bash -c 'sleep 30; :' "$HARNESS_BIN/harness-status" "$env_file" &
+report_pid=$!
+sleep 0.1
+report_lines="$(bash -c 'source "$1"; load_harness_env "$2"; env_process_lines' _ "$HARNESS_HOME/lib/harness-common.sh" "$env_file")"
+[[ -z "$report_lines" ]]
+kill "$report_pid" 2>/dev/null || true
+wait "$report_pid" 2>/dev/null || true
+bash -c 'sleep 30; :' "$HARNESS_BIN/harness-start" "$env_file" &
+owner_pid=$!
+sleep 0.1
+owner_lines="$(bash -c 'source "$1"; load_harness_env "$2"; env_process_lines' _ "$HARNESS_HOME/lib/harness-common.sh" "$env_file")"
+grep -Fq "$owner_pid" <<< "$owner_lines"
+kill "$owner_pid" 2>/dev/null || true
+wait "$owner_pid" 2>/dev/null || true
+
 spec_sha="$(sha256sum "$repo/spec.md" | awk '{print $1}')"
 baseline="$(git -C "$repo" rev-parse HEAD)"
 domain_sha="$(bash -c 'source "$1"; load_harness_env "$2"; domain_profiles_sha256' _ "$HARNESS_HOME/lib/harness-common.sh" "$env_file")"

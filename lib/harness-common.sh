@@ -2792,7 +2792,7 @@ release_env_command_lock()
 
 env_process_lines()
 {
-	local pid ppid proc arg has_harness_path has_env_file
+	local pid ppid proc arg has_harness_path has_env_file harness_command
 	local -a argv
 	local -A ignore_pid
 	pid="${BASHPID:-$$}"
@@ -2820,11 +2820,27 @@ env_process_lines()
 		esac
 		has_harness_path=0
 		has_env_file=0
+		harness_command=""
 		for arg in "${argv[@]}"; do
-			[[ "$arg" == "$HARNESS_BIN/"* ]] && has_harness_path=1
+			if [[ "$arg" == "$HARNESS_BIN/"* ]]; then
+				has_harness_path=1
+				[[ -n "$harness_command" ]] || harness_command="${arg##*/}"
+			fi
 			[[ "$arg" == "$HARNESS_ENV_FILE" ]] && has_env_file=1
 		done
 		if (( has_harness_path == 1 && has_env_file == 1 )); then
+			# Reporting/watch commands are concurrent observers, not owners of an
+			# environment. Treating their short-lived helper processes as active
+			# agents makes harness-start fail nondeterministically during refresh.
+			case "$harness_command" in
+				harness-status|harness-agent-token-usage|harness-agent-cost-usage|harness-costs|\
+				harness-statistics|harness-info|harness-watch-*|harness-implementation-log|\
+				harness-decomposition-tree|harness-decomposition-metrics|harness-architecture-status|\
+				harness-metrics|harness-token-outliers|harness-project-path|harness-repository-path|\
+				harness-state-path|harness-show-*|harness-check-env)
+					continue
+					;;
+			esac
 			ps -o pid=,comm=,args= -p "$pid"
 		fi
 	done
