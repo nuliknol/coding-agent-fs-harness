@@ -56,11 +56,14 @@ compatibility alias; new files should use the uppercase shell variable.
 - Validated Git delivery: implementation agents commit task-owned source and
   related text artifacts by default; generated output, binaries, ignored files,
   unrelated paths, and direct model-driven Git history mutations are rejected.
+- Complete publication diagnostics: architecture-guarded assignments report
+  every missing or mismatched binding field in one rejection, preserving the
+  bounded manager correction budget for a successful second publication.
 
 ## Process model
 
 ```text
-manager-decomposition-critic (Full v2, fresh Terra context)
+manager-decomposition-critic (Full v2, fresh Sol context by default)
     -> drafts and criticizes the dependency DAG
     -> registers only a schema-valid, topologically ordered plan
 

@@ -696,10 +696,20 @@ architecture_require_node_ready()
 
 architecture_validate_assignment_metadata()
 {
-	local file="$1" node="$2" expected actual field
+	local file="$1" node="$2" expected actual field count
+	local -a diagnostics=()
 	(( HARNESS_ARCHITECTURE_GUARDS == 1 )) || return 0
 	for field in Affected-Invariants Consumed-Decisions Produced-Decisions Edge-Contracts Health-Gates; do
-		actual="$(require_single_metadata_value "$file" "$field" 'architecture-guarded assignment')"
+		count="$(awk -F': ' -v field="$field" '$1 == field {count++} END {print count + 0}' "$file")"
+		if (( count != 1 )); then
+			diagnostics+=("$field must occur exactly once (found $count)")
+			continue
+		fi
+		actual="$(awk -F': ' -v field="$field" '$1 == field {print $2; exit}' "$file")"
+		if [[ -z "$actual" ]]; then
+			diagnostics+=("$field must use '-' when empty")
+			continue
+		fi
 		case "$field" in
 			Affected-Invariants) expected="$(architecture_node_value "$node" invariant_ids)" ;;
 			Consumed-Decisions) expected="$(architecture_node_value "$node" consumes_decisions)" ;;
@@ -707,8 +717,13 @@ architecture_validate_assignment_metadata()
 			Edge-Contracts) expected="$(architecture_node_value "$node" edge_contracts)" ;;
 			Health-Gates) expected="$(architecture_node_value "$node" health_gates)" ;;
 		esac
-		[[ "$actual" == "$expected" ]] || die "$field does not match architecture binding for node $node"
+		[[ "$actual" == "$expected" ]] || diagnostics+=("$field does not match architecture binding for node $node (expected '$expected')")
 	done
+	if (( ${#diagnostics[@]} > 0 )); then
+		printf 'ERROR: architecture-guarded assignment metadata has %s defect(s):\n' "${#diagnostics[@]}" >&2
+		printf ' - %s\n' "${diagnostics[@]}" >&2
+		return 1
+	fi
 	architecture_require_node_ready "$node"
 }
 

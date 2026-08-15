@@ -442,6 +442,22 @@ write_task "$TEST_ROOT/contract-task.md" 001 contract.goal contract.done CONTRAC
 	'Define widget ownership contract' 'ADR and public contract exist' \
 	'test -f design/adr/widget-ownership.md && printf "contract PASS\n"' \
 	'design/adr/widget-ownership.md,include/widget.h' ADR-widget - ADR-widget -
+# One rejected publication reports the complete architecture metadata defect
+# set so a bounded manager correction does not discover omissions serially.
+grep -Ev '^(Affected-Invariants|Consumed-Decisions):' "$TEST_ROOT/contract-task.md" \
+	> "$TEST_ROOT/contract-task-missing-metadata.md"
+if "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" 001 \
+	"$TEST_ROOT/contract-task-missing-metadata.md" contract \
+	> "$TEST_ROOT/missing-metadata.out" 2>&1; then
+	printf 'assignment with two missing architecture fields was accepted\n' >&2
+	exit 1
+fi
+grep -Fq 'architecture-guarded assignment metadata has 2 defect(s)' \
+	"$TEST_ROOT/missing-metadata.out"
+grep -Fq 'Affected-Invariants must occur exactly once (found 0)' \
+	"$TEST_ROOT/missing-metadata.out"
+grep -Fq 'Consumed-Decisions must occur exactly once (found 0)' \
+	"$TEST_ROOT/missing-metadata.out"
 "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" 001 "$TEST_ROOT/contract-task.md" contract >/dev/null
 worker_1="$("$HARNESS_BIN/harness-new-session" "$TEST_ROOT/harness.env" worker)"
 "$HARNESS_BIN/worker-claim-task" "$TEST_ROOT/harness.env" 001 "$worker_1" >/dev/null
