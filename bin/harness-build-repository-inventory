@@ -47,6 +47,19 @@ baseline="$(specification_review_repository_baseline)"
 			if (++count >= 1000) exit
 		}
 	' "$list"
+	# Record source files whose individual lines can defeat ordinary line-count
+	# output caps. Sol can then give workers exact symbols plus a byte-bounded
+	# inspection strategy instead of discovering this after context expansion.
+	awk '/[.](c|h|cc|hh|cpp|hpp|cxx|hxx|cu|cuh|hip|rs|go|java|py|js|ts|json)$/ {print}' "$list" |
+		(
+			cd "$REPOSITORY"
+			xargs -r -d '\n' -n 200 awk -v threshold="$((HARNESS_VALIDATION_OUTPUT_MAX_BYTES / 2))" '
+				length($0) > threshold {
+					printf "LONG_LINE_SOURCE\t%s\tline_bytes=%d; require byte/column-bounded inspection\t%s\n", FILENAME, length($0), FILENAME
+					nextfile
+				}
+			'
+		)
 } > "$tmp"
 chmod 600 "$tmp"
 mv "$tmp" "$output"

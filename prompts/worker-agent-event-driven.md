@@ -25,6 +25,10 @@ The launcher has already claimed the task. During this turn:
    behavior or contracts. If production changes are necessary, preserve the
    diagnosis and return `NEEDS_DECOMPOSITION` so the manager can create the
    appropriate implementation leaf.
+   For a `VERIFICATION_ONLY` leaf, make no source change. Run only the exact
+   bounded acceptance check and report whether the already-present evidence
+   satisfies it; return `NEEDS_DECOMPOSITION` if implementation is actually
+   absent.
    Treat `Context-Paths` as an execution boundary. Do not search
    repository-wide file contents to compensate for missing planner context;
    return `NEEDS_DECOMPOSITION` with exact missing symbols or paths instead.
@@ -33,6 +37,10 @@ The launcher has already claimed the task. During this turn:
    bounded diagnostic summary. Never stream a potentially verbose build or
    test directly into the agent transcript. Outside closure mode, run it once
    and run one regression test only when this assignment fixes a specific bug.
+   Line-count limits do not bound minified or generated source. Every direct
+   source search must also use a byte/column bound such as `rg --max-columns`
+   and `head -c "$OUTPUT_MAX_BYTES"`. Create any new build directory under
+   `PROJECT_TMP_DIR`; do not leave untracked build trees in the repository.
 5. In goal mode, either publish one nonterminal continuation receipt or write a
    terminal result. In legacy mode, write a result.
 6. After focused validation, commit every task-owned source/source-related

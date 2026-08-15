@@ -218,7 +218,9 @@ if [[ -n "$architecture_fit_report" ]]; then
 else
 	printf 'Architecture fit: %s\n' "$architecture_fit_status"
 fi
-if [[ "$startup_state" == FAILED ]]; then
+if [[ "$startup_state" == FAILED ]] && project_plan_exists; then
+	printf 'Startup transaction: RECOVERED (historical failure exit=%s log=%s)\n' "${startup_exit:-unknown}" "${startup_log:-unknown}"
+elif [[ "$startup_state" == FAILED ]]; then
 	printf 'Startup transaction: FAILED exit=%s log=%s\n' "${startup_exit:-unknown}" "${startup_log:-unknown}"
 elif [[ "$startup_state" == RUNNING ]]; then
 	printf 'Startup transaction: RUNNING log=%s\n' "${startup_log:-unknown}"

@@ -121,7 +121,31 @@ consume_startup_agent_budget()
 	log_event "STARTUP_AGENT_BUDGET_CONSUMED count=$count maximum=$maximum role=$role"
 }
 
-cmd=(env "CODEX_HOME=$home" "$bin" exec --json --model "$model" --sandbox "$sandbox" --add-dir "$HARNESS_ROOT" --add-dir "$PROJECT_TMP_DIR" --cd "$REPOSITORY" "${extras[@]}" -c 'approval_policy="never"' -c "model_reasoning_effort=\"$effort\"" --output-last-message "$last_message")
+prompt_value()
+{
+	local key="$1"
+	awk -F= -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' "$prompt"
+}
+
+# Prompt capsules name their durable inputs explicitly. Export those exact
+# paths into the agent shell as well, so a bounded agent never has to rediscover
+# them from harness source or infer absolute state paths.
+agent_context_env=("CODEX_HOME=$home")
+for context_key in \
+	ENV_FILE PROJECT PROJECT_TMP_DIR TASK_ID TASK_ROOT ACTIVE_TASK_ROOT \
+	DEVELOPMENT_POLICY_FILE REVIEW_CONTEXT_CAPSULE_FILE ROOT_ASSIGNMENT_FILE \
+	PROGRESS_FILE CRITERIA_DEFINITION_FILE CRITERION_DECOMPOSITION_FILE \
+	CRITERION_LEDGER_FILE RESULT_FILE WORKER_EVIDENCE_DIGEST_FILE \
+	ACCEPT_REVIEW_TEMPLATE_FILE CHECKPOINT_CRITERION_REVIEW_TEMPLATE_FILE \
+	CHECKPOINT_INCREMENT_REVIEW_TEMPLATE_FILE PLAN_NODE_CONTEXT_FILE \
+	SPECIFICATION_OBLIGATIONS_FILE SPECIFICATION_RELATIONS_FILE \
+	REPOSITORY_FACTS_FILE REPOSITORY_INVENTORY_FILE; do
+	context_value="$(prompt_value "$context_key")"
+	[[ -n "$context_value" && "$context_value" != - ]] || continue
+	agent_context_env+=("$context_key=$context_value")
+done
+
+cmd=(env "${agent_context_env[@]}" "$bin" exec --json --model "$model" --sandbox "$sandbox" --add-dir "$HARNESS_ROOT" --add-dir "$PROJECT_TMP_DIR" --cd "$REPOSITORY" "${extras[@]}" -c 'approval_policy="never"' -c "model_reasoning_effort=\"$effort\"" --output-last-message "$last_message")
 if [[ $# -eq 2 ]]; then
  [[ "$1" == resume ]] || usage
  cmd+=(resume "$2")
@@ -149,12 +173,7 @@ resource_guard_reason=""
 agent_item_count=0
 agent_last_estimated_item_count=0
 agent_estimated_processed_tokens=$(( ($(stat -c %s "$prompt" 2>/dev/null || printf 0) + 3) / 4 ))
-
-prompt_value()
-{
-	local key="$1"
-	awk -F= -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' "$prompt"
-}
+agent_max_command_output_bytes=0
 
 resource_task_id="$(prompt_value TASK_ID)"
 resource_task_root="$(prompt_value TASK_ROOT)"
@@ -200,7 +219,7 @@ record_resource_guard()
 {
 	local alarm marker="-" anomaly_task
 	if [[ -n "$resource_task_root" && "$resource_task_root" != - ]] &&
-		{ [[ "$resource_guard_kind" =~ ^(TOKEN_LIMIT|ESTIMATED_TOKEN_LIMIT)$ ]] ||
+		{ [[ "$resource_guard_kind" =~ ^(TOKEN_LIMIT|ESTIMATED_TOKEN_LIMIT|COMMAND_OUTPUT_LIMIT)$ ]] ||
 			{ [[ "$role" =~ ^manager_(review|replan)$ ]] && [[ "$resource_guard_kind" == ITEM_LIMIT ]]; }; }; then
 		anomaly_task="$resource_task_id"
 		[[ -n "$anomaly_task" && "$(task_root_id "$anomaly_task")" == "$(task_root_id "$resource_task_root")" ]] ||
@@ -281,6 +300,18 @@ while kill -0 "$pid" 2>/dev/null; do
 	fi
 	agent_item_count="$(grep -Ec '"type"[[:space:]]*:[[:space:]]*"item[.]started"' "$json_log" 2>/dev/null || true)"
 	[[ "$agent_item_count" =~ ^[0-9]+$ ]] || agent_item_count=0
+	agent_max_command_output_bytes="$(jq -rs '
+		[.[] | select(.type == "item.completed" and .item.type == "command_execution") |
+		 ((.item.aggregated_output // "") | utf8bytelength)] | max // 0
+	' "$json_log" 2>/dev/null || printf 0)"
+	[[ "$agent_max_command_output_bytes" =~ ^[0-9]+$ ]] || agent_max_command_output_bytes=0
+	if (( agent_max_command_output_bytes > HARNESS_MAX_AGENT_COMMAND_OUTPUT_BYTES )); then
+		resource_guard_tripped=1
+		resource_guard_kind=COMMAND_OUTPUT_LIMIT
+		resource_guard_reason="single command output exceeded the bounded transcript allowance ($agent_max_command_output_bytes/$HARNESS_MAX_AGENT_COMMAND_OUTPUT_BYTES bytes)"
+		terminate_process_tree "$pid"
+		break
+	fi
 	if (( agent_item_count > agent_last_estimated_item_count )); then
 		context_bytes=$(( $(stat -c %s "$prompt" 2>/dev/null || printf 0) + $(stat -c %s "$json_log" 2>/dev/null || printf 0) ))
 		new_item_count=$((agent_item_count - agent_last_estimated_item_count))
@@ -317,6 +348,18 @@ while kill -0 "$pid" 2>/dev/null; do
  fi
 done
 set +e; wait "$pid"; status=$?; set -e
+# A short process can finish between monitor polls. Inspect its completed
+# command records once more before accepting the turn.
+agent_max_command_output_bytes="$(jq -rs '
+	[.[] | select(.type == "item.completed" and .item.type == "command_execution") |
+	 ((.item.aggregated_output // "") | utf8bytelength)] | max // 0
+' "$json_log" 2>/dev/null || printf 0)"
+[[ "$agent_max_command_output_bytes" =~ ^[0-9]+$ ]] || agent_max_command_output_bytes=0
+if (( resource_guard_tripped == 0 && agent_max_command_output_bytes > HARNESS_MAX_AGENT_COMMAND_OUTPUT_BYTES )); then
+	resource_guard_tripped=1
+	resource_guard_kind=COMMAND_OUTPUT_LIMIT
+	resource_guard_reason="single command output exceeded the bounded transcript allowance ($agent_max_command_output_bytes/$HARNESS_MAX_AGENT_COMMAND_OUTPUT_BYTES bytes)"
+fi
 git_state_changed=0
 git_head_changed=0
 if [[ -n "$git_state_before" ]]; then
@@ -400,6 +443,7 @@ fi
 if [[ "$resource_guard_kind" == ITEM_LIMIT ]]; then classification="agent_item_budget_exceeded"
 elif [[ "$resource_guard_kind" == ESTIMATED_TOKEN_LIMIT ]]; then classification="agent_estimated_token_budget_exceeded"
 elif [[ "$resource_guard_kind" == TOKEN_LIMIT ]]; then classification="agent_token_budget_exceeded"
+elif [[ "$resource_guard_kind" == COMMAND_OUTPUT_LIMIT ]]; then classification="agent_command_output_budget_exceeded"
 elif (( stop_requested )); then classification="harness_stop_requested"
 elif (( idle_timed_out )); then classification="idle_timeout"
 elif (( status == 124 )); then classification="wall_clock_timeout"
@@ -426,10 +470,11 @@ if [[ -n "$git_head_before" ]] && git -C "$REPOSITORY" rev-parse HEAD >/dev/null
 	changed_file_count="$(git -C "$REPOSITORY" diff --name-only "$git_head_before"..HEAD 2>/dev/null | awk 'NF {n++} END {print n+0}')"
 	changed_line_count="$(git -C "$REPOSITORY" diff --numstat "$git_head_before"..HEAD 2>/dev/null | awk '$1~/^[0-9]+$/&&$2~/^[0-9]+$/{n+=$1+$2} END{print n+0}')"
 fi
-printf 'classification=%s\nprovider_code=%s\nhttp_status=%s\nexit_status=%s\nidle_timeout=%s\nstop_requested=%s\npartial_edits=%s\ngit_head_changed=%s\nchanged_file_count=%s\nchanged_line_count=%s\nresume_requested=%s\nrole=%s\nmodel=%s\nthread_id=%s\ninput_tokens=%s\ncached_input_tokens=%s\noutput_tokens=%s\ninvocation_processed_delta=%s\ninvocation_delta_known=%s\nitem_started_count=%s\nestimated_processed_tokens=%s\ninvocation_duration_seconds=%s\nresource_guard=%s\nagent_phase=%s\nitem_limit=%s\nprocessed_token_limit=%s\nestimated_token_limit=%s\njsonl=%s\nstderr=%s\nlast_message=%s\n' \
+printf 'classification=%s\nprovider_code=%s\nhttp_status=%s\nexit_status=%s\nidle_timeout=%s\nstop_requested=%s\npartial_edits=%s\ngit_head_changed=%s\nchanged_file_count=%s\nchanged_line_count=%s\nresume_requested=%s\nrole=%s\nmodel=%s\nthread_id=%s\ninput_tokens=%s\ncached_input_tokens=%s\noutput_tokens=%s\ninvocation_processed_delta=%s\ninvocation_delta_known=%s\nitem_started_count=%s\nestimated_processed_tokens=%s\nmax_command_output_bytes=%s\ncommand_output_limit=%s\ninvocation_duration_seconds=%s\nresource_guard=%s\nagent_phase=%s\nitem_limit=%s\nprocessed_token_limit=%s\nestimated_token_limit=%s\njsonl=%s\nstderr=%s\nlast_message=%s\n' \
 	"$classification" "$error_code" "$http_status" "$status" "$idle_timed_out" "$stop_requested" "$git_state_changed" \
 	"$git_head_changed" "$changed_file_count" "$changed_line_count" "$resume_requested" "$role" "$model" "$usage_thread" "$usage_input" "$usage_cached" "$usage_output" \
-	"$invocation_processed_delta" "$invocation_delta_known" "$agent_item_count" "$agent_estimated_processed_tokens" "$invocation_duration_seconds" \
+	"$invocation_processed_delta" "$invocation_delta_known" "$agent_item_count" "$agent_estimated_processed_tokens" \
+	"$agent_max_command_output_bytes" "$HARNESS_MAX_AGENT_COMMAND_OUTPUT_BYTES" "$invocation_duration_seconds" \
 	"${resource_guard_kind:--}" "${resource_agent_phase:-ordinary}" "$resource_item_limit" "$resource_processed_token_limit" "$resource_estimated_token_limit" \
 	"$json_log" "$stderr_log" "$last_message" > "$classification_file"
 printf 'CODEX_CLASSIFICATION=%s\nCODEX_STDERR_LOG=%s\nCODEX_CLASSIFICATION_FILE=%s\n' "$classification" "$stderr_log" "$classification_file" >&2

@@ -172,11 +172,12 @@ criterion is Luna-ready. The publisher permits that compatibility override.
 
 A Luna leaf must be `LOW`, require no unresolved architecture decision, use
 `LOCAL_IMPLEMENTATION`, `TEST_IMPLEMENTATION`, `MECHANICAL_API`, `FOCUSED_BUG`,
-or `DOCUMENTATION`, expect at most five implementation files and three worker
+`DOCUMENTATION`, or `VERIFICATION_ONLY`, expect at most five implementation files and three worker
 turns, and have one deterministic `FOCUSED` or `INCREMENTAL` validation. A
 `CLEAN_GLOBAL` validation requires a separate Terra `INTEGRATION` leaf. Use `TEST_IMPLEMENTATION`
 when the deliverable changes only unit tests, fixtures, test helpers, or their
-build registration and does not alter a production contract. Route contract design, cross-component
+build registration and does not alter a production contract. Use `VERIFICATION_ONLY`
+with zero implementation files when exact acceptance evidence is already present. Route contract design, cross-component
 architecture, concurrency protocols, ambiguous behavior, integration, and
 unexplained regressions to Terra. After the configured Luna strategy-failure
 limit, split the leaf further or use a fresh Terra route; do not repeat the same

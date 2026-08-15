@@ -75,13 +75,13 @@ new_complexity="${new_fields[9]}"; new_route="${new_fields[10]}"
 [[ "$new_validation" == "$old_validation" ]] || die 'candidate must preserve active focused validation'
 [[ -n "$new_paths" && "$new_paths" != - ]] || die 'revised active node requires explicit allowed paths'
 [[ -n "$new_symbols" ]] || die "revised active node requires symbols or '-'"
-[[ "$new_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]] ||
+[[ "$new_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]] ||
 	die "invalid revised leaf type: $new_type"
 [[ "$new_complexity" =~ ^(LOW|MEDIUM|HIGH)$ ]] || die "invalid revised complexity: $new_complexity"
 [[ "$new_route" =~ ^(LUNA|TERRA)$ ]] || die "invalid revised route: $new_route"
 if [[ "$new_route" == LUNA ]]; then
 	[[ "$new_complexity" == LOW ]] || die 'a revised Luna node must have LOW complexity'
-	[[ "$new_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]] ||
+	[[ "$new_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY)$ ]] ||
 		die "revised Luna node has Terra-only type: $new_type"
 fi
 

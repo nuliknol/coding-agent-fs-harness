@@ -29,6 +29,8 @@ IFS= read -r replacement_header < "$replacement_source" || die 'replacement DAG 
 IFS= read -r mapping_header < "$mapping_source" || die 'node mapping TSV is empty'
 [[ "$mapping_header" == $'old_node_id\treplacement_node_ids' ]] ||
 	die 'node mapping header must be: old_node_id<TAB>replacement_node_ids'
+! grep -q $'\tREPLACE_WITH_ORDERED_CHILD_IDS$' "$mapping_source" ||
+	die 'node mapping still contains a machine placeholder; fill only its ordered child-ID field'
 
 repair_dir="$PROJECT_TMP_DIR/decomposition-node-split-${candidate_dir##*/}"
 rm -rf -- "$repair_dir"
@@ -101,4 +103,3 @@ awk -F '\t' -v OFS='\t' -v mapping_file="$mapping_source" -v coverage_file="$cov
 chmod 600 "$merged_coverage"
 
 "$HARNESS_BIN/manager-stage-decomposition-dag" "$HARNESS_ENV_FILE" "$merged_dag" "$merged_coverage"
-

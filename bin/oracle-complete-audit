@@ -231,10 +231,10 @@ if project_plan_uses_dag; then
 		[[ -n "$required_symbols" ]] || die "Oracle decomposition node requires symbols or '-': $node_id"
 		[[ "$complexity_class" =~ ^(LOW|MEDIUM|HIGH)$ && "$worker_route" =~ ^(LUNA|TERRA)$ ]] || die "invalid Oracle route or complexity: $node_id"
 		if (( expected_fields == 20 || expected_fields == 11 )); then
-			[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]] || die "invalid Oracle leaf type: $node_id"
+			[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]] || die "invalid Oracle leaf type: $node_id"
 			if [[ "$worker_route" == LUNA ]]; then
-				[[ "$complexity_class" == LOW && "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]] || die "Oracle Luna node is not Luna-ready: $node_id"
-			elif [[ "$HARNESS_PREFERRED_WORKER_ROUTE" == LUNA && "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]]; then
+				[[ "$complexity_class" == LOW && "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY)$ ]] || die "Oracle Luna node is not Luna-ready: $node_id"
+			elif [[ "$HARNESS_PREFERRED_WORKER_ROUTE" == LUNA && "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY)$ ]]; then
 				die "Oracle coding remediation must be decomposed for Luna: $node_id"
 			fi
 		else

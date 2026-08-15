@@ -21,6 +21,7 @@ for a in "$@"; do
 done
 case "${MOCK_MODE:?}" in
  success) printf 'done\n' > "$last"; printf '{"type":"turn.completed"}\n' ;;
+	env_capture) printf '%s\n%s\n' "${REVIEW_CONTEXT_CAPSULE_FILE:-missing}" "${RESULT_FILE:-missing}" > "$last"; printf '{"type":"turn.completed"}\n' ;;
  failed) printf '{"type":"turn.failed","error":{"message":"simulated"}}\n'; exit 1 ;;
  error) printf '{"type":"error","message":"simulated"}\n'; exit 1 ;;
  invalid) printf 'not json\n' ;;
@@ -42,6 +43,7 @@ case "${MOCK_MODE:?}" in
  auth_code) printf '{"type":"turn.failed","error":{"code":"invalid_api_key","message":"bad credentials"}}\n'; exit 1 ;;
  success_warning) printf 'network error recovered\n' >&2; printf 'done\n' > "$last"; printf '{"type":"turn.completed"}\n' ;;
 	item_loop) for i in $(seq 1 10); do printf '{"type":"item.started","item":{"id":"%s"}}\n' "$i"; done; sleep 5 ;;
+	command_output_heavy) printf '{"type":"item.completed","item":{"id":"cmd-1","type":"command_execution","aggregated_output":"%040d","exit_code":0,"status":"completed"}}\n' 0; sleep 5 ;;
 	token_heavy) printf 'done\n' > "$last"; printf '{"type":"thread.started","thread_id":"budget-thread"}\n{"type":"turn.completed","usage":{"input_tokens":90,"output_tokens":20}}\n' ;;
 	stop_sentinel) while true; do sleep 1; done ;;
 esac
@@ -122,6 +124,13 @@ run_case() {
  [[ "$(awk -F= '$1 == "classification" {print $2}' "$base.classification")" == "$want" ]]
 }
 run_case success success
+# Durable capsule paths named by a manager prompt are also exported into its
+# shell, preventing repeated harness-state path discovery.
+printf 'REVIEW_CONTEXT_CAPSULE_FILE=%s\nRESULT_FILE=%s\n' "$TMP/review-capsule.md" "$TMP/result.md" > "$TMP/env-capture-prompt"
+MOCK_MODE=env_capture "$ROOT/bin/codex-exec-jsonl" "$TMP/env" manager_review gpt-5.5 \
+	"$TMP/env-capture-prompt" "$TMP/env-capture.jsonl" "$TMP/env-capture.stderr" "$TMP/env-capture.last"
+grep -Fqx "$TMP/review-capsule.md" "$TMP/env-capture.last"
+grep -Fqx "$TMP/result.md" "$TMP/env-capture.last"
 run_case failed turn_failed
 run_case error error_event
 run_case invalid json_event_parse_failure
@@ -287,6 +296,25 @@ set -e
 grep -q 'project has an unresolved TOKEN_USAGE_ANOMALY' "$TMP/anomaly-interlock-command.err"
 test ! -s "$TMP/anomaly-interlock.jsonl"
 rm -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-estimated-root.token-usage-anomaly.md"
+
+# One oversized command result is stopped before a subsequent reasoning item
+# can repeatedly process it. This catches giant/minified source lines even
+# when the command used a nominal line-count cap.
+cp "$TMP/env" "$TMP/env-command-output"
+printf 'export HARNESS_MAX_AGENT_COMMAND_OUTPUT_BYTES="32"\n' >> "$TMP/env-command-output"
+printf 'TASK_ID=command-output-root\nTASK_ROOT=command-output-root\nWORKER_GOAL_MODE=1\n' > "$TMP/command-output-prompt"
+set +e
+MOCK_MODE=command_output_heavy "$ROOT/bin/codex-exec-jsonl" "$TMP/env-command-output" worker gpt-5.5 \
+	"$TMP/command-output-prompt" "$TMP/command-output.jsonl" "$TMP/command-output.stderr" "$TMP/command-output.last"
+command_output_status=$?
+set -e
+(( command_output_status != 0 ))
+grep -q '^classification=agent_command_output_budget_exceeded$' "$TMP/command-output.classification"
+grep -q '^resource_guard=COMMAND_OUTPUT_LIMIT$' "$TMP/command-output.classification"
+grep -q '^command_output_limit=32$' "$TMP/command-output.classification"
+grep -Eq '^max_command_output_bytes=[3-9][0-9]+$' "$TMP/command-output.classification"
+[[ -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-command-output-root.token-usage-anomaly.md" ]]
+rm -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-command-output-root.token-usage-anomaly.md"
 
 printf 'TASK_ID=token-root\nTASK_ROOT=token-root\n' > "$resource_prompt"
 printf 'export HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION="100"\n' >> "$TMP/env-resource"

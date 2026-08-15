@@ -175,6 +175,7 @@ load_harness_env()
 	unset HARNESS_MAX_LUNA_RISK_DOMAINS HARNESS_COMPLEXITY_TOKENS_PER_SCORE_POINT
 	unset HARNESS_COMPLEXITY_CALIBRATION_MIN_SAMPLES HARNESS_MAX_COMPLEXITY_DECOMPOSITION_PASSES
 	unset HARNESS_VALIDATION_OUTPUT_MAX_LINES HARNESS_VALIDATION_OUTPUT_MAX_BYTES
+	unset HARNESS_MAX_AGENT_COMMAND_OUTPUT_BYTES
 	unset HARNESS_MIN_LUNA_CODING_NODE_PERCENT HARNESS_ARCHITECTURE_GUARDS
 	unset HARNESS_PREFERRED_WORKER_ROUTE HARNESS_AGENT_COMMITS_ENABLED
 	unset HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
@@ -313,7 +314,11 @@ load_harness_env()
 	# transaction so a malformed source or non-converging critic cannot consume
 	# an unlimited number of manager turns.
 	HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS="${HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS:-1}"
-	HARNESS_START_MAX_AGENT_INVOCATIONS="${HARNESS_START_MAX_AGENT_INVOCATIONS:-7}"
+	# Specification review, architecture fit, initial Sol decomposition, up to
+	# three bounded complexity-split passes, architecture binding, and bootstrap
+	# can legitimately require eight turns. Ten leaves two schema-repair slots
+	# while the per-phase convergence guards still prevent loops.
+	HARNESS_START_MAX_AGENT_INVOCATIONS="${HARNESS_START_MAX_AGENT_INVOCATIONS:-10}"
 	# Above this normalized-IR size, a relation/cycle repair is itself a global
 	# decomposition operation. It receives the global Sol allowance once while
 	# retaining a repository-free context capsule.
@@ -356,6 +361,10 @@ load_harness_env()
 	# bounded diagnostic summary is allowed back into an agent transcript.
 	HARNESS_VALIDATION_OUTPUT_MAX_LINES="${HARNESS_VALIDATION_OUTPUT_MAX_LINES:-200}"
 	HARNESS_VALIDATION_OUTPUT_MAX_BYTES="${HARNESS_VALIDATION_OUTPUT_MAX_BYTES:-32768}"
+	# One verbose command can poison an otherwise bounded context before the
+	# aggregate token estimator sees the next reasoning item. Stop that episode
+	# as soon as a completed command crosses this byte boundary.
+	HARNESS_MAX_AGENT_COMMAND_OUTPUT_BYTES="${HARNESS_MAX_AGENT_COMMAND_OUTPUT_BYTES:-32768}"
 	# Fresh v2 plans must put most independently executable nodes on the cheap
 	# worker route. Existing immutable DAGs are not rewritten by this setting.
 	HARNESS_MIN_LUNA_NODE_PERCENT="${HARNESS_MIN_LUNA_NODE_PERCENT:-80}"
@@ -587,6 +596,8 @@ load_harness_env()
 		die 'HARNESS_VALIDATION_OUTPUT_MAX_LINES must be a positive integer'
 	[[ "$HARNESS_VALIDATION_OUTPUT_MAX_BYTES" =~ ^[1-9][0-9]*$ ]] ||
 		die 'HARNESS_VALIDATION_OUTPUT_MAX_BYTES must be a positive integer'
+	[[ "$HARNESS_MAX_AGENT_COMMAND_OUTPUT_BYTES" =~ ^[1-9][0-9]*$ ]] ||
+		die 'HARNESS_MAX_AGENT_COMMAND_OUTPUT_BYTES must be a positive integer'
 	[[ "$HARNESS_MIN_LUNA_NODE_PERCENT" =~ ^(0|[1-9][0-9]*)$ ]] ||
 		die 'HARNESS_MIN_LUNA_NODE_PERCENT must be an integer from 0 through 100'
 	(( HARNESS_MIN_LUNA_NODE_PERCENT <= 100 )) ||
@@ -699,6 +710,7 @@ load_harness_env()
 	export HARNESS_MAX_LUNA_RISK_DOMAINS HARNESS_COMPLEXITY_TOKENS_PER_SCORE_POINT
 	export HARNESS_COMPLEXITY_CALIBRATION_MIN_SAMPLES HARNESS_MAX_COMPLEXITY_DECOMPOSITION_PASSES
 	export HARNESS_VALIDATION_OUTPUT_MAX_LINES HARNESS_VALIDATION_OUTPUT_MAX_BYTES
+	export HARNESS_MAX_AGENT_COMMAND_OUTPUT_BYTES
 	export HARNESS_MIN_LUNA_NODE_PERCENT HARNESS_MIN_LUNA_CODING_NODE_PERCENT HARNESS_ARCHITECTURE_GUARDS
 	export HARNESS_PREFERRED_WORKER_ROUTE HARNESS_AGENT_COMMITS_ENABLED
 	export HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
@@ -4507,7 +4519,7 @@ validate_decomposition_measured_schema_file()
 			continue
 		fi
 		leaf_type="${fields[8]}"; complexity_class="${fields[9]}"; worker_route="${fields[10]}"
-		if [[ ! "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]]; then
+		if [[ ! "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]]; then
 			printf 'LUNA_COMPLEXITY_INVALID node=%s has non-executable leaf_type=%s; every DAG row must be an executable Luna or Terra leaf, never a planner/grouping node\n' "$node_id" "$leaf_type"
 			errors=$((errors + 1))
 		fi
@@ -4528,6 +4540,9 @@ validate_decomposition_measured_schema_file()
 		done
 		for index in 11 15 16 17 18; do
 			value="${fields[$index]}"
+			if (( index == 16 )) && [[ "$leaf_type" == VERIFICATION_ONLY && "$value" == 0 ]]; then
+				continue
+			fi
 			if [[ "$value" =~ ^[0-9]+$ ]] && (( value == 0 )); then
 				printf 'LUNA_COMPLEXITY_INVALID node=%s dimension_%s must be positive\n' "$node_id" "$((index + 1))"
 				errors=$((errors + 1))
@@ -4615,9 +4630,9 @@ write_decomposition_complexity_report()
 			}
 			}
 			if ($12 !~ /^[1-9][0-9]*$/ || $16 !~ /^[1-9][0-9]*$/ ||
-				$17 !~ /^[1-9][0-9]*$/ || $18 !~ /^[1-9][0-9]*$/ ||
+				($9 == "VERIFICATION_ONLY" ? $17 !~ /^[0-9]+$/ : $17 !~ /^[1-9][0-9]*$/) || $18 !~ /^[1-9][0-9]*$/ ||
 				$19 !~ /^[1-9][0-9]*$/) {
-				printf "LUNA_COMPLEXITY_INVALID node=%s requires positive behavioral, validation, implementation-file, action, and token predictions\n", $1 > "/dev/stderr"
+				printf "LUNA_COMPLEXITY_INVALID node=%s requires positive behavioral, validation, action, and token predictions; implementation files may be zero only for VERIFICATION_ONLY\n", $1 > "/dev/stderr"
 				errors++
 			}
 		}
@@ -4633,10 +4648,11 @@ write_decomposition_complexity_report()
 		for value in "$behavioral" "$failures" "$ownership" "$concurrency" "$validations" "$implementation_files" "$actions" "$declared_p95"; do
 			[[ "$value" =~ ^[0-9]+$ ]] || { printf 'LUNA_COMPLEXITY_INVALID node=%s requires nonnegative integer dimensions\n' "$node_id" >&2; return 1; }
 		done
-		(( behavioral > 0 && validations > 0 && implementation_files > 0 && actions > 0 && declared_p95 > 0 )) || {
-			printf 'LUNA_COMPLEXITY_INVALID node=%s requires positive behavioral, validation, implementation-file, action, and token predictions\n' "$node_id" >&2
+		if ! (( behavioral > 0 && validations > 0 && actions > 0 && declared_p95 > 0 )) ||
+			{ (( implementation_files == 0 )) && [[ "$leaf" != VERIFICATION_ONLY ]]; }; then
+			printf 'LUNA_COMPLEXITY_INVALID node=%s requires positive behavioral, validation, action, and token predictions; implementation files may be zero only for VERIFICATION_ONLY\n' "$node_id" >&2
 			return 1
-		}
+		fi
 		path_count="$(awk -F, '{if ($0=="-" || $0=="") print 0; else print NF}' <<< "$paths")"
 		symbol_count="$(awk -F, '{if ($0=="-" || $0=="") print 0; else print NF}' <<< "$symbols")"
 		obligation_count="$(awk -F '\t' -v wanted="$node_id" 'NR>1 {n=split($2,a,","); for(i=1;i<=n;i++){gsub(/^[[:space:]]+|[[:space:]]+$/,"",a[i]); if(a[i]==wanted){c++; break}}} END{print c+0}' "$coverage")"
@@ -4749,7 +4765,7 @@ initialize_project_plan_v2()
 	fi
 	if (( has_leaf_type == 1 )) && [[ "$HARNESS_PREFERRED_WORKER_ROUTE" == LUNA ]]; then
 		route_violations="$(awk -F '\t' '
-			NR > 1 && $11 == "TERRA" && $9 ~ /^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$/ {
+			NR > 1 && $11 == "TERRA" && $9 ~ /^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY)$/ {
 				printf "Luna-preferred DAG routes coding node %s to Terra; split it until it is LOW/LUNA or use an irreducible Terra integration boundary\n", $1
 			}
 		' "$source_file")"
@@ -4830,7 +4846,7 @@ initialize_project_plan_v2()
 		[[ -n "$allowed_paths" && "$allowed_paths" != - ]] || die "node $node_id requires explicit allowed_paths"
 		[[ -n "$required_symbols" ]] || die "node $node_id requires required_symbols or '-'"
 		if (( has_leaf_type == 1 )); then
-			[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]] ||
+			[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]] ||
 				die "invalid leaf_type for $node_id: $leaf_type"
 		fi
 		[[ "$complexity_class" =~ ^(LOW|MEDIUM|HIGH)$ ]] || die "invalid complexity_class for $node_id: $complexity_class"
@@ -4838,7 +4854,7 @@ initialize_project_plan_v2()
 		[[ "$worker_route" != LUNA || "$complexity_class" == LOW ]] ||
 			die "Luna node $node_id must have complexity_class LOW"
 		if (( has_leaf_type == 1 )) && [[ "$worker_route" == LUNA ]]; then
-			[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]] ||
+			[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY)$ ]] ||
 				die "Luna node $node_id has Terra-only leaf_type $leaf_type"
 		fi
 		printf '%s\n' "$node_id" >> "$seen_file"

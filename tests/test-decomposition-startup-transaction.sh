@@ -136,6 +136,12 @@ obligation_id	node_ids	evidence_plan
 REQ-ONE	n01	n01 focused source validation
 REQ-TWO	n02,terra-contract	n02 exposes behavior and terra-contract fixes its contract
 EOF
+cat > "$TEST_ROOT/verification-dag.tsv" <<'EOF'
+node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route	behavioral_concerns	failure_paths	ownership_transitions	concurrency_boundaries	validation_surfaces	implementation_files	predicted_worker_actions	predicted_p95_tokens	terra_exception
+n01	-	-	Verify existing target behavior	Focused source already exists	test -f src/a.c	src/a.c	target	VERIFICATION_ONLY	LOW	LUNA	1	0	0	0	1	0	3	70000	-
+n02	-	n01	Expose target behavior	Focused source exists	test -f src/a.c	src/a.c	target	LOCAL_IMPLEMENTATION	LOW	LUNA	1	0	0	0	1	1	4	100000	-
+terra-contract	-	n02	Choose the target contract	Contract decision is accepted	test -f src/a.c	src/a.c	target	CONTRACT_DESIGN	HIGH	TERRA	2	2	2	0	2	3	11	360000	CONTRACT_DECISION
+EOF
 cat > "$TEST_ROOT/over-budget-dag.tsv" <<'EOF'
 node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route	behavioral_concerns	failure_paths	ownership_transitions	concurrency_boundaries	validation_surfaces	implementation_files	predicted_worker_actions	predicted_p95_tokens	terra_exception
 n01	-	-	Implement target behavior	Focused source exists	test -f src/a.c	src/a.c	target	LOCAL_IMPLEMENTATION	LOW	LUNA	2	0	0	0	1	1	4	100000	-
@@ -304,6 +310,13 @@ set -e
 grep -Fqx 'status=REJECTED' "$project_dir/control/decomposition-dag-candidate.env"
 dag_rejection_log="$(awk -F= '$1=="rejection_log" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
 test -s "$dag_rejection_log"
+
+# Existing acceptance evidence is a first-class zero-write Luna leaf rather
+# than a fake test implementation with source mutation authority.
+"$HARNESS_BIN/manager-stage-decomposition-dag" "$env_file" \
+	"$TEST_ROOT/verification-dag.tsv" "$TEST_ROOT/coverage.tsv" >/dev/null
+verification_candidate="$(awk -F= '$1=="directory" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
+grep -q $'^n01\t.*\tVERIFICATION_ONLY\tLOW\tLUNA\t.*\t0\t' "$verification_candidate/dag.tsv"
 
 "$HARNESS_BIN/manager-stage-decomposition-dag" "$env_file" "$TEST_ROOT/dag.tsv" "$TEST_ROOT/coverage.tsv" >/dev/null
 grep -Fqx 'status=STAGED' "$project_dir/control/decomposition-dag-candidate.env"
@@ -506,23 +519,23 @@ Goal-ID: terra-contract.residual-evidence.v1
 Goal-Success-Evidence: The existing target contract has retained focused evidence.
 Focused-Validation: test -f src/a.c
 Allowed-Scope: src/a.c
-Baseline-Boundary: Preserve the verified Terra decision and make no source edits.
+Baseline-Boundary: Preserve the verified Terra decision while changing only src/a.c.
 Hard-Block-Conditions: Stop if evidence requires changing the accepted contract.
-Leaf-Type: DOCUMENTATION
-Complexity-Class: LOW
-Worker-Route: LUNA
+Leaf-Type: LOCAL_IMPLEMENTATION
+Complexity-Class: HIGH
+Worker-Route: TERRA
 Depends-On: n02
 Deliverable: Retained focused validation evidence.
 Required-Symbols: target,target_contract,target_validate,target_encode,target_decode
 Context-Paths: src/a.c
-Architecture-Decisions: NONE
+Architecture-Decisions: -
 Validation-Class: FOCUSED
-Expected-Max-Implementation-Files: 0
+Expected-Max-Implementation-Files: 1
 Expected-Max-Worker-Turns: 2
 
 ## Objective
 
-Record the bounded evidence for the already verified contract without editing source.
+Apply one bounded source correction after the Terra decision has already been verified.
 
 ## Acceptance criteria
 
@@ -540,10 +553,11 @@ residual_ready="$project_dir/tasks/startup-split-task-terra-contract-revision-01
 test -f "$residual_ready"
 grep -Fqx 'Complexity-Class: LOW' "$residual_ready"
 grep -Fqx 'Worker-Route: LUNA' "$residual_ready"
-grep -Fqx 'Expected-Max-Implementation-Files: 0' "$residual_ready"
+grep -Fqx 'Expected-Max-Implementation-Files: 1' "$residual_ready"
 grep -Fqx 'Terra-Exception: -' "$residual_ready"
+grep -Fqx 'Architecture-Decisions: NONE' "$residual_ready"
 awk -F': ' -v maximum=24 '$1=="Complexity-Score" {found=1; exit !($2<=maximum)} END{exit !found}' "$residual_ready"
-grep -Fq 'RECOVERY_RESIDUAL_EVIDENCE_RECLASSIFIED root=terra-contract task=terra-contract-revision-01' \
+grep -Fq 'RECOVERY_CHILD_RECLASSIFIED root=terra-contract task=terra-contract-revision-01 leaf_type=LOCAL_IMPLEMENTATION' \
 	"$project_dir/logs/events.log"
 
 printf 'split decomposition startup transaction tests passed\n'

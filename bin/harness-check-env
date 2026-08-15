@@ -64,6 +64,7 @@ if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 		"$HARNESS_MAX_LUNA_PREDICTED_ACTIONS" "$HARNESS_MAX_LUNA_PREDICTED_P95_TOKENS" \
 		"$HARNESS_MAX_LUNA_IMPLEMENTATION_FILES" "$HARNESS_MAX_LUNA_RISK_DOMAINS"
 	printf 'Recursive Sol complexity passes: %s\n' "$HARNESS_MAX_COMPLEXITY_DECOMPOSITION_PASSES"
+	printf 'Maximum output from one agent command: %s bytes\n' "$HARNESS_MAX_AGENT_COMMAND_OUTPUT_BYTES"
 else
 	printf 'Complexity decomposition: legacy v1\n'
 fi

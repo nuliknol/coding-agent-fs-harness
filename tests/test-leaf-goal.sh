@@ -544,7 +544,7 @@ Decision: CHECKPOINT
 Progress-Percent: 50%
 Improvement-Percent: 50%
 Verified-Criterion: goal.behavior
-Checkpoint-Path: goal-output.txt
+Checkpoint-Path: NONE
 
 ## Specification comparison
 The leaf behavior matches the assignment.
@@ -564,9 +564,16 @@ The focused validation leaf remains.
 ## Conclusion
 The first leaf is complete and independently verified. Checkpoint.
 NOTE
+# Simulate a valid task-owned source increment whose manager mistakenly leaves
+# the template's NONE provenance value unchanged.
+printf 'checkpoint provenance\n' >> "$TEST_ROOT/repo/goal-output.txt"
 "$HARNESS_BIN/manager-checkpoint-task" "$TEST_ROOT/harness.env" 001 "$TEST_ROOT/checkpoint.md" >/dev/null
 grep -q '^state=CHECKPOINTED$' "$goal_state"
 [[ -f "$project_dir/archive/goals/goalproj-task-001/goalproj-task-001.goal" ]]
+grep -Fxq 'goal-output.txt' \
+	"$project_dir/archive/checkpoints/goalproj-task-001/checkpoint-paths.txt"
+grep -q '^Checkpoint-Path: goal-output.txt$' \
+	"$project_dir/archive/checkpoints/goalproj-task-001/review.md"
 
 cat > "$TEST_ROOT/revision.md" <<'TASK'
 # Leaf Goal Validation Task

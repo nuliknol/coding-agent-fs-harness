@@ -91,6 +91,70 @@ validate_checkpoint_review()
 		die 'checkpoint review must contain at least one Checkpoint-Path line (or Checkpoint-Path: NONE)'
 }
 
+checkpoint_scope_dirty_paths()
+{
+	local assignment="$1" allowed_scope path
+	local -A seen=()
+	git -C "$REPOSITORY" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+	allowed_scope="$(metadata_value "$assignment" Allowed-Scope)"
+	[[ -n "$allowed_scope" ]] || return 0
+	while IFS= read -r path; do
+		[[ -n "$path" && -z "${seen[$path]:-}" ]] || continue
+		agent_commit_path_in_scope "$path" "$allowed_scope" || continue
+		seen[$path]=1
+		printf '%s\n' "$path"
+	done < <({
+		git -C "$REPOSITORY" diff --name-only HEAD -- 2>/dev/null || true
+		git -C "$REPOSITORY" ls-files --others --exclude-standard 2>/dev/null || true
+	} | LC_ALL=C sort -u)
+}
+
+checkpoint_review_debt_value()
+{
+	local review="$1" assignment="$2" value task debt_id
+	local -a debt_ids=()
+	value="$(metadata_value "$review" Debt-Recorded)"
+	[[ "$value" != NONE && "$value" =~ ^[A-Za-z0-9._:-]+(,[A-Za-z0-9._:-]+)*$ ]] || {
+		printf 'NONE\n'
+		return 0
+	}
+	(( HARNESS_ARCHITECTURE_GUARDS == 1 )) || { printf 'NONE\n'; return 0; }
+	task="$(metadata_value "$assignment" Task-ID)"
+	IFS=',' read -r -a debt_ids <<< "$value"
+	for debt_id in "${debt_ids[@]}"; do
+		architecture_registry_has_id "$(architecture_debt_file)" "$debt_id" || {
+			printf 'NONE\n'
+			return 0
+		}
+		[[ "$(awk -F '\t' -v id="$debt_id" 'NR>1 && $1==id {print $2; exit}' "$(architecture_debt_file)")" == "$task" ]] || {
+			printf 'NONE\n'
+			return 0
+		}
+	done
+	printf '%s\n' "$value"
+}
+
+normalize_checkpoint_review()
+{
+	local review="$1" progress="$2" improvement="$3" debt="$4" paths="$5" tmp
+	tmp="$review.normalized.$$"
+	awk -F': ' -v progress="$progress" -v improvement="$improvement" -v debt="$debt" -v paths="$paths" '
+		$1 == "Progress-Percent" {if (!seen_progress++) print "Progress-Percent: " progress "%"; next}
+		$1 == "Improvement-Percent" {if (!seen_improvement++) print "Improvement-Percent: " improvement "%"; next}
+		$1 == "Debt-Recorded" {if (!seen_debt++) print "Debt-Recorded: " debt; next}
+		$1 == "Checkpoint-Path" {if (!seen_paths++) print "Checkpoint-Path: " paths; next}
+		{print}
+		END {
+			if (!seen_progress) print "Progress-Percent: " progress "%"
+			if (!seen_improvement) print "Improvement-Percent: " improvement "%"
+			if (!seen_debt) print "Debt-Recorded: " debt
+			if (!seen_paths) print "Checkpoint-Path: " paths
+		}
+	' "$review" > "$tmp"
+	chmod --reference="$review" "$tmp"
+	mv "$tmp" "$review"
+}
+
 archive_lingering_result()
 {
 	if [[ ! -f "$result" ]]; then
@@ -149,18 +213,9 @@ fi
 goal_outcome="$(metadata_value "$result" Goal-Outcome)"
 validate_worker_result "$result"
 validate_checkpoint_review "$note_file"
-architecture_validate_manager_review "$note_file" "$assignment_archive"
 initialize_task_progress "$task_id" "$assignment_archive"
 
 current_progress="$(task_progress_percent "$root")"
-progress_percent="$(review_percent "$note_file" Progress-Percent)"
-improvement_percent="$(review_percent "$note_file" Improvement-Percent)"
-validate_percent "$progress_percent" 'Progress-Percent'
-validate_percent "$improvement_percent" 'Improvement-Percent'
-(( progress_percent >= current_progress )) ||
-	die "Progress-Percent cannot decrease from $current_progress% to $progress_percent%"
-(( progress_percent < 100 )) || die 'a checkpointed task must have Progress-Percent below 100%'
-
 mapfile -t verified_criteria < <(awk -F': ' '$1 == "Verified-Criterion" {print $2}' "$note_file")
 mapfile -t verified_increments < <(awk -F': ' '$1 == "Verified-Increment" {print $2}' "$note_file")
 mapfile -t checkpoint_path_values < <(awk -F': ' '$1 == "Checkpoint-Path" {sub(/^[^:]*: /, ""); print}' "$note_file")
@@ -176,6 +231,57 @@ for checkpoint_path_value in "${checkpoint_path_values[@]}"; do
 done
 (( ${#verified_criteria[@]} + ${#verified_increments[@]} > 0 )) ||
 	die 'checkpoint contains no verified criterion or increment identifiers'
+
+# Progress, debt identifiers, and source provenance are deterministic review
+# outputs. Canonicalize them before architecture validation so one prose typo
+# cannot consume the only manager correction or discard a valid checkpoint.
+leaf_criterion_total="$(task_leaf_criterion_total_count "$root")"
+leaf_criterion_passed="$(task_leaf_criterion_passed_count "$root")"
+if (( ${#verified_criteria[@]} > 0 && leaf_criterion_total > 0 )); then
+	progress_percent=$(( (leaf_criterion_passed + ${#verified_criteria[@]}) * 100 / leaf_criterion_total ))
+	improvement_percent=$((progress_percent - current_progress))
+	(( improvement_percent >= 0 )) || improvement_percent=0
+elif (( leaf_criterion_total == 0 )); then
+	# Legacy roots without a machine criterion denominator retain their reviewed
+	# percentage. New/decomposed roots never delegate this arithmetic.
+	progress_percent="$(review_percent "$note_file" Progress-Percent)"
+	improvement_percent="$(review_percent "$note_file" Improvement-Percent)"
+	validate_percent "$progress_percent" 'Progress-Percent'
+	validate_percent "$improvement_percent" 'Improvement-Percent'
+	(( progress_percent >= current_progress )) ||
+		die "Progress-Percent cannot decrease from $current_progress% to $progress_percent%"
+else
+	progress_percent="$current_progress"
+	improvement_percent=0
+fi
+(( progress_percent < 100 )) || die 'all declared leaf criteria would pass; use manager-accept-task instead of checkpointing'
+
+mapfile -t dirty_scope_paths < <(checkpoint_scope_dirty_paths "$assignment_archive")
+declare -A checkpoint_path_seen=()
+canonical_checkpoint_paths=()
+for checkpoint_path in "${checkpoint_paths[@]}"; do
+	[[ "$checkpoint_path" != NONE ]] || continue
+	[[ -z "${checkpoint_path_seen[$checkpoint_path]:-}" ]] || continue
+	checkpoint_path_seen[$checkpoint_path]=1
+	canonical_checkpoint_paths+=("$checkpoint_path")
+done
+for checkpoint_path in "${dirty_scope_paths[@]}"; do
+	[[ -z "${checkpoint_path_seen[$checkpoint_path]:-}" ]] || continue
+	checkpoint_path_seen[$checkpoint_path]=1
+	canonical_checkpoint_paths+=("$checkpoint_path")
+done
+if (( ${#canonical_checkpoint_paths[@]} == 0 )); then
+	canonical_checkpoint_path_value=NONE
+else
+	canonical_checkpoint_path_value="$(IFS=,; printf '%s' "${canonical_checkpoint_paths[*]}")"
+fi
+canonical_debt="$(checkpoint_review_debt_value "$note_file" "$assignment_archive")"
+normalize_checkpoint_review "$note_file" "$progress_percent" "$improvement_percent" \
+	"$canonical_debt" "$canonical_checkpoint_path_value"
+checkpoint_paths=("${canonical_checkpoint_paths[@]}")
+(( ${#checkpoint_paths[@]} > 0 )) || checkpoint_paths=(NONE)
+architecture_validate_manager_review "$note_file" "$assignment_archive"
+log_event "CHECKPOINT_REVIEW_NORMALIZED task=$task_id progress=$progress_percent improvement=$improvement_percent debt=$canonical_debt paths=$(printf '%q' "$canonical_checkpoint_path_value")"
 
 criterion_ledger="$(task_criterion_ledger_file "$root")"
 declare -A seen_checkpoint_items=()
@@ -215,8 +321,7 @@ if (( ${#declared_criteria[@]} > 0 )); then
 	done
 	(( passed_criteria + ${#verified_criteria[@]} < ${#declared_criteria[@]} )) ||
 		die 'all declared leaf criteria would pass; use manager-accept-task instead of checkpointing'
-	if task_root_uses_assignment_criteria "$root" &&
-		[[ ! -f "$(task_criterion_decomposition_file "$root")" ]]; then
+	if task_root_uses_assignment_criteria "$root"; then
 		expected_progress=$(( (passed_criteria + ${#verified_criteria[@]}) * 100 / ${#declared_criteria[@]} ))
 		expected_improvement=$((expected_progress - current_progress))
 		(( expected_improvement >= 0 )) || expected_improvement=0

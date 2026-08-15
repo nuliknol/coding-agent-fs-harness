@@ -1393,10 +1393,11 @@ cat > "$CHECKPOINT_ROOT/review-001.md" <<'NOTE'
 
 Task-ID: 001
 Decision: CHECKPOINT
-Progress-Percent: 50%
-Improvement-Percent: 50%
+Progress-Percent: 75%
+Improvement-Percent: 75%
 Verified-Criterion: compiler.registry
 Checkpoint-Path: source.txt, source-two.txt
+Debt-Recorded: explanatory prose that is not a registered debt identifier
 
 ## Specification comparison
 The bounded registry criterion is complete, while the parent root remains active.
@@ -1422,6 +1423,12 @@ checkpoint_output="$("$HARNESS_BIN/manager-checkpoint-task" "$CHECKPOINT_ROOT/ha
 checkpoint_project="$CHECKPOINT_ROOT/state/projects/checkpointproj"
 [[ -f "$checkpoint_project/archive/checkpointproj-task-001.checkpointed.md" ]]
 [[ -f "$checkpoint_project/archive/checkpoints/checkpointproj-task-001/manifest.txt" ]]
+grep -q '^Progress-Percent: 50%$' \
+	"$checkpoint_project/archive/checkpoints/checkpointproj-task-001/review.md"
+grep -q '^Improvement-Percent: 50%$' \
+	"$checkpoint_project/archive/checkpoints/checkpointproj-task-001/review.md"
+grep -q '^Debt-Recorded: NONE$' \
+	"$checkpoint_project/archive/checkpoints/checkpointproj-task-001/review.md"
 cmp -s "$CHECKPOINT_ROOT/repo/source.txt" \
 	"$checkpoint_project/archive/checkpoints/checkpointproj-task-001/files/source.txt"
 cmp -s "$CHECKPOINT_ROOT/repo/source-two.txt" \

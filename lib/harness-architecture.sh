@@ -484,7 +484,7 @@ architecture_initialize_minimal_test_profile()
 	paths="${fields[6]}"; symbols="${fields[7]}"; leaf="${fields[8]}"
 	complexity="${fields[9]}"; route="${fields[10]}"
 	[[ "$node" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ && "$parent" == - && "$depends" == - ]] || return 1
-	[[ "$leaf" == TEST_IMPLEMENTATION && "$complexity" == LOW && "$route" == LUNA ]] || return 1
+	[[ "$leaf" =~ ^(TEST_IMPLEMENTATION|VERIFICATION_ONLY)$ && "$complexity" == LOW && "$route" == LUNA ]] || return 1
 	[[ -n "$SPECIFICATION" && -f "$SPECIFICATION" ]] || return 1
 	[[ -n "$deliverable" && -n "$evidence" && -n "$validation" && "$validation" != REVIEW ]] || return 1
 	[[ -n "$paths" && "$paths" != - && "$paths" != / && "$paths" != . && "$paths" != *'*'* ]] || return 1

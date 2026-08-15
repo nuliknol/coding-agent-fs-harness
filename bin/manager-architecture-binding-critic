@@ -43,7 +43,7 @@ ARCHITECTURE_GUARDS=$HARNESS_ARCHITECTURE_GUARDS
 
 The architecture-fit decision and DAG/coverage are durable and authoritative. Read those bounded files. Do not change DAG_FILE or SPECIFICATION_COVERAGE_FILE. Do not inspect the complete repository inventory, development policy, harness source, unrelated Git history, prior agent logs, or broad source trees. Search only exact repository paths or symbols already named by the DAG when a validation binding requires confirmation. Retain verbose output in files and return bounded excerpts.
 
-If ARCHITECTURE_GUARDS=1 and the DAG is exactly one dependency-free LOW/LUNA TEST_IMPLEMENTATION node, submit it with '-' as ARCH_DIR. Otherwise create ARCH_DIR under PROJECT_TMP_DIR containing six exact tab-separated files.
+If ARCHITECTURE_GUARDS=1 and the DAG is exactly one dependency-free LOW/LUNA TEST_IMPLEMENTATION or VERIFICATION_ONLY node, submit it with '-' as ARCH_DIR. Otherwise create ARCH_DIR under PROJECT_TMP_DIR containing six exact tab-separated files.
 
 invariants.tsv:
 invariant_id<TAB>category<TAB>authority<TAB>severity<TAB>statement<TAB>scope<TAB>source_requirement<TAB>validation_kind<TAB>validation_ref<TAB>affected_nodes

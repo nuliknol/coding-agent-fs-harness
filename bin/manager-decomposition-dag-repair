@@ -16,8 +16,33 @@ architecture_fit_is_accepted || die 'DAG repair requires a current accepted arch
 
 trace_init manager_decomposition_dag_repair
 trace_script_start "$@"
-trap 'trace_script_exit $?' EXIT
 dir="$(project_dir)"
+rm -f "$dir/control/manager-plan-structural-error.md"
+
+record_decomposition_repair_stall()
+{
+	local status="$1" marker="$dir/control/manager-plan-structural-error.md" tmp
+	(( status != 0 )) || return 0
+	project_plan_exists && return 0
+	tmp="$marker.tmp.$$"
+	{
+		printf '# Decomposition Repair Stalled\n\n'
+		printf 'Project: %s\n\n' "$PROJECT"
+		printf 'Failed-At: %s\n\n' "$(timestamp_utc)"
+		printf 'Exit-Status: %s\n\n' "$status"
+		printf 'The bounded recursive Sol repair did not install a valid DAG. The latest candidate, mapping, complexity report, and deterministic diagnostics are preserved; startup will not silently appear stopped.\n'
+	} > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$marker"
+}
+
+repair_exit()
+{
+	local status=$?
+	record_decomposition_repair_stall "$status"
+	trace_script_exit "$status"
+}
+trap repair_exit EXIT
 candidate_dir="$(decomposition_dag_candidate_state_value directory)"
 rejection_log="$(decomposition_dag_candidate_state_value rejection_log "$candidate_dir/rejection.log")"
 [[ -s "$rejection_log" ]] || die 'rejected DAG candidate has no deterministic validator diagnostics'
@@ -31,7 +56,7 @@ install -m 600 "$candidate_dir/coverage.tsv" "$repair_dir/coverage.tsv"
 
 repair_phase=decomposition_repair
 complexity_repair=0
-complexity_context='Correct only the reported deterministic DAG/coverage defect. Every DAG row is executable through LUNA or TERRA; never emit SOL or grouping nodes. Routine LOCAL_IMPLEMENTATION, TEST_IMPLEMENTATION, MECHANICAL_API, FOCUSED_BUG, and DOCUMENTATION rows remain LOW/LUNA and must be split rather than converted to Terra with an invented exception.'
+complexity_context='Correct only the reported deterministic DAG/coverage defect. Every DAG row is executable through LUNA or TERRA; never emit SOL or grouping nodes. Routine LOCAL_IMPLEMENTATION, TEST_IMPLEMENTATION, MECHANICAL_API, FOCUSED_BUG, DOCUMENTATION, and VERIFICATION_ONLY rows remain LOW/LUNA and must be split rather than converted to Terra with an invented exception.'
 if grep -q 'LUNA_COMPLEXITY_OVER_BUDGET.*status=OVER_BUDGET' "$rejection_log"; then
 	complexity_repair=1
 	repair_phase=decomposition
@@ -108,9 +133,12 @@ if (( complexity_repair == 1 )); then
 	awk -F '\t' 'NR==FNR {if(NR>1) wanted[$1]=1; next} FNR==1 || ($1 in wanted)' "$split_coverage" "$(specification_obligations_file)" > "$split_obligations"
 	awk -F '\t' 'NR==FNR {if(NR>1) wanted[$1]=1; next} FNR==1 || ($3 in wanted) || ($4 in wanted)' "$split_obligations" "$(specification_relations_file)" > "$split_relations"
 	printf '%s\n' "$(decomposition_complexity_header)" > "$replacements"
-	printf 'old_node_id\treplacement_node_ids\n' > "$mapping"
+	{
+		printf 'old_node_id\treplacement_node_ids\n'
+		awk 'NF {printf "%s\tREPLACE_WITH_ORDERED_CHILD_IDS\n", $1}' "$allowed"
+	} > "$mapping"
 	chmod 600 "$split_rows" "$split_coverage" "$split_obligations" "$split_relations" "$replacements" "$mapping"
-	split_context="This is a bounded node-split transaction. Read REJECTED_DAG_ROWS, REJECTED_COVERAGE, REJECTED_OBLIGATIONS, REJECTED_RELATIONS, VALIDATOR_DIAGNOSTICS, and COMPLEXITY_REPORT only. Do not read or rewrite DAG_FILE or SPECIFICATION_COVERAGE_FILE. For every rejected old node, append at least two complete measured executable rows to REPLACEMENT_DAG_FILE and one mapping row old_node_id<TAB>ordered,comma-separated-new-node-ids to NODE_MAPPING_FILE. New IDs must not already exist. Preserve the old node's semantic obligation across ordered children, but isolate risk domains, paths, symbols, evidence, and focused validation so every child is independently Luna-ready. The first child inherits external prerequisites; later children depend on prior children as needed. Submit exactly once with: $HARNESS_BIN/manager-stage-decomposition-node-split \"$HARNESS_ENV_FILE\" \"$replacements\" \"$mapping\". The harness merges the bounded patch into the immutable full DAG and rewrites coverage mechanically."
+	split_context="This is a bounded node-split transaction. Read REJECTED_DAG_ROWS, REJECTED_COVERAGE, REJECTED_OBLIGATIONS, REJECTED_RELATIONS, VALIDATOR_DIAGNOSTICS, and COMPLEXITY_REPORT only. Do not read or rewrite DAG_FILE or SPECIFICATION_COVERAGE_FILE. NODE_MAPPING_FILE is machine-owned in its first column and already contains exactly the current rejected node IDs. Do not add, remove, reorder, or replace those rows; replace only each REPLACE_WITH_ORDERED_CHILD_IDS value. For every listed old node, append at least two complete measured executable rows to REPLACEMENT_DAG_FILE and set its existing second field to ordered,comma-separated-new-node-ids. New IDs must not already exist. Preserve the old node's semantic obligation across ordered children, but isolate risk domains, paths, symbols, evidence, and focused validation so every child is independently Luna-ready. The first child inherits external prerequisites; later children depend on prior children as needed. Submit exactly once with: $HARNESS_BIN/manager-stage-decomposition-node-split \"$HARNESS_ENV_FILE\" \"$replacements\" \"$mapping\". The harness merges the bounded patch into the immutable full DAG and rewrites coverage mechanically."
 	repair_read_instruction='Read only the bounded REJECTED_* files, VALIDATOR_DIAGNOSTICS, and COMPLEXITY_REPORT described below.'
 fi
 
