@@ -145,6 +145,37 @@ fi
 grep -Fq 'edge EDGE-widget uses a broad aggregate as a mandatory success condition' \
 	"$TEST_ROOT/broad-edge.out"
 test ! -e "$TEST_ROOT/state/projects/archguard/control/architecture"
+
+# Candidate preflight reports every unscoped broad validation at once so Sol
+# does not spend one repair turn discovering each row serially.
+batch_broad_plan="$TEST_ROOT/batch-broad-plan.tsv"
+awk -F '\t' 'BEGIN {OFS=FS} NR > 1 {$6="./widget-smoke --computing-all"} {print}' \
+	"$TEST_ROOT/plan.tsv" > "$batch_broad_plan"
+batch_broad_architecture="$TEST_ROOT/batch-broad-architecture"
+cp -a "$TEST_ROOT/architecture" "$batch_broad_architecture"
+awk -F '\t' 'BEGIN {OFS=FS} NR > 1 {$9="./widget-smoke --computing-all"} {print}' \
+	"$batch_broad_architecture/invariants.tsv" > "$batch_broad_architecture/invariants.tsv.tmp"
+mv "$batch_broad_architecture/invariants.tsv.tmp" "$batch_broad_architecture/invariants.tsv"
+awk -F '\t' 'BEGIN {OFS=FS} NR > 1 {$9="./widget-smoke --computing-all"} {print}' \
+	"$batch_broad_architecture/edges.tsv" > "$batch_broad_architecture/edges.tsv.tmp"
+mv "$batch_broad_architecture/edges.tsv.tmp" "$batch_broad_architecture/edges.tsv"
+awk -F '\t' 'BEGIN {OFS=FS} NR > 1 {$4="./widget-smoke --computing-all"} {print}' \
+	"$batch_broad_architecture/health-gates.tsv" > "$batch_broad_architecture/health-gates.tsv.tmp"
+mv "$batch_broad_architecture/health-gates.tsv.tmp" "$batch_broad_architecture/health-gates.tsv"
+if (
+	source "$HARNESS_HOME/lib/harness-architecture.sh"
+	architecture_report_unscoped_candidate_validations \
+		"$batch_broad_plan" "$batch_broad_architecture"
+) > "$TEST_ROOT/batch-broad.out" 2>&1; then
+	printf 'batch broad-validation preflight accepted invalid candidate\n' >&2
+	exit 1
+fi
+grep -Fq 'plan node contract focused_validation uses a broad aggregate' "$TEST_ROOT/batch-broad.out"
+grep -Fq 'plan node coding focused_validation uses a broad aggregate' "$TEST_ROOT/batch-broad.out"
+grep -Fq 'invariant INV-widget uses a broad aggregate' "$TEST_ROOT/batch-broad.out"
+grep -Fq 'edge EDGE-widget uses a broad aggregate' "$TEST_ROOT/batch-broad.out"
+grep -Fq 'health gate GATE-widget uses a broad aggregate' "$TEST_ROOT/batch-broad.out"
+
 unsupported_artifact_architecture="$TEST_ROOT/unsupported-artifact-architecture"
 cp -a "$TEST_ROOT/architecture" "$unsupported_artifact_architecture"
 sed -i 's/decision:ADR-widget/architecture:ADR-widget/' \

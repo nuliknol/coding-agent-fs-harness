@@ -93,6 +93,20 @@ fi
 registered_by_candidate="$(decomposition_candidate_state_value architecture_registered_by_candidate 0)"
 rejection_log="$candidate_dir/rejection.log"
 rm -f "$rejection_log"
+set +e
+architecture_report_unscoped_candidate_validations "$dag_stage" "$architecture_stage" \
+	> >(tee "$rejection_log") 2>&1
+scope_status=$?
+set -e
+if (( scope_status != 0 )); then
+	sed -i 's/^status=.*/status=REJECTED/' "$state"
+	sed -i '/^rejection_stage=/d; /^rejection_log=/d' "$state"
+	printf 'rejection_stage=validation_scope\n' >> "$state"
+	printf 'rejection_log=%s\n' "$rejection_log" >> "$state"
+	log_event "DECOMPOSITION_CANDIDATE_REJECTED directory=$candidate_dir stage=validation_scope status=$scope_status"
+	printf 'REJECTION_LOG=%s\n' "$rejection_log" >&2
+	die 'decomposition candidate contains unscoped broad validation'
+fi
 if (( HARNESS_ARCHITECTURE_GUARDS == 1 )) && [[ "$architecture_stage" != - ]] && ! architecture_registered; then
 	set +e
 	(

@@ -166,6 +166,58 @@ architecture_require_scoped_validation()
 		die "$label uses a broad aggregate as a mandatory success condition; use a focused selector, tolerate the unrelated aggregate as baseline evidence, or set HARNESS_BROAD_GATE_REQUIRED=1 when the governing specification explicitly requires whole-project success"
 }
 
+architecture_validation_is_scoped_or_authorized()
+{
+	local validation="$1"
+	architecture_validation_is_broad_aggregate "$validation" || return 0
+	[[ "$validation" == *'|| true'* ||
+		( "$validation" == *'status=$?'* && "$validation" == *'test "$status"'* ) ||
+		"$validation" == *'HARNESS_BROAD_GATE_REQUIRED=1'* ]]
+}
+
+# Candidate validation must report the complete broad-aggregate defect set in
+# one deterministic pass. Otherwise a decomposition agent can spend one global
+# turn moving the same first-failure diagnostic from an invariant to a gate and
+# then through individual DAG rows.
+architecture_report_unscoped_candidate_validations()
+{
+	local dag="$1" source_dir="$2" id kind validation errors=0
+	local -a fields=()
+	while IFS=$'\t' read -r -a fields; do
+		id="${fields[0]:-}"
+		[[ "$id" != node_id && -n "$id" ]] || continue
+		validation="${fields[5]:-}"
+		if ! architecture_validation_is_scoped_or_authorized "$validation"; then
+			printf 'ERROR: plan node %s focused_validation uses a broad aggregate as a mandatory success condition; use a focused selector, tolerate the unrelated aggregate as baseline evidence, or set HARNESS_BROAD_GATE_REQUIRED=1 when the governing specification explicitly requires whole-project success\n' "$id"
+			errors=$((errors + 1))
+		fi
+	done < "$dag"
+	if [[ "$source_dir" != - ]]; then
+		while IFS=$'\t' read -r id _ _ _ _ _ _ kind validation _; do
+			[[ "$id" != invariant_id && "$kind" == COMMAND ]] || continue
+			if ! architecture_validation_is_scoped_or_authorized "$validation"; then
+				printf 'ERROR: invariant %s uses a broad aggregate as a mandatory success condition; use a focused selector, tolerate the unrelated aggregate as baseline evidence, or set HARNESS_BROAD_GATE_REQUIRED=1 when the governing specification explicitly requires whole-project success\n' "$id"
+				errors=$((errors + 1))
+			fi
+		done < "$source_dir/invariants.tsv"
+		while IFS=$'\t' read -r id _ _ _ _ _ _ _ validation _; do
+			[[ "$id" != edge_id && "$validation" != REVIEW ]] || continue
+			if ! architecture_validation_is_scoped_or_authorized "$validation"; then
+				printf 'ERROR: edge %s uses a broad aggregate as a mandatory success condition; use a focused selector, tolerate the unrelated aggregate as baseline evidence, or set HARNESS_BROAD_GATE_REQUIRED=1 when the governing specification explicitly requires whole-project success\n' "$id"
+				errors=$((errors + 1))
+			fi
+		done < "$source_dir/edges.tsv"
+		while IFS=$'\t' read -r id _ _ validation _; do
+			[[ "$id" != gate_id ]] || continue
+			if ! architecture_validation_is_scoped_or_authorized "$validation"; then
+				printf 'ERROR: health gate %s uses a broad aggregate as a mandatory success condition; use a focused selector, tolerate the unrelated aggregate as baseline evidence, or set HARNESS_BROAD_GATE_REQUIRED=1 when the governing specification explicitly requires whole-project success\n' "$id"
+				errors=$((errors + 1))
+			fi
+		done < "$source_dir/health-gates.tsv"
+	fi
+	(( errors == 0 ))
+}
+
 architecture_validate_source_registry()
 {
 	local source_dir="$1" inv_header dec_header edge_header binding_header gate_header debt_header
