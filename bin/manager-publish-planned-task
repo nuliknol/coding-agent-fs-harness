@@ -82,6 +82,51 @@ planned_scope_is_within_root_authority()
 # it must not infer revision numbering or the active plan-node identifier.
 normalize_metadata "$publish_file" Task-ID "$task_id"
 normalize_metadata "$publish_file" Project-Plan-Item-ID "$plan_item_id"
+
+# The decomposition DAG is durable machine-owned state. A planning model may
+# explain the task in prose, but it must not be able to stall publication by
+# paraphrasing or mistyping fields already fixed by the accepted DAG.
+if [[ -z "$root_assignment" ]]; then
+	normalize_metadata "$publish_file" Depends-On "$(project_plan_node_value "$plan_item_id" depends_on)"
+	normalize_metadata "$publish_file" Deliverable "$(project_plan_node_value "$plan_item_id" deliverable)"
+	normalize_metadata "$publish_file" Goal-Success-Evidence "$(project_plan_node_value "$plan_item_id" acceptance_evidence)"
+	normalize_metadata "$publish_file" Focused-Validation "$(project_plan_node_value "$plan_item_id" focused_validation)"
+	normalize_metadata "$publish_file" Allowed-Scope "$(project_plan_node_value "$plan_item_id" allowed_paths)"
+	normalize_metadata "$publish_file" Required-Symbols "$(project_plan_node_value "$plan_item_id" required_symbols)"
+	node_leaf_type="$(project_plan_node_value "$plan_item_id" leaf_type)"
+	[[ -z "$node_leaf_type" ]] || normalize_metadata "$publish_file" Leaf-Type "$node_leaf_type"
+	normalize_metadata "$publish_file" Complexity-Class "$(project_plan_node_value "$plan_item_id" complexity_class)"
+	normalize_metadata "$publish_file" Worker-Route "$(project_plan_node_value "$plan_item_id" worker_route)"
+fi
+
+# Criterion IDs are identifiers, while models often append an explanatory
+# em-dash sentence. Preserve multiple criteria, strip only prose suffixes, and
+# synthesize the common single-criterion root from Target-Criterion when the
+# model omitted the redundant Root-Criterion line.
+criterion_tmp="$publish_file.criteria.tmp.$$"
+awk '
+	index($0, "Root-Criterion: ") == 1 {
+		value=substr($0, length("Root-Criterion: ") + 1)
+		sub(/[[:space:]].*$/, "", value)
+		if (value != "") {print "Root-Criterion: " value; found=1}
+		next
+	}
+	{print}
+	END {
+		if (!found) {
+			# The shell appends the validated target below; this branch only
+			# records that no criterion was present.
+			print "__HARNESS_ROOT_CRITERION_MISSING__"
+		}
+	}
+' "$publish_file" > "$criterion_tmp"
+if grep -Fqx '__HARNESS_ROOT_CRITERION_MISSING__' "$criterion_tmp"; then
+	target_criterion="$(metadata_value "$publish_file" Target-Criterion)"
+	[[ -n "$target_criterion" ]] || die 'planned task must declare Target-Criterion'
+	sed -i "s|^__HARNESS_ROOT_CRITERION_MISSING__$|Root-Criterion: $target_criterion|" "$criterion_tmp"
+fi
+chmod 600 "$criterion_tmp"
+mv "$criterion_tmp" "$publish_file"
 mandatory_refs="$(metadata_value "$publish_file" Mandatory-Git-Refs)"
 if [[ "${mandatory_refs^^}" == NONE || "$mandatory_refs" == - ]]; then
 	normalize_metadata "$publish_file" Mandatory-Git-Refs -

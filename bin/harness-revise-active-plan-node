@@ -158,6 +158,19 @@ if ! ( architecture_validate_against_plan ); then
 	die 'revised active node conflicts with architecture registries; original DAG and root assignment were restored'
 fi
 rm -f "$marker" "$(task_root_replan_file "$root")" "$(task_root_replanning_file "$root")"
+route_override="$(task_root_operator_route_override_file "$root")"
+if [[ "$old_route" == LUNA && "$new_route" == TERRA ]]; then
+	{
+		printf 'worker_route=TERRA\n'
+		printf 'reason=controlled_active_node_reassessment\n'
+		printf 'revised_at=%s\n' "$(timestamp_utc)"
+		printf 'revision_archive=%s\n' "$archive_dir"
+	} > "$route_override.tmp.$$"
+	chmod 600 "$route_override.tmp.$$"
+	mv "$route_override.tmp.$$" "$route_override"
+elif [[ "$new_route" == LUNA ]]; then
+	rm -f "$route_override"
+fi
 record_root_convergence_baseline "$root"
 record_root_replan_baseline "$root"
 {

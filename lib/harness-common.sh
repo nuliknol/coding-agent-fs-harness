@@ -887,6 +887,14 @@ task_root_assignment_file()
 	printf '%s/control/progress/%s-task-%s.root-assignment.md' "$(project_dir)" "$PROJECT" "$root"
 }
 
+task_root_operator_route_override_file()
+{
+	local root
+	root="$(task_root_id "$1")"
+	printf '%s/control/progress/%s-task-%s.operator-worker-route-override.env' \
+		"$(project_dir)" "$PROJECT" "$root"
+}
+
 task_context_capsule_file()
 {
 	printf '%s/control/context-capsules/%s.md' "$(project_dir)" "$(task_base "$1")"

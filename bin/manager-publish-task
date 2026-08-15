@@ -446,7 +446,14 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 		fi
 		architecture_validate_assignment_metadata "$task_file" "$plan_item_id"
 		luna_failures="$(root_luna_strategy_failure_count "$root")"
-		if (( manager_remediation == 0 )) && [[ "$HARNESS_PREFERRED_WORKER_ROUTE" == LUNA && "$leaf_worker_route" == TERRA &&
+		operator_route_override=0
+		if [[ -f "$(task_root_operator_route_override_file "$root")" ]] &&
+			[[ "$(kv_file_value "$(task_root_operator_route_override_file "$root")" worker_route 2>/dev/null || true)" == TERRA ]] &&
+			[[ "$leaf_worker_route" == TERRA ]]; then
+			operator_route_override=1
+			preferred_route_override=1
+		fi
+		if (( manager_remediation == 0 && operator_route_override == 0 )) && [[ "$HARNESS_PREFERRED_WORKER_ROUTE" == LUNA && "$leaf_worker_route" == TERRA &&
 			"$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]] &&
 			(( luna_failures < HARNESS_MAX_LUNA_STRATEGY_FAILURES )); then
 			die "$leaf_type is coding work and must be decomposed to a LOW/LUNA leaf while HARNESS_PREFERRED_WORKER_ROUTE=LUNA; Terra is allowed after $HARNESS_MAX_LUNA_STRATEGY_FAILURES failed Luna strategies"

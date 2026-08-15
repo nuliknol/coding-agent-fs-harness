@@ -208,8 +208,8 @@ cat > "$TEST_ROOT/read-only-task.md" <<'TASK'
 Execution-Mode: LEAF_GOAL
 Goal-ID: evidence.goal
 Target-Criterion: evidence.recorded
-Goal-Success-Evidence: Named authority is independently recorded
-Focused-Validation: FOCUSED: inspect target_symbol
+Goal-Success-Evidence: Model-authored paraphrase that must be replaced
+Focused-Validation: Model-authored validation that must be replaced
 Allowed-Scope: src/a.c
 Baseline-Boundary: Existing source is read-only.
 Hard-Block-Conditions: Any implementation edit is forbidden.
@@ -223,15 +223,19 @@ Context-Paths: src/a.c
 Architecture-Decisions: NONE
 Expected-Max-Implementation-Files: 0
 Expected-Max-Worker-Turns: 1
-Root-Criterion: evidence.recorded
-
 ## Objective
 
 Record bounded read-only evidence without editing source.
 TASK
-"$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/read-only-harness.env" evidence \
-	"$TEST_ROOT/read-only-task.md" evidence >/dev/null
+"$HARNESS_BIN/manager-publish-planned-task" "$TEST_ROOT/read-only-harness.env" \
+	"$TEST_ROOT/read-only-task.md" >/dev/null
 grep -Fqx 'Expected-Max-Implementation-Files: 0' \
+	"$TEST_ROOT/read-only-state/projects/decompv2readonly/tasks/decompv2readonly-task-evidence.ready.md"
+grep -Fqx 'Goal-Success-Evidence: Named authority is independently recorded' \
+	"$TEST_ROOT/read-only-state/projects/decompv2readonly/tasks/decompv2readonly-task-evidence.ready.md"
+grep -Fqx 'Focused-Validation: FOCUSED: inspect target_symbol' \
+	"$TEST_ROOT/read-only-state/projects/decompv2readonly/tasks/decompv2readonly-task-evidence.ready.md"
+grep -Fqx 'Root-Criterion: evidence.recorded' \
 	"$TEST_ROOT/read-only-state/projects/decompv2readonly/tasks/decompv2readonly-task-evidence.ready.md"
 
 # Decomposition TSV fields are canonicalized at registration. In particular,

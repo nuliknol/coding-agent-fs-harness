@@ -105,11 +105,11 @@ marker="$project/control/progress/revisionproj-task-contract.architecture-reasse
 
 cat > "$TEST_ROOT/revised-plan.tsv" <<'TSV'
 node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route
-contract	-	-	Publish and execute the bounded API	API smoke passes	./focused-smoke	src/api.h,src/api.c	public_api	INTEGRATION	MEDIUM	TERRA
+contract	-	-	Publish and execute the bounded API	API smoke passes	./focused-smoke	src/api.h,src/api.c	public_api	FOCUSED_BUG	MEDIUM	TERRA
 TSV
 sed \
 	-e 's/^Allowed-Scope: src\/api.h$/Allowed-Scope: src\/api.h,src\/api.c/' \
-	-e 's/^Leaf-Type: MECHANICAL_API$/Leaf-Type: INTEGRATION/' \
+	-e 's/^Leaf-Type: MECHANICAL_API$/Leaf-Type: FOCUSED_BUG/' \
 	-e 's/^Complexity-Class: LOW$/Complexity-Class: MEDIUM/' \
 	-e 's/^Worker-Route: LUNA$/Worker-Route: TERRA/' \
 	-e 's/^Context-Paths: src\/api.h$/Context-Paths: src\/api.h,src\/api.c/' \
@@ -132,6 +132,8 @@ revision_archive="$(find "$project/archive/plan-node-revisions/contract" -mindep
 [[ -s "$revision_archive/resolution.md" ]]
 [[ -s "$revision_archive/manager-thread.before.env" ]]
 [[ -s "$project/control/manager-context-rotation-required.md" ]]
+grep -Fqx 'worker_route=TERRA' \
+	"$project/control/progress/revisionproj-task-contract.operator-worker-route-override.env"
 grep -Fqx 'old_allowed_paths=src/api.h' "$revision_archive/revision.env"
 grep -Fqx 'new_allowed_paths=src/api.h,src/api.c' "$revision_archive/revision.env"
 
@@ -162,6 +164,7 @@ planned="$project/tasks/revisionproj-task-contract-revision-01.ready.md"
 grep -Fqx 'Task-ID: contract-revision-01' "$planned"
 grep -Fqx 'Project-Plan-Item-ID: contract' "$planned"
 grep -Fqx 'Worker-Route: TERRA' "$planned"
+grep -Fqx 'Leaf-Type: FOCUSED_BUG' "$planned"
 grep -Fqx 'Architecture-Decisions: NONE' "$planned"
 grep -Fqx 'Mandatory-Git-Refs: -' "$planned"
 [[ ! -e "$project/control/manager-plan-stalled.md" ]]
