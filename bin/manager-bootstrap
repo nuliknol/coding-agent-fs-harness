@@ -38,10 +38,32 @@ fi
 ready_plan_node=""
 plan_instruction=""
 allocated_specification_obligations='-'
+ready_complexity_score='-'
+ready_expected_actions='-'
+ready_declared_p95='-'
+ready_effective_p95='-'
+ready_behavioral_concerns='-'
+ready_failure_paths='-'
+ready_ownership_transitions='-'
+ready_concurrency_boundaries='-'
+ready_validation_surfaces='-'
+ready_implementation_files='-'
+ready_terra_exception='-'
 if project_plan_exists; then
 	ready_plan_node="$(project_plan_first_ready_item 2>/dev/null || true)"
 	if (( HARNESS_DECOMPOSITION_V2 == 1 )) && [[ -n "$ready_plan_node" ]] && specification_ir_available; then
 		allocated_specification_obligations="$(specification_obligations_for_node "$ready_plan_node" | paste -sd, -)"
+	fi
+	if [[ -n "$ready_plan_node" && -f "$(decomposition_complexity_report_file)" ]] &&
+		decomposition_has_complexity_contract "$decomposition_file"; then
+		IFS=$'\t' read -r _ _ _ ready_complexity_score _ _ _ _ ready_behavioral_concerns \
+			ready_failure_paths ready_ownership_transitions ready_concurrency_boundaries \
+			ready_validation_surfaces ready_implementation_files ready_expected_actions \
+			ready_declared_p95 ready_effective_p95 _ _ _ < <(
+			awk -F '\t' -v node="$ready_plan_node" 'NR > 1 && $1 == node {print; exit}' \
+				"$(decomposition_complexity_report_file)"
+		)
+		ready_terra_exception="$(awk -F '\t' -v node="$ready_plan_node" 'NR > 1 && $1 == node {print $20; exit}' "$decomposition_file")"
 	fi
 	plan_instruction="The decomposition plan is already registered. Do not initialize or replace it. Read only READY_PLAN_NODE's row from PROJECT_PLAN_FILE and PROJECT_DECOMPOSITION_FILE, its coverage row, ALLOCATED_SPECIFICATION_OBLIGATIONS rows, relations touching those IDs, and architecture rows referenced by that node. Publish the initial root for READY_PLAN_NODE."
 elif (( HARNESS_DECOMPOSITION_V2 == 1 )); then
@@ -71,8 +93,19 @@ SPECIFICATION_RELATIONS_FILE=$specification_relations
 SPECIFICATION_COVERAGE_FILE=$specification_coverage
 READY_PLAN_NODE=$ready_plan_node
 ALLOCATED_SPECIFICATION_OBLIGATIONS=$allocated_specification_obligations
+READY_COMPLEXITY_SCORE=$ready_complexity_score
+READY_EXPECTED_AGENT_ACTIONS=$ready_expected_actions
+READY_DECLARED_P95_TOKENS=$ready_declared_p95
+READY_EFFECTIVE_P95_TOKENS=$ready_effective_p95
+READY_BEHAVIORAL_CONCERNS=$ready_behavioral_concerns
+READY_FAILURE_PATHS=$ready_failure_paths
+READY_OWNERSHIP_TRANSITIONS=$ready_ownership_transitions
+READY_CONCURRENCY_BOUNDARIES=$ready_concurrency_boundaries
+READY_VALIDATION_SURFACES=$ready_validation_surfaces
+READY_IMPLEMENTATION_FILES=$ready_implementation_files
+READY_TERRA_EXCEPTION=$ready_terra_exception
 
-This is the bootstrap turn. Read DEVELOPMENT_POLICY_FILE when present. When DECOMPOSITION_V2=0, inspect the complete specification. When DECOMPOSITION_V2=1 and READY_PLAN_NODE is nonempty, the accepted specification review, normalized IR, Sol decomposition, and architecture binding are authoritative: do not read the human specification, complete normalized IR, complete plan/DAG, repository inventory, complete architecture registries, harness source, harness prompts, harness templates, command implementations, or unrelated environment/configuration files. The commands and exact durable inputs named in this prompt are the complete harness interface for this turn; do not investigate how they are implemented. $plan_instruction Inspect only repository paths named by that bounded node context, write one bounded initial assignment under PROJECT_TMP_DIR with stable Root-Criterion lines for every independently verifiable acceptance criterion, and publish it with manager-publish-task including the corresponding PROJECT_PLAN_ITEM_ID. Bound every shell output to at most $HARNESS_VALIDATION_OUTPUT_MAX_LINES lines and $HARNESS_VALIDATION_OUTPUT_MAX_BYTES bytes. Terminate after exactly one task is published. Every harness command must receive ENV_FILE as its first argument. Do not wait for the worker and do not run any polling command.
+This is the bootstrap turn. Read DEVELOPMENT_POLICY_FILE when present. When DECOMPOSITION_V2=0, inspect the complete specification. When DECOMPOSITION_V2=1 and READY_PLAN_NODE is nonempty, the accepted specification review, normalized IR, Sol decomposition, and architecture binding are authoritative: do not read the human specification, complete normalized IR, complete plan/DAG, repository inventory, complete architecture registries, harness source, harness prompts, harness templates, command implementations, or unrelated environment/configuration files. The commands and exact durable inputs named in this prompt are the complete harness interface for this turn; do not investigate how they are implemented. $plan_instruction Inspect only repository paths named by that bounded node context, write one bounded initial assignment under PROJECT_TMP_DIR with stable Root-Criterion lines for every independently verifiable acceptance criterion, and publish it with manager-publish-task including the corresponding PROJECT_PLAN_ITEM_ID. Each Root-Criterion line contains only its identifier; put prose on separate Criterion-Definition lines. For a measured node, copy every READY_* complexity value above exactly into its corresponding assignment field; these values are deterministic and must never be guessed or recomputed. Make at most two manager-publish-task calls: after one rejection correct the complete diagnostic set, and after a second rejection terminate with the exact blocker. Bound every shell output to at most $HARNESS_VALIDATION_OUTPUT_MAX_LINES lines and $HARNESS_VALIDATION_OUTPUT_MAX_BYTES bytes. Terminate after exactly one task is published. Every harness command must receive ENV_FILE as its first argument. Do not wait for the worker and do not run any polling command.
 PROMPT
 if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT

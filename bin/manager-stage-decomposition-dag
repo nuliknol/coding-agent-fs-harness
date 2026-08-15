@@ -42,7 +42,7 @@ chmod 600 "$tmp"
 mv "$tmp" "$state"
 
 rejection_log="$candidate_dir/rejection.log"
-rm -f "$rejection_log"
+rm -f "$rejection_log" "$candidate_dir/complexity.tsv"
 set +e
 (
 	expected_dag_header="$(decomposition_typed_header)"

@@ -32,7 +32,7 @@ install -m 600 "$candidate_dir/coverage.tsv" "$repair_dir/coverage.tsv"
 repair_phase=decomposition_repair
 complexity_repair=0
 complexity_context='Correct only the reported deterministic DAG/coverage defect.'
-if grep -q 'LUNA_COMPLEXITY_' "$rejection_log"; then
+if grep -q 'LUNA_COMPLEXITY_OVER_BUDGET' "$rejection_log"; then
 	complexity_repair=1
 	repair_phase=decomposition
 	complexity_report="$candidate_dir/complexity.tsv"
