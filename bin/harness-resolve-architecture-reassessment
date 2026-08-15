@@ -101,9 +101,15 @@ plan_item="$(project_plan_item_for_root "$root")"
 replan_restored=0
 if [[ -n "$plan_item" && "$(project_plan_item_status "$plan_item")" == ACTIVE ]] &&
 	(( root_has_live_artifact == 0 )); then
-	mark_root_needs_replan "$trigger_task" \
-		"architecture reassessment was explicitly resolved; continue the preserved first-unmet boundary" \
-		ARCHITECTURE_REASSESSMENT_RESOLVED >/dev/null
+	if [[ "$category" == MANAGER_REMEDIATION_SCOPE_EXPANSION ]]; then
+		mark_root_needs_replan "$trigger_task" \
+			"architecture reassessment explicitly authorized one bounded local prerequisite; continue with manager remediation" \
+			MANAGER_REMEDIATION_CONTINUATION LOCAL_CODE_PREREQUISITE "${additional_scope:--}" >/dev/null
+	else
+		mark_root_needs_replan "$trigger_task" \
+			"architecture reassessment was explicitly resolved; continue the preserved first-unmet boundary" \
+			ARCHITECTURE_REASSESSMENT_RESOLVED >/dev/null
+	fi
 	replan_restored=1
 fi
 record_root_convergence_baseline "$root"
