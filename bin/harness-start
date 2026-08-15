@@ -35,7 +35,11 @@ if (( background == 1 )); then
 		printf 'Harness supervisors already reference this environment; no background start was launched.\n'
 		exit 0
 	fi
-	require_clean_repository_start_state
+	if project_plan_exists; then
+		require_resumable_repository_start_state
+	else
+		require_clean_repository_start_state
+	fi
 	if env_has_running_processes; then
 		printf 'Active startup or agent processes still reference %s:\n' "$HARNESS_ENV_FILE" >&2
 		env_process_lines >&2
@@ -91,7 +95,11 @@ acquire_env_command_lock harness-start
 supervisors_running=0
 project_supervisors_running && supervisors_running=1
 if (( supervisors_running == 0 )); then
-	require_clean_repository_start_state
+	if project_plan_exists; then
+		require_resumable_repository_start_state
+	else
+		require_clean_repository_start_state
+	fi
 fi
 
 if (( supervisors_running == 1 )); then

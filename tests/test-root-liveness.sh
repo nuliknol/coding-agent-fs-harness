@@ -71,6 +71,21 @@ Architecture-Decisions: NONE
 Expected-Max-Implementation-Files: 2
 Expected-Max-Worker-Turns: 2
 MD
+
+# Stateful restarts preserve tracked implementation changes that fall within
+# the registered DAG, while retaining the strict untracked-file boundary used
+# for fresh starts and specification handoff.
+printf '/* preserved harness work */\n' >> "$TEST_ROOT/repo/src/consumer/smoke.c"
+bash -c 'source "$1/lib/harness-common.sh"; load_harness_env "$2"; require_resumable_repository_start_state' \
+	_ "$HARNESS_HOME" "$TEST_ROOT/harness.env"
+printf 'not attributable to the DAG\n' > "$TEST_ROOT/repo/untracked-restart.txt"
+if bash -c 'source "$1/lib/harness-common.sh"; load_harness_env "$2"; require_resumable_repository_start_state' \
+	_ "$HARNESS_HOME" "$TEST_ROOT/harness.env" >"$TEST_ROOT/restart.out" 2>"$TEST_ROOT/restart.err"; then
+	printf 'stateful restart accepted an unrelated untracked file\n' >&2
+	exit 1
+fi
+grep -Fq 'repository has non-ignored untracked files' "$TEST_ROOT/restart.err"
+rm -f "$TEST_ROOT/repo/untracked-restart.txt"
 cat > "$project/archive/livenessproj-task-consumer-revision-01.accepted.md" <<'MD'
 Task-ID: consumer-revision-01
 Task-Root: consumer

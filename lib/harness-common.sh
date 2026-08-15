@@ -1829,6 +1829,65 @@ require_clean_repository_start_state()
 	fi
 }
 
+repository_path_is_in_registered_plan_scope()
+{
+	local path="$1" scope entry
+	local -a entries=()
+	while IFS= read -r scope; do
+		scope="${scope//;/,}"
+		IFS=',' read -r -a entries <<< "$scope"
+		for entry in "${entries[@]}"; do
+			entry="$(trim_surrounding_whitespace "$entry")"
+			entry="${entry%/}"
+			[[ -n "$entry" && "$entry" != - ]] || continue
+			if [[ "$path" == "$entry" || "$path" == "$entry"/* ]]; then
+				return 0
+			fi
+		done
+	done < <(
+		if project_plan_uses_dag; then
+			awk -F '\t' '
+				NR == 1 {for (i=1; i<=NF; i++) if ($i=="allowed_paths") field=i; next}
+				field && $field != "" {print $field}
+			' "$(project_decomposition_plan_file)"
+		fi
+		shopt -s nullglob
+		for assignment in "$(project_dir)/control/progress/$PROJECT-task-"*.root-assignment.md; do
+			metadata_value "$assignment" Allowed-Scope
+		done
+		shopt -u nullglob
+	)
+	return 1
+}
+
+require_resumable_repository_start_state()
+{
+	local changes path unauthorized=""
+	git -C "$REPOSITORY" rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
+		die "repository is not a Git working tree: $REPOSITORY"
+	git -C "$REPOSITORY" rev-parse --verify 'HEAD^{commit}' >/dev/null 2>&1 ||
+		die "repository does not have a valid HEAD commit: $REPOSITORY"
+	register_harness_generated_review_artifacts
+	changes="$(git -C "$REPOSITORY" status --porcelain=v1 --untracked-files=all | awk '
+		substr($0, 1, 3) == "?? " && substr($0, 4) ~ /^(spec-review|architecture-review)\// {next}
+		{print}
+	')"
+	if grep -q '^?? ' <<< "$changes"; then
+		printf '%s\n' "$changes" >&2
+		die 'repository has non-ignored untracked files; commit or clean them before restarting the harness'
+	fi
+	while IFS= read -r -d '' path; do
+		if ! repository_path_is_in_registered_plan_scope "$path"; then
+			unauthorized+="${unauthorized:+$'\n'}$path"
+		fi
+	done < <(git -C "$REPOSITORY" diff --name-only -z HEAD)
+	if [[ -n "$unauthorized" ]]; then
+		printf '%s\n' "$changes" >&2
+		printf 'Tracked restart changes outside registered plan scope:\n%s\n' "$unauthorized" >&2
+		die 'repository drift is not attributable to the registered project DAG; commit, clean, or revise the plan before restarting'
+	fi
+}
+
 harness_generated_review_artifact()
 {
 	case "$1" in
