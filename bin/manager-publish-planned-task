@@ -101,6 +101,19 @@ if [[ -z "$root_assignment" ]]; then
 	[[ -z "$node_leaf_type" ]] || normalize_metadata "$publish_file" Leaf-Type "$node_leaf_type"
 	normalize_metadata "$publish_file" Complexity-Class "$(project_plan_node_value "$plan_item_id" complexity_class)"
 	normalize_metadata "$publish_file" Worker-Route "$(project_plan_node_value "$plan_item_id" worker_route)"
+	node_validation="$(project_plan_node_value "$plan_item_id" focused_validation)"
+	case "$node_validation" in
+		CLEAN_GLOBAL:*) node_validation_class=CLEAN_GLOBAL ;;
+		INCREMENTAL:*) node_validation_class=INCREMENTAL ;;
+		*) node_validation_class=FOCUSED ;;
+	esac
+	normalize_metadata "$publish_file" Validation-Class "$node_validation_class"
+	if [[ "$(project_plan_node_value "$plan_item_id" worker_route)" == LUNA ]]; then
+		# Luna implements an already-resolved bounded leaf; architecture
+		# decisions are consumed through machine-owned bindings, never delegated
+		# as fresh decision authority in the worker contract.
+		normalize_metadata "$publish_file" Architecture-Decisions NONE
+	fi
 	if architecture_registered &&
 		architecture_registry_has_id "$(architecture_node_bindings_file)" "$plan_item_id"; then
 		normalize_metadata "$publish_file" Affected-Invariants \

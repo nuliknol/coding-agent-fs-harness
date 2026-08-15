@@ -380,6 +380,8 @@ write_task "$TEST_ROOT/planned-contract-source.md" invented contract.planned.goa
 	'design/adr/widget-ownership.md,include/widget.h' ADR-widget - ADR-widget -
 grep -Ev '^(Affected-Invariants|Consumed-Decisions|Produced-Decisions|Edge-Contracts|Health-Gates):' \
 	"$TEST_ROOT/planned-contract-source.md" > "$TEST_ROOT/planned-contract.md"
+sed -i 's/^Validation-Class: FOCUSED$/Validation-Class: FOCUSED_LOCAL/' \
+	"$TEST_ROOT/planned-contract.md"
 "$HARNESS_BIN/manager-publish-planned-task" "$TEST_ROOT/planned-harness.env" \
 	"$TEST_ROOT/planned-contract.md" >/dev/null
 planned_ready="$TEST_ROOT/planned-state/projects/archguardplanned/tasks/archguardplanned-task-contract.ready.md"
@@ -388,6 +390,7 @@ grep -Fqx 'Consumed-Decisions: -' "$planned_ready"
 grep -Fqx 'Produced-Decisions: ADR-widget' "$planned_ready"
 grep -Fqx 'Edge-Contracts: EDGE-widget' "$planned_ready"
 grep -Fqx 'Health-Gates: -' "$planned_ready"
+grep -Fqx 'Validation-Class: FOCUSED' "$planned_ready"
 grep -Fqx 'Focused-Validation: test -f design/adr/widget-ownership.md && printf "contract PASS\n"' \
 	"$planned_ready"
 
