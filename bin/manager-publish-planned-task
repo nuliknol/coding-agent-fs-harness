@@ -41,8 +41,12 @@ normalize_metadata()
 	local file="$1" field="$2" value="$3" tmp
 	[[ "$value" != *$'\n'* && "$value" != *$'\r'* ]] || die "multiline metadata is invalid: $field"
 	tmp="$file.tmp.$$"
-	awk -v field="$field" -v value="$value" '
-		BEGIN {prefix = field ": "}
+	# awk -v decodes backslash escapes in assignments. Validation commands
+	# commonly contain literal \n, so passing their value with -v silently
+	# changed the durable DAG bytes into an embedded newline. Environment values
+	# are read verbatim and retain the exact machine-owned metadata.
+	HARNESS_NORMALIZED_METADATA_VALUE="$value" awk -v field="$field" '
+		BEGIN {prefix = field ": "; value = ENVIRON["HARNESS_NORMALIZED_METADATA_VALUE"]}
 		index($0, prefix) == 1 {
 			if (!seen++) print prefix value
 			next

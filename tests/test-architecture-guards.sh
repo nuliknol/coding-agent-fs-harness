@@ -50,7 +50,7 @@ chmod 600 "$TEST_ROOT/harness.env"
 
 cat > "$TEST_ROOT/plan.tsv" <<'PLAN'
 node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route
-contract	-	-	Define widget ownership contract	ADR and public contract exist	test -f design/adr/widget-ownership.md && test -f include/widget.h	design/adr/widget-ownership.md,include/widget.h	widget_value	CONTRACT_DESIGN	HIGH	TERRA
+contract	-	-	Define widget ownership contract	ADR and public contract exist	test -f design/adr/widget-ownership.md && printf "contract PASS\n"	design/adr/widget-ownership.md,include/widget.h	widget_value	CONTRACT_DESIGN	HIGH	TERRA
 coding	-	contract	Implement canonical widget behavior	widget_value returns one	grep -q 'return 1' src/widget.c	src/widget.c	widget_value	LOCAL_IMPLEMENTATION	LOW	LUNA
 PLAN
 cat > "$TEST_ROOT/architecture/invariants.tsv" <<'TSV'
@@ -376,7 +376,7 @@ chmod 600 "$TEST_ROOT/planned-harness.env"
 write_task "$TEST_ROOT/planned-contract-source.md" invented contract.planned.goal contract.done \
 	CONTRACT_DESIGN HIGH TERRA - 'Define widget ownership contract' \
 	'ADR and public contract exist' \
-	'test -f design/adr/widget-ownership.md && test -f include/widget.h' \
+	'test -f design/adr/widget-ownership.md && printf "contract PASS\n"' \
 	'design/adr/widget-ownership.md,include/widget.h' ADR-widget - ADR-widget -
 grep -Ev '^(Affected-Invariants|Consumed-Decisions|Produced-Decisions|Edge-Contracts|Health-Gates):' \
 	"$TEST_ROOT/planned-contract-source.md" > "$TEST_ROOT/planned-contract.md"
@@ -388,10 +388,12 @@ grep -Fqx 'Consumed-Decisions: -' "$planned_ready"
 grep -Fqx 'Produced-Decisions: ADR-widget' "$planned_ready"
 grep -Fqx 'Edge-Contracts: EDGE-widget' "$planned_ready"
 grep -Fqx 'Health-Gates: -' "$planned_ready"
+grep -Fqx 'Focused-Validation: test -f design/adr/widget-ownership.md && printf "contract PASS\n"' \
+	"$planned_ready"
 
 write_task "$TEST_ROOT/contract-task.md" 001 contract.goal contract.done CONTRACT_DESIGN HIGH TERRA - \
 	'Define widget ownership contract' 'ADR and public contract exist' \
-	'test -f design/adr/widget-ownership.md && test -f include/widget.h' \
+	'test -f design/adr/widget-ownership.md && printf "contract PASS\n"' \
 	'design/adr/widget-ownership.md,include/widget.h' ADR-widget - ADR-widget -
 "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" 001 "$TEST_ROOT/contract-task.md" contract >/dev/null
 worker_1="$("$HARNESS_BIN/harness-new-session" "$TEST_ROOT/harness.env" worker)"
