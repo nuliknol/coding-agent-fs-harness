@@ -486,6 +486,11 @@ for field in Complexity-Score Behavioral-Concerns Failure-Paths Ownership-Transi
 	Complexity-Class Worker-Route; do
 	[[ "$(grep -c "^$field:" "$TEST_ROOT/revision-draft.md")" == 1 ]]
 done
+grep -Fqx 'Task-ID: leaf-root-revision-01' "$TEST_ROOT/revision-draft.md"
+grep -Fqx 'Task-Root: leaf-root' "$TEST_ROOT/revision-draft.md"
+grep -Fqx 'Worker-Context: FRESH' "$TEST_ROOT/revision-draft.md"
+grep -Fqx 'Supersedes-Task: leaf-root' "$TEST_ROOT/revision-draft.md"
+[[ "$(grep -c '^Replan-Strategy-ID:' "$TEST_ROOT/revision-draft.md")" == 1 ]]
 grep -Fqx 'Complexity-Class: LOW' "$TEST_ROOT/revision-draft.md"
 grep -Fqx 'Worker-Route: LUNA' "$TEST_ROOT/revision-draft.md"
 

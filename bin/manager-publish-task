@@ -140,6 +140,41 @@ else
 	fi
 fi
 
+normalize_recovery_envelope()
+{
+	local marker trigger strategy count digest tmp
+	(( recovery_publish == 1 )) || return 0
+	marker="$(task_root_replan_file "$root")"
+	trigger="$(awk -F': ' '$1 == "Triggered-By" {print $2; exit}' "$marker")"
+	[[ -n "$trigger" ]] || die 'manager recovery marker does not identify its triggering task'
+	count="$(awk -F': ' '$1 == "Replan-Strategy-ID" {count++} END {print count + 0}' "$task_file")"
+	strategy="$(metadata_value "$task_file" Replan-Strategy-ID)"
+	if (( count != 1 )) || [[ ! "$strategy" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]]; then
+		digest="$(sha256sum "$task_file" | awk '{print substr($1, 1, 12)}')"
+		strategy="replan-$task_id-$digest"
+	fi
+	tmp="$task_file.recovery-envelope.$$"
+	awk -F': ' -v task="$task_id" -v root="$root" -v trigger="$trigger" -v strategy="$strategy" '
+		function emit() {
+			print "Task-ID: " task
+			print "Task-Root: " root
+			print "Worker-Context: FRESH"
+			print "Replan-Strategy-ID: " strategy
+			print "Supersedes-Task: " trigger
+			print ""
+		}
+		$1 ~ /^(Task-ID|Task-Root|Worker-Context|Replan-Strategy-ID|Supersedes-Task)$/ {next}
+		!emitted && /^## / {emit(); emitted=1}
+		{print}
+		END {if (!emitted) emit()}
+	' "$task_file" > "$tmp"
+	chmod --reference="$task_file" "$tmp"
+	mv "$tmp" "$task_file"
+	log_event "RECOVERY_ENVELOPE_NORMALIZED task=$task_id root=$root trigger=$trigger strategy_id=$strategy"
+}
+
+normalize_recovery_envelope
+
 normalize_measured_assignment_metadata()
 {
 	local report decomposition report_row dag_row tmp
