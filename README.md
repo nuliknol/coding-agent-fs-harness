@@ -63,6 +63,9 @@ compatibility alias; new files should use the uppercase shell variable.
   Sol-authored action and p95 token ceilings as ordinary worker leaves; their
   non-token leaf fuse produces a decomposition handoff instead of a false
   human-dependency marker.
+- Aggregate decomposition diagnostics: malformed complexity vectors and
+  Terra-routed routine coding leaves are reported together across the complete
+  candidate, avoiding one paid Sol correction turn per defective node.
 
 ## Process model
 

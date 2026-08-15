@@ -4600,6 +4600,33 @@ write_decomposition_complexity_report()
 	obligations_file="$(specification_obligations_file)"
 	calibration_rate="$(complexity_calibrated_tokens_per_score "$LUNA_WORKER_MODEL")"
 	printf '%s\n' $'node_id\tworker_route\tleaf_type\tcomplexity_score\tobligations\tobligation_weight\tallowed_paths\trequired_symbols\tbehavioral_concerns\tfailure_paths\townership_transitions\tconcurrency_boundaries\tvalidation_surfaces\timplementation_files\tpredicted_worker_actions\tdeclared_p95_tokens\teffective_p95_tokens\trisk_domains\tstatus\tviolations' > "$output"
+	# Validate every declared vector before arithmetic. Reporting the complete
+	# defect set prevents one paid Sol repair turn per malformed row.
+	if ! awk -F '\t' '
+		NR == 1 {next}
+		NF != 20 {
+			printf "LUNA_COMPLEXITY_INVALID row=%d node=%s does not contain 20 fields\n", NR, ($1 == "" ? "-" : $1) > "/dev/stderr"
+			errors++
+			next
+		}
+		{
+			for (column = 12; column <= 19; column++) {
+				if ($column !~ /^[0-9]+$/) {
+					printf "LUNA_COMPLEXITY_INVALID node=%s field=%d requires a nonnegative integer\n", $1, column > "/dev/stderr"
+					errors++
+			}
+			}
+			if ($12 !~ /^[1-9][0-9]*$/ || $16 !~ /^[1-9][0-9]*$/ ||
+				$17 !~ /^[1-9][0-9]*$/ || $18 !~ /^[1-9][0-9]*$/ ||
+				$19 !~ /^[1-9][0-9]*$/) {
+				printf "LUNA_COMPLEXITY_INVALID node=%s requires positive behavioral, validation, implementation-file, action, and token predictions\n", $1 > "/dev/stderr"
+				errors++
+			}
+		}
+		END {exit errors > 0 ? 1 : 0}
+	' "$dag"; then
+		return 1
+	fi
 	while IFS=$'\t' read -r -a fields; do
 		(( ${#fields[@]} == 20 )) || { printf 'LUNA_COMPLEXITY_INVALID row does not contain 20 fields\n' >&2; return 1; }
 		node_id="${fields[0]}"; paths="${fields[6]}"; symbols="${fields[7]}"; leaf="${fields[8]}"; route="${fields[10]}"
@@ -4704,7 +4731,7 @@ initialize_project_plan_v2()
 	local node_id parent_id depends_on deliverable acceptance_evidence focused_validation field_index
 	local allowed_paths required_symbols leaf_type complexity_class worker_route dependency
 	local node_count luna_count luna_percent coding_count luna_coding_count luna_coding_percent has_leaf_type=0 has_complexity=0 route_column=11 type_column=9
-	local obligations_for_node provenance provenance_tmp
+	local obligations_for_node provenance provenance_tmp route_violations
 	local -a fields=()
 	expected_header="$(decomposition_typed_header)"
 	complexity_header="$(decomposition_complexity_header)"
@@ -4721,6 +4748,17 @@ initialize_project_plan_v2()
 			die "Luna-preferred decomposition requires the leaf_type column: $expected_header"
 	else
 		die "decomposition DAG header must be: $complexity_header"
+	fi
+	if (( has_leaf_type == 1 )) && [[ "$HARNESS_PREFERRED_WORKER_ROUTE" == LUNA ]]; then
+		route_violations="$(awk -F '\t' '
+			NR > 1 && $11 == "TERRA" && $9 ~ /^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$/ {
+				printf "Luna-preferred DAG routes coding node %s to Terra; split it until it is LOW/LUNA or use an irreducible Terra integration boundary\n", $1
+			}
+		' "$source_file")"
+		if [[ -n "$route_violations" ]]; then
+			printf 'ERROR: decomposition route contract has multiple or unresolved defects:\n%s\n' "$route_violations" >&2
+			return 1
+		fi
 	fi
 	definition="$(project_plan_definition_file)"
 	state="$(project_plan_state_file)"
@@ -4804,10 +4842,6 @@ initialize_project_plan_v2()
 		if (( has_leaf_type == 1 )) && [[ "$worker_route" == LUNA ]]; then
 			[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]] ||
 				die "Luna node $node_id has Terra-only leaf_type $leaf_type"
-		fi
-		if (( has_leaf_type == 1 )) && [[ "$HARNESS_PREFERRED_WORKER_ROUTE" == LUNA && "$worker_route" == TERRA &&
-			"$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ ]]; then
-			die "Luna-preferred DAG routes coding node $node_id to Terra; split it until it is LOW/LUNA"
 		fi
 		printf '%s\n' "$node_id" >> "$seen_file"
 		printf '%s\t%s\n' "$node_id" "$deliverable" >> "$definition_tmp"

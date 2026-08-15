@@ -202,6 +202,35 @@ complexity_rejection_log="$(awk -F= '$1=="rejection_log" {print $2}' "$project_d
 grep -Fq 'LUNA_COMPLEXITY_OVER_BUDGET node=n01' "$complexity_rejection_log"
 grep -Fq 'behavioral_concerns=2>1' "$complexity_rejection_log"
 
+# Candidate preflight reports every malformed vector in one Sol correction.
+awk -F '\t' 'BEGIN {OFS=FS} NR > 1 {$12=0; $16=0} {print}' \
+	"$TEST_ROOT/dag.tsv" > "$TEST_ROOT/multi-invalid-vector-dag.tsv"
+set +e
+"$HARNESS_BIN/manager-stage-decomposition-dag" "$env_file" \
+	"$TEST_ROOT/multi-invalid-vector-dag.tsv" "$TEST_ROOT/coverage.tsv" >/dev/null 2>&1
+multi_vector_status=$?
+set -e
+(( multi_vector_status != 0 ))
+multi_vector_rejection="$(awk -F= '$1=="rejection_log" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
+grep -Fq 'LUNA_COMPLEXITY_INVALID node=n01 dimension_12 must be positive' "$multi_vector_rejection"
+grep -Fq 'LUNA_COMPLEXITY_INVALID node=n02 dimension_12 must be positive' "$multi_vector_rejection"
+
+# Preferred-route preflight likewise reports every routine Terra escape in a
+# single rejection instead of revealing one coding node per paid repair turn.
+awk -F '\t' 'BEGIN {OFS=FS} NR > 1 {$10="HIGH"; $11="TERRA"; $20="IRREDUCIBLE_CROSS_BOUNDARY"} {print}' \
+	"$TEST_ROOT/dag.tsv" > "$TEST_ROOT/multi-terra-coding-dag.tsv"
+set +e
+bash -c 'source "$1"; load_harness_env "$2"; initialize_project_plan_v2 "$3" "$4"' _ \
+	"$HARNESS_HOME/lib/harness-common.sh" "$env_file" \
+	"$TEST_ROOT/multi-terra-coding-dag.tsv" "$TEST_ROOT/coverage.tsv" \
+	> "$TEST_ROOT/multi-route-rejection.log" 2>&1
+multi_route_status=$?
+set -e
+(( multi_route_status != 0 ))
+multi_route_rejection="$TEST_ROOT/multi-route-rejection.log"
+grep -Fq 'Luna-preferred DAG routes coding node n01 to Terra' "$multi_route_rejection"
+grep -Fq 'Luna-preferred DAG routes coding node n02 to Terra' "$multi_route_rejection"
+
 set +e
 "$HARNESS_BIN/manager-stage-decomposition-dag" "$env_file" "$TEST_ROOT/spec-edit-dag.tsv" "$TEST_ROOT/coverage.tsv" >/dev/null 2>&1
 spec_edit_status=$?
