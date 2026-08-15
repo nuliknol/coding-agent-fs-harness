@@ -42,7 +42,7 @@ chmod 600 "$repair_dir/architecture/invariants.tsv"
 
 awk -F '\t' -v OFS='\t' '
 	NR == 1 { print; next }
-	$8 ~ /^FOCUSED([_-].*)?$/ || $8 == "MIXED" || $8 == "BOTH" { $8="REVIEW" }
+	$8 != "COMMAND" && $8 != "REVIEW" { $8="REVIEW" }
 	{ print }
 ' "$repair_dir/architecture/invariants.tsv" > "$repair_dir/architecture/invariants.tsv.normalized"
 mv "$repair_dir/architecture/invariants.tsv.normalized" "$repair_dir/architecture/invariants.tsv"
