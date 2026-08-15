@@ -1198,6 +1198,7 @@ grep -q '^WORKER_CONTEXT_MODE=resumed$' "$context_prompt"
 grep -q '^CLOSURE_MODE=1$' "$context_prompt"
 grep -q '^CLOSURE_MAX_FIXES=2$' "$context_prompt"
 grep -q '^CLOSURE_MAX_SMOKE_RUNS=3$' "$context_prompt"
+grep -Fq 'An unbounded contextual search such as rg -C N PATTERN FILES is prohibited' "$context_prompt"
 grep 'worker-task-001-revision-01' "$ARGS_LOG" | grep -q 'resume context-thread-001'
 cat > "$CONTEXT_ROOT/reject-revision.md" <<'NOTE'
 Progress-Percent: 99%
