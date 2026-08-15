@@ -1021,10 +1021,10 @@ cat > "$HARD_ROOT/remediation-checkpoint-review.md" <<'NOTE'
 # Manager Review Record
 
 Task-ID: 001-revision-01
-Decision: CHECKPOINT
+Decision: CHECKPOINT_INCREMENT
 Progress-Percent: 0%
 Improvement-Percent: 0%
-Verified-Increment: fixture.local-hard-block.baseline-repair
+Verified-Increment: fixture local hard block baseline repair
 Checkpoint-Path: NONE
 
 ## Specification comparison
@@ -1055,6 +1055,10 @@ remediation_checkpoint_output="$("$HARNESS_BIN/manager-checkpoint-task" \
 	"$HARD_ROOT/harness.env" 001-revision-01 \
 	"$HARD_ROOT/remediation-checkpoint-review.md")"
 [[ "$remediation_checkpoint_output" == *.needs-replan.md ]]
+grep -Fqx 'Decision: CHECKPOINT' \
+	"$hard_project/archive/checkpoints/hardblockproj-task-001-revision-01/review.md"
+grep -Eq '^Verified-Increment: 001-revision-01\.increment\.fixture-local-hard-block-baseline-repair\.[0-9a-f]{8}$' \
+	"$hard_project/archive/checkpoints/hardblockproj-task-001-revision-01/review.md"
 grep -q '^Trigger-Outcome: MANAGER_REMEDIATION_CONTINUATION$' \
 	"$hard_progress/hardblockproj-task-001.needs-replan.md"
 grep -q '^Blocker-Class: LOCAL_CODE_PREREQUISITE$' \

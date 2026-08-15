@@ -91,6 +91,35 @@ validate_checkpoint_review()
 		die 'checkpoint review must contain at least one Checkpoint-Path line (or Checkpoint-Path: NONE)'
 }
 
+normalize_checkpoint_review_envelope()
+{
+	local file="$1" line value slug digest tmp
+	tmp="$file.envelope.$$"
+	: > "$tmp"
+	while IFS= read -r line || [[ -n "$line" ]]; do
+		case "$line" in
+			'Decision: CHECKPOINT_INCREMENT'|'Decision: CHECKPOINT_CRITERION')
+				printf 'Decision: CHECKPOINT\n' >> "$tmp"
+				;;
+			'Verified-Increment: '*)
+				value="${line#Verified-Increment: }"
+				if [[ "$value" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]]; then
+					printf '%s\n' "$line" >> "$tmp"
+				else
+					slug="$(printf '%s' "$value" | LC_ALL=C tr '[:upper:]' '[:lower:]' |
+						tr -cs 'a-z0-9._:-' '-' | sed 's/^-*//; s/-*$//' | cut -c 1-40)"
+					[[ -n "$slug" ]] || slug=verified
+					digest="$(printf '%s' "$value" | sha256sum | awk '{print substr($1,1,8)}')"
+					printf 'Verified-Increment: %s.increment.%s.%s\n' "$task_id" "$slug" "$digest" >> "$tmp"
+				fi
+				;;
+			*) printf '%s\n' "$line" >> "$tmp" ;;
+		esac
+	done < "$file"
+	chmod --reference="$file" "$tmp"
+	mv "$tmp" "$file"
+}
+
 checkpoint_review_debt_value()
 {
 	local review="$1" assignment="$2" value task debt_id
@@ -194,6 +223,7 @@ fi
 [[ ! -e "$lease" ]] || die "worker lease still exists: $task_id"
 goal_outcome="$(metadata_value "$result" Goal-Outcome)"
 validate_worker_result "$result"
+normalize_checkpoint_review_envelope "$note_file"
 validate_checkpoint_review "$note_file"
 initialize_task_progress "$task_id" "$assignment_archive"
 
