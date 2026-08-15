@@ -322,7 +322,7 @@ enforce_revision_authority()
 	elif [[ -n "$root_architecture" && "$root_architecture" != NONE &&
 		"$leaf_architecture_decisions" != NONE && "$leaf_architecture_decisions" != "$root_architecture" ]]; then
 		reason="revision introduces architecture authority not granted by the root: root=[$root_architecture] revision=[$leaf_architecture_decisions]"
-	elif [[ "$root_max_files" =~ ^[1-9][0-9]*$ ]] && (( leaf_expected_files > root_max_files )); then
+	elif [[ "$root_max_files" =~ ^[0-9]+$ ]] && (( leaf_expected_files > root_max_files )); then
 		reason="revision expected-file budget exceeds immutable root authority ($leaf_expected_files/$root_max_files)"
 	elif [[ "$root_max_turns" =~ ^[1-9][0-9]*$ ]] && (( leaf_expected_turns > root_max_turns )); then
 		reason="revision expected-turn budget exceeds immutable root authority ($leaf_expected_turns/$root_max_turns)"
@@ -396,7 +396,7 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 			[[ "$leaf_worker_route" == TERRA && "$leaf_type" == INTEGRATION ]] ||
 				die 'CLEAN_GLOBAL validation requires a Terra INTEGRATION leaf'
 		fi
-		[[ "$leaf_expected_files" =~ ^[1-9][0-9]*$ ]] || die 'Expected-Max-Implementation-Files must be positive'
+		[[ "$leaf_expected_files" =~ ^[0-9]+$ ]] || die 'Expected-Max-Implementation-Files must be a non-negative integer'
 		[[ "$leaf_expected_turns" =~ ^[1-9][0-9]*$ ]] || die 'Expected-Max-Worker-Turns must be positive'
 		[[ "$leaf_context_paths" != / && "$leaf_context_paths" != . && "$leaf_context_paths" != '*' && "$leaf_context_paths" != '**' ]] ||
 			die 'Context-Paths must be a bounded path or symbol capsule, not the whole repository'

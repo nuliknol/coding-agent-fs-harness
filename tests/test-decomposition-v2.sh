@@ -190,6 +190,50 @@ test -s "$project_dir/control/decomposition-metrics.tsv"
 
 grep -Eq $'^n2\tPENDING\t-' "$project_dir/control/project-plan-state.tsv"
 
+# Read-only evidence and architecture leaves may explicitly authorize zero
+# implementation files. Zero is a hard no-edit budget, not a missing value.
+sed \
+	-e 's/export PROJECT="decompv2"/export PROJECT="decompv2readonly"/' \
+	-e "s|export HARNESS_ROOT=\"$TEST_ROOT/state\"|export HARNESS_ROOT=\"$TEST_ROOT/read-only-state\"|" \
+	"$TEST_ROOT/harness.env" > "$TEST_ROOT/read-only-harness.env"
+chmod 600 "$TEST_ROOT/read-only-harness.env"
+"$HARNESS_BIN/harness-init" "$TEST_ROOT/read-only-harness.env" >/dev/null
+cat > "$TEST_ROOT/read-only-plan.tsv" <<'PLAN'
+node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route
+evidence	-	-	Record existing authority evidence	Named authority is independently recorded	FOCUSED: inspect target_symbol	src/a.c	target_symbol	CROSS_COMPONENT_ARCHITECTURE	HIGH	TERRA
+PLAN
+"$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/read-only-harness.env" \
+	"$TEST_ROOT/read-only-plan.tsv" >/dev/null
+cat > "$TEST_ROOT/read-only-task.md" <<'TASK'
+Execution-Mode: LEAF_GOAL
+Goal-ID: evidence.goal
+Target-Criterion: evidence.recorded
+Goal-Success-Evidence: Named authority is independently recorded
+Focused-Validation: FOCUSED: inspect target_symbol
+Allowed-Scope: src/a.c
+Baseline-Boundary: Existing source is read-only.
+Hard-Block-Conditions: Any implementation edit is forbidden.
+Leaf-Type: CROSS_COMPONENT_ARCHITECTURE
+Complexity-Class: HIGH
+Worker-Route: TERRA
+Depends-On: -
+Deliverable: Record existing authority evidence
+Required-Symbols: target_symbol
+Context-Paths: src/a.c
+Architecture-Decisions: NONE
+Expected-Max-Implementation-Files: 0
+Expected-Max-Worker-Turns: 1
+Root-Criterion: evidence.recorded
+
+## Objective
+
+Record bounded read-only evidence without editing source.
+TASK
+"$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/read-only-harness.env" evidence \
+	"$TEST_ROOT/read-only-task.md" evidence >/dev/null
+grep -Fqx 'Expected-Max-Implementation-Files: 0' \
+	"$TEST_ROOT/read-only-state/projects/decompv2readonly/tasks/decompv2readonly-task-evidence.ready.md"
+
 # Decomposition TSV fields are canonicalized at registration. In particular,
 # generated validation commands may contain harmless surrounding whitespace,
 # while assignment metadata is necessarily parsed without it. Both forms must
