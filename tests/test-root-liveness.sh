@@ -123,6 +123,62 @@ grep -Fqx 'Category: IMMUTABLE_ROOT_AUTHORITY' "$reassessment"
 "$HARNESS_BIN/harness-resolve-architecture-reassessment" \
 	"$TEST_ROOT/harness.env" consumer "$TEST_ROOT/resolution.md" >/dev/null
 
+# A read-only continuation may inspect additional repository evidence, but it
+# must retain the immutable root's write scope and must not trigger an
+# architecture reassessment merely because a model copied context paths into
+# Allowed-Scope.
+sed -i 's/Expected-Max-Implementation-Files: 2/Expected-Max-Implementation-Files: 0/' \
+	"$project/control/progress/livenessproj-task-consumer.root-assignment.md"
+sed -i 's/HARNESS_DECOMPOSITION_V2="0"/HARNESS_DECOMPOSITION_V2="1"/' \
+	"$TEST_ROOT/harness.env"
+cat > "$TEST_ROOT/read-only-expanded-revision.md" <<'MD'
+# Read-only Evidence Expansion
+
+Task-ID: consumer-revision-04
+Task-Root: consumer
+Execution-Mode: LEAF_GOAL
+Goal-ID: consumer.read-only-evidence
+Target-Criterion: consumer.validation
+Goal-Success-Evidence: deterministic validation passes
+Focused-Validation: true
+Allowed-Scope: src/consumer,docs/additional-evidence.md
+Baseline-Boundary: accepted consumer root
+Hard-Block-Conditions: explicit external authority only
+Leaf-Type: DOCUMENTATION
+Complexity-Class: LOW
+Worker-Route: LUNA
+Depends-On: UPSTREAM
+Deliverable: consumer
+Required-Symbols: -
+Context-Paths: src/consumer,docs/additional-evidence.md
+Architecture-Decisions: NONE
+Validation-Class: FOCUSED
+Expected-Max-Implementation-Files: 0
+Expected-Max-Worker-Turns: 1
+
+## Objective
+
+Read additional evidence without changing repository files.
+
+## Acceptance criteria
+
+- Deterministic validation passes.
+
+## Validation commands
+
+true
+MD
+read_only_output="$("$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" \
+	consumer-revision-04 "$TEST_ROOT/read-only-expanded-revision.md")"
+read_only_ready="$project/tasks/livenessproj-task-consumer-revision-04.ready.md"
+if [[ "$read_only_output" != "$read_only_ready" ]]; then
+	cat "$read_only_output" >&2
+	exit 1
+fi
+grep -Fqx 'Allowed-Scope: src/consumer' "$read_only_ready"
+[[ ! -f "$reassessment" ]]
+rm -f "$read_only_ready"
+
 cat > "$TEST_ROOT/invalidation.md" <<'MD'
 The consumer's deterministic validation disproves the accepted upstream serialization contract.
 MD

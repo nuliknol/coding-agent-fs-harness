@@ -174,6 +174,11 @@ fi
 project_plan_exists || die 'cannot accept a task without a persistent project plan'
 plan_item_id="$(project_plan_item_for_root "$(task_root_id "$task_id")")"
 [[ -n "$plan_item_id" ]] || die "task is not assigned to the project plan: $task_id"
+# Produced architecture decisions are machine-owned node metadata with a
+# registered evidence path. Once the manager has independently accepted the
+# result, record those decisions deterministically instead of relying on a
+# second easy-to-forget manager command before acceptance can proceed.
+architecture_accept_produced_decisions "$plan_item_id" "$task_id"
 architecture_run_acceptance_gates "$plan_item_id" "$task_id"
 unfinished_other_items="$(awk -F '\t' -v item="$plan_item_id" '!/^#/ && $1 != item && $2 != "COMPLETE" {count++} END {print count + 0}' "$(project_plan_state_file)")"
 if (( unfinished_other_items == 0 )); then

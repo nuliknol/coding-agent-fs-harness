@@ -712,6 +712,23 @@ architecture_accept_decision()
 	log_event "ARCHITECTURE_DECISION_ACCEPTED decision=$decision task=$task evidence_sha256=$sha"
 }
 
+architecture_accept_produced_decisions()
+{
+	local node="$1" task="$2" decision evidence
+	local -a decisions=()
+	(( HARNESS_ARCHITECTURE_GUARDS == 1 )) || return 0
+	architecture_parse_id_list "$(architecture_node_value "$node" produces_decisions)" decisions
+	for decision in "${decisions[@]}"; do
+		architecture_decision_accepted "$decision" && continue
+		evidence="$(awk -F '\t' -v id="$decision" 'NR>1 && $1==id {print $8; exit}' \
+			"$(architecture_decisions_file)")"
+		[[ -n "$evidence" && "$evidence" != - ]] ||
+			die "produced decision $decision has no registered evidence path"
+		evidence="${evidence#operator-worktree:}"
+		architecture_accept_decision "$decision" "$task" "$REPOSITORY/$evidence"
+	done
+}
+
 architecture_run_command()
 {
 	local command="$1" log="$2"

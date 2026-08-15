@@ -315,6 +315,16 @@ enforce_revision_authority()
 	root_architecture="$(metadata_value "$root_assignment" Architecture-Decisions)"
 	root_max_files="$(metadata_value "$root_assignment" Expected-Max-Implementation-Files)"
 	root_max_turns="$(metadata_value "$root_assignment" Expected-Max-Worker-Turns)"
+	# A zero-write root may need additional repository documents to diagnose or
+	# attest its criterion. Those paths belong in Context-Paths, not in its write
+	# authority. Preserve the immutable root Allowed-Scope deterministically so a
+	# read-only remediation cannot accidentally manufacture either broader write
+	# authority or a false architecture-reassessment pause.
+	if [[ "$root_max_files" == 0 && "$leaf_expected_files" == 0 && -n "$root_scope" ]] &&
+		! scope_is_within_root_authority "$goal_allowed_scope" "$root_scope"; then
+		log_event "READ_ONLY_REVISION_SCOPE_NORMALIZED root=$root task=$task_id requested=$(printf '%q' "$goal_allowed_scope") authority=$(printf '%q' "$root_scope")"
+		goal_allowed_scope="$root_scope"
+	fi
 	if [[ -n "$root_scope" ]] && ! scope_is_within_root_authority "$goal_allowed_scope" "$root_scope"; then
 		reason="revision scope exceeds immutable root authority: root=[$root_scope] revision=[$goal_allowed_scope]"
 	elif [[ "$root_architecture" == NONE && "$leaf_architecture_decisions" != NONE ]]; then

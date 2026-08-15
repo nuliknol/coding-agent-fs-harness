@@ -403,8 +403,6 @@ printf 'Record the widget ownership contract.\n' > "$TEST_ROOT/contract-message.
 	"$TEST_ROOT/contract-message.txt" design/adr/widget-ownership.md include/widget.h >/dev/null
 write_result "$TEST_ROOT/contract-result.md" 001 contract.goal
 "$HARNESS_BIN/worker-complete-task" "$TEST_ROOT/harness.env" 001 "$worker_1" "$TEST_ROOT/contract-result.md" >/dev/null
-"$HARNESS_BIN/manager-accept-architecture-decision" "$TEST_ROOT/harness.env" ADR-widget 001 \
-	"$TEST_ROOT/repo/design/adr/widget-ownership.md" >/dev/null
 write_review "$TEST_ROOT/contract-review.md" 001 contract.done NONE
 installed_edges="$TEST_ROOT/state/projects/archguard/control/architecture/edges.tsv"
 cp "$installed_edges" "$installed_edges.valid"
@@ -416,6 +414,8 @@ if "$HARNESS_BIN/manager-accept-task" "$TEST_ROOT/harness.env" 001 \
 fi
 grep -Fq 'edge EDGE-widget contract artifact is absent: include/missing-contract.h' \
 	"$TEST_ROOT/missing-producer-artifact.out"
+grep -Fq $'ADR-widget\tACCEPTED\t001\t' \
+	"$TEST_ROOT/state/projects/archguard/control/architecture/decision-ledger.tsv"
 mv "$installed_edges.valid" "$installed_edges"
 "$HARNESS_BIN/manager-accept-task" "$TEST_ROOT/harness.env" 001 "$TEST_ROOT/contract-review.md" >/dev/null
 grep -Fqx 'validation_kind=DEFERRED_CUMULATIVE_INVARIANT' \
