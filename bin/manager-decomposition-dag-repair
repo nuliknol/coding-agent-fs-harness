@@ -28,6 +28,25 @@ mkdir -p "$repair_dir"
 install -m 600 "$candidate_dir/dag.tsv" "$repair_dir/dag.tsv"
 install -m 600 "$candidate_dir/coverage.tsv" "$repair_dir/coverage.tsv"
 
+obligation_count="$(awk 'NR > 1 {count++} END {print count + 0}' "$(specification_obligations_file)")"
+repair_phase=decomposition_repair
+large_ir_global_repair=0
+if (( obligation_count >= HARNESS_LARGE_DECOMPOSITION_OBLIGATION_THRESHOLD )); then
+	large_ir_global_repair=1
+	repair_phase=decomposition
+	global_repair_key="$(printf '%s\n%s\n' "$(specification_sha256)" "$(specification_review_repository_baseline)" | sha256sum | awk '{print $1}')"
+	global_repair_marker="$(project_dir)/control/decomposition-global-repair-$global_repair_key.attempted"
+	[[ ! -f "$global_repair_marker" ]] ||
+		die "large-IR global decomposition repair already attempted for the current accepted inputs; refusing an automatic repeat: $global_repair_marker"
+	{
+		printf 'candidate=%s\n' "$candidate_id"
+		printf 'obligations=%s\n' "$obligation_count"
+		printf 'attempted_at=%s\n' "$(timestamp_utc)"
+	} > "$global_repair_marker.tmp.$$"
+	chmod 600 "$global_repair_marker.tmp.$$"
+	mv "$global_repair_marker.tmp.$$" "$global_repair_marker"
+fi
+
 prompt="$dir/control/manager-decomposition-dag-repair.prompt.md"
 cat > "$prompt.tmp.$$" <<PROMPT
 You are a fresh, bounded decomposition DAG/coverage repair agent. Do not edit the repository and do not perform architecture binding or global decomposition.
@@ -35,14 +54,16 @@ You are a fresh, bounded decomposition DAG/coverage repair agent. Do not edit th
 ENV_FILE=$HARNESS_ENV_FILE
 HARNESS_BIN=$HARNESS_BIN
 PROJECT=$PROJECT
-AGENT_PHASE=decomposition_repair
+AGENT_PHASE=$repair_phase
+LARGE_IR_GLOBAL_REPAIR=$large_ir_global_repair
+NORMALIZED_OBLIGATION_COUNT=$obligation_count
 DAG_FILE=$repair_dir/dag.tsv
 SPECIFICATION_COVERAGE_FILE=$repair_dir/coverage.tsv
 VALIDATOR_DIAGNOSTICS=$rejection_log
 
 Read only VALIDATOR_DIAGNOSTICS, DAG_FILE, and SPECIFICATION_COVERAGE_FILE. Do not inspect repository files, the specification, normalized IR, inventory, harness source, development policy, Git history, prior agent logs, or unrelated temporary files.
 
-Correct only the reported deterministic DAG/coverage defect. Preserve deliverables, routes, allowed paths, validations, and obligation meaning. For typed dependency violations, make the consumer's allocated nodes follow the producer's allocated nodes through explicit DAG dependencies; do not erase the relation or collapse unrelated work. For an unjustified node, remove or merge only that node while preserving every normalized obligation exactly once in coverage and retaining all still-justified work. Apply the same reported defect class across all affected rows before submitting.
+Correct only the reported deterministic DAG/coverage defect. Preserve deliverables, routes, allowed paths, validations, and obligation meaning. For typed dependency violations, make the consumer's allocated nodes follow the producer's allocated nodes through explicit DAG dependencies. If that would create a cycle because the current coverage groups obligations at the wrong semantic boundary, reassign those obligations to the semantically correct existing node or split that one node into bounded ordered leaves; never add a cyclic edge, erase a relation, map everything to an integration node, or collapse unrelated work. For an unjustified node, remove or merge only that node while preserving every normalized obligation exactly once in coverage and retaining all still-justified work. Apply the same reported defect class across all affected rows before submitting. LARGE_IR_GLOBAL_REPAIR=1 means this is the single permitted global repair for a large normalized IR: resolve all diagnostics as one coherent relation-aware DAG correction, but remain confined to the three supplied files.
 
 Submit once with:
 
