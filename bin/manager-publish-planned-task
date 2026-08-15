@@ -54,10 +54,38 @@ normalize_metadata()
 	mv "$tmp" "$file"
 }
 
+planned_scope_is_within_root_authority()
+{
+	local proposed="$1" authority="$2" entry authority_entry allowed
+	local -a proposed_entries=() authority_entries=()
+	proposed="${proposed//;/,}"
+	authority="${authority//;/,}"
+	IFS=',' read -r -a proposed_entries <<< "$proposed"
+	IFS=',' read -r -a authority_entries <<< "$authority"
+	for entry in "${proposed_entries[@]}"; do
+		entry="$(trim_surrounding_whitespace "$entry")"
+		[[ -n "$entry" ]] || continue
+		allowed=0
+		for authority_entry in "${authority_entries[@]}"; do
+			authority_entry="$(trim_surrounding_whitespace "$authority_entry")"
+			[[ -n "$authority_entry" ]] || continue
+			if [[ "$entry" == "$authority_entry" || "$entry" == "$authority_entry"/* ]]; then
+				allowed=1
+				break
+			fi
+		done
+		(( allowed == 1 )) || return 1
+	done
+}
+
 # Durable state owns publication identity. The planner authors the task, but
 # it must not infer revision numbering or the active plan-node identifier.
 normalize_metadata "$publish_file" Task-ID "$task_id"
 normalize_metadata "$publish_file" Project-Plan-Item-ID "$plan_item_id"
+mandatory_refs="$(metadata_value "$publish_file" Mandatory-Git-Refs)"
+if [[ "${mandatory_refs^^}" == NONE || "$mandatory_refs" == - ]]; then
+	normalize_metadata "$publish_file" Mandatory-Git-Refs -
+fi
 
 if [[ -n "$root_assignment" ]]; then
 	# A continuation may narrow its objective and evidence, but it cannot mutate
@@ -73,6 +101,12 @@ if [[ -n "$root_assignment" ]]; then
 		[[ -n "$value" ]] || continue
 		normalize_metadata "$publish_file" "$field" "$value"
 	done
+	root_scope="$(metadata_value "$root_assignment" Allowed-Scope)"
+	planned_scope="$(metadata_value "$publish_file" Allowed-Scope)"
+	if [[ -n "$root_scope" && -n "$planned_scope" ]] &&
+		! planned_scope_is_within_root_authority "$planned_scope" "$root_scope"; then
+		die "planned Allowed-Scope exceeds immutable root authority; use an exact path subset of: $root_scope"
+	fi
 fi
 
 "$HARNESS_BIN/manager-publish-task" "$HARNESS_ENV_FILE" \

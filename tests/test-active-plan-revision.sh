@@ -61,6 +61,7 @@ Focused-Validation: ./focused-smoke
 Allowed-Scope: src/api.h
 Baseline-Boundary: seeded public API
 Hard-Block-Conditions: NONE
+Mandatory-Git-Refs: -
 Leaf-Type: MECHANICAL_API
 Complexity-Class: LOW
 Worker-Route: LUNA
@@ -136,11 +137,22 @@ grep -Fqx 'new_allowed_paths=src/api.h,src/api.c' "$revision_archive/revision.en
 
 # Planning publication derives revision identity from durable state and restores
 # immutable DAG metadata from the accepted root instead of trusting model prose.
+sed 's#^Allowed-Scope: src/api.h,src/api.c$#Allowed-Scope: src/#' \
+	"$TEST_ROOT/revised-root.md" > "$TEST_ROOT/planned-broad-scope.md"
+if "$HARNESS_BIN/manager-publish-planned-task" "$TEST_ROOT/harness.env" \
+	"$TEST_ROOT/planned-broad-scope.md" >"$TEST_ROOT/broad.out" 2>"$TEST_ROOT/broad.err"; then
+	printf 'broad planned scope unexpectedly passed deterministic publication\n' >&2
+	exit 1
+fi
+grep -Fq 'planned Allowed-Scope exceeds immutable root authority' "$TEST_ROOT/broad.err"
+[[ ! -f "$project/control/progress/revisionproj-task-contract.architecture-reassessment-required.md" ]]
+
 sed \
 	-e 's/^Task-ID: contract$/Task-ID: invented-task-name/' \
 	-e 's/^Project-Plan-Item-ID: contract$/Project-Plan-Item-ID: invented-node/' \
 	-e 's/^Worker-Route: TERRA$/Worker-Route: LUNA/' \
 	-e 's/^Architecture-Decisions: NONE$/Architecture-Decisions: -/' \
+	-e 's/^Mandatory-Git-Refs: -$/Mandatory-Git-Refs: none/' \
 	"$TEST_ROOT/revised-root.md" > "$TEST_ROOT/planned-revision.md"
 printf '# stale planning marker\n' > "$project/control/manager-plan-stalled.md"
 "$HARNESS_BIN/manager-publish-planned-task" "$TEST_ROOT/harness.env" \
@@ -151,6 +163,7 @@ grep -Fqx 'Task-ID: contract-revision-01' "$planned"
 grep -Fqx 'Project-Plan-Item-ID: contract' "$planned"
 grep -Fqx 'Worker-Route: TERRA' "$planned"
 grep -Fqx 'Architecture-Decisions: NONE' "$planned"
+grep -Fqx 'Mandatory-Git-Refs: -' "$planned"
 [[ ! -e "$project/control/manager-plan-stalled.md" ]]
 
 printf 'active plan node revision tests passed\n'

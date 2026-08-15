@@ -45,7 +45,7 @@ fingerprint()
 
 process_tasks()
 {
-	local file task_id base marker current previous status alert tmp
+	local file task_id base marker current previous status alert tmp invocation_marker invocation_pid
 	project_has_token_usage_anomaly && return 0
 	shopt -s nullglob
 	for file in "$dir/tasks/$PROJECT-task-"*.ready.md; do
@@ -70,9 +70,33 @@ process_tasks()
 		log_event "WORKER_SUPERVISOR_TRIGGER task=$task_id fingerprint=$current"
 		trace_event WORKER_SUPERVISOR_INVOKE "task_id=$task_id" "fingerprint=$current" "worker_invoker=$worker_invoker"
 
+		# worker-complete-task publishes the result while the surrounding Codex
+		# process is still alive. Keep an explicit invocation barrier until
+		# codex-exec-jsonl has durably classified token/resource usage; otherwise
+		# the manager supervisor can race ahead and review an anomalous episode.
+		invocation_marker="$dir/control/$base.worker-invocation-active"
+		{
+			printf 'task_id=%s\n' "$task_id"
+			printf 'supervisor_pid=%s\n' "$$"
+			printf 'worker_pid=\n'
+			printf 'started_at=%s\n' "$(timestamp_utc)"
+		} > "$invocation_marker.tmp.$$"
+		chmod 600 "$invocation_marker.tmp.$$"
+		mv "$invocation_marker.tmp.$$" "$invocation_marker"
 		set +e
-		"$worker_invoker" "$HARNESS_ENV_FILE" "$task_id" 8>&-
+		"$worker_invoker" "$HARNESS_ENV_FILE" "$task_id" 8>&- &
+		invocation_pid=$!
+		{
+			printf 'task_id=%s\n' "$task_id"
+			printf 'supervisor_pid=%s\n' "$$"
+			printf 'worker_pid=%s\n' "$invocation_pid"
+			printf 'started_at=%s\n' "$(timestamp_utc)"
+		} > "$invocation_marker.tmp.$$"
+		chmod 600 "$invocation_marker.tmp.$$"
+		mv "$invocation_marker.tmp.$$" "$invocation_marker"
+		wait "$invocation_pid"
 		status=$?
+		rm -f "$invocation_marker"
 		set -e
 		trace_event WORKER_SUPERVISOR_INVOKE_EXIT "task_id=$task_id" "status=$status"
 		if (( status != 0 )); then

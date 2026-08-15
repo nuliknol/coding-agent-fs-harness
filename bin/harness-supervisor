@@ -142,14 +142,25 @@ planning_gap_state_fingerprint()
 
 process_results()
 {
-	local file task_id base marker current previous invocation_fingerprint post_fingerprint review_state_changed status alert stalled tmp running lease assignment_archive accepted checkpointed rejected blocked
+	local file task_id base marker current previous invocation_fingerprint post_fingerprint review_state_changed status alert stalled tmp running lease assignment_archive accepted checkpointed rejected blocked worker_invocation worker_pid worker_supervisor_pid
 	shopt -s nullglob
 	for file in "$dir/results/$PROJECT-task-"*.result.md; do
 		task_id="$(task_id_from_filename "$file")"
+		base="$(task_base "$task_id")"
+		worker_invocation="$dir/control/$base.worker-invocation-active"
+		if [[ -f "$worker_invocation" ]]; then
+			worker_pid="$(kv_file_value "$worker_invocation" worker_pid 2>/dev/null || true)"
+			worker_supervisor_pid="$(kv_file_value "$worker_invocation" supervisor_pid 2>/dev/null || true)"
+			if { [[ "$worker_pid" =~ ^[1-9][0-9]*$ ]] && kill -0 "$worker_pid" 2>/dev/null; } ||
+				{ [[ "$worker_supervisor_pid" =~ ^[1-9][0-9]*$ ]] && kill -0 "$worker_supervisor_pid" 2>/dev/null; }; then
+				continue
+			fi
+			rm -f "$worker_invocation"
+			log_event "STALE_WORKER_INVOCATION_BARRIER_REMOVED task=$task_id marker=$worker_invocation"
+		fi
 		if task_root_is_paused "$task_id"; then
 			continue
 		fi
-		base="$(task_base "$task_id")"
 		running="$dir/running/$base.running.md"
 		lease="$dir/control/$base.lease"
 		assignment_archive="$dir/archive/$base.assignment.md"
