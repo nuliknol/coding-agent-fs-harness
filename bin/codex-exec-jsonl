@@ -180,6 +180,7 @@ resource_task_root="$(prompt_value TASK_ROOT)"
 resource_agent_phase="$(prompt_value AGENT_PHASE)"
 resource_goal_mode="$(prompt_value WORKER_GOAL_MODE)"
 resource_expected_actions="$(prompt_value EXPECTED_MAX_AGENT_ACTIONS)"
+resource_expected_implementation_files="$(prompt_value EXPECTED_MAX_IMPLEMENTATION_FILES)"
 resource_effective_p95="$(prompt_value EFFECTIVE_P95_TOKENS)"
 resource_processed_token_limit="$HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION"
 resource_estimated_token_limit="$HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION"
@@ -188,6 +189,12 @@ if [[ "$role" == manager_review ]]; then
 	resource_item_limit="$HARNESS_MAX_MANAGER_REVIEW_ITEMS_PER_INVOCATION"
 elif [[ "$role" == manager_replan ]]; then
 	resource_item_limit="$HARNESS_MAX_MANAGER_REPLAN_ITEMS_PER_INVOCATION"
+fi
+if [[ "$role" =~ ^worker || "$role" == manager_remediation ]] &&
+	[[ "$resource_expected_implementation_files" =~ ^[1-9][0-9]*$ ]] &&
+	{ [[ ! "$resource_expected_actions" =~ ^[1-9][0-9]*$ ]] ||
+		(( resource_expected_actions < HARNESS_MIN_SOURCE_CHANGE_AGENT_ACTIONS )); }; then
+	resource_expected_actions="$HARNESS_MIN_SOURCE_CHANGE_AGENT_ACTIONS"
 fi
 if [[ "$role" =~ ^worker || "$role" == manager_remediation ]] &&
 	[[ "$resource_expected_actions" =~ ^[1-9][0-9]*$ ]] &&

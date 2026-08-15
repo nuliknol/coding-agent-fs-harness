@@ -110,8 +110,10 @@ context_capsule_file="$(task_context_capsule_file "$task_id")"
 validation_class="$(metadata_value "$task_file" Validation-Class)"
 [[ -n "$validation_class" ]] || validation_class=FOCUSED
 expected_agent_actions="$(metadata_value "$task_file" Expected-Max-Agent-Actions)"
+expected_implementation_files="$(metadata_value "$task_file" Expected-Max-Implementation-Files)"
 effective_p95_tokens="$(metadata_value "$task_file" Effective-P95-Tokens)"
 [[ "$expected_agent_actions" =~ ^[1-9][0-9]*$ ]] || expected_agent_actions=0
+[[ "$expected_implementation_files" =~ ^[0-9]+$ ]] || expected_implementation_files=0
 [[ "$effective_p95_tokens" =~ ^[1-9][0-9]*$ ]] || effective_p95_tokens=0
 if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 	[[ -f "$context_capsule_file" ]] || die "v2 context capsule is missing: $context_capsule_file"
@@ -256,6 +258,7 @@ VALIDATION_OUTPUT_POLICY=CAPTURE_SUMMARY
 OUTPUT_MAX_LINES=$HARNESS_VALIDATION_OUTPUT_MAX_LINES
 OUTPUT_MAX_BYTES=$HARNESS_VALIDATION_OUTPUT_MAX_BYTES
 EXPECTED_MAX_AGENT_ACTIONS=$expected_agent_actions
+EXPECTED_MAX_IMPLEMENTATION_FILES=$expected_implementation_files
 EFFECTIVE_P95_TOKENS=$effective_p95_tokens
 
 The task is already claimed by this launcher. For a v2 task, the complete bounded assignment and context capsule are embedded below. They are the worker's entire harness context: do not open DEVELOPMENT_POLICY_FILE, ROOT_ASSIGNMENT_FILE, PROGRESS_FILE, GOAL_SUMMARY_FILE, specification IR/coverage files, or other harness control files. Do not reread the embedded assignment or capsule through shell commands. Inspect only Context-Paths, Allowed-Scope, Required-Symbols, and repository files directly implicated by a bounded compiler/linker diagnostic. Legacy tasks without an embedded capsule may read their named task and progress files once.

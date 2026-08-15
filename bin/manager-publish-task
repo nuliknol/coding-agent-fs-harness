@@ -179,6 +179,7 @@ normalize_measured_assignment_metadata()
 {
 	local report decomposition report_row dag_row tmp
 	local complexity_score behavioral failures ownership concurrency validations implementation_files actions declared_p95 effective_p95 complexity_class worker_route terra_exception
+	local planned_effective_p95 planned_worker_route
 	local obligation_weight requested_route requested_class requested_leaf requested_architecture requested_validation requested_files requested_turns requested_exception luna_failures
 	local required_symbols symbol_count calibration_rate residual_p95 verified_items
 	local recovery_decisions_resolved decision requested_obligations obligation_count architecture_decisions
@@ -196,6 +197,8 @@ normalize_measured_assignment_metadata()
 	IFS=$'\t' read -r _ _ _ complexity_score _ obligation_weight _ _ behavioral failures ownership concurrency \
 		validations implementation_files actions declared_p95 effective_p95 _ _ _ <<< "$report_row"
 	IFS=$'\t' read -r _ _ _ _ _ _ _ _ _ complexity_class worker_route _ _ _ _ _ _ _ _ terra_exception <<< "$dag_row"
+	planned_effective_p95="$effective_p95"
+	planned_worker_route="$worker_route"
 	requested_route="$(metadata_value "$task_file" Worker-Route)"
 	requested_class="$(metadata_value "$task_file" Complexity-Class)"
 	requested_leaf="$(metadata_value "$task_file" Leaf-Type)"
@@ -254,6 +257,10 @@ normalize_measured_assignment_metadata()
 			residual_p95=$((complexity_score * calibration_rate))
 			effective_p95="$declared_p95"
 			(( effective_p95 >= residual_p95 )) || effective_p95="$residual_p95"
+			if [[ "$planned_worker_route" == LUNA && "$planned_effective_p95" =~ ^[1-9][0-9]*$ ]] &&
+				(( effective_p95 < planned_effective_p95 )); then
+				effective_p95="$planned_effective_p95"
+			fi
 			(( complexity_score <= HARNESS_MAX_LUNA_COMPLEXITY_SCORE &&
 				actions <= HARNESS_MAX_LUNA_PREDICTED_ACTIONS &&
 				effective_p95 <= HARNESS_MAX_LUNA_PREDICTED_P95_TOKENS )) ||
@@ -280,6 +287,9 @@ normalize_measured_assignment_metadata()
 			measured_recovery_route_override=1
 			log_event "RECOVERY_TERRA_ESCALATION_NORMALIZED root=$root task=$task_id luna_failures=$luna_failures exception=$terra_exception"
 		fi
+		fi
+	if (( implementation_files > 0 && actions < HARNESS_MIN_SOURCE_CHANGE_AGENT_ACTIONS )); then
+		actions="$HARNESS_MIN_SOURCE_CHANGE_AGENT_ACTIONS"
 	fi
 	tmp="$task_file.measured.$$"
 	awk -F': ' \
@@ -672,11 +682,26 @@ normalize_unique_cmake_target_aliases()
 normalize_revision_execution_metadata()
 {
 	local root_scope root_max_files root_max_turns requested_scope requested_files requested_turns
-	local normalized_scope normalized_files normalized_turns tmp changed=0
+	local normalized_scope normalized_files normalized_turns tmp changed=0 scope_override additional_scope additional_entry
+	local additional_file_allowance=0
+	local -a additional_entries=()
 	[[ "$task_id" != "$root" && -f "$root_assignment" ]] || return 0
 	root_scope="$(metadata_value "$root_assignment" Allowed-Scope)"
 	root_max_files="$(metadata_value "$root_assignment" Expected-Max-Implementation-Files)"
 	root_max_turns="$(metadata_value "$root_assignment" Expected-Max-Worker-Turns)"
+	scope_override="$(task_root_architecture_scope_override_file "$root")"
+	if (( manager_remediation == 1 )) && [[ "$root_max_files" =~ ^[0-9]+$ && -f "$scope_override" ]] &&
+		[[ "$(kv_file_value "$scope_override" authorized_for 2>/dev/null || true)" == manager_remediation ]]; then
+		additional_scope="$(kv_file_value "$scope_override" additional_scope 2>/dev/null || true)"
+		IFS=',' read -r -a additional_entries <<< "${additional_scope//;/,}"
+		for additional_entry in "${additional_entries[@]}"; do
+			additional_entry="$(trim_surrounding_whitespace "$additional_entry")"
+			[[ -n "$additional_entry" ]] || continue
+			scope_is_within_root_authority "$additional_entry" "$root_scope" && continue
+			additional_file_allowance=$((additional_file_allowance + 1))
+		done
+		root_max_files=$((root_max_files + additional_file_allowance))
+	fi
 	requested_scope="$(metadata_value "$task_file" Allowed-Scope)"
 	requested_files="$(metadata_value "$task_file" Expected-Max-Implementation-Files)"
 	requested_turns="$(metadata_value "$task_file" Expected-Max-Worker-Turns)"

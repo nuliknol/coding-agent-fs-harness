@@ -404,6 +404,9 @@ grep -Fq 'READY' <<< "$complexity_output"
 # obligation coverage remains mandatory through the separate coverage table.
 grep -Fq $'n01\tLUNA\tLOCAL_IMPLEMENTATION\t' "$project_dir/control/decomposition-complexity.tsv"
 [[ "$(awk -F '\t' '$1=="n01" {print $18}' "$project_dir/control/decomposition-complexity.tsv")" == 0 ]]
+# Sol may underestimate tool actions, but a source-changing node is always
+# normalized to the deterministic inspect/edit/validate/commit/result floor.
+[[ "$(awk -F '\t' '$1=="n01" {print $15}' "$project_dir/control/decomposition-complexity.tsv")" == 6 ]]
 
 # Observed execution and manager outcome feed model- and planner-specific
 # calibration without changing the immutable plan.
@@ -473,6 +476,13 @@ cat > "$TEST_ROOT/revision-draft.md" <<'EOF'
 Task-ID: leaf-root-revision-01
 Complexity-Class: HIGH
 Worker-Route: TERRA
+Leaf-Type: LOCAL_IMPLEMENTATION
+Validation-Class: FOCUSED
+Expected-Max-Implementation-Files: 1
+Expected-Max-Worker-Turns: 1
+Required-Symbols: target
+Obligations: REQ-ONE
+Architecture-Decisions: NONE
 EOF
 set +e
 "$HARNESS_BIN/manager-publish-task" "$env_file" leaf-root-revision-01 \
@@ -493,6 +503,10 @@ grep -Fqx 'Supersedes-Task: leaf-root' "$TEST_ROOT/revision-draft.md"
 [[ "$(grep -c '^Replan-Strategy-ID:' "$TEST_ROOT/revision-draft.md")" == 1 ]]
 grep -Fqx 'Complexity-Class: LOW' "$TEST_ROOT/revision-draft.md"
 grep -Fqx 'Worker-Route: LUNA' "$TEST_ROOT/revision-draft.md"
+grep -Fqx 'Expected-Max-Agent-Actions: 6' "$TEST_ROOT/revision-draft.md"
+# The residual child computes to 90K, but recovery may not lower an already
+# calibrated Luna node's immutable 140K P95 baseline.
+grep -Fqx 'Effective-P95-Tokens: 140000' "$TEST_ROOT/revision-draft.md"
 
 cat > "$TEST_ROOT/remediation-draft.md" <<'EOF'
 # Manager remediation draft

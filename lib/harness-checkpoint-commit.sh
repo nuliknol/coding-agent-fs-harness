@@ -63,6 +63,33 @@ checkpoint_record_controlled_commit()
 	log_event "CHECKPOINT_SOURCE_COMMIT task=$task_id session=$session commit=$commit paths=$(printf '%q' "$*")"
 }
 
+checkpoint_effective_commit_max_files()
+{
+	local task_id="$1" assignment="$2" configured root root_assignment root_scope scope_override additional_scope entry allowance=0
+	local -a entries=()
+	configured="$(metadata_value "$assignment" Expected-Max-Implementation-Files)"
+	[[ "$configured" =~ ^[0-9]+$ ]] || { printf '%s\n' "$configured"; return 0; }
+	[[ "$(metadata_value "$assignment" Manager-Remediation)" == 1 ]] || { printf '%s\n' "$configured"; return 0; }
+	root="$(task_root_id "$task_id")"
+	root_assignment="$(task_root_assignment_file "$root")"
+	[[ -f "$root_assignment" ]] || { printf '%s\n' "$configured"; return 0; }
+	scope_override="$(task_root_architecture_scope_override_file "$root")"
+	[[ -f "$scope_override" ]] || { printf '%s\n' "$configured"; return 0; }
+	[[ "$(kv_file_value "$scope_override" authorized_for 2>/dev/null || true)" == manager_remediation ]] ||
+		{ printf '%s\n' "$configured"; return 0; }
+	root_scope="$(metadata_value "$root_assignment" Allowed-Scope)"
+	additional_scope="$(kv_file_value "$scope_override" additional_scope 2>/dev/null || true)"
+	IFS=',' read -r -a entries <<< "${additional_scope//;/,}"
+	for entry in "${entries[@]}"; do
+		entry="$(trim_surrounding_whitespace "$entry")"
+		[[ -n "$entry" ]] || continue
+		agent_commit_path_in_scope "$entry" "$root_scope" && continue
+		allowance=$((allowance + 1))
+	done
+	configured=$((configured + allowance))
+	printf '%s\n' "$configured"
+}
+
 acceptance_commit_reviewed_scope()
 {
 	local task_id="$1" assignment="$2" review="$3" ledger candidate candidate_root candidate_paths
@@ -89,7 +116,7 @@ acceptance_commit_reviewed_scope()
 	# transaction. Commit only the dirty paths inside the immutable assignment
 	# scope; unrelated operator changes remain untouched.
 	AGENT_COMMIT_SCOPE="$(metadata_value "$assignment" Allowed-Scope)"
-	AGENT_COMMIT_MAX_FILES="$(metadata_value "$assignment" Expected-Max-Implementation-Files)"
+	AGENT_COMMIT_MAX_FILES="$(checkpoint_effective_commit_max_files "$task_id" "$assignment")"
 	AGENT_COMMIT_PRIOR_PATHS="$prior_paths"
 	AGENT_COMMIT_ACTOR="task=$task_id session=manager-accept"
 	review_sha="$(sha256sum "$review" | awk '{print $1}')"
@@ -135,7 +162,7 @@ checkpoint_commit_verified_artifact()
 		done < <(tail -n +2 "$ledger")
 	fi
 	AGENT_COMMIT_SCOPE="$(metadata_value "$assignment" Allowed-Scope)"
-	AGENT_COMMIT_MAX_FILES="$(metadata_value "$assignment" Expected-Max-Implementation-Files)"
+	AGENT_COMMIT_MAX_FILES="$(checkpoint_effective_commit_max_files "$task_id" "$assignment")"
 	AGENT_COMMIT_PRIOR_PATHS="$prior_paths"
 	AGENT_COMMIT_ACTOR="task=$task_id session=manager-checkpoint"
 	message_file="$artifact_dir/.checkpoint-commit-message.$$"

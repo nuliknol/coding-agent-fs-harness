@@ -193,7 +193,7 @@ rm -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-measured-ro
 # Manager-remediation is a Terra-routed implementation leaf, so it inherits
 # the same measured action ceiling and leaf-goal handoff semantics as a worker.
 manager_remediation_prompt="$TMP/manager-remediation-measured-prompt"
-printf 'TASK_ID=manager-remediation-root\nTASK_ROOT=manager-remediation-root\nWORKER_GOAL_MODE=1\nEXPECTED_MAX_AGENT_ACTIONS=2\nEFFECTIVE_P95_TOKENS=100000\n' \
+printf 'TASK_ID=manager-remediation-root\nTASK_ROOT=manager-remediation-root\nWORKER_GOAL_MODE=1\nEXPECTED_MAX_AGENT_ACTIONS=2\nEXPECTED_MAX_IMPLEMENTATION_FILES=1\nEFFECTIVE_P95_TOKENS=100000\n' \
 	> "$manager_remediation_prompt"
 set +e
 MOCK_MODE=item_loop "$ROOT/bin/codex-exec-jsonl" "$TMP/env-measured-leaf" \
@@ -206,7 +206,7 @@ set -e
 (( manager_remediation_status != 0 ))
 grep -q '^classification=agent_item_budget_exceeded$' \
 	"$TMP/manager-remediation-item-loop.classification"
-grep -q '^item_limit=3$' "$TMP/manager-remediation-item-loop.classification"
+grep -q '^item_limit=7$' "$TMP/manager-remediation-item-loop.classification"
 grep -q '^processed_token_limit=150000$' \
 	"$TMP/manager-remediation-item-loop.classification"
 [[ ! -e "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-manager-remediation-root.needs-human.md" ]]

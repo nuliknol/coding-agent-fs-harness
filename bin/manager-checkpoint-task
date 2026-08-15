@@ -251,6 +251,7 @@ leaf_criterion_total="$(task_leaf_criterion_total_count "$root")"
 leaf_criterion_passed="$(task_leaf_criterion_passed_count "$root")"
 if (( ${#verified_criteria[@]} > 0 && leaf_criterion_total > 0 )); then
 	progress_percent=$(( (leaf_criterion_passed + ${#verified_criteria[@]}) * 100 / leaf_criterion_total ))
+	(( progress_percent >= current_progress )) || progress_percent="$current_progress"
 	improvement_percent=$((progress_percent - current_progress))
 	(( improvement_percent >= 0 )) || improvement_percent=0
 elif (( leaf_criterion_total == 0 )); then
@@ -325,23 +326,8 @@ if (( ${#declared_criteria[@]} > 0 )); then
 		[[ "$criterion" == "$first_unmet" ]] ||
 			die "Verified-Criterion must complete the first unmet criterion: $first_unmet"
 	done
-	passed_criteria=0
-	for declared_criterion in "${declared_criteria[@]}"; do
-		if task_criterion_is_passed "$root" "$declared_criterion"; then
-			passed_criteria=$((passed_criteria + 1))
-		fi
-	done
-	(( passed_criteria + ${#verified_criteria[@]} < ${#declared_criteria[@]} )) ||
+	(( leaf_criterion_passed + ${#verified_criteria[@]} < leaf_criterion_total )) ||
 		die 'all declared leaf criteria would pass; use manager-accept-task instead of checkpointing'
-	if task_root_uses_assignment_criteria "$root"; then
-		expected_progress=$(( (passed_criteria + ${#verified_criteria[@]}) * 100 / ${#declared_criteria[@]} ))
-		expected_improvement=$((expected_progress - current_progress))
-		(( expected_improvement >= 0 )) || expected_improvement=0
-		(( progress_percent == expected_progress )) ||
-			die "Progress-Percent must equal calculated declared-criterion progress: $expected_progress%"
-		(( improvement_percent == expected_improvement )) ||
-			die "Improvement-Percent must equal calculated declared-criterion gain: $expected_improvement%"
-	fi
 fi
 
 if (( ${#checkpoint_paths[@]} > 1 )); then

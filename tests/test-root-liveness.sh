@@ -112,7 +112,7 @@ depth_reason="$(bash -c '
 	load_harness_env "$2"
 	HARNESS_MAX_ROOT_CHILD_CRITERIA=8
 	HARNESS_MAX_CRITERION_DEPTH=8
-	root_liveness_violation_reason depthlimit
+	root_liveness_violation_reason depthlimit || true
 ' _ "$HARNESS_HOME" "$TEST_ROOT/harness.env")"
 [[ -z "$depth_reason" ]]
 cat > "$project/archive/livenessproj-task-consumer-revision-01.accepted.md" <<'MD'
@@ -387,5 +387,29 @@ MD
 scope_override="$project/control/progress/livenessproj-task-$scope_root.architecture-scope-override.env"
 grep -Fqx 'additional_scope=src/companion.c' "$scope_override"
 grep -Fqx 'authorized_for=manager_remediation' "$scope_override"
+
+# The same audited extra mutation authority must expand the controlled-commit
+# ceiling. Otherwise review succeeds but the commit transaction is impossible.
+cat > "$project/control/progress/livenessproj-task-$scope_root.root-assignment.md" <<'MD'
+Task-ID: scopeexp
+Task-Root: scopeexp
+Allowed-Scope: src/root.c
+Expected-Max-Implementation-Files: 1
+MD
+cat > "$TEST_ROOT/scope-remediation-assignment.md" <<'MD'
+Task-ID: scopeexp-revision-02
+Task-Root: scopeexp
+Manager-Remediation: 1
+Allowed-Scope: src/root.c,src/companion.c
+Expected-Max-Implementation-Files: 1
+MD
+effective_files="$(bash -c '
+	source "$1/lib/harness-common.sh"
+	load_harness_env "$2"
+	source "$1/lib/harness-git-commit.sh"
+	source "$1/lib/harness-checkpoint-commit.sh"
+	checkpoint_effective_commit_max_files scopeexp-revision-02 "$3"
+' _ "$HARNESS_HOME" "$TEST_ROOT/harness.env" "$TEST_ROOT/scope-remediation-assignment.md")"
+[[ "$effective_files" == 2 ]]
 
 printf 'root liveness and dependency invalidation tests passed\n'
