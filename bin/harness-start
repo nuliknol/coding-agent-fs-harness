@@ -192,6 +192,13 @@ while ! project_plan_exists; do
 				fi
 			fi
 			if [[ -f "$full_rejection_log" ]] &&
+				grep -Eq 'duplicate architecture node binding:' "$full_rejection_log"; then
+				printf 'Merging duplicate architecture node bindings without an agent turn.\n'
+				if "$HARNESS_BIN/manager-repair-decomposition-node-bindings" "$HARNESS_ENV_FILE"; then
+					continue
+				fi
+			fi
+			if [[ -f "$full_rejection_log" ]] &&
 				grep -Eq 'dependency must precede node|parent must precede child' "$full_rejection_log"; then
 				printf 'Topologically reordering the decomposition DAG without an agent turn.\n'
 				if "$HARNESS_BIN/manager-repair-decomposition-order" "$HARNESS_ENV_FILE"; then
@@ -212,6 +219,29 @@ while ! project_plan_exists; do
 					continue
 				fi
 			fi
+			# A changed candidate hash is not progress when the deterministic
+			# validator reports the same defect again. Stop before another Sol
+			# turn after two consecutive identical diagnostic fingerprints.
+			diagnostic_fingerprint="$(grep '^ERROR:' "$full_rejection_log" | sha256sum | awk '{print $1}')"
+			diagnostic_state="$dir/control/decomposition-repair-diagnostic.env"
+			previous_fingerprint="$(kv_file_value "$diagnostic_state" fingerprint 2>/dev/null || true)"
+			previous_count="$(kv_file_value "$diagnostic_state" count 2>/dev/null || printf 0)"
+			[[ "$previous_count" =~ ^[0-9]+$ ]] || previous_count=0
+			if [[ "$diagnostic_fingerprint" == "$previous_fingerprint" ]]; then
+				diagnostic_count=$((previous_count + 1))
+			else
+				diagnostic_count=1
+			fi
+			{
+				printf 'fingerprint=%s\n' "$diagnostic_fingerprint"
+				printf 'count=%s\n' "$diagnostic_count"
+				printf 'candidate=%s\n' "$(decomposition_candidate_state_value directory)"
+				printf 'updated_at=%s\n' "$(timestamp_utc)"
+			} > "$diagnostic_state.tmp.$$"
+			chmod 600 "$diagnostic_state.tmp.$$"
+			mv "$diagnostic_state.tmp.$$" "$diagnostic_state"
+			(( diagnostic_count < 2 )) ||
+				die "decomposition repair diagnostic repeated without deterministic progress ($diagnostic_count): $full_rejection_log"
 			printf 'Repairing the durably rejected decomposition candidate before launching another global Sol turn.\n'
 			"$HARNESS_BIN/manager-decomposition-repair" "$HARNESS_ENV_FILE"
 			continue
