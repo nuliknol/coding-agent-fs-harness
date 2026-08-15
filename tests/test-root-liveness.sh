@@ -11,10 +11,17 @@ HARNESS_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HARNESS_BIN="$HARNESS_HOME/bin"
 mkdir -p "$TEST_ROOT/repo" "$TEST_ROOT/manager-home" "$TEST_ROOT/worker-home"
 printf 'bounded root liveness test\n' > "$TEST_ROOT/repo/spec.md"
+mkdir -p "$TEST_ROOT/repo/src/consumer"
+printf 'int consumer_smoke(void) { return 0; }\n' > "$TEST_ROOT/repo/src/consumer/smoke.c"
+cat > "$TEST_ROOT/repo/CMakeLists.txt" <<'CMAKE'
+cmake_minimum_required(VERSION 3.20)
+project(liveness C)
+add_executable(liveness_consumer_smoke src/consumer/smoke.c)
+CMAKE
 git -C "$TEST_ROOT/repo" init -q
 git -C "$TEST_ROOT/repo" config user.name Harness-Test
 git -C "$TEST_ROOT/repo" config user.email harness@example.invalid
-git -C "$TEST_ROOT/repo" add spec.md
+git -C "$TEST_ROOT/repo" add spec.md CMakeLists.txt src/consumer/smoke.c
 git -C "$TEST_ROOT/repo" commit -qm initial
 cat > "$TEST_ROOT/harness.env" <<ENV
 export PROJECT="livenessproj"
@@ -246,13 +253,32 @@ grep -Fqx 'Expected-Max-Worker-Turns: 2' "$generated_ready"
 [[ ! -f "$reassessment" ]]
 rm -f "$generated_ready"
 
+# A recovery planner may omit a repository target's stable namespace while
+# naming an otherwise unique literal CMake target. Normalize that mechanical
+# alias before publication so a nonexistent target cannot consume worker and
+# review turns or cause false scope expansion.
+sed \
+	-e 's/consumer-revision-05/consumer-revision-06/g' \
+	-e 's/consumer.generated-validation/consumer.cmake-target-alias/' \
+	-e 's/cmake --build build/cmake --build build --target consumer_smoke/g' \
+	"$TEST_ROOT/generated-validation-revision.md" > "$TEST_ROOT/cmake-target-alias-revision.md"
+target_alias_output="$("$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" \
+	consumer-revision-06 "$TEST_ROOT/cmake-target-alias-revision.md")"
+target_alias_ready="$project/tasks/livenessproj-task-consumer-revision-06.ready.md"
+[[ "$target_alias_output" == "$target_alias_ready" ]]
+grep -Fqx 'Focused-Validation: cmake --build build --target liveness_consumer_smoke' "$target_alias_ready"
+grep -Fqx 'cmake --build build --target liveness_consumer_smoke' "$target_alias_ready"
+grep -Fq 'CMAKE_TARGET_ALIAS_NORMALIZED root=consumer task=consumer-revision-06 requested=consumer_smoke registered=liveness_consumer_smoke' \
+	"$project/logs/events.log"
+rm -f "$target_alias_ready"
+
 # A stale planning turn cannot publish a second revision while another
 # revision of the same root is ready for execution.
 cp "$TEST_ROOT/generated-validation-revision.md" "$TEST_ROOT/concurrent-revision.md"
-sed -i 's/consumer-revision-05/consumer-revision-06/g' "$TEST_ROOT/concurrent-revision.md"
+sed -i 's/consumer-revision-05/consumer-revision-07/g' "$TEST_ROOT/concurrent-revision.md"
 cp "$TEST_ROOT/generated-validation-revision.md" "$generated_ready"
 if "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" \
-	consumer-revision-06 "$TEST_ROOT/concurrent-revision.md" >"$TEST_ROOT/concurrent.out" 2>"$TEST_ROOT/concurrent.err"; then
+	consumer-revision-07 "$TEST_ROOT/concurrent-revision.md" >"$TEST_ROOT/concurrent.out" 2>"$TEST_ROOT/concurrent.err"; then
 	printf 'concurrent root revision unexpectedly published\n' >&2
 	exit 1
 fi

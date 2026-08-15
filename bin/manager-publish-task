@@ -619,6 +619,46 @@ scope_is_generated_validation_only()
 	return 0
 }
 
+registered_literal_cmake_targets()
+{
+	git -C "$REPOSITORY" grep -h -E \
+		'^[[:space:]]*add_(executable|library|custom_target)[[:space:]]*\([[:space:]]*[A-Za-z0-9_.:+-]+' \
+		-- 'CMakeLists.txt' ':(glob)**/CMakeLists.txt' ':(glob)**/*.cmake' 2>/dev/null |
+		sed -nE 's/^[[:space:]]*add_(executable|library|custom_target)[[:space:]]*\([[:space:]]*([A-Za-z0-9_.:+-]+).*/\2/p' |
+		sort -u
+}
+
+normalize_unique_cmake_target_aliases()
+{
+	local requested candidate old_pattern replacement tmp
+	local -a registered=() matches=() requested_targets=()
+	[[ "$goal_focused_validation" == *cmake*--build*--target* ]] || return 0
+	mapfile -t registered < <(registered_literal_cmake_targets)
+	(( ${#registered[@]} > 0 )) || return 0
+	mapfile -t requested_targets < <(
+		grep -oE -- '--target(=|[[:space:]]+)[A-Za-z0-9_.:+-]+' <<< "$goal_focused_validation" |
+			sed -E 's/^--target(=|[[:space:]]+)//' | sort -u
+	)
+	for requested in "${requested_targets[@]}"; do
+		printf '%s\n' "${registered[@]}" | grep -Fxq -- "$requested" && continue
+		matches=()
+		for candidate in "${registered[@]}"; do
+			[[ "$candidate" == *_"$requested" ]] && matches+=("$candidate")
+		done
+		(( ${#matches[@]} == 1 )) || continue
+		candidate="${matches[0]}"
+		old_pattern="$(printf '%s' "$requested" | sed 's/[][\\.^$*+?{}|()]/\\&/g')"
+		replacement="$(printf '%s' "$candidate" | sed 's/[&#]/\\&/g')"
+		tmp="$task_file.cmake-target.$$"
+		sed -E "s#(^|[^A-Za-z0-9_.:+-])${old_pattern}([^A-Za-z0-9_.:+-]|$)#\\1${replacement}\\2#g" \
+			"$task_file" > "$tmp"
+		chmod --reference="$task_file" "$tmp"
+		mv "$tmp" "$task_file"
+		log_event "CMAKE_TARGET_ALIAS_NORMALIZED root=$root task=$task_id requested=$requested registered=$candidate"
+	done
+	goal_focused_validation="$(metadata_value "$task_file" Focused-Validation)"
+}
+
 normalize_revision_execution_metadata()
 {
 	local root_scope root_max_files root_max_turns requested_scope requested_files requested_turns
@@ -951,6 +991,7 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 			die "root $root has $luna_failures failed Luna strategies; publish a fresh Terra leaf or decompose it further"
 		fi
 	fi
+	normalize_unique_cmake_target_aliases
 	if [[ "$task_id" == "$root" ]]; then
 		[[ "$goal_target" == "${declared_criteria[0]}" ]] ||
 			die "new root goal must target its first declared criterion: ${declared_criteria[0]}"
