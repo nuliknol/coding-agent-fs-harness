@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 1 ]] || { printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+require_manager_configuration
+project_plan_exists && { printf 'Decomposition DAG already exists.\n'; exit 0; }
+decomposition_dag_candidate_matches_current_inputs || die 'no current DAG candidate exists'
+[[ "$(decomposition_dag_candidate_state_value status)" == REJECTED ]] ||
+	die 'coverage repair requires a rejected DAG candidate'
+
+candidate_dir="$(decomposition_dag_candidate_state_value directory)"
+dag_source="$(decomposition_dag_candidate_state_value dag)"
+coverage_source="$(decomposition_dag_candidate_state_value coverage)"
+rejection_log="$(decomposition_dag_candidate_state_value rejection_log "$candidate_dir/rejection.log")"
+grep -Eq '^ERROR: DAG node is not justified by a normalized specification obligation: ' "$rejection_log" ||
+	die 'candidate rejection is not an uncovered executable-node defect'
+
+repair_dir="$PROJECT_TMP_DIR/decomposition-coverage-repair-${candidate_dir##*/}"
+rm -rf -- "$repair_dir"
+mkdir -p "$repair_dir"
+install -m 600 "$dag_source" "$repair_dir/dag.tsv"
+repaired_coverage="$repair_dir/coverage.tsv"
+
+# Every DAG row is executable work.  A node omitted from coverage is therefore
+# not automatically dead work: Sol commonly splits one obligation into an
+# ordered chain and forgets to append the new child IDs to node_ids.  Attach an
+# uncovered node to an evidence row that names it, otherwise to the nearest
+# covered downstream acceptance boundary.  If no downstream boundary exists,
+# use the nearest covered prerequisite.  Ambiguous nearest boundaries are all
+# retained because the shared executable prerequisite contributes to each.
+awk -F '\t' -v OFS='\t' -v dag_file="$dag_source" -v coverage_file="$coverage_source" '
+	function trim(v) {gsub(/^[[:space:]]+|[[:space:]]+$/, "", v); return v}
+	function add_unique(list, value,  n,a,i) {
+		if (value == "" || value == "-") return list
+		n=split(list,a,","); for(i=1;i<=n;i++) if(trim(a[i]) == value) return list
+		return list == "" || list == "-" ? value : list "," value
+	}
+	function collect_explicit(node,  i) {
+		for(i=1;i<=coverage_count;i++)
+			if (index(" " evidence[i] " ", " " node " ") || index(evidence[i], node ",") ||
+				index(evidence[i], node ".") || index(evidence[i], node ";")) selected[i]=1
+	}
+	function collect_nearest(node, downstream,  head,tail,depth,current,key,p,neighbor,found,i) {
+		delete seen; delete queue; delete level
+		head=1; tail=1; queue[1]=node; level[1]=0; seen[node]=1
+		while(head<=tail) {
+			current=queue[head]; depth=level[head++]
+			if (depth>0 && current in node_covered) {
+				found=1
+				for(i=1;i<=coverage_count;i++) if((i SUBSEP current) in coverage_node) selected[i]=1
+				continue
+			}
+			if(found) continue
+			for(key in edge) {
+				split(key,p,SUBSEP)
+				if(downstream ? p[1]!=current : p[2]!=current) continue
+				neighbor=downstream ? p[2] : p[1]
+				if(!seen[neighbor]) {seen[neighbor]=1; queue[++tail]=neighbor; level[tail]=depth+1}
+			}
+		}
+		return found
+	}
+	FILENAME == dag_file {
+		if(FNR==1) next
+		node[$1]=1
+		n=split($3,a,","); for(i=1;i<=n;i++) {dep=trim(a[i]); if(dep!="" && dep!="-") edge[dep SUBSEP $1]=1}
+		parent=trim($2); if(parent!="" && parent!="-") edge[parent SUBSEP $1]=1
+		next
+	}
+	FILENAME == coverage_file {
+		if(FNR==1) {header=$0; next}
+		coverage_count++; obligation[coverage_count]=$1; nodes[coverage_count]=$2; evidence[coverage_count]=$3
+		n=split($2,a,","); for(i=1;i<=n;i++) {covered=trim(a[i]); node_covered[covered]=1; coverage_node[coverage_count SUBSEP covered]=1}
+		next
+	}
+	END {
+		for(candidate in node) if(!(candidate in node_covered)) {
+			delete selected
+			collect_explicit(candidate)
+			chosen=0; for(i in selected) chosen=1
+			if(!chosen) collect_nearest(candidate,1)
+			chosen=0; for(i in selected) chosen=1
+			if(!chosen) collect_nearest(candidate,0)
+			chosen=0
+			for(i in selected) {
+				nodes[i]=add_unique(nodes[i],candidate)
+				evidence[i]=evidence[i] " [machine coverage repair: " candidate " contributes to this acceptance boundary]"
+				chosen=1
+			}
+			if(!chosen) {
+				printf "cannot safely bind uncovered DAG node to a normalized obligation: %s\n", candidate > "/dev/stderr"
+				errors++
+			}
+		}
+		if(errors) exit 1
+		print header
+		for(i=1;i<=coverage_count;i++) print obligation[i],nodes[i],evidence[i]
+	}
+' "$dag_source" "$coverage_source" > "$repaired_coverage"
+chmod 600 "$repaired_coverage"
+
+"$HARNESS_BIN/manager-stage-decomposition-dag" "$HARNESS_ENV_FILE" "$repair_dir/dag.tsv" "$repaired_coverage"

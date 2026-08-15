@@ -143,6 +143,17 @@ EOF
 cat > "$TEST_ROOT/bad-coverage.tsv" <<'EOF'
 obligation_id	node_ids	evidence_plan
 EOF
+cat > "$TEST_ROOT/omitted-node-dag.tsv" <<'EOF'
+node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route	behavioral_concerns	failure_paths	ownership_transitions	concurrency_boundaries	validation_surfaces	implementation_files	predicted_worker_actions	predicted_p95_tokens	terra_exception
+n00	-	-	Implement target prerequisite	Focused prerequisite exists	test -f src/a.c	src/a.c	target	LOCAL_IMPLEMENTATION	LOW	LUNA	1	0	0	0	1	1	4	100000	-
+n01	-	n00	Implement bounded target adaptation	Focused adaptation exists	test -f src/a.c	src/a.c	target	LOCAL_IMPLEMENTATION	LOW	LUNA	1	0	0	0	1	1	4	100000	-
+n02	-	n01	Expose target behavior	Focused source exists	test -f src/a.c	src/a.c	target	LOCAL_IMPLEMENTATION	LOW	LUNA	1	0	0	0	1	1	4	100000	-
+EOF
+cat > "$TEST_ROOT/omitted-node-coverage.tsv" <<'EOF'
+obligation_id	node_ids	evidence_plan
+REQ-ONE	n00	n00 implements the prerequisite behavior
+REQ-TWO	n02	n02 exposes the accepted prerequisite behavior
+EOF
 cat > "$TEST_ROOT/reorder-dag.tsv" <<'EOF'
 node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route	behavioral_concerns	failure_paths	ownership_transitions	concurrency_boundaries	validation_surfaces	implementation_files	predicted_worker_actions	predicted_p95_tokens	terra_exception
 n01	-	-	Expose target behavior	Focused source exists	test -f src/a.c	src/a.c	target	LOCAL_IMPLEMENTATION	LOW	LUNA	1	0	0	0	1	1	4	100000	-
@@ -164,6 +175,21 @@ set -e
 complexity_rejection_log="$(awk -F= '$1=="rejection_log" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
 grep -Fq 'LUNA_COMPLEXITY_OVER_BUDGET node=n01' "$complexity_rejection_log"
 grep -Fq 'behavioral_concerns=2>1' "$complexity_rejection_log"
+
+# Sol may split a covered obligation into an executable chain but omit a new
+# child ID from node_ids.  That is a mechanical serialization defect: bind the
+# child to the nearest covered acceptance boundary without another model turn.
+set +e
+"$HARNESS_BIN/manager-stage-decomposition-dag" "$env_file" "$TEST_ROOT/omitted-node-dag.tsv" "$TEST_ROOT/omitted-node-coverage.tsv" >/dev/null 2>&1
+omitted_status=$?
+set -e
+(( omitted_status != 0 ))
+omitted_rejection_log="$(awk -F= '$1=="rejection_log" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
+grep -Fq 'DAG node is not justified by a normalized specification obligation: n01' "$omitted_rejection_log"
+"$HARNESS_BIN/manager-repair-decomposition-coverage" "$env_file" >/dev/null
+repaired_coverage="$(awk -F= '$1=="coverage" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
+grep -Eq $'^REQ-TWO\tn02,n01\t' "$repaired_coverage"
+grep -Fqx 'status=STAGED' "$project_dir/control/decomposition-dag-candidate.env"
 
 set +e
 "$HARNESS_BIN/manager-stage-decomposition-dag" "$env_file" "$TEST_ROOT/reorder-dag.tsv" "$TEST_ROOT/reorder-coverage.tsv" >/dev/null 2>&1

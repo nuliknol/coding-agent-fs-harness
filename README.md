@@ -230,6 +230,9 @@ fixed DAG to architecture invariants, decisions, edges, health gates, and debt.
 `manager-submit-decomposition` stages the complete candidate before
 deterministic validation and installs all sidecars as one transaction. A
 schema rejection is handled by a bounded repair-only turn. DAG/coverage
+serialization omissions are repaired deterministically by binding uncovered
+executable leaves to their nearest covered acceptance boundary, avoiding Sol
+turns that merely rename otherwise valid leaves. DAG/coverage
 validation also stages before checking and uses its own bounded repair turn.
 If startup is
 interrupted after either staging boundary, the next `harness-start` continues
