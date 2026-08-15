@@ -173,6 +173,10 @@ obligation_id	node_ids	evidence_plan
 REQ-ONE	n00	n00 implements the prerequisite behavior
 REQ-TWO	n02	n02 exposes the accepted prerequisite behavior
 EOF
+cat > "$TEST_ROOT/omitted-node-mapping.tsv" <<'EOF'
+node_id	obligation_ids
+n01	REQ-TWO
+EOF
 cat > "$TEST_ROOT/reorder-dag.tsv" <<'EOF'
 node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route	behavioral_concerns	failure_paths	ownership_transitions	concurrency_boundaries	validation_surfaces	implementation_files	predicted_worker_actions	predicted_p95_tokens	terra_exception
 n01	-	-	Expose target behavior	Focused source exists	test -f src/a.c	src/a.c	target	LOCAL_IMPLEMENTATION	LOW	LUNA	1	0	0	0	1	1	4	100000	-
@@ -220,6 +224,18 @@ set -e
 (( omitted_status != 0 ))
 omitted_rejection_log="$(awk -F= '$1=="rejection_log" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
 grep -Fq 'DAG node is not justified by a normalized specification obligation: n01' "$omitted_rejection_log"
+"$HARNESS_BIN/manager-stage-decomposition-coverage-patch" "$env_file" "$TEST_ROOT/omitted-node-mapping.tsv" >/dev/null
+patched_coverage="$(awk -F= '$1=="coverage" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
+grep -Eq $'^REQ-TWO\tn02,n01\t' "$patched_coverage"
+grep -Fqx 'status=STAGED' "$project_dir/control/decomposition-dag-candidate.env"
+
+# The no-agent repair reaches the same valid bounded mapping when topology and
+# existing acceptance boundaries make it unambiguous.
+set +e
+"$HARNESS_BIN/manager-stage-decomposition-dag" "$env_file" "$TEST_ROOT/omitted-node-dag.tsv" "$TEST_ROOT/omitted-node-coverage.tsv" >/dev/null 2>&1
+omitted_status=$?
+set -e
+(( omitted_status != 0 ))
 "$HARNESS_BIN/manager-repair-decomposition-coverage" "$env_file" >/dev/null
 repaired_coverage="$(awk -F= '$1=="coverage" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
 grep -Eq $'^REQ-TWO\tn02,n01\t' "$repaired_coverage"

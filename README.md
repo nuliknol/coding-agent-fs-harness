@@ -236,7 +236,9 @@ turns that merely rename otherwise valid leaves. The repair refuses a mapping
 that would assign more than the Luna-ready two-obligation limit. Measured
 complexity repair uses bounded node-replacement patches, so Sol reads and
 rewrites only rejected leaves while the harness merges and globally validates
-the immutable DAG. DAG/coverage
+the immutable DAG. Ambiguous omitted coverage uses the same pattern: Sol emits
+only a one- or two-obligation mapping for each uncovered executable leaf, and
+the harness merges and validates it. DAG/coverage
 validation also stages before checking and uses its own bounded repair turn.
 If startup is
 interrupted after either staging boundary, the next `harness-start` continues

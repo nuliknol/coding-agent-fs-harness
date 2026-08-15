@@ -260,6 +260,9 @@ while ! project_plan_exists; do
 				if "$HARNESS_BIN/manager-repair-decomposition-coverage" "$HARNESS_ENV_FILE"; then
 					continue
 				fi
+				printf 'Requesting one bounded Sol coverage mapping for ambiguous executable leaves.\n'
+				"$HARNESS_BIN/manager-decomposition-coverage-repair" "$HARNESS_ENV_FILE"
+				continue
 			fi
 			if [[ -f "$dag_rejection_log" ]] &&
 				grep -Eq 'coverage violates (DEPENDS_ON|REQUIRES_ACCEPTED) relation' "$dag_rejection_log"; then

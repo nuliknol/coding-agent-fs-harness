@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 1 ]] || { printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+require_manager_configuration
+require_manager_codex
+project_plan_exists && { printf 'Decomposition DAG already exists.\n'; exit 0; }
+decomposition_dag_candidate_matches_current_inputs || die 'no current DAG candidate exists'
+[[ "$(decomposition_dag_candidate_state_value status)" == REJECTED ]] || die 'coverage repair requires a rejected DAG candidate'
+architecture_fit_is_accepted || die 'coverage repair requires accepted architecture fit'
+
+dir="$(project_dir)"
+candidate_dir="$(decomposition_dag_candidate_state_value directory)"
+dag_source="$(decomposition_dag_candidate_state_value dag)"
+coverage_source="$(decomposition_dag_candidate_state_value coverage)"
+rejection_log="$(decomposition_dag_candidate_state_value rejection_log "$candidate_dir/rejection.log")"
+grep -Eq '^ERROR: DAG node is not justified by a normalized specification obligation: ' "$rejection_log" ||
+	die 'candidate rejection is not an uncovered executable-node defect'
+
+repair_dir="$PROJECT_TMP_DIR/decomposition-coverage-agent-${candidate_dir##*/}"
+rm -rf -- "$repair_dir"
+mkdir -p "$repair_dir"
+uncovered="$repair_dir/uncovered.txt"
+rows="$repair_dir/uncovered-rows.tsv"
+neighborhood="$repair_dir/dependency-neighborhood.tsv"
+mapping="$repair_dir/mapping.tsv"
+awk -F '\t' 'NR==FNR {if(FNR>1){n=split($2,a,",");for(i=1;i<=n;i++) covered[a[i]]=1};next} FNR>1 && !($1 in covered){print $1}' \
+	"$coverage_source" "$dag_source" | sort -u > "$uncovered"
+awk -F '\t' 'NR==FNR {wanted[$1]=1;next} FNR==1 || ($1 in wanted)' "$uncovered" "$dag_source" > "$rows"
+awk -F '\t' 'NR==FNR {wanted[$1]=1;next} FNR==1 {print;next} {include=($1 in wanted)||($2 in wanted);n=split($3,a,",");for(i=1;i<=n;i++)if(a[i] in wanted)include=1;if(include)print}' \
+	"$uncovered" "$dag_source" > "$neighborhood"
+printf 'node_id\tobligation_ids\n' > "$mapping"
+chmod 600 "$uncovered" "$rows" "$neighborhood" "$mapping"
+
+prompt="$dir/control/manager-decomposition-coverage-repair.prompt.md"
+cat > "$prompt.tmp.$$" <<PROMPT
+You are a fresh, bounded Sol decomposition-coverage repair agent. Do not edit the repository or rewrite the DAG.
+
+ENV_FILE=$HARNESS_ENV_FILE
+HARNESS_BIN=$HARNESS_BIN
+PROJECT=$PROJECT
+UNCOVERED_NODE_IDS=$uncovered
+UNCOVERED_DAG_ROWS=$rows
+DEPENDENCY_NEIGHBORHOOD=$neighborhood
+CURRENT_COVERAGE=$coverage_source
+NORMALIZED_OBLIGATIONS=$(specification_obligations_file)
+NORMALIZED_RELATIONS=$(specification_relations_file)
+COVERAGE_MAPPING_FILE=$mapping
+
+Every uncovered DAG row is executable work created during decomposition and must be justified by normalized obligations. Read only the listed bounded files. For every ID in UNCOVERED_NODE_IDS, append exactly one mapping row to COVERAGE_MAPPING_FILE. Map it to one or at most two semantically exact obligation IDs. Use deliverable, acceptance evidence, dependency neighborhood, normalized statement, and typed relations—not incidental node names or broad evidence prose. Do not map a local leaf to a broad integration obligation merely because it is downstream. Do not omit, rename, merge, or invent nodes or obligations.
+
+Submit exactly once with:
+
+$HARNESS_BIN/manager-stage-decomposition-coverage-patch "$HARNESS_ENV_FILE" "$mapping"
+
+If deterministic validation rejects the patch, read only its new rejection log, correct COVERAGE_MAPPING_FILE once, submit once more, and terminate.
+PROMPT
+chmod 600 "$prompt.tmp.$$"
+mv "$prompt.tmp.$$" "$prompt"
+
+stamp="$(timestamp_compact_utc)"
+json="$dir/logs/manager-decomposition-coverage-repair-$stamp-attempt-001.jsonl"
+stderr="$dir/logs/manager-decomposition-coverage-repair-$stamp-attempt-001.stderr.log"
+message="$dir/logs/manager-decomposition-coverage-repair-$stamp-attempt-001.md"
+set +e
+"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" decomposition "$DECOMPOSITION_MODEL" "$prompt" "$json" "$stderr" "$message"
+status=$?
+set -e
+if decomposition_dag_candidate_matches_current_inputs && [[ "$(decomposition_dag_candidate_state_value status)" == STAGED ]]; then
+	log_event "DECOMPOSITION_COVERAGE_REPAIR_ACCEPTED previous=${candidate_dir##*/}"
+	printf 'Decomposition coverage repaired and staged.\n'
+	exit 0
+fi
+new_candidate_dir="$(decomposition_dag_candidate_state_value directory -)"
+if (( status == 0 )) && [[ "$new_candidate_dir" != - && "$new_candidate_dir" != "$candidate_dir" ]] && decomposition_dag_candidate_matches_current_inputs; then
+	printf 'Coverage repair produced a new durable candidate; continuing bounded validation.\n'
+	exit 0
+fi
+(( status == 0 )) && die 'coverage repair exited without staging a durable candidate'
+die "coverage repair failed with status $status; see $json"
+

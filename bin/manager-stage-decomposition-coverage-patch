@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 2 ]] || { printf 'Usage: %s ENV_FILE COVERAGE_MAPPING_TSV\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+require_manager_configuration
+project_plan_exists && { printf 'Decomposition DAG already exists.\n'; exit 0; }
+decomposition_dag_candidate_matches_current_inputs || die 'no current DAG candidate exists'
+[[ "$(decomposition_dag_candidate_state_value status)" == REJECTED ]] || die 'coverage patch requires a rejected DAG candidate'
+
+mapping_source="$2"
+[[ -s "$mapping_source" ]] || die 'coverage mapping TSV is empty'
+IFS= read -r header < "$mapping_source"
+[[ "$header" == $'node_id\tobligation_ids' ]] || die 'coverage mapping header must be: node_id<TAB>obligation_ids'
+candidate_dir="$(decomposition_dag_candidate_state_value directory)"
+dag_source="$(decomposition_dag_candidate_state_value dag)"
+coverage_source="$(decomposition_dag_candidate_state_value coverage)"
+rejection_log="$(decomposition_dag_candidate_state_value rejection_log "$candidate_dir/rejection.log")"
+grep -Eq '^ERROR: DAG node is not justified by a normalized specification obligation: ' "$rejection_log" ||
+	die 'candidate rejection is not an uncovered executable-node defect'
+
+repair_dir="$PROJECT_TMP_DIR/decomposition-coverage-patch-${candidate_dir##*/}"
+rm -rf -- "$repair_dir"
+mkdir -p "$repair_dir"
+uncovered="$repair_dir/uncovered.txt"
+awk -F '\t' 'NR==FNR {if(FNR>1){n=split($2,a,",");for(i=1;i<=n;i++) covered[a[i]]=1};next} FNR>1 && !($1 in covered){print $1}' \
+	"$coverage_source" "$dag_source" | sort -u > "$uncovered"
+[[ -s "$uncovered" ]] || die 'coverage patch found no uncovered DAG nodes'
+
+awk -F '\t' -v uncovered_file="$uncovered" -v obligations_file="$(specification_obligations_file)" -v mapping_file="$mapping_source" '
+	function trim(v) {gsub(/^[[:space:]]+|[[:space:]]+$/, "", v); return v}
+	FILENAME==uncovered_file {uncovered[$1]=1; next}
+	FILENAME==obligations_file {if(FNR>1) obligation[$1]=1; next}
+	FILENAME==mapping_file {
+		if(FNR==1) next
+		if(NF!=2 || !($1 in uncovered) || seen[$1]++) {printf "invalid or duplicate uncovered-node mapping: %s\n",$1 > "/dev/stderr"; errors++; next}
+		n=split($2,a,","); if(n<1 || n>2) {printf "node %s must map to one or two obligations\n",$1 > "/dev/stderr"; errors++}
+		for(i=1;i<=n;i++) {id=trim(a[i]); if(!(id in obligation)) {printf "node %s maps unknown obligation %s\n",$1,id > "/dev/stderr"; errors++}}
+		next
+	}
+	END {for(id in uncovered) if(!seen[id]) {printf "uncovered node is absent from coverage patch: %s\n",id > "/dev/stderr"; errors++}; exit(errors?1:0)}
+' "$uncovered" "$(specification_obligations_file)" "$mapping_source" || die 'invalid bounded coverage patch'
+
+merged_coverage="$repair_dir/coverage.tsv"
+awk -F '\t' -v OFS='\t' -v mapping_file="$mapping_source" -v coverage_file="$coverage_source" '
+	function trim(v) {gsub(/^[[:space:]]+|[[:space:]]+$/, "", v); return v}
+	function add_unique(list,value, n,a,i) {n=split(list,a,",");for(i=1;i<=n;i++)if(trim(a[i])==value)return list;return list "," value}
+	FILENAME==mapping_file {if(FNR>1){n=split($2,a,",");for(i=1;i<=n;i++) additions[trim(a[i]) SUBSEP $1]=1};next}
+	FILENAME==coverage_file {
+		if(FNR==1){print;next}
+		added=""; for(key in additions){split(key,p,SUBSEP);if(p[1]!=$1)continue;$2=add_unique($2,p[2]);added=added (added?",":"") p[2]}
+		if(added!="") $3=$3 " [Sol coverage repair adds " added "]"
+		print
+	}
+' "$mapping_source" "$coverage_source" > "$merged_coverage"
+chmod 600 "$merged_coverage"
+"$HARNESS_BIN/manager-stage-decomposition-dag" "$HARNESS_ENV_FILE" "$dag_source" "$merged_coverage"
+
