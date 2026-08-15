@@ -142,6 +142,10 @@ n01	-	-	Verify existing target behavior	Focused source already exists	test -f sr
 n02	-	n01	Expose target behavior	Focused source exists	test -f src/a.c	src/a.c	target	LOCAL_IMPLEMENTATION	LOW	LUNA	1	0	0	0	1	1	4	100000	-
 terra-contract	-	n02	Choose the target contract	Contract decision is accepted	test -f src/a.c	src/a.c	target	CONTRACT_DESIGN	HIGH	TERRA	2	2	2	0	2	3	11	360000	CONTRACT_DECISION
 EOF
+awk -F '\t' 'BEGIN {OFS=FS} $1=="terra-contract" {$17=0} {print}' \
+	"$TEST_ROOT/dag.tsv" > "$TEST_ROOT/zero-write-terra-dag.tsv"
+awk -F '\t' 'BEGIN {OFS=FS} $1=="n01" {$17=0} {print}' \
+	"$TEST_ROOT/dag.tsv" > "$TEST_ROOT/zero-write-luna-coding-dag.tsv"
 cat > "$TEST_ROOT/over-budget-dag.tsv" <<'EOF'
 node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route	behavioral_concerns	failure_paths	ownership_transitions	concurrency_boundaries	validation_surfaces	implementation_files	predicted_worker_actions	predicted_p95_tokens	terra_exception
 n01	-	-	Implement target behavior	Focused source exists	test -f src/a.c	src/a.c	target	LOCAL_IMPLEMENTATION	LOW	LUNA	2	0	0	0	1	1	4	100000	-
@@ -218,6 +222,21 @@ set -e
 complexity_rejection_log="$(awk -F= '$1=="rejection_log" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
 grep -Fq 'LUNA_COMPLEXITY_OVER_BUDGET node=n01' "$complexity_rejection_log"
 grep -Fq 'behavioral_concerns=2>1' "$complexity_rejection_log"
+
+# External contract/integration decisions may be executable zero-write Terra
+# leaves, while routine Luna coding cannot claim that exemption.
+"$HARNESS_BIN/manager-stage-decomposition-dag" "$env_file" \
+	"$TEST_ROOT/zero-write-terra-dag.tsv" "$TEST_ROOT/coverage.tsv" >/dev/null
+grep -Fqx 'status=STAGED' "$project_dir/control/decomposition-dag-candidate.env"
+set +e
+"$HARNESS_BIN/manager-stage-decomposition-dag" "$env_file" \
+	"$TEST_ROOT/zero-write-luna-coding-dag.tsv" "$TEST_ROOT/coverage.tsv" >/dev/null 2>&1
+zero_write_luna_status=$?
+set -e
+(( zero_write_luna_status != 0 ))
+zero_write_luna_rejection="$(awk -F= '$1=="rejection_log" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
+grep -Fq 'implementation files may be zero only for zero-write verification or Terra decision/integration leaves' \
+	"$zero_write_luna_rejection"
 
 # Candidate preflight reports every malformed vector in one Sol correction.
 awk -F '\t' 'BEGIN {OFS=FS} NR > 1 {$12=0; $16=0} {print}' \

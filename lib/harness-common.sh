@@ -4540,7 +4540,12 @@ validate_decomposition_measured_schema_file()
 		done
 		for index in 11 15 16 17 18; do
 			value="${fields[$index]}"
-			if (( index == 16 )) && [[ "$leaf_type" == VERIFICATION_ONLY && "$value" == 0 ]]; then
+			if (( index == 16 )) && [[ "$value" == 0 ]]; then
+				if [[ "$leaf_type" =~ ^(VERIFICATION_ONLY|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]]; then
+					continue
+				fi
+				printf 'LUNA_COMPLEXITY_INVALID node=%s implementation files may be zero only for zero-write verification or Terra decision/integration leaves\n' "$node_id"
+				errors=$((errors + 1))
 				continue
 			fi
 			if [[ "$value" =~ ^[0-9]+$ ]] && (( value == 0 )); then
@@ -4630,10 +4635,11 @@ write_decomposition_complexity_report()
 					errors++
 			}
 			}
+			zero_write = ($9 ~ /^(VERIFICATION_ONLY|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$/)
 			if ($12 !~ /^[1-9][0-9]*$/ || $16 !~ /^[1-9][0-9]*$/ ||
-				($9 == "VERIFICATION_ONLY" ? $17 !~ /^[0-9]+$/ : $17 !~ /^[1-9][0-9]*$/) || $18 !~ /^[1-9][0-9]*$/ ||
+				(zero_write ? $17 !~ /^[0-9]+$/ : $17 !~ /^[1-9][0-9]*$/) || $18 !~ /^[1-9][0-9]*$/ ||
 				$19 !~ /^[1-9][0-9]*$/) {
-				printf "LUNA_COMPLEXITY_INVALID node=%s requires positive behavioral, validation, action, and token predictions; implementation files may be zero only for VERIFICATION_ONLY\n", $1 > "/dev/stderr"
+				printf "LUNA_COMPLEXITY_INVALID node=%s requires positive behavioral, validation, action, and token predictions; implementation files may be zero only for zero-write verification or Terra decision/integration leaves\n", $1 > "/dev/stderr"
 				errors++
 			}
 		}
@@ -4650,8 +4656,9 @@ write_decomposition_complexity_report()
 			[[ "$value" =~ ^[0-9]+$ ]] || { printf 'LUNA_COMPLEXITY_INVALID node=%s requires nonnegative integer dimensions\n' "$node_id" >&2; return 1; }
 		done
 		if ! (( behavioral > 0 && validations > 0 && actions > 0 && declared_p95 > 0 )) ||
-			{ (( implementation_files == 0 )) && [[ "$leaf" != VERIFICATION_ONLY ]]; }; then
-			printf 'LUNA_COMPLEXITY_INVALID node=%s requires positive behavioral, validation, action, and token predictions; implementation files may be zero only for VERIFICATION_ONLY\n' "$node_id" >&2
+			{ (( implementation_files == 0 )) &&
+				[[ ! "$leaf" =~ ^(VERIFICATION_ONLY|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]]; }; then
+			printf 'LUNA_COMPLEXITY_INVALID node=%s requires positive behavioral, validation, action, and token predictions; implementation files may be zero only for zero-write verification or Terra decision/integration leaves\n' "$node_id" >&2
 			return 1
 		fi
 		path_count="$(awk -F, '{if ($0=="-" || $0=="") print 0; else print NF}' <<< "$paths")"
