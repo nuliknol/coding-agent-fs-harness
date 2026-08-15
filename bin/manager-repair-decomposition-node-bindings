@@ -18,7 +18,7 @@ architecture_source="$(decomposition_candidate_state_value architecture_director
 rejection_log="$(decomposition_candidate_state_value rejection_log "$candidate_dir/rejection.log")"
 [[ "$architecture_source" != - && -d "$architecture_source" ]] ||
 	die 'node-binding repair requires an architecture registry'
-grep -Eq 'duplicate architecture node binding:|edge .* is absent from (consumer|producer) binding|decision .* is absent from producer binding|invariant .* is absent from affected node binding|health gate .* is absent from trigger binding' \
+grep -Eq 'duplicate architecture node binding:|plan node lacks architecture binding:|edge .* is absent from (consumer|producer) binding|decision .* is absent from producer binding|invariant .* is absent from affected node binding|health gate .* is absent from trigger binding' \
 	"$rejection_log" ||
 	die 'candidate rejection is not a mechanically repairable node-binding defect'
 
@@ -41,7 +41,8 @@ awk -F '\t' -v OFS='\t' \
 	-v invariants_file="$architecture_source/invariants.tsv" \
 	-v decisions_file="$architecture_source/decisions.tsv" \
 	-v edges_file="$architecture_source/edges.tsv" \
-	-v gates_file="$architecture_source/health-gates.tsv" '
+	-v gates_file="$architecture_source/health-gates.tsv" \
+	-v dag_file="$candidate_dir/dag.tsv" '
 	function add_node(node) {
 		if (node == "" || node == "-") return
 		if (!seen[node]++) order[++nodes]=node
@@ -88,6 +89,10 @@ awk -F '\t' -v OFS='\t' \
 		if (FNR > 1) add_list($2, 6, $1)
 		next
 	}
+	FILENAME == dag_file {
+		if (FNR > 1) add_node($1)
+		next
+	}
 	END {
 		print header
 		for (node_index=1; node_index<=nodes; node_index++) {
@@ -100,7 +105,7 @@ awk -F '\t' -v OFS='\t' \
 	}
 ' "$architecture_source/node-bindings.tsv" "$architecture_source/invariants.tsv" \
 	"$architecture_source/decisions.tsv" "$architecture_source/edges.tsv" \
-	"$architecture_source/health-gates.tsv" \
+	"$architecture_source/health-gates.tsv" "$candidate_dir/dag.tsv" \
 	> "$repair_dir/architecture/node-bindings.tsv"
 chmod 600 "$repair_dir/architecture/node-bindings.tsv"
 
