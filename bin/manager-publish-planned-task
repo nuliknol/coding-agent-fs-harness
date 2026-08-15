@@ -193,6 +193,18 @@ if [[ -n "$root_assignment" ]]; then
 		[[ -n "$value" ]] || continue
 		normalize_metadata "$publish_file" "$field" "$value"
 	done
+	# Legacy roots could be reclassified from Terra to Luna before the
+	# three-turn Luna contract was machine-enforced.  Preserve the root's
+	# immutable write/architecture authority, but narrow that stale execution
+	# allowance to the current Luna maximum so the publisher does not restore a
+	# value that its own validator must reject.
+	inherited_route="$(metadata_value "$publish_file" Worker-Route)"
+	inherited_turns="$(metadata_value "$publish_file" Expected-Max-Worker-Turns)"
+	if [[ "$inherited_route" == LUNA && "$inherited_turns" =~ ^[1-9][0-9]*$ ]] &&
+		(( inherited_turns > 3 )); then
+		normalize_metadata "$publish_file" Expected-Max-Worker-Turns 3
+		log_event "LEGACY_LUNA_TURN_BUDGET_NORMALIZED root=$active_root previous=$inherited_turns current=3"
+	fi
 	root_scope="$(metadata_value "$root_assignment" Allowed-Scope)"
 	planned_scope="$(metadata_value "$publish_file" Allowed-Scope)"
 	if [[ -n "$root_scope" && -n "$planned_scope" ]] &&
