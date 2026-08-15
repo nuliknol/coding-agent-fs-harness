@@ -94,6 +94,19 @@ fi
 grep -Fq 'health gate GATE-widget cannot depend on its own trigger node: coding' \
 	"$TEST_ROOT/self-gate.out"
 test ! -e "$TEST_ROOT/state/projects/archguard/control/architecture"
+malformed_decision_architecture="$TEST_ROOT/malformed-decision-architecture"
+cp -a "$TEST_ROOT/architecture" "$malformed_decision_architecture"
+awk -F '\t' 'BEGIN {OFS=FS} $1 == "ADR-widget" {$8=$8 "; Architecture fit ACCEPT; ARCH-WIDGET"} {print}' \
+	"$malformed_decision_architecture/decisions.tsv" > "$malformed_decision_architecture/decisions.tsv.tmp"
+mv "$malformed_decision_architecture/decisions.tsv.tmp" "$malformed_decision_architecture/decisions.tsv"
+if "$HARNESS_BIN/manager-init-architecture" "$TEST_ROOT/harness.env" "$malformed_decision_architecture" \
+	> "$TEST_ROOT/malformed-decision.out" 2>&1; then
+	printf 'decision evidence with an appended prose suffix was accepted\n' >&2
+	exit 1
+fi
+grep -Fq 'evidence must be exactly one bounded repository-relative path' \
+	"$TEST_ROOT/malformed-decision.out"
+test ! -e "$TEST_ROOT/state/projects/archguard/control/architecture"
 wrong_binding_architecture="$TEST_ROOT/wrong-binding-architecture"
 cp -a "$TEST_ROOT/architecture" "$wrong_binding_architecture"
 awk -F '\t' 'BEGIN {OFS=FS} $1 == "contract" {$6="GATE-widget"} {print}' \

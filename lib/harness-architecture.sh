@@ -115,6 +115,25 @@ architecture_validate_contract_artifact()
 	done
 }
 
+architecture_validate_decision_evidence()
+{
+	local decision="$1" evidence="$2" path
+	[[ -n "$evidence" && "$evidence" != - ]] ||
+		die "decision $decision requires exactly one repository-relative evidence path"
+	path="${evidence#operator-worktree:}"
+	[[ -n "$path" && "$path" == "$(trim_surrounding_whitespace "$path")" ]] ||
+		die "decision $decision evidence has surrounding whitespace"
+	# This field is consumed as an exact path during acceptance. Reject prose
+	# suffixes and shell/path metacharacters at registry installation instead of
+	# allowing an otherwise valid leaf to become permanently un-accept-able.
+	[[ "$path" != /* && "$path" != . && "$path" != .. && "$path" != ../* &&
+		"$path" != */../* && "$path" != */.. && "$path" != *';'* &&
+		"$path" != *'|'* && "$path" != *'&'* && "$path" != *'`'* &&
+		"$path" != *'$('* && "$path" != *'*'* && "$path" != *'?'* &&
+		"$path" != *'['* && "$path" != *$'\n'* && "$path" != *$'\r'* ]] ||
+		die "decision $decision evidence must be exactly one bounded repository-relative path: $evidence"
+}
+
 architecture_validate_source_file()
 {
 	local kind="$1" file="$2" expected="$3" min_fields="$4" header fields first
@@ -150,6 +169,7 @@ architecture_require_scoped_validation()
 architecture_validate_source_registry()
 {
 	local source_dir="$1" inv_header dec_header edge_header binding_header gate_header debt_header
+	local decision status producer problem contract interfaces supersedes evidence
 	inv_header=$'invariant_id\tcategory\tauthority\tseverity\tstatement\tscope\tsource_requirement\tvalidation_kind\tvalidation_ref\taffected_nodes'
 	dec_header=$'decision_id\tstatus\tproducer_node\tproblem\tchosen_contract\taffected_interfaces\tsupersedes\tevidence'
 	edge_header=$'edge_id\tproducer_node\tconsumer_node\tcontract_artifact\tpublic_symbols\townership_model\trepresentation\tversioning_rule\tcompatibility_validation\tdecision_ids\tinvariant_ids'
@@ -162,6 +182,10 @@ architecture_validate_source_registry()
 	architecture_validate_source_file node-bindings "$source_dir/node-bindings.tsv" "$binding_header" 6
 	architecture_validate_source_file health-gates "$source_dir/health-gates.tsv" "$gate_header" 7
 	architecture_validate_source_file debt "$source_dir/debt.tsv" "$debt_header" 11
+	while IFS=$'\t' read -r decision status producer problem contract interfaces supersedes evidence; do
+		[[ "$decision" != decision_id ]] || continue
+		architecture_validate_decision_evidence "$decision" "$evidence"
+	done < "$source_dir/decisions.tsv"
 }
 
 architecture_validate_new_validation_scope()
@@ -425,6 +449,7 @@ architecture_validate_registries()
 		[[ -z "${seen[$id]:-}" ]] || die "duplicate decision: $id"; seen[$id]=1
 		[[ "$status" =~ ^(PROPOSED|ACCEPTED|SUPERSEDED)$ ]] || die "invalid decision status for $id"
 		[[ -n "$producer" && -n "$problem" && -n "$contract" && -n "$interfaces" && -n "$supersedes" && -n "$evidence" ]] || die "decision $id has empty required fields"
+		architecture_validate_decision_evidence "$id" "$evidence"
 		if [[ "$status" == ACCEPTED ]]; then
 			[[ "$evidence" != - && -f "$REPOSITORY/$evidence" ]] || die "accepted decision $id lacks repository evidence: $evidence"
 			git -C "$REPOSITORY" ls-tree -r --name-only HEAD -- "$evidence" | grep -Fqx -- "$evidence" ||
