@@ -102,6 +102,64 @@ else
 	fi
 fi
 
+normalize_measured_assignment_metadata()
+{
+	local report decomposition report_row dag_row tmp
+	local complexity_score behavioral failures ownership concurrency validations implementation_files actions declared_p95 effective_p95 terra_exception
+	[[ "$task_id" == "$root" && -n "$plan_item_id" ]] || return 0
+	decomposition="$(project_decomposition_plan_file)"
+	report="$(decomposition_complexity_report_file)"
+	[[ -f "$decomposition" && -f "$report" ]] || return 0
+	decomposition_has_complexity_contract "$decomposition" || return 0
+	report_row="$(awk -F '\t' -v node="$plan_item_id" 'NR > 1 && $1 == node {print; exit}' "$report")"
+	dag_row="$(awk -F '\t' -v node="$plan_item_id" 'NR > 1 && $1 == node {print; exit}' "$decomposition")"
+	[[ -n "$report_row" && -n "$dag_row" ]] || die "measured metadata is missing for plan node: $plan_item_id"
+	IFS=$'\t' read -r _ _ _ complexity_score _ _ _ _ behavioral failures ownership concurrency \
+		validations implementation_files actions declared_p95 effective_p95 _ _ _ <<< "$report_row"
+	terra_exception="$(awk -F '\t' '{print $20}' <<< "$dag_row")"
+	tmp="$task_file.measured.$$"
+	awk -F': ' \
+		-v complexity="$complexity_score" -v behavioral="$behavioral" -v failures="$failures" \
+		-v ownership="$ownership" -v concurrency="$concurrency" -v validations="$validations" \
+		-v files="$implementation_files" -v actions="$actions" -v declared="$declared_p95" \
+		-v effective="$effective_p95" -v exception="$terra_exception" '
+		BEGIN {
+			replace["Complexity-Score"]=complexity
+			replace["Behavioral-Concerns"]=behavioral
+			replace["Failure-Paths"]=failures
+			replace["Ownership-Transitions"]=ownership
+			replace["Concurrency-Boundaries"]=concurrency
+			replace["Validation-Surfaces"]=validations
+			replace["Expected-Max-Implementation-Files"]=files
+			replace["Expected-Max-Agent-Actions"]=actions
+			replace["Predicted-P95-Tokens"]=declared
+			replace["Effective-P95-Tokens"]=effective
+			replace["Terra-Exception"]=exception
+		}
+		$1 == "Declared-P95-Tokens" {next}
+		$1 in replace {next}
+		{print}
+		END {
+			print "Complexity-Score: " replace["Complexity-Score"]
+			print "Behavioral-Concerns: " replace["Behavioral-Concerns"]
+			print "Failure-Paths: " replace["Failure-Paths"]
+			print "Ownership-Transitions: " replace["Ownership-Transitions"]
+			print "Concurrency-Boundaries: " replace["Concurrency-Boundaries"]
+			print "Validation-Surfaces: " replace["Validation-Surfaces"]
+			print "Expected-Max-Implementation-Files: " replace["Expected-Max-Implementation-Files"]
+			print "Expected-Max-Agent-Actions: " replace["Expected-Max-Agent-Actions"]
+			print "Predicted-P95-Tokens: " replace["Predicted-P95-Tokens"]
+			print "Effective-P95-Tokens: " replace["Effective-P95-Tokens"]
+			print "Terra-Exception: " replace["Terra-Exception"]
+		}
+	' "$task_file" > "$tmp"
+	chmod --reference="$task_file" "$tmp"
+	mv "$tmp" "$task_file"
+	log_event "MEASURED_ASSIGNMENT_METADATA_NORMALIZED task=$task_id plan_item=$plan_item_id complexity_score=$complexity_score actions=$actions p95=$effective_p95"
+}
+
+normalize_measured_assignment_metadata
+
 [[ ! -e "$ready" ]] || die "task already ready: $task_id"
 [[ ! -e "$running" ]] || die "task already running: $task_id"
 [[ ! -e "$result" ]] || die "task already has a result: $task_id"
