@@ -298,6 +298,19 @@ project_has_active_task()
 		compgen -G "$dir/control/progress/$PROJECT-task-*.token-usage-anomaly.md" >/dev/null
 }
 
+root_has_pending_review_result()
+{
+	local root="$1" artifact artifact_task
+	for artifact in "$dir/results/$PROJECT-task-"*.result.md; do
+		[[ -f "$artifact" ]] || continue
+		artifact_task="$(task_id_from_filename "$artifact")"
+		if [[ "$(task_root_id "$artifact_task")" == "$root" ]]; then
+			return 0
+		fi
+	done
+	return 1
+}
+
 process_dependency_requests()
 {
 	local request
@@ -394,6 +407,12 @@ process_auto_replans()
 		name="${marker##*/}"
 		root="${name#${PROJECT}-task-}"
 		root="${root%.needs-replan.md}"
+		# Replanning may only begin after the terminal review transaction has
+		# consumed the exact result for this root.  A manager that accidentally
+		# acts on an earlier revision can create a needs-replan marker while the
+		# current result remains live; publishing then necessarily collides with
+		# that result and strands the root in RECOVERY_STALLED.
+		root_has_pending_review_result "$root" && continue
 		current="$(fingerprint "$marker")"
 		[[ "${replan_failed_fingerprint[$root]:-}" != "$current" ]] || continue
 		log_event "SUPERVISOR_INVOKE_MANAGER_REPLAN root=$root fingerprint=$current invoker=$manager_replan_invoker"

@@ -18,6 +18,17 @@ cat > "$TEST_ROOT/manager-invoker" <<SCRIPT
 set -Eeuo pipefail
 task_id="\$2"
 touch "$TEST_ROOT/manager-called-\$task_id"
+if [[ "\$task_id" == 004-revision-01 ]]; then
+	mkdir -p "$TEST_ROOT/state/projects/raceproj/control/progress"
+	cat > "$TEST_ROOT/state/projects/raceproj/control/progress/raceproj-task-004.needs-replan.md" <<'MARKER'
+# Root Task Needs Replanning
+
+Task-Root: 004
+Triggered-By: 004
+Trigger-Outcome: GOAL_NEEDS_DECOMPOSITION
+MARKER
+	exit 3
+fi
 rm -f "$TEST_ROOT/state/projects/raceproj/results/raceproj-task-\$task_id.result.md"
 SCRIPT
 chmod 700 "$TEST_ROOT/manager-invoker"
@@ -155,6 +166,33 @@ done
 kill -0 "$supervisor_pid"
 ! grep -Fq 'SUPERVISOR_FATAL' "$project/logs/events.log"
 grep -Fq 'SUPERVISOR_MANAGER_RECOVERY_FAILED root=003 status=70' "$project/logs/events.log"
+
+# A needs-replan marker cannot race ahead of an exact revision result that is
+# still awaiting a terminal manager review action. The result remains the
+# authoritative transaction boundary and the replan invoker must stay idle.
+cat > "$project/archive/raceproj-task-004-revision-01.assignment.md" <<'ASSIGNMENT'
+# Task Assignment
+
+Task-ID: 004-revision-01
+Task-Root: 004
+ASSIGNMENT
+cat > "$project/results/raceproj-task-004-revision-01.result.md" <<'RESULT'
+# Task Result
+
+Task-ID: 004-revision-01
+Status: COMPLETED
+RESULT
+for _ in $(seq 1 100); do
+	[[ -e "$TEST_ROOT/manager-called-004-revision-01" ]] && break
+	sleep 0.05
+done
+[[ -e "$TEST_ROOT/manager-called-004-revision-01" ]]
+sleep 1.2
+[[ -f "$project/results/raceproj-task-004-revision-01.result.md" ]]
+[[ -f "$project/control/progress/raceproj-task-004.needs-replan.md" ]]
+[[ -f "$project/control/raceproj-task-004-revision-01.manager-review-stalled.md" ]]
+[[ ! -e "$TEST_ROOT/manager-replan-called-004" ]]
+kill -0 "$supervisor_pid"
 "$HARNESS_BIN/harness-supervisor-stop" "$TEST_ROOT/harness.env" >/dev/null
 
 printf 'supervisor result barrier tests passed.\n'

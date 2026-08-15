@@ -39,6 +39,7 @@ rejected="$project_path/archive/$base.rejected.md"
 blocked="$project_path/archive/$base.blocked.md"
 superseded="$project_path/archive/$base.superseded.md"
 architecture_reassessment="$(task_root_architecture_reassessment_file "$task_id")"
+root_replan_marker="$(task_root_replan_file "$task_id")"
 pending_exit_status=3
 [[ -f "$result" ]] || die "result file does not exist: $result"
 [[ ! -e "$running" ]] || die "result is not committed; running assignment still exists: $running"
@@ -372,6 +373,7 @@ fallback_stage=0
 current_model="$MANAGER_MODEL"
 review_thread_id=""
 fresh_context_pending=1
+wrong_task_recovery_retry=0
 manager_rotation_reason=bounded_review
 if (( review_state_changed == 1 )); then
 	manager_rotation_reason=review_state_changed
@@ -404,6 +406,18 @@ manager_action_committed()
 		-f "$superseded" || -f "$architecture_reassessment" ]]
 }
 
+file_content_fingerprint()
+{
+	local file="$1"
+	if [[ -f "$file" ]]; then
+		sha256sum "$file" | awk '{print $1}'
+	else
+		printf 'missing\n'
+	fi
+}
+
+initial_root_replan_fingerprint="$(file_content_fingerprint "$root_replan_marker")"
+
 while true; do
 	stamp="$(date -u '+%Y%m%dT%H%M%SZ')"
 	attempt_label="$(printf '%03d' "$attempt")"
@@ -433,13 +447,37 @@ while true; do
 	trace_event CODEX_EXEC_END "role=manager_review" "task_id=$task_id" "attempt=$attempt" "status=$status" "json_log=$json_log" "last_message=$last_message"
 
 	if (( status == 0 )); then
-		commit_fresh_manager_context
 		if manager_action_committed; then
+			commit_fresh_manager_context
 			log_event "MANAGER_REVIEW_FINISHED task=$task_id attempt=$attempt"
 			trace_event MANAGER_REVIEW_COMMITTED "task_id=$task_id" "attempt=$attempt" "status=$status"
 			printf 'Manager review turn completed and exited for task %s.\n' "$task_id"
 			exit 0
 		fi
+
+		current_root_replan_fingerprint="$(file_content_fingerprint "$root_replan_marker")"
+		if (( wrong_task_recovery_retry == 0 )) && [[ -f "$result" ]] &&
+			[[ "$current_root_replan_fingerprint" != "$initial_root_replan_fingerprint" ]]; then
+			# A newly changed root-replan marker without a terminal artifact for
+			# this exact result means the manager acted on an earlier sibling/root
+			# revision. Discard that conversational turn and allow exactly one
+			# fresh corrective review. The supervisor's result barrier prevents
+			# the premature marker from racing into automatic replanning.
+			wrong_task_recovery_retry=1
+			attempt=$((attempt + 1))
+			review_thread_id=""
+			fresh_context_pending=1
+			manager_rotation_reason=wrong_task_terminal_action_recovery
+			cat >> "$prompt_file" <<PROMPT
+
+Corrective retry: the previous turn changed root-level recovery state but did not consume RESULT_FILE or create a terminal artifact for exact TASK_ID=$task_id. Review and act on exactly TASK_ID=$task_id, not TASK_ROOT=$task_root or any earlier revision. Your one terminal command must use TASK_ID=$task_id and must archive the current RESULT_FILE.
+PROMPT
+			log_event "MANAGER_REVIEW_WRONG_TASK_ACTION_RETRY task=$task_id root=$task_root attempt=$attempt"
+			trace_event MANAGER_REVIEW_WRONG_TASK_ACTION_RETRY "task_id=$task_id" "task_root=$task_root" "attempt=$attempt"
+			continue
+		fi
+
+		commit_fresh_manager_context
 
 		log_event "MANAGER_REVIEW_LEFT_PENDING task=$task_id attempt=$attempt"
 		trace_event MANAGER_REVIEW_PENDING "task_id=$task_id" "attempt=$attempt"
