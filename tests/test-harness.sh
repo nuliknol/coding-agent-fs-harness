@@ -2132,7 +2132,11 @@ oracle_prompt="$ORACLE_ROOT/state/projects/oracleproj/control/oracle-audit-1.pro
 grep -q 'at least one `Original-Requirement-ID: ...`' "$oracle_prompt"
 grep -q '`Remediation-Authority: AUTOMATIC`' "$oracle_prompt"
 grep -q '`HUMAN_APPROVAL`' "$oracle_prompt"
-grep -Fq '`*.manager-remediations.tsv`' "$oracle_prompt"
+grep -Fq 'Read ORACLE_CONTEXT_CAPSULE exactly once.' "$oracle_prompt"
+grep -Fq 'do not read repository inventories, prior wave or master plans' "$oracle_prompt"
+oracle_capsule="$ORACLE_ROOT/state/projects/oracleproj/control/oracle-audit-1.context.md"
+grep -Fq '# Bounded Final Oracle Context' "$oracle_capsule"
+grep -Fq '## Executable acceptance boundaries' "$oracle_capsule"
 grep -q 'exclusive-file.*baseline-prerequisite repair' "$oracle_prompt"
 grep -q '^Human-Dependency-Class: HUMAN_AUTHORIZATION|HUMAN_SECRET|HUMAN_EXTERNAL_STATE|HUMAN_PRODUCT_SPECIFICATION$' "$oracle_prompt"
 [[ "$(cat "$ORACLE_ROOT/state/mock-counts/oracle-1")" == 3 ]]

@@ -29,6 +29,44 @@ write_oracle_snapshot
 
 dir="$(project_dir)"
 audit_id="$(awk -F': ' '$1 == "Audit-ID" {print $2; exit}' "$pending")"
+capsule="$dir/control/oracle-audit-$audit_id.context.md"
+oracle_obligations="$(specification_obligations_file 2>/dev/null || true)"
+oracle_relations="$(specification_relations_file 2>/dev/null || true)"
+oracle_coverage="$(specification_coverage_file 2>/dev/null || true)"
+oracle_decomposition="$(project_decomposition_plan_file 2>/dev/null || true)"
+{
+	printf '# Bounded Final Oracle Context\n\nProject: %s\n\nRepository: %s\n\nSpecification: %s\n\n' "$PROJECT" "$REPOSITORY" "$SPECIFICATION"
+	if git -C "$REPOSITORY" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+		printf 'Repository-HEAD: %s\n\nRepository-Status:\n```text\n' "$(git -C "$REPOSITORY" rev-parse HEAD)"
+		git -C "$REPOSITORY" status --short
+	else
+		printf 'Repository-HEAD: unavailable (legacy non-Git fixture)\n\nRepository-Status:\n```text\n'
+	fi
+	printf '```\n\n## Normalized obligations\n```tsv\n'; [[ ! -f "$oracle_obligations" ]] || cat "$oracle_obligations"
+	printf '```\n\n## Typed relations\n```tsv\n'; [[ ! -f "$oracle_relations" ]] || cat "$oracle_relations"
+	printf '```\n\n## Obligation coverage\n```tsv\n'; [[ ! -f "$oracle_coverage" ]] || cat "$oracle_coverage"
+	printf '```\n\n## Completed plan\n```tsv\n'; cat "$(project_plan_definition_file)"; cat "$(project_plan_state_file)"
+	printf '```\n\n## Executable acceptance boundaries\n```tsv\n'
+	if [[ -f "$oracle_decomposition" ]]; then
+		awk -F '\t' 'BEGIN{OFS="\t"} {print $1,$4,$5,$6,$7,$8,$11}' "$oracle_decomposition"
+	else
+		printf 'legacy-plan-without-decomposition\n'
+	fi
+	printf '```\n\n## Architecture completion state\n'
+	if (( HARNESS_ARCHITECTURE_GUARDS == 1 )); then
+		for name in invariants decisions decision-ledger edges health-gates health-ledger debt debt-ledger node-bindings; do
+			file="$(architecture_dir)/$name.tsv"; [[ -f "$file" ]] || continue
+			printf '\n### %s\n```tsv\n' "$name"; cat "$file"; printf '```\n'
+		done
+	else
+		printf '\nArchitecture guards are disabled.\n'
+	fi
+	printf '\n## Accepted evidence index\n```text\n'
+	find "$dir/archive" -maxdepth 1 -type f \( -name '*.accepted.md' -o -name '*.result.md' \) -printf '%f\n' | sort
+	printf '```\n'
+} > "$capsule.tmp.$$"
+chmod 600 "$capsule.tmp.$$"
+mv "$capsule.tmp.$$" "$capsule"
 prompt="$dir/control/oracle-audit-$audit_id.prompt.md"
 cat > "$prompt.tmp.$$" <<PROMPT
 You are the final Oracle auditor for a filesystem-backed coding harness. You are independent of the manager and worker. Do not edit repository source, tests, builds, specifications, or harness state directly.
@@ -53,8 +91,9 @@ HARNESS_BIN=$HARNESS_BIN
 AUDIT_ID=$audit_id
 ARCHITECTURE_GUARDS=$HARNESS_ARCHITECTURE_GUARDS
 ARCHITECTURE_DIR=$(architecture_dir)
+ORACLE_CONTEXT_CAPSULE=$capsule
 
-Read the complete original specification, every referenced mandatory task/specification document, normalized obligations and typed relations when present, obligation-to-DAG coverage, repository facts, selected domain profiles, the durable plan and its state, accepted task review records, and the implemented repository. Also read every applicable \`*.manager-remediations.tsv\` and \`*.hard-blocks.tsv\` ledger under PROJECT_PROGRESS_DIR plus the corresponding manager-remediation assignments and final accepted reviews under PROJECT_ARCHIVE_DIR. When ARCHITECTURE_GUARDS=1, read every registry, decision and health ledger, impact manifest, and debt row under ARCHITECTURE_DIR. Independently reproduce only the focused acceptance/build/smoke and registered architecture-health evidence needed to establish compliance. Do not trust manager or worker claims without evidence.
+Read ORACLE_CONTEXT_CAPSULE exactly once. It is the authoritative bounded index of normalized requirements, completed plan state, executable acceptance boundaries, architecture state, and accepted evidence. Read the original SPECIFICATION once only when a normalized obligation is ambiguous. Read an accepted result or review only by its exact indexed task ID when its evidence is needed. Inspect only repository paths named by the relevant executable acceptance boundary and independently reproduce only its focused acceptance/build/smoke or registered architecture-health command. Do not enumerate the repository, progress directory, archive directory, or architecture directory; do not read repository inventories, prior wave or master plans, specification-authoring guides, development policy, unrelated work documents, prior agent logs, or the same control/source file twice. Capture validation output to a file and return only a bounded tail or concise PASS/FAIL summary. Do not trust manager or worker claims without evidence.
 
 Treat independently verified manager-remediation paths as separately attributed baseline-prerequisite provenance, not as feature-owned implementation changes. A repository-local code, build, testability, integration, file-ownership, exclusive-file, forbidden-file, or frozen-baseline conflict is resolvable engineering work. It is \`AUTOMATIC\` when still unmet; it is not a human product/specification decision. If the manager-remediation evidence is bounded, causally required by an existing acceptance command, preserves the specification's observable behavior, and the repaired acceptance command passes, do not fail merely because the prerequisite path lies outside the original worker feature scope. Prior Oracle addenda and legacy hard-block classifications are evidence only and do not override this policy.
 

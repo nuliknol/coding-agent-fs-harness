@@ -240,6 +240,10 @@ the immutable DAG. Ambiguous omitted coverage uses the same pattern: Sol emits
 only a one- or two-obligation mapping for each uncovered executable leaf, and
 the harness merges and validates it. DAG/coverage
 validation also stages before checking and uses its own bounded repair turn.
+Final Oracle audits receive one generated, bounded context capsule and are
+forbidden from recursively enumerating archives, old plans, policy documents,
+or rereading the same control files. This keeps global verification independent
+without replaying the complete implementation history into every audit action.
 If startup is
 interrupted after either staging boundary, the next `harness-start` continues
 without repeating earlier global model exploration. Failed detached startup

@@ -381,4 +381,21 @@ done
 grep -Fqx 'Complexity-Class: LOW' "$TEST_ROOT/revision-draft.md"
 grep -Fqx 'Worker-Route: LUNA' "$TEST_ROOT/revision-draft.md"
 
+cat > "$TEST_ROOT/remediation-draft.md" <<'EOF'
+# Manager remediation draft
+
+Task-ID: leaf-root-revision-01
+Complexity-Class: LOW
+Worker-Route: LUNA
+EOF
+set +e
+"$HARNESS_BIN/manager-publish-task" "$env_file" leaf-root-revision-01 \
+	"$TEST_ROOT/remediation-draft.md" --manager-remediation >/dev/null 2>&1
+remediation_status=$?
+set -e
+(( remediation_status != 0 ))
+grep -Fqx 'Complexity-Class: LOW' "$TEST_ROOT/remediation-draft.md"
+grep -Fqx 'Worker-Route: TERRA' "$TEST_ROOT/remediation-draft.md"
+grep -Fqx 'Terra-Exception: -' "$TEST_ROOT/remediation-draft.md"
+
 printf 'split decomposition startup transaction tests passed\n'
