@@ -62,6 +62,23 @@ set +e
 		validate_decomposition_measured_schema_file "$candidate_dir/dag.tsv" ||
 			die 'measured decomposition DAG contains invalid or non-executable rows'
 	fi
+	specification_relative="$(realpath --relative-to="$REPOSITORY" "$SPECIFICATION" 2>/dev/null || true)"
+	if [[ -n "$specification_relative" && "$specification_relative" != ../* ]]; then
+		awk -F '\t' -v spec="$specification_relative" '
+			function trim(v) {gsub(/^[[:space:]]+|[[:space:]]+$/, "", v); sub(/\/$/, "", v); return v}
+			NR>1 {
+				n=split($7,a,",")
+				for(i=1;i<=n;i++) {
+					path=trim(a[i])
+					if(path==spec || index(spec,path "/")==1) {
+						printf "executable DAG node %s authorizes mutation of the governing specification through allowed path %s\n",$1,path > "/dev/stderr"
+						errors++
+					}
+				}
+			}
+			END{exit(errors?1:0)}
+		' "$candidate_dir/dag.tsv" || die 'decomposition DAG must treat the accepted governing specification as immutable authority'
+	fi
 	validate_specification_coverage_file "$candidate_dir/coverage.tsv" "$candidate_dir/dag.tsv"
 	if [[ "$dag_header" == "$complexity_dag_header" ]]; then
 		write_decomposition_complexity_report "$candidate_dir/dag.tsv" "$candidate_dir/coverage.tsv" "$candidate_dir/complexity.tsv"

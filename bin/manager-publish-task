@@ -413,6 +413,24 @@ scope_metadata_is_path_list()
 	return 0
 }
 
+scope_authorizes_governing_specification()
+{
+	local scope="$1" specification_relative entry
+	local -a entries=()
+	specification_relative="$(realpath --relative-to="$REPOSITORY" "$SPECIFICATION" 2>/dev/null || true)"
+	[[ -n "$specification_relative" && "$specification_relative" != ../* ]] || return 1
+	scope="${scope//;/,}"
+	IFS=',' read -r -a entries <<< "$scope"
+	for entry in "${entries[@]}"; do
+		entry="$(trim_surrounding_whitespace "$entry")"
+		entry="${entry%/}"
+		if [[ "$entry" == "$specification_relative" || "$specification_relative" == "$entry"/* ]]; then
+			return 0
+		fi
+	done
+	return 1
+}
+
 enforce_revision_authority()
 {
 	local root_scope root_architecture root_max_files root_max_turns reason="" category=IMMUTABLE_ROOT_AUTHORITY
@@ -501,6 +519,8 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 	if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 		scope_metadata_is_path_list "$goal_allowed_scope" ||
 			die 'Allowed-Scope must contain only comma-separated repository-relative path prefixes; put descriptive prose in Objective'
+		! scope_authorizes_governing_specification "$goal_allowed_scope" ||
+			die 'Allowed-Scope must not authorize mutation of the accepted governing specification'
 		leaf_type="$(require_single_metadata_value "$task_file" Leaf-Type 'v2 leaf assignment')"
 		leaf_complexity="$(require_single_metadata_value "$task_file" Complexity-Class 'v2 leaf assignment')"
 		leaf_worker_route="$(require_single_metadata_value "$task_file" Worker-Route 'v2 leaf assignment')"

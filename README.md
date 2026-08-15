@@ -141,6 +141,12 @@ while commands and watchers display only the repository-relative report name.
 Revise and commit the governing specification or repository evidence, then run
 `harness-start` again to obtain a fresh review.
 
+After acceptance, the governing specification is immutable implementation
+authority. Decomposition staging and task publication reject any executable
+write scope that names the specification itself or one of its parent
+directories. Architectural decisions belong in the durable architecture
+registry; a worker cannot silently amend the accepted contract while coding.
+
 Structured requirement `Dependencies` are extracted before the reviewer is
 launched. A source-declared cycle is recorded deterministically as
 `CONTRADICTORY_REQUIREMENTS`, so no manager tokens are spent and no generated

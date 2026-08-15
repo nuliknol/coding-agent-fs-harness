@@ -162,6 +162,7 @@ EOF
 cat > "$TEST_ROOT/bad-coverage.tsv" <<'EOF'
 obligation_id	node_ids	evidence_plan
 EOF
+sed 's#src/a.c#spec.md#g' "$TEST_ROOT/dag.tsv" > "$TEST_ROOT/spec-edit-dag.tsv"
 cat > "$TEST_ROOT/omitted-node-dag.tsv" <<'EOF'
 node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route	behavioral_concerns	failure_paths	ownership_transitions	concurrency_boundaries	validation_surfaces	implementation_files	predicted_worker_actions	predicted_p95_tokens	terra_exception
 n00	-	-	Implement target prerequisite	Focused prerequisite exists	test -f src/a.c	src/a.c	target	LOCAL_IMPLEMENTATION	LOW	LUNA	1	0	0	0	1	1	4	100000	-
@@ -198,6 +199,14 @@ set -e
 complexity_rejection_log="$(awk -F= '$1=="rejection_log" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
 grep -Fq 'LUNA_COMPLEXITY_OVER_BUDGET node=n01' "$complexity_rejection_log"
 grep -Fq 'behavioral_concerns=2>1' "$complexity_rejection_log"
+
+set +e
+"$HARNESS_BIN/manager-stage-decomposition-dag" "$env_file" "$TEST_ROOT/spec-edit-dag.tsv" "$TEST_ROOT/coverage.tsv" >/dev/null 2>&1
+spec_edit_status=$?
+set -e
+(( spec_edit_status != 0 ))
+spec_edit_rejection="$(awk -F= '$1=="rejection_log" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
+grep -Fq 'decomposition DAG must treat the accepted governing specification as immutable authority' "$spec_edit_rejection"
 
 # Recursive complexity repair is submitted as a bounded replacement patch.
 # The machine merges it into the full DAG, rewrites dependent edges and
