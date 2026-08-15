@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+mode=dag
+if [[ "${1:-}" == --full ]]; then mode=full; shift; fi
+[[ $# -eq 1 ]] || { printf 'Usage: %s [--full] ENV_FILE\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+require_manager_configuration
+project_plan_exists && { printf 'Decomposition DAG already exists.\n'; exit 0; }
+
+if [[ "$mode" == full ]]; then
+	decomposition_candidate_matches_current_inputs || die 'no current full decomposition candidate exists'
+	[[ "$(decomposition_candidate_state_value status)" == REJECTED ]] || die 'full relation repair requires a rejected candidate'
+	candidate_dir="$(decomposition_candidate_state_value directory)"
+	dag_source="$candidate_dir/dag.tsv"
+	coverage_source="$candidate_dir/coverage.tsv"
+	architecture_source="$(decomposition_candidate_state_value architecture_directory -)"
+else
+	decomposition_dag_candidate_matches_current_inputs || die 'no current DAG candidate exists'
+	[[ "$(decomposition_dag_candidate_state_value status)" == REJECTED ]] || die 'relation repair requires a rejected DAG candidate'
+	candidate_dir="$(decomposition_dag_candidate_state_value directory)"
+	dag_source="$(decomposition_dag_candidate_state_value dag)"
+	coverage_source="$(decomposition_dag_candidate_state_value coverage)"
+	architecture_source=-
+fi
+rejection_log="$candidate_dir/rejection.log"
+grep -Eq 'coverage violates (DEPENDS_ON|REQUIRES_ACCEPTED) relation' "$rejection_log" ||
+	die 'candidate rejection is not a mechanically repairable typed dependency violation'
+
+repair_dir="$PROJECT_TMP_DIR/decomposition-relation-repair-${candidate_dir##*/}"
+rm -rf -- "$repair_dir"
+mkdir -p "$repair_dir"
+repaired_dag="$repair_dir/dag.tsv"
+install -m 600 "$coverage_source" "$repair_dir/coverage.tsv"
+
+awk -F '\t' -v OFS='\t' -v coverage_file="$coverage_source" \
+	-v relations_file="$(specification_relations_file)" -v dag_file="$dag_source" '
+	function trim(v) {gsub(/^[[:space:]]+|[[:space:]]+$/, "", v); return v}
+	function rebuild_reach(  i,j,k,a,b,changed) {
+		delete reach
+		for (k in dependency) reach[k]=1
+		do {
+			changed=0
+			for (a in reach) {
+				split(a, ap, SUBSEP)
+				for (b in reach) {
+					split(b, bp, SUBSEP)
+					if (ap[2] == bp[1] && !((ap[1] SUBSEP bp[2]) in reach)) {
+						added[ap[1] SUBSEP bp[2]]=1; changed=1
+					}
+				}
+			}
+			for (k in added) {reach[k]=1; delete added[k]}
+		} while (changed)
+	}
+	function follows(node, obligation,  key,p) {
+		for (key in covered) {
+			split(key,p,SUBSEP)
+			if (p[1] == obligation && ((node SUBSEP p[2]) in reach)) return 1
+		}
+		return 0
+	}
+	function add_dependency(node, obligation,  key,p,candidate,best) {
+		best=""
+		for (key in covered) {
+			split(key,p,SUBSEP)
+			if (p[1] != obligation) continue
+			candidate=p[2]
+			if (candidate == node || !(candidate in node_order)) continue
+			if (node_order[candidate] >= node_order[node]) continue
+			if (best == "" || node_order[candidate] > node_order[best]) best=candidate
+		}
+		if (best == "") return 0
+		dependency[node SUBSEP best]=1
+		if (node_depends[node] == "-") node_depends[node]=best
+		else node_depends[node]=node_depends[node] "," best
+		rebuild_reach()
+		return 1
+	}
+	FILENAME == coverage_file {
+		if (FNR == 1) next
+		n=split($2,v,","); for(i=1;i<=n;i++) covered[$1 SUBSEP trim(v[i])]=1
+		next
+	}
+	FILENAME == relations_file {
+		if (FNR == 1 || $5 == "PLANNING_HINT") next
+		if ($2 == "DEPENDS_ON" || $2 == "REQUIRES_ACCEPTED") {
+			relation_count++; relation_subject[relation_count]=$3; relation_object[relation_count]=$4; relation_id[relation_count]=$1
+		}
+		next
+	}
+	FILENAME == dag_file {
+		if (FNR == 1) {header=$0; next}
+		row_count++; row[row_count]=$0; node=$1; node_order[node]=row_count; row_node[row_count]=node; node_depends[node]=$3
+		n=split($3,v,","); for(i=1;i<=n;i++) if(trim(v[i]) != "-") dependency[node SUBSEP trim(v[i])]=1
+		next
+	}
+	END {
+		rebuild_reach()
+		for (r=1;r<=relation_count;r++) {
+			for (key in covered) {
+				split(key,p,SUBSEP)
+				if (p[1] != relation_subject[r]) continue
+				node=p[2]
+				if (!follows(node, relation_object[r]) && !add_dependency(node, relation_object[r])) {
+					printf "cannot safely order relation %s: %s must follow %s at node %s\n", relation_id[r], relation_subject[r], relation_object[r], node > "/dev/stderr"
+					errors++
+				}
+			}
+		}
+		if (errors) exit 1
+		print header
+		for(i=1;i<=row_count;i++) {
+			node=row_node[i]; split(row[i],f,"\t"); f[3]=node_depends[node]
+			out=f[1]; for(j=2;j<=11;j++) out=out OFS f[j]; print out
+		}
+	}
+' "$coverage_source" "$(specification_relations_file)" "$dag_source" > "$repaired_dag"
+chmod 600 "$repaired_dag"
+
+if [[ "$mode" == full ]]; then
+	"$HARNESS_BIN/manager-submit-decomposition" "$HARNESS_ENV_FILE" "$repaired_dag" "$repair_dir/coverage.tsv" "$architecture_source"
+else
+	"$HARNESS_BIN/manager-stage-decomposition-dag" "$HARNESS_ENV_FILE" "$repaired_dag" "$repair_dir/coverage.tsv"
+fi
+log_event "DECOMPOSITION_RELATIONS_REPAIRED mode=$mode source=$candidate_dir"

@@ -169,12 +169,28 @@ while ! project_plan_exists; do
 		fi
 		if decomposition_candidate_matches_current_inputs &&
 			[[ "$(decomposition_candidate_state_value status)" == REJECTED ]]; then
+			full_rejection_log="$(decomposition_candidate_state_value rejection_log "$(decomposition_candidate_state_value directory)/rejection.log")"
+			if [[ -f "$full_rejection_log" ]] &&
+				grep -Eq 'coverage violates (DEPENDS_ON|REQUIRES_ACCEPTED) relation' "$full_rejection_log"; then
+				printf 'Repairing mechanical typed dependency relations without an agent turn.\n'
+				if "$HARNESS_BIN/manager-repair-decomposition-relations" --full "$HARNESS_ENV_FILE"; then
+					continue
+				fi
+			fi
 			printf 'Repairing the durably rejected decomposition candidate before launching another global Sol turn.\n'
 			"$HARNESS_BIN/manager-decomposition-repair" "$HARNESS_ENV_FILE"
 			continue
 		fi
 		if decomposition_dag_candidate_matches_current_inputs &&
 			[[ "$(decomposition_dag_candidate_state_value status)" == REJECTED ]]; then
+			dag_rejection_log="$(decomposition_dag_candidate_state_value rejection_log "$(decomposition_dag_candidate_state_value directory)/rejection.log")"
+			if [[ -f "$dag_rejection_log" ]] &&
+				grep -Eq 'coverage violates (DEPENDS_ON|REQUIRES_ACCEPTED) relation' "$dag_rejection_log"; then
+				printf 'Repairing mechanical typed dependency relations without an agent turn.\n'
+				if "$HARNESS_BIN/manager-repair-decomposition-relations" "$HARNESS_ENV_FILE"; then
+					continue
+				fi
+			fi
 			printf 'Repairing the durably rejected DAG/coverage candidate before another global Sol turn.\n'
 			"$HARNESS_BIN/manager-decomposition-dag-repair" "$HARNESS_ENV_FILE"
 			continue
