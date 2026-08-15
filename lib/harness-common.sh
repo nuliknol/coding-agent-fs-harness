@@ -4547,6 +4547,7 @@ decomposition_complexity_report_file()
 complexity_contract_sha256()
 {
 	printf '%s\n' \
+		'node-local-risk-domains-v2' \
 		"$HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF" "$HARNESS_MAX_LUNA_ALLOWED_PATHS" \
 		"$HARNESS_MAX_LUNA_REQUIRED_SYMBOLS" "$HARNESS_MAX_LUNA_BEHAVIORAL_CONCERNS" \
 		"$HARNESS_MAX_LUNA_FAILURE_PATHS" "$HARNESS_MAX_LUNA_OWNERSHIP_TRANSITIONS" \
@@ -4637,7 +4638,12 @@ write_decomposition_complexity_report()
 		(( ownership >= derived_ownership )) || ownership="$derived_ownership"
 		(( concurrency >= derived_concurrency )) || concurrency="$derived_concurrency"
 		(( validations >= derived_validations )) || validations="$derived_validations"
-		text="$(printf '%s %s %s' "${fields[3]}" "${fields[4]}" "$obligation_text" | tr '[:upper:]' '[:lower:]')"
+		# Complexity is measured at the executable child boundary.  The complete
+		# normalized obligation remains authoritative for coverage and derived
+		# minimum dimensions above, but reattaching all of its semantic risk words
+		# to every child would make a broad obligation mathematically impossible to
+		# decompose: each child would inherit the parent's full risk-domain count.
+		text="$(printf '%s %s %s' "${fields[3]}" "${fields[4]}" "${fields[5]}" | tr '[:upper:]' '[:lower:]')"
 		risk_domains=0
 		grep -Eq 'concurr|parallel|enqueue|synchron|multi-device|multidevice|shard' <<< "$text" && risk_domains=$((risk_domains + 1))
 		grep -Eq 'owner|ownership|route|routing|publication|publish' <<< "$text" && risk_domains=$((risk_domains + 1))

@@ -74,7 +74,7 @@ Decision: ACCEPT
 EOF
 cat > "$repo/spec-review/obligations.tsv" <<'EOF'
 obligation_id	authority	source_requirement	source_location	obligation_type	statement	observable_outcome	acceptance_authority
-REQ-ONE	SPECIFIED	REQ-ONE	spec.md:1	FUNCTIONAL	Implement target behavior	Focused target validation passes	SPECIFICATION
+REQ-ONE	SPECIFIED	REQ-ONE	spec.md:1	FUNCTIONAL	Implement target ownership with exact error handling and receipt telemetry	Focused target validation passes	SPECIFICATION
 REQ-TWO	SPECIFIED	REQ-TWO	spec.md:1	FUNCTIONAL	Expose the completed target behavior	The same focused target validation passes	SPECIFICATION
 EOF
 cat > "$repo/spec-review/relations.tsv" <<'EOF'
@@ -240,6 +240,11 @@ grep -Fq $'n01\tPENDING\t-' "$project_dir/control/project-plan-state.tsv"
 complexity_output="$($HARNESS_BIN/harness-complexity "$env_file")"
 grep -Fq 'n01' <<< "$complexity_output"
 grep -Fq 'READY' <<< "$complexity_output"
+# A broad parent obligation may span ownership, error, and telemetry domains.
+# Its focused child does not inherit those words for risk-domain scoring; full
+# obligation coverage remains mandatory through the separate coverage table.
+grep -Fq $'n01\tLUNA\tLOCAL_IMPLEMENTATION\t' "$project_dir/control/decomposition-complexity.tsv"
+[[ "$(awk -F '\t' '$1=="n01" {print $18}' "$project_dir/control/decomposition-complexity.tsv")" == 0 ]]
 
 # Observed execution and manager outcome feed model- and planner-specific
 # calibration without changing the immutable plan.

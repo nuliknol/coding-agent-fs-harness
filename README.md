@@ -736,6 +736,13 @@ export HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION="500000"
 export HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS="500000"
 ```
 
+Risk domains are scored from each executable node's deliverable, acceptance
+evidence, and focused validation. The full normalized obligation still drives
+coverage and minimum behavioral, failure, and ownership dimensions, but its
+complete vocabulary is not copied into every child; otherwise a multi-domain
+parent requirement could never be recursively decomposed into Luna-ready
+leaves.
+
 The live estimate is an intentionally conservative context-amplification
 circuit breaker. It samples prompt and JSONL transcript growth at agent item
 boundaries, so an invocation can be terminated before Codex emits authoritative
