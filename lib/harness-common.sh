@@ -2541,12 +2541,10 @@ record_root_liveness_epoch()
 
 root_liveness_violation_reason()
 {
-	local root="$1" reviews criterionless_reviews replans children depth lifetime tokens
+	local root="$1" reviews criterionless_reviews replans lifetime tokens
 	reviews="$(root_liveness_epoch_delta "$root" reviewed_attempts "$(root_reviewed_attempt_count "$root")")"
 	criterionless_reviews="$(root_liveness_epoch_delta "$root" criterionless_reviews "$(root_reviews_without_criterion_completion "$root")")"
 	replans="$(root_liveness_epoch_delta "$root" total_replans "$(root_total_replan_count "$root")")"
-	children="$(root_child_criterion_count "$root")"
-	depth="$(root_criterion_max_depth "$root")"
 	lifetime="$(root_liveness_epoch_delta "$root" lifetime_seconds "$(root_lifetime_seconds "$root")")"
 	tokens="$(root_liveness_epoch_delta "$root" processed_tokens "$(root_processed_token_count "$root")")"
 	if (( criterionless_reviews >= HARNESS_MAX_ROOT_REVIEWS_WITHOUT_CRITERION )); then
@@ -2555,10 +2553,6 @@ root_liveness_violation_reason()
 		printf 'TOTAL_ROOT_REVIEWS: monotonic reviewed-result budget reached (%s/%s)' "$reviews" "$HARNESS_MAX_TOTAL_ROOT_REVIEWS"
 	elif (( replans >= HARNESS_MAX_TOTAL_ROOT_REPLANS )); then
 		printf 'TOTAL_ROOT_REPLANS: monotonic automatic-replan budget reached (%s/%s)' "$replans" "$HARNESS_MAX_TOTAL_ROOT_REPLANS"
-	elif (( children >= HARNESS_MAX_ROOT_CHILD_CRITERIA )); then
-		printf 'ROOT_CHILD_CRITERIA: append-only child budget reached (%s/%s)' "$children" "$HARNESS_MAX_ROOT_CHILD_CRITERIA"
-	elif (( depth >= HARNESS_MAX_CRITERION_DEPTH )); then
-		printf 'CRITERION_DEPTH: decomposition depth budget reached (%s/%s)' "$depth" "$HARNESS_MAX_CRITERION_DEPTH"
 	elif (( lifetime >= HARNESS_MAX_ROOT_LIFETIME_SECONDS )); then
 		printf 'ROOT_LIFETIME: active root lifetime budget reached (%ss/%ss)' "$lifetime" "$HARNESS_MAX_ROOT_LIFETIME_SECONDS"
 	elif (( tokens >= HARNESS_MAX_ROOT_PROCESSED_TOKENS )); then

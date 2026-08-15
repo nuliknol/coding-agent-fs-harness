@@ -86,6 +86,35 @@ if bash -c 'source "$1/lib/harness-common.sh"; load_harness_env "$2"; require_re
 fi
 grep -Fq 'repository has non-ignored untracked files' "$TEST_ROOT/restart.err"
 rm -f "$TEST_ROOT/repo/untracked-restart.txt"
+
+# Reaching a structural decomposition ceiling prevents only another child
+# split. It must not block execution or replanning at the deepest existing
+# leaf; manager-publish-task separately rejects a candidate that would exceed
+# either structural limit.
+cat > "$project/control/progress/livenessproj-task-depthlimit.root-assignment.md" <<'MD'
+Task-ID: depthlimit
+Task-Root: depthlimit
+Root-Criterion: depth.c0
+MD
+cat > "$project/control/progress/livenessproj-task-depthlimit.criterion-decomposition.tsv" <<'TSV'
+parent_criterion	child_criterion	title	acceptance_evidence
+depth.c0	depth.c1	depth 1	pass 1
+depth.c1	depth.c2	depth 2	pass 2
+depth.c2	depth.c3	depth 3	pass 3
+depth.c3	depth.c4	depth 4	pass 4
+depth.c4	depth.c5	depth 5	pass 5
+depth.c5	depth.c6	depth 6	pass 6
+depth.c6	depth.c7	depth 7	pass 7
+depth.c7	depth.c8	depth 8	pass 8
+TSV
+depth_reason="$(bash -c '
+	source "$1/lib/harness-common.sh"
+	load_harness_env "$2"
+	HARNESS_MAX_ROOT_CHILD_CRITERIA=8
+	HARNESS_MAX_CRITERION_DEPTH=8
+	root_liveness_violation_reason depthlimit
+' _ "$HARNESS_HOME" "$TEST_ROOT/harness.env")"
+[[ -z "$depth_reason" ]]
 cat > "$project/archive/livenessproj-task-consumer-revision-01.accepted.md" <<'MD'
 Task-ID: consumer-revision-01
 Task-Root: consumer
