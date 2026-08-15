@@ -90,8 +90,8 @@ awk -F '\t' -v OFS='\t' \
 	}
 	END {
 		print header
-		for (index=1; index<=nodes; index++) {
-			node=order[index]
+		for (node_index=1; node_index<=nodes; node_index++) {
+			node=order[node_index]
 			printf "%s", node
 			for (column=2; column<=6; column++)
 				printf "%s%s", OFS, (merged[node,column] == "" ? "-" : merged[node,column])
