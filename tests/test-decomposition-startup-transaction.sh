@@ -140,6 +140,25 @@ obligation_id	node_ids	evidence_plan
 REQ-ONE	n01	n01 combined behavior validation
 REQ-TWO	n01	n01 combined behavior validation
 EOF
+cat > "$TEST_ROOT/split-dag.tsv" <<'EOF'
+node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route	behavioral_concerns	failure_paths	ownership_transitions	concurrency_boundaries	validation_surfaces	implementation_files	predicted_worker_actions	predicted_p95_tokens	terra_exception
+n10	-	-	Implement target behavior and ownership	Focused source and ownership evidence exists	test -f src/a.c	src/a.c	target	LOCAL_IMPLEMENTATION	LOW	LUNA	2	0	1	0	1	1	4	100000	-
+n11	-	n10	Expose target behavior	Focused source exists	test -f src/a.c	src/a.c	target	LOCAL_IMPLEMENTATION	LOW	LUNA	1	0	0	0	1	1	4	100000	-
+EOF
+cat > "$TEST_ROOT/split-coverage.tsv" <<'EOF'
+obligation_id	node_ids	evidence_plan
+REQ-ONE	n10	n10 implements the prerequisite
+REQ-TWO	n11	n11 exposes the accepted prerequisite behavior
+EOF
+cat > "$TEST_ROOT/replacements.tsv" <<'EOF'
+node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route	behavioral_concerns	failure_paths	ownership_transitions	concurrency_boundaries	validation_surfaces	implementation_files	predicted_worker_actions	predicted_p95_tokens	terra_exception
+n10a	-	-	Implement target behavior	Focused source exists	test -f src/a.c	src/a.c	target	LOCAL_IMPLEMENTATION	LOW	LUNA	1	0	0	0	1	1	3	70000	-
+n10b	-	n10a	Verify target ownership	Focused ownership evidence exists	test -f src/a.c	src/a.c	target	TEST_IMPLEMENTATION	LOW	LUNA	1	0	1	0	1	1	3	70000	-
+EOF
+cat > "$TEST_ROOT/split-mapping.tsv" <<'EOF'
+old_node_id	replacement_node_ids
+n10	n10a,n10b
+EOF
 cat > "$TEST_ROOT/bad-coverage.tsv" <<'EOF'
 obligation_id	node_ids	evidence_plan
 EOF
@@ -175,6 +194,21 @@ set -e
 complexity_rejection_log="$(awk -F= '$1=="rejection_log" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
 grep -Fq 'LUNA_COMPLEXITY_OVER_BUDGET node=n01' "$complexity_rejection_log"
 grep -Fq 'behavioral_concerns=2>1' "$complexity_rejection_log"
+
+# Recursive complexity repair is submitted as a bounded replacement patch.
+# The machine merges it into the full DAG, rewrites dependent edges and
+# obligation coverage, then runs the ordinary global validators.
+set +e
+"$HARNESS_BIN/manager-stage-decomposition-dag" "$env_file" "$TEST_ROOT/split-dag.tsv" "$TEST_ROOT/split-coverage.tsv" >/dev/null 2>&1
+split_status=$?
+set -e
+(( split_status != 0 ))
+"$HARNESS_BIN/manager-stage-decomposition-node-split" "$env_file" "$TEST_ROOT/replacements.tsv" "$TEST_ROOT/split-mapping.tsv" >/dev/null
+split_candidate_dag="$(awk -F= '$1=="dag" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
+split_candidate_coverage="$(awk -F= '$1=="coverage" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
+grep -Fq $'n11\t-\tn10b\t' "$split_candidate_dag"
+grep -Fq $'REQ-ONE\tn10a,n10b\t' "$split_candidate_coverage"
+grep -Fqx 'status=STAGED' "$project_dir/control/decomposition-dag-candidate.env"
 
 # Sol may split a covered obligation into an executable chain but omit a new
 # child ID from node_ids.  That is a mechanical serialization defect: bind the
@@ -313,6 +347,8 @@ cat > "$TEST_ROOT/revision-draft.md" <<'EOF'
 # Revision draft
 
 Task-ID: leaf-root-revision-01
+Complexity-Class: HIGH
+Worker-Route: TERRA
 EOF
 set +e
 "$HARNESS_BIN/manager-publish-task" "$env_file" leaf-root-revision-01 \
@@ -322,8 +358,11 @@ set -e
 (( revision_status != 0 ))
 for field in Complexity-Score Behavioral-Concerns Failure-Paths Ownership-Transitions \
 	Concurrency-Boundaries Validation-Surfaces Expected-Max-Implementation-Files \
-	Expected-Max-Agent-Actions Predicted-P95-Tokens Effective-P95-Tokens Terra-Exception; do
+	Expected-Max-Agent-Actions Predicted-P95-Tokens Effective-P95-Tokens Terra-Exception \
+	Complexity-Class Worker-Route; do
 	[[ "$(grep -c "^$field:" "$TEST_ROOT/revision-draft.md")" == 1 ]]
 done
+grep -Fqx 'Complexity-Class: LOW' "$TEST_ROOT/revision-draft.md"
+grep -Fqx 'Worker-Route: LUNA' "$TEST_ROOT/revision-draft.md"
 
 printf 'split decomposition startup transaction tests passed\n'

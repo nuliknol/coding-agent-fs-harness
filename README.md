@@ -232,7 +232,11 @@ deterministic validation and installs all sidecars as one transaction. A
 schema rejection is handled by a bounded repair-only turn. DAG/coverage
 serialization omissions are repaired deterministically by binding uncovered
 executable leaves to their nearest covered acceptance boundary, avoiding Sol
-turns that merely rename otherwise valid leaves. DAG/coverage
+turns that merely rename otherwise valid leaves. The repair refuses a mapping
+that would assign more than the Luna-ready two-obligation limit. Measured
+complexity repair uses bounded node-replacement patches, so Sol reads and
+rewrites only rejected leaves while the harness merges and globally validates
+the immutable DAG. DAG/coverage
 validation also stages before checking and uses its own bounded repair turn.
 If startup is
 interrupted after either staging boundary, the next `harness-start` continues

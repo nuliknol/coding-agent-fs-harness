@@ -45,6 +45,7 @@ awk -F '\t' -v OFS='\t' -v dag_file="$dag_source" -v coverage_file="$coverage_so
 			if (index(" " evidence[i] " ", " " node " ") || index(evidence[i], node ",") ||
 				index(evidence[i], node ".") || index(evidence[i], node ";")) selected[i]=1
 	}
+	function selection_count(  i,count) {for(i in selected) count++; return count+0}
 	function collect_nearest(node, downstream,  head,tail,depth,current,key,p,neighbor,found,i) {
 		delete seen; delete queue; delete level
 		head=1; tail=1; queue[1]=node; level[1]=0; seen[node]=1
@@ -82,10 +83,13 @@ awk -F '\t' -v OFS='\t' -v dag_file="$dag_source" -v coverage_file="$coverage_so
 		for(candidate in node) if(!(candidate in node_covered)) {
 			delete selected
 			collect_explicit(candidate)
-			chosen=0; for(i in selected) chosen=1
+			if(selection_count()>2) delete selected
+			chosen=selection_count()
 			if(!chosen) collect_nearest(candidate,1)
-			chosen=0; for(i in selected) chosen=1
+			if(selection_count()>2) delete selected
+			chosen=selection_count()
 			if(!chosen) collect_nearest(candidate,0)
+			if(selection_count()>2) delete selected
 			chosen=0
 			for(i in selected) {
 				nodes[i]=add_unique(nodes[i],candidate)

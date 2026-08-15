@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 3 ]] || { printf 'Usage: %s ENV_FILE REPLACEMENT_DAG_TSV NODE_MAPPING_TSV\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+require_manager_configuration
+project_plan_exists && { printf 'Decomposition DAG already exists.\n'; exit 0; }
+decomposition_dag_candidate_matches_current_inputs || die 'no current DAG candidate exists'
+[[ "$(decomposition_dag_candidate_state_value status)" == REJECTED ]] ||
+	die 'node split requires a rejected DAG candidate'
+
+replacement_source="$2"
+mapping_source="$3"
+[[ -s "$replacement_source" && -s "$mapping_source" ]] || die 'node split requires nonempty replacement and mapping TSV files'
+candidate_dir="$(decomposition_dag_candidate_state_value directory)"
+dag_source="$(decomposition_dag_candidate_state_value dag)"
+coverage_source="$(decomposition_dag_candidate_state_value coverage)"
+rejection_log="$(decomposition_dag_candidate_state_value rejection_log "$candidate_dir/rejection.log")"
+grep -q 'LUNA_COMPLEXITY_OVER_BUDGET.*status=OVER_BUDGET' "$rejection_log" ||
+	die 'node split is permitted only for measured over-budget Luna leaves'
+
+IFS= read -r replacement_header < "$replacement_source" || die 'replacement DAG TSV is empty'
+[[ "$replacement_header" == "$(decomposition_complexity_header)" ]] ||
+	die 'replacement DAG TSV must use the measured decomposition header'
+IFS= read -r mapping_header < "$mapping_source" || die 'node mapping TSV is empty'
+[[ "$mapping_header" == $'old_node_id\treplacement_node_ids' ]] ||
+	die 'node mapping header must be: old_node_id<TAB>replacement_node_ids'
+
+repair_dir="$PROJECT_TMP_DIR/decomposition-node-split-${candidate_dir##*/}"
+rm -rf -- "$repair_dir"
+mkdir -p "$repair_dir"
+allowed="$repair_dir/allowed.txt"
+sed -n 's/^LUNA_COMPLEXITY_OVER_BUDGET node=\([^ ]*\) .*status=OVER_BUDGET.*/\1/p' "$rejection_log" | sort -u > "$allowed"
+[[ -s "$allowed" ]] || die 'complexity rejection does not identify an over-budget node'
+
+awk -F '\t' -v allowed_file="$allowed" -v dag_file="$dag_source" -v replacement_file="$replacement_source" '
+	function trim(v) {gsub(/^[[:space:]]+|[[:space:]]+$/, "", v); return v}
+	FILENAME==allowed_file {allowed[$1]=1; next}
+	FILENAME==dag_file {if(FNR>1) existing[$1]=1; next}
+	FILENAME==replacement_file {if(FNR>1) {replacement[$1]++; replacement_count++}; next}
+	FILENAME==ARGV[4] {
+		if(FNR==1) next
+		if(NF!=2 || !($1 in allowed) || seen_old[$1]++) {printf "invalid or duplicate split mapping for %s\n", $1 > "/dev/stderr"; errors++; next}
+		n=split($2,a,","); if(n<2) {printf "split mapping for %s requires at least two replacements\n",$1 > "/dev/stderr"; errors++}
+		for(i=1;i<=n;i++) {id=trim(a[i]); if(id=="" || id in existing || replacement[id]!=1 || seen_new[id]++) {printf "invalid replacement node %s for %s\n",id,$1 > "/dev/stderr"; errors++}}
+		named+=n
+		next
+	}
+	END {
+		for(id in allowed) if(!seen_old[id]) {printf "over-budget node is absent from split mapping: %s\n",id > "/dev/stderr"; errors++}
+		if(named!=replacement_count) {printf "replacement rows and mapped IDs differ: %d != %d\n",replacement_count,named > "/dev/stderr"; errors++}
+		exit(errors?1:0)
+	}
+' "$allowed" "$dag_source" "$replacement_source" "$mapping_source" || die 'invalid bounded node-split patch'
+
+merged_dag="$repair_dir/dag.tsv"
+awk -F '\t' -v OFS='\t' -v mapping_file="$mapping_source" -v replacement_file="$replacement_source" -v dag_file="$dag_source" '
+	function trim(v) {gsub(/^[[:space:]]+|[[:space:]]+$/, "", v); return v}
+	function replace_refs(list,  n,a,i,out,id) {
+		if(list=="" || list=="-") return "-"
+		n=split(list,a,","); out=""
+		for(i=1;i<=n;i++) {id=trim(a[i]); if(id in terminal) id=terminal[id]; if(id!="" && !seen_ref[id]++) out=out (out?",":"") id}
+		delete seen_ref
+		return out?out:"-"
+	}
+	FILENAME==mapping_file {
+		if(FNR==1) next
+		mapping[$1]=$2; n=split($2,a,","); terminal[$1]=trim(a[n]); next
+	}
+	FILENAME==replacement_file {
+		if(FNR==1) {replacement_header=$0; next}
+		replacement[$1]=$0; next
+	}
+	FILENAME==dag_file {
+		if(FNR==1) {print; next}
+		if($1 in mapping) {
+			n=split(mapping[$1],a,",")
+			for(i=1;i<=n;i++) {id=trim(a[i]); split(replacement[id],f,"\t"); f[2]=replace_refs(f[2]); f[3]=replace_refs(f[3]); out=f[1]; for(j=2;j<=20;j++) out=out OFS f[j]; print out}
+			next
+		}
+		$2=replace_refs($2); $3=replace_refs($3); print
+	}
+' "$mapping_source" "$replacement_source" "$dag_source" > "$merged_dag"
+chmod 600 "$merged_dag"
+
+merged_coverage="$repair_dir/coverage.tsv"
+awk -F '\t' -v OFS='\t' -v mapping_file="$mapping_source" -v coverage_file="$coverage_source" '
+	function trim(v) {gsub(/^[[:space:]]+|[[:space:]]+$/, "", v); return v}
+	FILENAME==mapping_file {if(FNR>1) mapping[$1]=$2; next}
+	FILENAME==coverage_file {
+		if(FNR==1) {print; next}
+		n=split($2,a,","); out=""; changed=""
+		for(i=1;i<=n;i++) {id=trim(a[i]); value=(id in mapping)?mapping[id]:id; out=out (out?",":"") value; if(id in mapping) changed=changed (changed?",":"") id}
+		$2=out; if(changed!="") $3=$3 " [machine node split replaces " changed "]"; print
+	}
+' "$mapping_source" "$coverage_source" > "$merged_coverage"
+chmod 600 "$merged_coverage"
+
+"$HARNESS_BIN/manager-stage-decomposition-dag" "$HARNESS_ENV_FILE" "$merged_dag" "$merged_coverage"
+

@@ -122,7 +122,7 @@ fi
 normalize_measured_assignment_metadata()
 {
 	local report decomposition report_row dag_row tmp
-	local complexity_score behavioral failures ownership concurrency validations implementation_files actions declared_p95 effective_p95 terra_exception
+	local complexity_score behavioral failures ownership concurrency validations implementation_files actions declared_p95 effective_p95 complexity_class worker_route terra_exception
 	# Every task bound to a measured plan node uses the installed deterministic
 	# vector.  Revisions and recovery tasks must not ask a planning agent to
 	# reproduce these machine-owned fields by hand.
@@ -136,13 +136,13 @@ normalize_measured_assignment_metadata()
 	[[ -n "$report_row" && -n "$dag_row" ]] || die "measured metadata is missing for plan node: $plan_item_id"
 	IFS=$'\t' read -r _ _ _ complexity_score _ _ _ _ behavioral failures ownership concurrency \
 		validations implementation_files actions declared_p95 effective_p95 _ _ _ <<< "$report_row"
-	terra_exception="$(awk -F '\t' '{print $20}' <<< "$dag_row")"
+	IFS=$'\t' read -r _ _ _ _ _ _ _ _ _ complexity_class worker_route _ _ _ _ _ _ _ _ terra_exception <<< "$dag_row"
 	tmp="$task_file.measured.$$"
 	awk -F': ' \
 		-v complexity="$complexity_score" -v behavioral="$behavioral" -v failures="$failures" \
 		-v ownership="$ownership" -v concurrency="$concurrency" -v validations="$validations" \
 		-v files="$implementation_files" -v actions="$actions" -v declared="$declared_p95" \
-		-v effective="$effective_p95" -v exception="$terra_exception" '
+		-v effective="$effective_p95" -v class="$complexity_class" -v route="$worker_route" -v exception="$terra_exception" '
 		BEGIN {
 			replace["Complexity-Score"]=complexity
 			replace["Behavioral-Concerns"]=behavioral
@@ -155,6 +155,8 @@ normalize_measured_assignment_metadata()
 			replace["Predicted-P95-Tokens"]=declared
 			replace["Effective-P95-Tokens"]=effective
 			replace["Terra-Exception"]=exception
+			replace["Complexity-Class"]=class
+			replace["Worker-Route"]=route
 		}
 		$1 == "Declared-P95-Tokens" {next}
 		$1 in replace {next}
@@ -171,6 +173,8 @@ normalize_measured_assignment_metadata()
 			print "Predicted-P95-Tokens: " replace["Predicted-P95-Tokens"]
 			print "Effective-P95-Tokens: " replace["Effective-P95-Tokens"]
 			print "Terra-Exception: " replace["Terra-Exception"]
+			print "Complexity-Class: " replace["Complexity-Class"]
+			print "Worker-Route: " replace["Worker-Route"]
 		}
 	' "$task_file" > "$tmp"
 	chmod --reference="$task_file" "$tmp"
