@@ -130,6 +130,28 @@ validate_criterion_inventory()
 	done
 }
 
+validate_root_criteria_are_node_local()
+{
+	local coverage criterion node_ids node count
+	local -a nodes=()
+	[[ "$task_id" == "$root" && -n "$plan_item_id" ]] || return 0
+	coverage="$(specification_coverage_file)"
+	[[ -f "$coverage" ]] || return 0
+	for criterion in "${declared_criteria[@]}"; do
+		node_ids="$(awk -F '\t' -v id="$criterion" 'NR > 1 && $1 == id {print $2; exit}' "$coverage")"
+		[[ -n "$node_ids" ]] || continue
+		IFS=',' read -r -a nodes <<< "$node_ids"
+		count=0
+		for node in "${nodes[@]}"; do
+			node="$(trim_surrounding_whitespace "$node")"
+			[[ "$node" == "$plan_item_id" ]] && count=$((count + 1))
+		done
+		if (( ${#nodes[@]} > 1 && count == 1 )); then
+			die "Root-Criterion $criterion is a cross-node specification obligation allocated to $node_ids; use a node-local criterion such as $plan_item_id.acceptance and retain $criterion only in Obligations metadata"
+		fi
+	done
+}
+
 single_metadata_value()
 {
 	local file="$1" field="$2" count value
@@ -169,6 +191,7 @@ assignment_material_fingerprint()
 declare -a declared_criteria=()
 if [[ "$task_id" == "$root" ]]; then
 	validate_criterion_inventory "$task_file" assignment
+	validate_root_criteria_are_node_local
 else
 	if task_root_uses_assignment_criteria "$root"; then
 		[[ -z "$criteria_candidate" ]] ||

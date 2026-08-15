@@ -126,6 +126,21 @@ Make target_symbol return one.
 ./focused-smoke
 ```
 TASK
+cat > "$project_dir/control/specification-coverage.tsv" <<'COVERAGE'
+obligation_id	node_ids	evidence_plan
+REQ-CROSS-NODE	n1,n2	Both bounded nodes jointly establish the requirement.
+COVERAGE
+sed -e 's/^Target-Criterion: n1.done$/Target-Criterion: REQ-CROSS-NODE/' \
+	-e 's/^Root-Criterion: n1.done$/Root-Criterion: REQ-CROSS-NODE/' \
+	"$TEST_ROOT/task.md" > "$TEST_ROOT/cross-node-criterion-task.md"
+if "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" 001 \
+	"$TEST_ROOT/cross-node-criterion-task.md" n1 > "$TEST_ROOT/cross-node-criterion.out" 2>&1; then
+	printf 'cross-node specification obligation was accepted as one root criterion\n' >&2
+	exit 1
+fi
+grep -Fq 'Root-Criterion REQ-CROSS-NODE is a cross-node specification obligation allocated to n1,n2' \
+	"$TEST_ROOT/cross-node-criterion.out"
+rm -f "$project_dir/control/specification-coverage.tsv"
 "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" 001 "$TEST_ROOT/task.md" n1 >/dev/null
 
 grep -Eq $'^n1\tACTIVE\t001\t' "$project_dir/control/project-plan-state.tsv"

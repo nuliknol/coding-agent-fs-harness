@@ -77,7 +77,7 @@ PROMPT
 if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
 
-Worker leaf-goal mode is enabled. The initial assignment must select its first Root-Criterion as Target-Criterion and contain exactly one nonempty line for each of: Execution-Mode: LEAF_GOAL, Goal-ID, Target-Criterion, Goal-Success-Evidence, Focused-Validation, Allowed-Scope, Baseline-Boundary, and Hard-Block-Conditions. Give the goal a stable identifier. Success evidence and validation must be independently checkable; allowed scope and genuine hard-block conditions must be explicit. The worker may span multiple internal turns, but the manager will receive only its terminal result.
+Worker leaf-goal mode is enabled. The initial assignment must select its first Root-Criterion as Target-Criterion and contain exactly one nonempty line for each of: Execution-Mode: LEAF_GOAL, Goal-ID, Target-Criterion, Goal-Success-Evidence, Focused-Validation, Allowed-Scope, Baseline-Boundary, and Hard-Block-Conditions. Every Root-Criterion is local to this DAG node's deliverable and acceptance evidence. If an allocated specification obligation is covered by multiple DAG nodes, do not use that obligation ID as this root's criterion; use a stable node-local identifier such as READY_PLAN_NODE.acceptance and retain the source obligation only in Obligations metadata. Give the goal a stable identifier. Success evidence and validation must be independently checkable; allowed scope and genuine hard-block conditions must be explicit. The worker may span multiple internal turns, but the manager will receive only its terminal result.
 PROMPT
 fi
 if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
