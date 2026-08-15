@@ -59,6 +59,10 @@ compatibility alias; new files should use the uppercase shell variable.
 - Complete publication diagnostics: architecture-guarded assignments report
   every missing or mismatched binding field in one rejection, preserving the
   bounded manager correction budget for a successful second publication.
+- Measured remediation limits: Terra manager-remediation leaves obey the same
+  Sol-authored action and p95 token ceilings as ordinary worker leaves; their
+  non-token leaf fuse produces a decomposition handoff instead of a false
+  human-dependency marker.
 
 ## Process model
 

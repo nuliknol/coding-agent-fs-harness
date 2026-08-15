@@ -181,6 +181,28 @@ grep -q '^item_limit=3$' "$TMP/measured-item-loop.classification"
 rm -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-measured-root.needs-human.md" \
 	"$TMP/state/projects/jsonltest/control/progress/jsonltest-task-measured-root.token-usage-anomaly.md"
 
+# Manager-remediation is a Terra-routed implementation leaf, so it inherits
+# the same measured action ceiling and leaf-goal handoff semantics as a worker.
+manager_remediation_prompt="$TMP/manager-remediation-measured-prompt"
+printf 'TASK_ID=manager-remediation-root\nTASK_ROOT=manager-remediation-root\nWORKER_GOAL_MODE=1\nEXPECTED_MAX_AGENT_ACTIONS=2\nEFFECTIVE_P95_TOKENS=100000\n' \
+	> "$manager_remediation_prompt"
+set +e
+MOCK_MODE=item_loop "$ROOT/bin/codex-exec-jsonl" "$TMP/env-measured-leaf" \
+	manager_remediation gpt-5.5 "$manager_remediation_prompt" \
+	"$TMP/manager-remediation-item-loop.jsonl" \
+	"$TMP/manager-remediation-item-loop.stderr" \
+	"$TMP/manager-remediation-item-loop.last"
+manager_remediation_status=$?
+set -e
+(( manager_remediation_status != 0 ))
+grep -q '^classification=agent_item_budget_exceeded$' \
+	"$TMP/manager-remediation-item-loop.classification"
+grep -q '^item_limit=3$' "$TMP/manager-remediation-item-loop.classification"
+grep -q '^processed_token_limit=100000$' \
+	"$TMP/manager-remediation-item-loop.classification"
+[[ ! -e "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-manager-remediation-root.needs-human.md" ]]
+[[ ! -e "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-manager-remediation-root.token-usage-anomaly.md" ]]
+
 # Reviews have a tighter role-specific action budget. A review loop is a token
 # anomaly requiring inspection, not a product/authorization decision.
 cp "$TMP/env" "$TMP/env-review-items"

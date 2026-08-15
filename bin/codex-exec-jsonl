@@ -170,14 +170,16 @@ if [[ "$role" == manager_review ]]; then
 elif [[ "$role" == manager_replan ]]; then
 	resource_item_limit="$HARNESS_MAX_MANAGER_REPLAN_ITEMS_PER_INVOCATION"
 fi
-if [[ "$role" =~ ^worker ]] && [[ "$resource_expected_actions" =~ ^[1-9][0-9]*$ ]] &&
+if [[ "$role" =~ ^worker || "$role" == manager_remediation ]] &&
+	[[ "$resource_expected_actions" =~ ^[1-9][0-9]*$ ]] &&
 	(( resource_expected_actions + 1 < resource_item_limit )); then
 	# One extra start is the circuit-breaker boundary: the worker may complete
 	# every predicted action, but cannot silently turn a bounded leaf into a
 	# longer exploratory episode.
 	resource_item_limit=$((resource_expected_actions + 1))
 fi
-if [[ "$role" =~ ^worker ]] && [[ "$resource_effective_p95" =~ ^[1-9][0-9]*$ ]]; then
+if [[ "$role" =~ ^worker || "$role" == manager_remediation ]] &&
+	[[ "$resource_effective_p95" =~ ^[1-9][0-9]*$ ]]; then
 	(( resource_effective_p95 < resource_processed_token_limit )) && resource_processed_token_limit="$resource_effective_p95"
 	(( resource_effective_p95 < resource_estimated_token_limit )) && resource_estimated_token_limit="$resource_effective_p95"
 fi
@@ -209,7 +211,8 @@ record_resource_guard()
 	# worker-invoke-task converts it into a preserved NEEDS_DECOMPOSITION handoff,
 	# so it is not a genuine human authority/secret/external-state dependency.
 	elif [[ -n "$resource_task_root" && "$resource_task_root" != - ]] &&
-		! { [[ "$role" =~ ^worker ]] && [[ "$resource_goal_mode" == 1 ]]; }; then
+		! { [[ "$role" =~ ^worker || "$role" == manager_remediation ]] &&
+			[[ "$resource_goal_mode" == 1 ]]; }; then
 		mkdir -p "$(project_dir)/control/progress"
 		chmod 700 "$(project_dir)/control/progress"
 		marker="$(mark_root_needs_human "$resource_task_root" "$resource_task_id" \
