@@ -320,7 +320,7 @@ enforce_revision_authority()
 	# authority. Preserve the immutable root Allowed-Scope deterministically so a
 	# read-only remediation cannot accidentally manufacture either broader write
 	# authority or a false architecture-reassessment pause.
-	if [[ "$root_max_files" == 0 && "$leaf_expected_files" == 0 && -n "$root_scope" ]] &&
+	if [[ "$leaf_expected_files" == 0 && -n "$root_scope" ]] &&
 		! scope_is_within_root_authority "$goal_allowed_scope" "$root_scope"; then
 		log_event "READ_ONLY_REVISION_SCOPE_NORMALIZED root=$root task=$task_id requested=$(printf '%q' "$goal_allowed_scope") authority=$(printf '%q' "$root_scope")"
 		goal_allowed_scope="$root_scope"
@@ -612,6 +612,24 @@ else
 		cat "$task_file"
 	} > "$tmp"
 	chmod 600 "$tmp"
+fi
+
+# Authority normalization above operates on parsed values. Keep the published
+# assignment byte-consistent with those values as well; otherwise a read-only
+# continuation could pass the guard while the worker still received the
+# model-authored broader Allowed-Scope line.
+if (( goal_mode == 1 )) &&
+	[[ "$(metadata_value "$tmp" Allowed-Scope)" != "$goal_allowed_scope" ]]; then
+	normalized_tmp="$tmp.normalized.$$"
+	HARNESS_NORMALIZED_ALLOWED_SCOPE="$goal_allowed_scope" awk '
+		index($0, "Allowed-Scope: ") == 1 {
+			if (!seen++) print "Allowed-Scope: " ENVIRON["HARNESS_NORMALIZED_ALLOWED_SCOPE"]
+			next
+		}
+		{print}
+	' "$tmp" > "$normalized_tmp"
+	chmod 600 "$normalized_tmp"
+	mv "$normalized_tmp" "$tmp"
 fi
 
 if (( goal_mode == 1 )); then

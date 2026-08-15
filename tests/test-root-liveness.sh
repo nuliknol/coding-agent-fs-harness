@@ -2,7 +2,11 @@
 
 set -Eeuo pipefail
 TEST_ROOT="$(mktemp -d /tmp/coding-harness-root-liveness.XXXXXX)"
-trap 'rm -rf -- "$TEST_ROOT"' EXIT
+if [[ "${HARNESS_TEST_KEEP_TMP:-0}" == 1 ]]; then
+	trap 'printf "Preserved test root: %s\\n" "$TEST_ROOT" >&2' EXIT
+else
+	trap 'rm -rf -- "$TEST_ROOT"' EXIT
+fi
 HARNESS_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HARNESS_BIN="$HARNESS_HOME/bin"
 mkdir -p "$TEST_ROOT/repo" "$TEST_ROOT/manager-home" "$TEST_ROOT/worker-home"
@@ -127,8 +131,6 @@ grep -Fqx 'Category: IMMUTABLE_ROOT_AUTHORITY' "$reassessment"
 # must retain the immutable root's write scope and must not trigger an
 # architecture reassessment merely because a model copied context paths into
 # Allowed-Scope.
-sed -i 's/Expected-Max-Implementation-Files: 2/Expected-Max-Implementation-Files: 0/' \
-	"$project/control/progress/livenessproj-task-consumer.root-assignment.md"
 sed -i 's/HARNESS_DECOMPOSITION_V2="0"/HARNESS_DECOMPOSITION_V2="1"/' \
 	"$TEST_ROOT/harness.env"
 cat > "$TEST_ROOT/read-only-expanded-revision.md" <<'MD'
