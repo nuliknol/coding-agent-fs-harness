@@ -347,6 +347,15 @@ while ! project_plan_exists; do
 			[[ "$(decomposition_dag_candidate_state_value status)" == STAGED ]]; then
 			continue
 		fi
+		# A successful Sol turn may durably stage a candidate that deterministic
+		# validation rejects.  Return to the top of the transaction so the
+		# bounded repair path handles it.  Falling through here would invoke the
+		# bootstrap manager with no installed plan and make it recreate the
+		# global DAG from scratch.
+		if decomposition_candidate_matches_current_inputs ||
+			decomposition_dag_candidate_matches_current_inputs; then
+			continue
+		fi
 	fi
 	break
 done
