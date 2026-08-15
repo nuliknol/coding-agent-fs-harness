@@ -204,6 +204,12 @@ EOF
 # vector. The candidate remains repairable and exposes its exact excess.
 grep -Fq 'leaf_type INTEGRATION, complexity_class HIGH, worker_route TERRA, and terra_exception IRREDUCIBLE_CROSS_BOUNDARY' \
 	"$HARNESS_BIN/manager-decomposition-dag-repair"
+# The bounded repair mapping is initialized directly from the measured report;
+# an undefined intermediary once made every real recursive repair fail before
+# Sol could be invoked.
+grep -Fq 'NR>1 && $19=="OVER_BUDGET"' "$HARNESS_BIN/manager-decomposition-dag-repair"
+grep -Fq '"$complexity_report"' "$HARNESS_BIN/manager-decomposition-dag-repair"
+! grep -Fq '"$allowed"' "$HARNESS_BIN/manager-decomposition-dag-repair"
 set +e
 "$HARNESS_BIN/manager-stage-decomposition-dag" "$env_file" "$TEST_ROOT/over-budget-dag.tsv" "$TEST_ROOT/over-budget-coverage.tsv" >/dev/null 2>&1
 complexity_status=$?

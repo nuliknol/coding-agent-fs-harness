@@ -157,7 +157,7 @@ if (( complexity_repair == 1 )); then
 	printf '%s\n' "$(decomposition_complexity_header)" > "$replacements"
 	{
 		printf 'old_node_id\treplacement_node_ids\n'
-		awk 'NF {printf "%s\tREPLACE_WITH_ORDERED_CHILD_IDS\n", $1}' "$allowed"
+		awk -F '\t' 'NR>1 && $19=="OVER_BUDGET" {printf "%s\tREPLACE_WITH_ORDERED_CHILD_IDS\n", $1}' "$complexity_report"
 	} > "$mapping"
 	chmod 600 "$split_rows" "$split_coverage" "$split_obligations" "$split_relations" "$replacements" "$mapping"
 	split_context="This is a bounded node-split transaction. Read REJECTED_DAG_ROWS, REJECTED_COVERAGE, REJECTED_OBLIGATIONS, REJECTED_RELATIONS, VALIDATOR_DIAGNOSTICS, and COMPLEXITY_REPORT only. Do not read or rewrite DAG_FILE or SPECIFICATION_COVERAGE_FILE. NODE_MAPPING_FILE is machine-owned in its first column and already contains exactly the current rejected node IDs. Do not add, remove, reorder, or replace those rows; replace only each REPLACE_WITH_ORDERED_CHILD_IDS value. For every listed old node, append at least two complete measured executable rows to REPLACEMENT_DAG_FILE and set its existing second field to ordered,comma-separated-new-node-ids. New IDs must not already exist. Preserve the old node's semantic obligation across ordered children, but isolate risk domains, paths, symbols, evidence, and focused validation so every child is independently Luna-ready. The first child inherits external prerequisites; later children depend on prior children as needed. Submit exactly once with: $HARNESS_BIN/manager-stage-decomposition-node-split \"$HARNESS_ENV_FILE\" \"$replacements\" \"$mapping\". The harness merges the bounded patch into the immutable full DAG and rewrites coverage mechanically."
