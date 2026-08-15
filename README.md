@@ -1025,7 +1025,9 @@ The manager has three ordinary review outcomes:
 
 `manager-checkpoint-task` requires stable `Verified-Criterion` or
 `Verified-Increment` identifiers and an explicit list of `Checkpoint-Path`
-files. It stores the review, result, assignment, file snapshots, Git patch and
+files. Paths may use repeated fields or a comma-separated field; both forms are
+normalized to individual repository paths. It stores the review, result,
+assignment, file snapshots, Git patch and
 hash manifest under `archive/checkpoints/`. The append-only `.criteria.tsv`,
 `.checkpoints.tsv`, and `.history.tsv` files under `control/progress/` remain
 the recovery ledger. When checkpoint paths contain reviewed source changes,

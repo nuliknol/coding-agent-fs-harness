@@ -1310,10 +1310,11 @@ CHECKPOINT_ROOT="$TEST_ROOT/checkpoint"
 mkdir -p "$CHECKPOINT_ROOT/repo" "$CHECKPOINT_ROOT/manager-home" "$CHECKPOINT_ROOT/worker-home"
 printf 'test specification\n' > "$CHECKPOINT_ROOT/repo/spec.md"
 printf 'base\n' > "$CHECKPOINT_ROOT/repo/source.txt"
+printf 'second base\n' > "$CHECKPOINT_ROOT/repo/source-two.txt"
 git -C "$CHECKPOINT_ROOT/repo" init -q
 git -C "$CHECKPOINT_ROOT/repo" config user.email harness@example.invalid
 git -C "$CHECKPOINT_ROOT/repo" config user.name 'Harness Test'
-git -C "$CHECKPOINT_ROOT/repo" add spec.md source.txt
+git -C "$CHECKPOINT_ROOT/repo" add spec.md source.txt source-two.txt
 git -C "$CHECKPOINT_ROOT/repo" commit -qm base
 cat > "$CHECKPOINT_ROOT/harness.env" <<ENV
 export PROJECT="checkpointproj"
@@ -1384,6 +1385,7 @@ printf '# Task\n\nTask-ID: 001\nRoot-Criterion: compiler.registry\nRoot-Criterio
 mv "$CHECKPOINT_ROOT/state/projects/checkpointproj/tasks/checkpointproj-task-001.ready.md" \
 	"$CHECKPOINT_ROOT/state/projects/checkpointproj/archive/checkpointproj-task-001.assignment.md"
 printf 'criterion checkpoint\n' > "$CHECKPOINT_ROOT/repo/source.txt"
+printf 'second criterion checkpoint\n' > "$CHECKPOINT_ROOT/repo/source-two.txt"
 checkpoint_worker_result 001 \
 	"$CHECKPOINT_ROOT/state/projects/checkpointproj/results/checkpointproj-task-001.result.md"
 cat > "$CHECKPOINT_ROOT/review-001.md" <<'NOTE'
@@ -1394,7 +1396,7 @@ Decision: CHECKPOINT
 Progress-Percent: 50%
 Improvement-Percent: 50%
 Verified-Criterion: compiler.registry
-Checkpoint-Path: source.txt
+Checkpoint-Path: source.txt, source-two.txt
 
 ## Specification comparison
 The bounded registry criterion is complete, while the parent root remains active.
@@ -1422,6 +1424,8 @@ checkpoint_project="$CHECKPOINT_ROOT/state/projects/checkpointproj"
 [[ -f "$checkpoint_project/archive/checkpoints/checkpointproj-task-001/manifest.txt" ]]
 cmp -s "$CHECKPOINT_ROOT/repo/source.txt" \
 	"$checkpoint_project/archive/checkpoints/checkpointproj-task-001/files/source.txt"
+cmp -s "$CHECKPOINT_ROOT/repo/source-two.txt" \
+	"$checkpoint_project/archive/checkpoints/checkpointproj-task-001/files/source-two.txt"
 grep -q $'^compiler.registry\tPASSED\t001\t' \
 	"$checkpoint_project/control/progress/checkpointproj-task-001.criteria.tsv"
 grep -q $'001\tCHECKPOINT\t50\t50\t' \
@@ -1430,10 +1434,10 @@ grep -Eq $'^P0\tACTIVE\t001\t' "$checkpoint_project/control/project-plan-state.t
 # A verified source checkpoint is a durable controlled commit, not merely a
 # workspace patch. Later zero-write revisions may inherit that provenance
 # without claiming the source mutation as their own.
-git -C "$CHECKPOINT_ROOT/repo" diff --quiet HEAD -- source.txt
+git -C "$CHECKPOINT_ROOT/repo" diff --quiet HEAD -- source.txt source-two.txt
 grep -q $'^controlled_source_commit=' \
 	"$checkpoint_project/archive/checkpoints/checkpointproj-task-001/manifest.txt"
-grep -Eq $'^[0-9a-f]+\t001\tmanager-checkpoint\t[^\t]+\tsource.txt$' \
+grep -Eq $'^[0-9a-f]+\t001\tmanager-checkpoint\t[^\t]+\tsource.txt,source-two.txt$' \
 	"$checkpoint_project/control/agent-commits.tsv"
 (
 	source "$CHECKPOINT_ROOT/harness.env"

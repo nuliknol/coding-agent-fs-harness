@@ -163,7 +163,17 @@ validate_percent "$improvement_percent" 'Improvement-Percent'
 
 mapfile -t verified_criteria < <(awk -F': ' '$1 == "Verified-Criterion" {print $2}' "$note_file")
 mapfile -t verified_increments < <(awk -F': ' '$1 == "Verified-Increment" {print $2}' "$note_file")
-mapfile -t checkpoint_paths < <(awk -F': ' '$1 == "Checkpoint-Path" {sub(/^[^:]*: /, ""); print}' "$note_file")
+mapfile -t checkpoint_path_values < <(awk -F': ' '$1 == "Checkpoint-Path" {sub(/^[^:]*: /, ""); print}' "$note_file")
+checkpoint_paths=()
+for checkpoint_path_value in "${checkpoint_path_values[@]}"; do
+	IFS=',' read -r -a checkpoint_path_parts <<< "$checkpoint_path_value"
+	for checkpoint_path_part in "${checkpoint_path_parts[@]}"; do
+		checkpoint_path_part="${checkpoint_path_part#"${checkpoint_path_part%%[![:space:]]*}"}"
+		checkpoint_path_part="${checkpoint_path_part%"${checkpoint_path_part##*[![:space:]]}"}"
+		[[ -n "$checkpoint_path_part" ]] || die 'Checkpoint-Path contains an empty comma-separated path'
+		checkpoint_paths+=("$checkpoint_path_part")
+	done
+done
 (( ${#verified_criteria[@]} + ${#verified_increments[@]} > 0 )) ||
 	die 'checkpoint contains no verified criterion or increment identifiers'
 
