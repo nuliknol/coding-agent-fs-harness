@@ -4,6 +4,24 @@
 # The caller must have loaded harness-common.sh and harness-git-commit.sh and
 # must hold the project lock.
 
+checkpoint_scope_dirty_paths()
+{
+	local assignment="$1" allowed_scope path
+	local -A seen=()
+	git -C "$REPOSITORY" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+	allowed_scope="$(metadata_value "$assignment" Allowed-Scope)"
+	[[ -n "$allowed_scope" ]] || return 0
+	while IFS= read -r path; do
+		[[ -n "$path" && -z "${seen[$path]:-}" ]] || continue
+		agent_commit_path_in_scope "$path" "$allowed_scope" || continue
+		seen[$path]=1
+		printf '%s\n' "$path"
+	done < <({
+		git -C "$REPOSITORY" diff --name-only HEAD -- 2>/dev/null || true
+		git -C "$REPOSITORY" ls-files --others --exclude-standard 2>/dev/null || true
+	} | LC_ALL=C sort -u)
+}
+
 checkpoint_manifest_path_matches_workspace()
 {
 	local artifact_dir="$1" path="$2" manifest row field expected_type="" expected_sha="" expected_target=""
@@ -43,6 +61,48 @@ checkpoint_record_controlled_commit()
 	printf '%s\t%s\t%s\t%s\t%s\n' "$commit" "$task_id" "$session" "$(timestamp_utc)" \
 		"$(IFS=,; printf '%s' "$*")" >> "$ledger"
 	log_event "CHECKPOINT_SOURCE_COMMIT task=$task_id session=$session commit=$commit paths=$(printf '%q' "$*")"
+}
+
+acceptance_commit_reviewed_scope()
+{
+	local task_id="$1" assignment="$2" review="$3" ledger candidate candidate_root candidate_paths
+	local root prior_paths="" commit message_file review_sha
+	local -a dirty_paths=()
+	mapfile -t dirty_paths < <(checkpoint_scope_dirty_paths "$assignment")
+	(( ${#dirty_paths[@]} > 0 )) || return 0
+	(( HARNESS_AGENT_COMMITS_ENABLED == 1 )) ||
+		die 'final acceptance has reviewed source changes but controlled agent commits are disabled'
+
+	root="$(task_root_id "$task_id")"
+	ledger="$(project_dir)/control/agent-commits.tsv"
+	if [[ -f "$ledger" ]]; then
+		while IFS=$'\t' read -r _ candidate _ _ candidate_paths; do
+			[[ -n "$candidate" && "$candidate" != "$task_id" ]] || continue
+			candidate_root="$(task_root_id "$candidate")"
+			[[ "$candidate_root" == "$root" ]] || continue
+			prior_paths="${prior_paths:+$prior_paths,}$candidate_paths"
+		done < <(tail -n +2 "$ledger")
+	fi
+
+	# The manager has already validated the result, review schema, architecture
+	# impact, current diff, and focused behavior before entering this locked
+	# transaction. Commit only the dirty paths inside the immutable assignment
+	# scope; unrelated operator changes remain untouched.
+	AGENT_COMMIT_SCOPE="$(metadata_value "$assignment" Allowed-Scope)"
+	AGENT_COMMIT_MAX_FILES="$(metadata_value "$assignment" Expected-Max-Implementation-Files)"
+	AGENT_COMMIT_PRIOR_PATHS="$prior_paths"
+	AGENT_COMMIT_ACTOR="task=$task_id session=manager-accept"
+	review_sha="$(sha256sum "$review" | awk '{print $1}')"
+	message_file="$(project_dir)/control/.$(task_base "$task_id").accept-commit-message.$$"
+	{
+		printf 'Accept independently reviewed source for %s\n\n' "$task_id"
+		printf 'Manager review SHA-256: %s\n' "$review_sha"
+		printf 'The harness committed only reviewed paths within the immutable task scope.\n'
+	} > "$message_file"
+	commit="$(agent_commit_source "$message_file" "${dirty_paths[@]}")"
+	rm -f "$message_file"
+	checkpoint_record_controlled_commit "$task_id" manager-accept "$commit" "${dirty_paths[@]}"
+	log_event "ACCEPTANCE_SOURCE_COMMIT task=$task_id commit=$commit review_sha256=$review_sha paths=$(printf '%q' "${dirty_paths[*]}")"
 }
 
 checkpoint_commit_verified_artifact()

@@ -137,6 +137,8 @@ elif [[ "$kind" == plan ]]; then
 	"$HARNESS_BIN/manager-publish-task" "$ENV_FILE" 002 "$tmp" phase-2 >/dev/null
 	rm -f "$tmp"
 elif [[ "$kind" == replan ]]; then
+	printf '%s\n' "$prompt" | grep -Fq 'one aggregate transcript budget'
+	printf '%s\n' "$prompt" | grep -Fq 'a custom literal cap greater than either configured maximum is forbidden'
 	TASK_ROOT="$(value TASK_ROOT)"
 	TASK_ID="$(value EXPECTED_TASK_ID)"
 	RECOVERY_MODE="$(value RECOVERY_MODE)"
@@ -167,6 +169,7 @@ elif [[ "$kind" == replan ]]; then
 	strategy_id="mock.strategy.$count"
 	remediation_metadata=""
 	if [[ "$RECOVERY_MODE" == MANAGER_REMEDIATION ]]; then
+		printf '%s\n' "$prompt" | grep -Fq 'If an equivalent target already exists, correct the focused validation command'
 		publish_flag="--manager-remediation"
 		strategy_change="REPAIR_PREREQUISITE"
 		strategy_id="mock.manager-remediation.$count"

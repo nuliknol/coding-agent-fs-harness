@@ -572,15 +572,11 @@ printf 'Duplicate representation removed and focused gate passes.\n' > "$TEST_RO
 "$HARNESS_BIN/manager-resolve-debt" "$TEST_ROOT/harness.env" DEBT-widget "$TEST_ROOT/debt-resolution.md" >/dev/null
 printf 'int widget_value(void) { return 1; } /* uncommitted after review */\n' > \
 	"$TEST_ROOT/repo/src/widget.c"
-if "$HARNESS_BIN/manager-accept-task" "$TEST_ROOT/harness.env" 002 \
-	"$TEST_ROOT/coding-review.md" > "$TEST_ROOT/uncommitted-acceptance.out" 2>&1; then
-	printf 'final acceptance stranded an uncommitted task-scope path\n' >&2
-	exit 1
-fi
-grep -Fq 'acceptance has an uncommitted task-scope path: src/widget.c' \
-	"$TEST_ROOT/uncommitted-acceptance.out"
-printf 'int widget_value(void) { return 1; }\n' > "$TEST_ROOT/repo/src/widget.c"
 "$HARNESS_BIN/manager-accept-task" "$TEST_ROOT/harness.env" 002 "$TEST_ROOT/coding-review.md" >/dev/null
+test -z "$(git -C "$TEST_ROOT/repo" status --porcelain=v1 -- src/widget.c)"
+grep -Eq $'^[0-9a-f]+\t002\tmanager-accept\t.*\tsrc/widget.c$' \
+	"$project_dir/control/agent-commits.tsv"
+grep -Fq '/* uncommitted after review */' "$TEST_ROOT/repo/src/widget.c"
 
 test -f "$project_dir/control/project.complete"
 test "$(find "$project_dir/control/architecture/impacts" -name '*.impact.md' | wc -l)" -eq 2

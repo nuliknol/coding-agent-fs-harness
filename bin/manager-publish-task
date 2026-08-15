@@ -705,6 +705,16 @@ enforce_revision_authority()
 		reason="revision introduces architecture authority not granted by the root: root=[$root_architecture] revision=[$leaf_architecture_decisions]"
 	fi
 	if [[ -n "$reason" ]]; then
+		# Recovery publication is a bounded correction transaction. Reject the
+		# first over-broad candidate without pausing the root so the same manager
+		# turn can remove a misspelled build target, speculative context path, or
+		# other candidate-local scope error. Persist architecture reassessment
+		# only when the permitted correction repeats the expansion.
+		if (( recovery_publish == 1 )) &&
+			(( ${publish_attempts:-0} < ${max_publish_attempts:-$HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS} )); then
+			log_event "RECOVERY_SCOPE_EXPANSION_REJECTED root=$root task=$task_id attempt=${publish_attempts:-0} reason=$(printf '%q' "$reason")"
+			die "$reason; correct the recovery candidate within immutable authority and publish once more"
+		fi
 		if (( manager_remediation == 1 )); then
 			category=MANAGER_REMEDIATION_SCOPE_EXPANSION
 		fi
