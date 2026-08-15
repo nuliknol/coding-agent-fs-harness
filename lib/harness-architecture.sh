@@ -759,7 +759,7 @@ architecture_validate_manager_review()
 
 architecture_accept_decision()
 {
-	local decision="$1" task="$2" evidence="$3" expected expected_binding expected_evidence expected_path actual_path sha
+	local decision="$1" task="$2" evidence="$3" expected expected_binding expected_evidence expected_path actual_path specification_path sha
 	architecture_registry_has_id "$(architecture_decisions_file)" "$decision" || die "unknown architecture decision: $decision"
 	! architecture_decision_accepted "$decision" || die "architecture decision is already accepted: $decision"
 	expected="$(awk -F '\t' -v id="$decision" 'NR>1 && $1==id {print $3; exit}' "$(architecture_decisions_file)")"
@@ -782,8 +782,15 @@ architecture_accept_decision()
 		git -C "$REPOSITORY" diff --quiet -- "$expected_evidence" && die "operator-worktree decision evidence must differ from HEAD: $expected_evidence"
 	else
 		git -C "$REPOSITORY" ls-tree -r --name-only HEAD -- "$expected_evidence" | grep -Fqx -- "$expected_evidence" || die "decision evidence is not committed at HEAD: $expected_evidence"
-		awk -F '\t' -v task="$task" -v path="$expected_evidence" 'NR>1 && $2==task {n=split($5,a,","); for(i=1;i<=n;i++) if(a[i]==path) ok=1} END {exit !ok}' \
-			"$(project_dir)/control/agent-commits.tsv" 2>/dev/null || die "decision evidence was not delivered by the controlled source commit for task $task: $expected_evidence"
+		specification_path="$(realpath "$SPECIFICATION" 2>/dev/null || true)"
+		if [[ "$actual_path" == "$specification_path" ]]; then
+			specification_review_is_accepted || die 'architecture decision cites a governing specification without a current accepted review'
+			[[ "$(sha256sum "$actual_path" | awk '{print $1}')" == "$(specification_sha256)" ]] ||
+				die 'architecture decision cites a governing specification whose accepted authority hash has changed'
+		else
+			awk -F '\t' -v task="$task" -v path="$expected_evidence" 'NR>1 && $2==task {n=split($5,a,","); for(i=1;i<=n;i++) if(a[i]==path) ok=1} END {exit !ok}' \
+				"$(project_dir)/control/agent-commits.tsv" 2>/dev/null || die "decision evidence was not delivered by the controlled source commit for task $task: $expected_evidence"
+		fi
 	fi
 	sha="$(sha256sum "$evidence" | awk '{print $1}')"
 	printf '%s\tACCEPTED\t%s\t%s\t%s\n' "$decision" "$task" "$sha" "$(timestamp_utc)" >> "$(architecture_decision_ledger_file)"

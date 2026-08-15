@@ -843,4 +843,22 @@ grep -Fqx 'validation_kind=REVIEW_ATTESTED' "$TEST_ROOT/review-attested-gate.log
 grep -Fqx 'descriptor=FOCUSED: independently reviewed bounded evidence' \
 	"$TEST_ROOT/review-attested-gate.log"
 
+# An architecture leaf may derive a registered decision from the already
+# accepted governing specification. It must not rewrite or recommit that
+# immutable authority merely to satisfy producer provenance.
+printf '%s\n' $'ADR-spec\tPROPOSED\tcoding\tBind the accepted widget authority.\tThe accepted specification remains authoritative.\twidget_value\t-\tspec.md' >> \
+	"$project_dir/control/architecture/decisions.tsv"
+cp "$project_dir/archive/archguard-task-002.result.md" \
+	"$project_dir/results/archguard-task-002.result.md"
+bash -c '
+	set -Eeuo pipefail
+	source "$1/lib/harness-common.sh"
+	source "$1/lib/harness-architecture.sh"
+	load_harness_env "$2"
+	ensure_project
+	architecture_accept_decision ADR-spec 002 "$REPOSITORY/spec.md"
+' _ "$HARNESS_HOME" "$TEST_ROOT/harness.env"
+grep -Fq $'ADR-spec\tACCEPTED\t002\t' \
+	"$project_dir/control/architecture/decision-ledger.tsv"
+
 printf 'architecture guard tests passed\n'

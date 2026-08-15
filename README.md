@@ -146,6 +146,10 @@ authority. Decomposition staging and task publication reject any executable
 write scope that names the specification itself or one of its parent
 directories. Architectural decisions belong in the durable architecture
 registry; a worker cannot silently amend the accepted contract while coding.
+An architecture decision may cite that accepted, committed specification as
+its evidence without re-delivering the specification in the producer task's
+commit. All non-specification decision artifacts retain controlled-commit
+provenance requirements.
 
 Structured requirement `Dependencies` are extracted before the reviewer is
 launched. A source-declared cycle is recorded deterministically as
