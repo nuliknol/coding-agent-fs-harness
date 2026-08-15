@@ -887,6 +887,93 @@ task_context_capsule_file()
 	printf '%s/control/context-capsules/%s.md' "$(project_dir)" "$(task_base "$1")"
 }
 
+bounded_context_emit_tsv_rows_for_ids()
+{
+	local file="$1" ids="$2"
+	[[ -f "$file" ]] || return 0
+	awk -F '\t' -v ids="$ids" '
+		BEGIN {n=split(ids,v,","); for(i=1;i<=n;i++) if(v[i] != "" && v[i] != "-") wanted[v[i]]=1}
+		NR == 1 || ($1 in wanted)
+	' "$file"
+}
+
+# Compile global plan, normalized-IR, and architecture authority into the
+# complete semantic context for one node.  Agent prompts receive this artifact
+# instead of global registry paths, so each subsequent tool round cannot repay
+# for unrelated project history.
+write_plan_node_context_capsule()
+{
+	local output="$1" node_id="$2" plan_file state_file decomposition_file
+	local obligations_file relations_file coverage_file allocated='-'
+	local binding_file binding_row binding_invariants binding_consumes
+	local binding_produces binding_edges binding_gates binding_decisions bytes _
+	[[ -n "$node_id" && "$node_id" != - ]] || die 'bounded context capsule requires a plan node'
+	plan_file="$(project_plan_definition_file)"
+	state_file="$(project_plan_state_file)"
+	decomposition_file="$(project_decomposition_plan_file)"
+	if specification_ir_available; then
+		obligations_file="$(specification_obligations_file)"
+		relations_file="$(specification_relations_file)"
+		coverage_file="$(specification_coverage_file)"
+		allocated="$(specification_obligations_for_node "$node_id" | paste -sd, -)"
+		[[ -n "$allocated" ]] || allocated='-'
+	fi
+	{
+		printf '# Bounded Plan-Node Context\n\n'
+		printf 'This file is the complete plan, specification-IR, and architecture context for node `%s`. Do not open the global files from which it was derived.\n\n' "$node_id"
+		printf '## Project plan item\n\n```tsv\n'
+		awk -F '\t' -v id="$node_id" 'NR == 1 || $1 == id' "$plan_file"
+		printf '```\n\n## Project plan state\n\n```tsv\n'
+		awk -F '\t' -v id="$node_id" 'NR == 1 || $1 == id' "$state_file"
+		printf '```\n\n## Decomposition node\n\n```tsv\n'
+		if [[ -f "$decomposition_file" ]]; then
+			awk -F '\t' -v id="$node_id" 'NR == 1 || $1 == id' "$decomposition_file"
+		else
+			printf 'legacy_plan_item\n%s\n' "$node_id"
+		fi
+		printf '```\n'
+		if [[ "$allocated" != - ]]; then
+			printf '\n## Allocated obligations\n\n```tsv\n'
+			bounded_context_emit_tsv_rows_for_ids "$obligations_file" "$allocated"
+			printf '```\n\n## Typed relations touching allocated obligations\n\n```tsv\n'
+			awk -F '\t' -v ids="$allocated" '
+				BEGIN {n=split(ids,v,","); for(i=1;i<=n;i++) wanted[v[i]]=1}
+				NR == 1 || ($3 in wanted) || ($4 in wanted)
+			' "$relations_file"
+			printf '```\n\n## Coverage\n\n```tsv\n'
+			bounded_context_emit_tsv_rows_for_ids "$coverage_file" "$allocated"
+			printf '```\n'
+		fi
+		if (( HARNESS_ARCHITECTURE_GUARDS == 1 )); then
+			binding_file="$(architecture_node_bindings_file)"
+			binding_row="$(awk -F '\t' -v id="$node_id" '$1 == id {print; exit}' "$binding_file")"
+			if [[ -n "$binding_row" ]]; then
+				IFS=$'\t' read -r _ binding_invariants binding_consumes binding_produces binding_edges binding_gates <<< "$binding_row"
+				binding_decisions="$binding_consumes,$binding_produces"
+				printf '\n## Architecture node binding\n\n```tsv\n'
+				head -n 1 "$binding_file"
+				printf '%s\n' "$binding_row"
+				printf '```\n\n## Bound invariants\n\n```tsv\n'
+				bounded_context_emit_tsv_rows_for_ids "$(architecture_invariants_file)" "$binding_invariants"
+				printf '```\n\n## Bound decisions\n\n```tsv\n'
+				bounded_context_emit_tsv_rows_for_ids "$(architecture_decisions_file)" "$binding_decisions"
+				printf '```\n\n## Bound edge contracts\n\n```tsv\n'
+				bounded_context_emit_tsv_rows_for_ids "$(architecture_edges_file)" "$binding_edges"
+				printf '```\n\n## Bound health gates\n\n```tsv\n'
+				bounded_context_emit_tsv_rows_for_ids "$(architecture_health_gates_file)" "$binding_gates"
+				printf '```\n\n## Decision and health state\n\n```tsv\n'
+				bounded_context_emit_tsv_rows_for_ids "$(architecture_decision_ledger_file)" "$binding_decisions"
+				bounded_context_emit_tsv_rows_for_ids "$(architecture_health_ledger_file)" "$binding_gates" | tail -n +2
+				printf '```\n'
+			fi
+		fi
+	} > "$output.tmp.$$"
+	chmod 600 "$output.tmp.$$"
+	bytes="$(wc -c < "$output.tmp.$$" | tr -d '[:space:]')"
+	(( bytes <= 65536 )) || die "bounded plan-node context exceeds 65536 bytes: $bytes"
+	mv "$output.tmp.$$" "$output"
+}
+
 decomposition_provenance_file()
 {
 	printf '%s/control/decomposition-provenance.env' "$(project_dir)"

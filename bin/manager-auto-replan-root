@@ -106,6 +106,10 @@ task_output="$PROJECT_TMP_DIR/$PROJECT-task-$expected_task_id.$([[ "$recovery_mo
 criteria_output="$PROJECT_TMP_DIR/$PROJECT-task-$root.criteria-definition.tsv"
 decomposition_output="$PROJECT_TMP_DIR/$PROJECT-task-$expected_task_id.criterion-decomposition.tsv"
 prompt_file="$project_path/control/$PROJECT-task-$root.auto-replan.prompt.md"
+plan_item_id="$(project_plan_item_for_root "$root")"
+[[ -n "$plan_item_id" ]] || die "active root is not bound to a project plan item: $root"
+replan_context_capsule="$project_path/control/$PROJECT-task-$root.auto-replan-context.md"
+write_plan_node_context_capsule "$replan_context_capsule" "$plan_item_id"
 
 criteria_instruction=""
 publish_flag="--auto-replan"
@@ -147,8 +151,8 @@ PROGRESS_FILE=$progress_file
 CRITERIA_DEFINITION_FILE=$criteria_definition
 CRITERION_LEDGER_FILE=$criterion_ledger
 REPLAN_LEDGER_FILE=$replan_ledger
-PROJECT_PLAN_FILE=$plan_definition
-PROJECT_PLAN_STATE_FILE=$plan_state
+PROJECT_PLAN_FILE=-
+PROJECT_PLAN_STATE_FILE=-
 DEVELOPMENT_POLICY_FILE=$development_policy_file
 SPECIFICATION=$SPECIFICATION
 REPOSITORY=$REPOSITORY
@@ -164,12 +168,13 @@ CRITERIA_OUTPUT=$criteria_output
 DECOMPOSITION_OUTPUT=$decomposition_output
 DECOMPOSITION_V2=$HARNESS_DECOMPOSITION_V2
 ARCHITECTURE_GUARDS=$HARNESS_ARCHITECTURE_GUARDS
-ARCHITECTURE_DIR=$(architecture_dir)
-PROJECT_DECOMPOSITION_FILE=$(project_decomposition_plan_file)
+ARCHITECTURE_DIR=-
+PROJECT_DECOMPOSITION_FILE=-
+PLAN_NODE_CONTEXT_FILE=$replan_context_capsule
 LUNA_STRATEGY_FAILURES=$(root_luna_strategy_failure_count "$root")
 MAX_LUNA_STRATEGY_FAILURES=$HARNESS_MAX_LUNA_STRATEGY_FAILURES
 
-Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and the files above that exist. Inspect only the repository evidence needed to understand the first unmet boundary. Preserve every verified checkpoint.
+Read DEVELOPMENT_POLICY_FILE when present, PLAN_NODE_CONTEXT_FILE once, and the root/replan/criterion files above that exist. PLAN_NODE_CONTEXT_FILE is the complete plan, DAG, normalized-IR, and architecture authority for this turn. Do not open the generic manager protocol, human specification, global plan/DAG/IR/architecture files, repository inventory, prior agent logs, or unrelated progress files. Inspect only bounded repository evidence needed for the first unmet boundary, with at most six shell actions and bounded output. Preserve every verified checkpoint.
 
 $criteria_instruction
 
@@ -210,6 +215,7 @@ if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
 
 V2 decomposition is active and the preferred coder is $HARNESS_PREFERRED_WORKER_ROUTE. The replacement must include Leaf-Type, Complexity-Class, Worker-Route, Depends-On, Deliverable, Required-Symbols, Context-Paths, Architecture-Decisions, Validation-Class, Expected-Max-Implementation-Files, and Expected-Max-Worker-Turns. Validation-Class is FOCUSED, INCREMENTAL, or CLEAN_GLOBAL. Before the Luna strategy limit, routine implementation must be decomposed into LOW/LUNA children rather than routed to Terra. If LUNA_STRATEGY_FAILURES is at least MAX_LUNA_STRATEGY_FAILURES, decompose the first unmet criterion into smaller children or route the replacement to TERRA with fresh context. A Luna replacement is valid only for LOW complexity, no architecture decisions, a Luna-safe leaf type, FOCUSED or INCREMENTAL validation, no more than five expected implementation files, and no more than three expected turns. CLEAN_GLOBAL validation requires a TERRA INTEGRATION leaf.
+Allowed-Scope is only a comma-separated list of repository-relative path prefixes. Put explanations and adaptation details in Objective; never append prose to Allowed-Scope.
 PROMPT
 fi
 if codex_model_requires_narrow_prompt "$MANAGER_MODEL"; then

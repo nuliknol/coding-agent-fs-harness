@@ -293,6 +293,20 @@ scope_is_within_root_authority()
 	return 0
 }
 
+scope_metadata_is_path_list()
+{
+	local scope="$1" entry
+	local -a entries=()
+	scope="${scope//;/,}"
+	IFS=',' read -r -a entries <<< "$scope"
+	(( ${#entries[@]} > 0 )) || return 1
+	for entry in "${entries[@]}"; do
+		entry="$(trim_surrounding_whitespace "$entry")"
+		[[ -n "$entry" && "$entry" != *[[:space:]]* ]] || return 1
+	done
+	return 0
+}
+
 enforce_revision_authority()
 {
 	local root_scope root_architecture root_max_files root_max_turns reason="" category=IMMUTABLE_ROOT_AUTHORITY
@@ -359,6 +373,8 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 	goal_baseline_boundary="$(require_single_metadata_value "$task_file" Baseline-Boundary 'goal-mode assignment')"
 	goal_hard_blocks="$(require_single_metadata_value "$task_file" Hard-Block-Conditions 'goal-mode assignment')"
 	if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
+		scope_metadata_is_path_list "$goal_allowed_scope" ||
+			die 'Allowed-Scope must contain only comma-separated repository-relative path prefixes; put descriptive prose in Objective'
 		leaf_type="$(require_single_metadata_value "$task_file" Leaf-Type 'v2 leaf assignment')"
 		leaf_complexity="$(require_single_metadata_value "$task_file" Complexity-Class 'v2 leaf assignment')"
 		leaf_worker_route="$(require_single_metadata_value "$task_file" Worker-Route 'v2 leaf assignment')"

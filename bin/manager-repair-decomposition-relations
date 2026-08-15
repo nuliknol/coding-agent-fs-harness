@@ -40,27 +40,32 @@ install -m 600 "$coverage_source" "$repair_dir/coverage.tsv"
 awk -F '\t' -v OFS='\t' -v coverage_file="$coverage_source" \
 	-v relations_file="$(specification_relations_file)" -v dag_file="$dag_source" '
 	function trim(v) {gsub(/^[[:space:]]+|[[:space:]]+$/, "", v); return v}
-	function rebuild_reach(  i,j,k,a,b,changed) {
-		delete reach
-		for (k in dependency) reach[k]=1
-		do {
-			changed=0
-			for (a in reach) {
-				split(a, ap, SUBSEP)
-				for (b in reach) {
-					split(b, bp, SUBSEP)
-					if (ap[2] == bp[1] && !((ap[1] SUBSEP bp[2]) in reach)) {
-						added[ap[1] SUBSEP bp[2]]=1; changed=1
-					}
-				}
+	# Answer one reachability question with a bounded traversal.  The previous
+	# implementation rebuilt the complete transitive closure after every added
+	# relation edge.  That becomes effectively quartic for large normalized IRs
+	# and left harness-start consuming a CPU indefinitely on otherwise mechanical
+	# repairs.
+	function follows_node(node, target,  head,tail,current,key,p,next_node) {
+		if (node == target) return 1
+		delete seen
+		delete queue
+		head=1; tail=1; queue[1]=node; seen[node]=1
+		while (head <= tail) {
+			current=queue[head++]
+			for (key in dependency) {
+				split(key,p,SUBSEP)
+				if (p[1] != current) continue
+				next_node=p[2]
+				if (next_node == target) return 1
+				if (!seen[next_node]) {seen[next_node]=1; queue[++tail]=next_node}
 			}
-			for (k in added) {reach[k]=1; delete added[k]}
-		} while (changed)
+		}
+		return 0
 	}
 	function follows(node, obligation,  key,p) {
 		for (key in covered) {
 			split(key,p,SUBSEP)
-			if (p[1] == obligation && (p[2] == node || ((node SUBSEP p[2]) in reach))) return 1
+			if (p[1] == obligation && follows_node(node,p[2])) return 1
 		}
 		return 0
 	}
@@ -72,7 +77,7 @@ awk -F '\t' -v OFS='\t' -v coverage_file="$coverage_source" \
 			if (p[1] != obligation) continue
 			candidate=p[2]
 			if (candidate == node || !(candidate in node_order)) continue
-			if ((candidate SUBSEP node) in reach) continue
+			if (follows_node(candidate,node)) continue
 			if (node_order[candidate] < node_order[node]) {
 				if (!best_before || node_order[candidate] > node_order[best]) best=candidate
 				best_before=1
@@ -82,7 +87,6 @@ awk -F '\t' -v OFS='\t' -v coverage_file="$coverage_source" \
 		dependency[node SUBSEP best]=1
 		if (node_depends[node] == "-") node_depends[node]=best
 		else node_depends[node]=node_depends[node] "," best
-		rebuild_reach()
 		return 1
 	}
 	FILENAME == coverage_file {
@@ -104,7 +108,6 @@ awk -F '\t' -v OFS='\t' -v coverage_file="$coverage_source" \
 		next
 	}
 	END {
-		rebuild_reach()
 		for (r=1;r<=relation_count;r++) {
 			for (key in covered) {
 				split(key,p,SUBSEP)

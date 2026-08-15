@@ -122,14 +122,19 @@ if [[ -n "$structural_reason" ]]; then
 fi
 rm -f "$structural_error"
 
+plan_context_node="$active_item_before"
+[[ -n "$plan_context_node" && "$plan_context_node" != - ]] || plan_context_node="$ready_plan_node"
+plan_context_capsule="$project_path/control/manager-plan-next-task.context.md"
+write_plan_node_context_capsule "$plan_context_capsule" "$plan_context_node"
+
 cat > "$prompt_file.tmp.$$" <<PROMPT
 The previous root task is resolved, or an ACTIVE root was explicitly resumed after replanning; the project has no active task process and its specification is not complete.
 
 ENV_FILE=$HARNESS_ENV_FILE
 PROJECT=$PROJECT
 PROJECT_TMP_DIR=$PROJECT_TMP_DIR
-PROJECT_PLAN_FILE=$plan_definition
-PROJECT_PLAN_STATE_FILE=$plan_state
+PROJECT_PLAN_FILE=-
+PROJECT_PLAN_STATE_FILE=-
 PROJECT_PROGRESS_PERCENT=$(project_plan_progress_percent)
 DEVELOPMENT_POLICY_FILE=$development_policy_file
 SPECIFICATION=$SPECIFICATION
@@ -149,16 +154,17 @@ ACTIVE_REPAIR_GOAL_TASK=$active_repair_goal_task
 WORKER_GOAL_MODE=$HARNESS_WORKER_GOAL_MODE
 DECOMPOSITION_V2=$HARNESS_DECOMPOSITION_V2
 ARCHITECTURE_GUARDS=$HARNESS_ARCHITECTURE_GUARDS
-ARCHITECTURE_DIR=$(architecture_dir)
-PROJECT_DECOMPOSITION_FILE=$decomposition_definition
-SPECIFICATION_OBLIGATIONS_FILE=$specification_obligations_definition
-SPECIFICATION_RELATIONS_FILE=$specification_relations_definition
-SPECIFICATION_COVERAGE_FILE=$specification_coverage_definition
+ARCHITECTURE_DIR=-
+PROJECT_DECOMPOSITION_FILE=-
+SPECIFICATION_OBLIGATIONS_FILE=-
+SPECIFICATION_RELATIONS_FILE=-
+SPECIFICATION_COVERAGE_FILE=-
 READY_PLAN_NODE=$ready_plan_node
+PLAN_NODE_CONTEXT_FILE=$plan_context_capsule
 
-Read $HARNESS_HOME/prompts/manager-agent-event-driven.md and follow it. Read DEVELOPMENT_POLICY_FILE when present, then read PROJECT_PLAN_FILE and PROJECT_PLAN_STATE_FILE completely. If ACTIVE_TASK_ROOT is set, also read ACTIVE_PROGRESS_FILE, ACTIVE_CRITERIA_FILE, ACTIVE_CRITERIA_DEFINITION_FILE, ACTIVE_CRITERION_DECOMPOSITION_FILE, ACTIVE_MANAGER_REMEDIATION_LEDGER, and ACTIVE_HARD_BLOCK_LEDGER when present, then publish one newly bounded continuation of that same root with Target-Criterion equal to ACTIVE_FIRST_UNMET_CRITERION. Manager-remediation ledger entries and their checkpoint artifacts are separately attributed baseline prerequisites, not feature-worker implementation changes; a scope acceptance leaf must disclose and validate them but must evaluate the feature-owned delta without charging those paths to the ordinary worker. Direct follow-up fixes causally exposed by a recorded manager remediation retain the same baseline-remediation provenance. An ordinary worker exclusive-file, forbidden-file, or ownership rule does not require human approval for such a bounded repair when observable product behavior and public contracts remain unchanged. Otherwise publish READY_PLAN_NODE, which is the first dependency-ready pending item; never publish a node whose dependencies are incomplete. For a V2 node, extract only READY_PLAN_NODE's DAG row, coverage rows allocated to it, those obligation rows, relations touching those obligation IDs, and referenced architecture rows. Do not read the complete human specification, normalized IR, or architecture registries. Bound shell output to at most $HARNESS_VALIDATION_OUTPUT_MAX_LINES lines and $HARNESS_VALIDATION_OUTPUT_MAX_BYTES bytes. Declare independently verifiable criteria with stable Root-Criterion lines. Inspect only repository paths named by that bounded node context, write exactly one bounded task under PROJECT_TMP_DIR, and publish it with manager-publish-task including its PROJECT_PLAN_ITEM_ID. Preserve completed implementation and begin at the first unmet leaf criterion. Then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or repeat completed plan items.
+This is one bounded event-driven planning turn in fresh context. Read DEVELOPMENT_POLICY_FILE when present, PLAN_NODE_CONTEXT_FILE once, and the ACTIVE root files listed above when present. PLAN_NODE_CONTEXT_FILE is the complete plan, DAG, normalized-IR, and architecture authority for this turn; do not open global project files, the human specification, repository inventory, architecture registries, prior agent logs, or the generic manager protocol. If ACTIVE_TASK_ROOT is set, publish one bounded continuation with Target-Criterion equal to ACTIVE_FIRST_UNMET_CRITERION. Otherwise publish READY_PLAN_NODE; never publish a node whose dependencies are incomplete. Bound every shell output to at most $HARNESS_VALIDATION_OUTPUT_MAX_LINES lines and $HARNESS_VALIDATION_OUTPUT_MAX_BYTES bytes. Inspect only repository paths named by the capsule or active assignment. Write exactly one task under PROJECT_TMP_DIR and publish it with manager-publish-task. Preserve completed implementation and terminate after publication. Do not wait, sleep, poll, watch, or repeat completed items.
 
-Before publishing any continuation, inspect the governing specification for mandatory cross-harness Git refs and verify them directly. When one is absent, write the exact seven-column requirements TSV and supplier note, call manager-wait-dependency for ACTIVE_PLAN_ITEM and ACTIVE_TASK_ROOT, and terminate. Do not publish another absence audit, count repeated absence as durable evidence, or unlock preflight/integration. When all mandatory refs exist, include them in Mandatory-Git-Refs metadata so publication and final review revalidate them mechanically.
+Before publishing, verify mandatory cross-harness Git refs named by PLAN_NODE_CONTEXT_FILE or the active root assignment. When one is absent, write the exact seven-column requirements TSV and supplier note, call manager-wait-dependency for ACTIVE_PLAN_ITEM and ACTIVE_TASK_ROOT, and terminate. Do not publish another absence audit or count repeated absence as gain. When all mandatory refs exist, include them in Mandatory-Git-Refs metadata.
 PROMPT
 if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
@@ -171,7 +177,7 @@ fi
 if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
 
-Read PROJECT_DECOMPOSITION_FILE. When present, also read SPECIFICATION_OBLIGATIONS_FILE, SPECIFICATION_RELATIONS_FILE, and SPECIFICATION_COVERAGE_FILE so the assignment preserves the exact obligations and typed relations allocated to its node. Every assignment must contain the complete v2 leaf contract: Leaf-Type, Complexity-Class, Worker-Route, Depends-On, Deliverable, Required-Symbols, Context-Paths, Architecture-Decisions, Validation-Class, Expected-Max-Implementation-Files, and Expected-Max-Worker-Turns, in addition to the leaf-goal fields. Validation-Class is FOCUSED, INCREMENTAL, or CLEAN_GLOBAL. PREFERRED_WORKER_ROUTE=$HARNESS_PREFERRED_WORKER_ROUTE. For a typed new DAG, copy all DAG-backed values exactly. For a legacy untyped immutable DAG, reclassify a planned TERRA root to LOW/LUNA whenever its first executable criterion has resolved architecture and can fit the Luna-ready limits; the publisher explicitly permits this compatibility override. Split broad coding into ordered criteria until each implementation leaf is Luna-ready. A LUNA leaf must have no architecture decisions, use only a Luna-safe leaf type, remain within five expected implementation files and $HARNESS_MAX_LUNA_ALLOWED_PATHS bounded Allowed-Scope path groups, use FOCUSED or INCREMENTAL validation, and use at most three worker turns. CLEAN_GLOBAL validation requires a separate TERRA INTEGRATION leaf. TERRA may resolve architecture, contracts, concurrency, ambiguity, or unexplained integration, or handle coding only after $HARNESS_MAX_LUNA_STRATEGY_FAILURES genuinely different Luna strategies failed.
+Use PLAN_NODE_CONTEXT_FILE as the only V2 semantic source. Every assignment contains the complete v2 leaf contract: Leaf-Type, Complexity-Class, Worker-Route, Depends-On, Deliverable, Required-Symbols, Context-Paths, Architecture-Decisions, Validation-Class, Expected-Max-Implementation-Files, and Expected-Max-Worker-Turns. Copy DAG-backed values exactly. Routine bounded coding is LOW/LUNA; CLEAN_GLOBAL validation is TERRA INTEGRATION. Allowed-Scope is only a comma-separated list of repository-relative path prefixes—put explanations in Objective, never in Allowed-Scope.
 PROMPT
 fi
 if codex_model_requires_narrow_prompt "$MANAGER_MODEL"; then
