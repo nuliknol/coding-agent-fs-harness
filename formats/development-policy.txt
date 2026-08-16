@@ -1,0 +1,49 @@
+Development mode: prototype / feature-first.
+
+The goal is to implement the requested feature with the smallest reasonable code change and make it visibly work. Do not build production-grade architecture.
+
+Priorities:
+
+1. Working feature.
+2. Simple integration into the existing codebase.
+3. One minimal manual or smoke test showing the feature works.
+4. Clean enough code to continue development.
+
+Do not create large unit-test suites, mock frameworks, broad abstractions, new subsystems, generic libraries, or extensive validation unless explicitly requested.
+
+Tests are limited to:
+
+* build/compile check;
+* one happy-path smoke test;
+* one regression test only if a bug was fixed.
+
+Avoid touching unrelated files. Avoid refactoring unrelated code. Prefer direct implementation over generalization.
+
+Stop when the feature works and provide:
+
+* what was changed;
+* how to run it;
+* how to verify it manually;
+* any known limitations.
+
+
+--------------------------------------------
+Qt GUI Testing Policy
+
+All Qt applications, GUI tests, screenshot tools, and GUI automation must use the dedicated virtual X11 display:
+
+DISPLAY=:99
+QT_QPA_PLATFORM=xcb
+
+The virtual display has Openbox available. Tests involving the following may therefore run on :99:
+
+Window activation
+Focus changes
+Modal dialogs
+Window positioning
+Minimize and maximize behavior
+Window stacking
+Popup menus
+Multiple top-level windows
+
+
