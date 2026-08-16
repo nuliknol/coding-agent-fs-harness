@@ -37,6 +37,16 @@ marker="$dir/control/manager-context-rotation-required.md"
 chmod 600 "$marker.tmp.$$"
 mv "$marker.tmp.$$" "$marker"
 rm -f "$dir/control/manager-plan-stalled.md"
+active_root_count=0
+if project_plan_exists; then
+	while IFS= read -r active_root; do
+		[[ -n "$active_root" && "$active_root" != - ]] || continue
+		record_root_liveness_epoch "$active_root" "$archive_dir/reason.md"
+		active_root_count=$((active_root_count + 1))
+	done < <(awk -F '\t' '!/^#/ && $2 == "ACTIVE" && $3 != "-" && !seen[$3]++ {print $3}' \
+		"$(project_plan_state_file)")
+fi
 log_event "MANAGER_CONTEXT_ROTATION_REQUIRED archive=$archive_dir marker=$marker"
+log_event "MANAGER_CONTEXT_ROTATION_LIVENESS_EPOCHS roots=$active_root_count source=$archive_dir/reason.md"
 printf 'Manager context will rotate on the next planning invocation.\n'
 printf 'Rotation archive: %s\n' "$archive_dir"
