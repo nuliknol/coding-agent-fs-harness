@@ -34,6 +34,7 @@ case "${MOCK_MODE:?}" in
  idle) sleep 5 ;;
  wall) while true; do printf 'progress\n' >&2; sleep 1; done ;;
  partial) printf 'partial\n' >> "$REPOSITORY/tracked.txt"; exit 7 ;;
+	partial_already_dirty) printf 'another partial edit\n' >> "$REPOSITORY/tracked.txt"; exit 7 ;;
  capacity_code) printf '{"type":"turn.failed","error":{"code":"model_capacity","message":"busy"}}\n'; exit 1 ;;
  capacity_text) printf '{"type":"error","message":"Selected model is at capacity. Please try a different model."}\n'; exit 1 ;;
  quota_code) printf '{"type":"turn.failed","error":{"code":"usage_limit_reached","message":"limit"}}\n'; exit 1 ;;
@@ -147,6 +148,17 @@ run_case cyber_flag model_refusal_or_blocked_content
 run_case idle idle_timeout
 run_case wall wall_clock_timeout
 run_case partial partial_edit_failure
+# Editing a path that was already dirty before invocation must still count as
+# this invocation's source movement. A porcelain path-set hash cannot observe
+# this transition; the content-aware workspace fingerprint can.
+printf 'preexisting dirty state\n' >> "$TMP/repo/tracked.txt"
+run_case partial_already_dirty partial_edit_failure
+grep -q '^partial_edits=1$' "$TMP/partial_already_dirty.classification"
+before_fingerprint="$(awk -F= '$1=="workspace_fingerprint_before" {print $2}' "$TMP/partial_already_dirty.classification")"
+after_fingerprint="$(awk -F= '$1=="workspace_fingerprint_after" {print $2}' "$TMP/partial_already_dirty.classification")"
+[[ "$before_fingerprint" =~ ^sha256:[0-9a-f]{64}$ ]]
+[[ "$after_fingerprint" =~ ^sha256:[0-9a-f]{64}$ ]]
+[[ "$before_fingerprint" != "$after_fingerprint" ]]
 run_case capacity_code provider_transient_error
 grep -q '^provider_code=model_capacity$' "$TMP/capacity_code.classification"
 run_case capacity_text provider_transient_error
@@ -177,7 +189,8 @@ grep -q 'agent invocation resource circuit breaker: live item-start budget reach
 	"$TMP/state/projects/jsonltest/control/progress/jsonltest-task-resource-root.needs-human.md"
 
 # A measured leaf tightens the global action ceiling to its own Sol-authored
-# upper bound. Two predicted actions permit two starts and stop on the third.
+# upper bound. Two predicted actions receive two completion/finalization items
+# of headroom and stop only after that measured allowance is exceeded.
 cp "$TMP/env" "$TMP/env-measured-leaf"
 printf 'export HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION="100"\n' >> "$TMP/env-measured-leaf"
 measured_prompt="$TMP/measured-leaf-prompt"
@@ -189,7 +202,7 @@ measured_item_status=$?
 set -e
 (( measured_item_status != 0 ))
 grep -q '^classification=agent_item_budget_exceeded$' "$TMP/measured-item-loop.classification"
-grep -q '^item_limit=3$' "$TMP/measured-item-loop.classification"
+grep -q '^item_limit=4$' "$TMP/measured-item-loop.classification"
 rm -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-measured-root.needs-human.md" \
 	"$TMP/state/projects/jsonltest/control/progress/jsonltest-task-measured-root.token-usage-anomaly.md"
 
@@ -209,7 +222,7 @@ set -e
 (( manager_remediation_status != 0 ))
 grep -q '^classification=agent_item_budget_exceeded$' \
 	"$TMP/manager-remediation-item-loop.classification"
-grep -q '^item_limit=7$' "$TMP/manager-remediation-item-loop.classification"
+grep -q '^item_limit=8$' "$TMP/manager-remediation-item-loop.classification"
 grep -q '^processed_token_limit=150000$' \
 	"$TMP/manager-remediation-item-loop.classification"
 [[ ! -e "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-manager-remediation-root.needs-human.md" ]]

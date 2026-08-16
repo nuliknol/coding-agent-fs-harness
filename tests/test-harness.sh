@@ -969,6 +969,41 @@ resource_output="$("$HARNESS_BIN/manager-reject-task" "$CIRCUIT_ROOT/harness.env
 grep -Fqx 'Trigger-Outcome: RESOURCE_NEEDS_DECOMPOSITION' "$resource_output"
 grep -q 'ITEM_LIMIT fuse' "$resource_output"
 rm -f "$resource_output"
+
+# Resource-fused episodes that changed an already-dirty workspace are not
+# identical no-progress failures. Even when a manager repeats one stale
+# Blocking-Fingerprint, machine-owned content fingerprints keep the episodes
+# distinct and route the preserved source change to fresh verification.
+for revision in 07 08 09; do
+	assignment="$CIRCUIT_ROOT/state/projects/circuitproj/archive/circuitproj-task-001-revision-$revision.assignment.md"
+	result="$CIRCUIT_ROOT/state/projects/circuitproj/results/circuitproj-task-001-revision-$revision.result.md"
+	cat > "$assignment" <<MD
+Task-ID: 001-revision-$revision
+Task-Root: 001
+MD
+	case "$revision" in
+		07) workspace_hash="1111111111111111111111111111111111111111111111111111111111111111" ;;
+		08) workspace_hash="2222222222222222222222222222222222222222222222222222222222222222" ;;
+		09) workspace_hash="3333333333333333333333333333333333333333333333333333333333333333" ;;
+	esac
+	cat > "$result" <<RESULT
+# Worker Task Result
+
+Goal-Outcome: NEEDS_DECOMPOSITION
+Resource-Guard: ITEM_LIMIT
+Workspace-Changed: 1
+Workspace-Fingerprint-Before: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Workspace-Fingerprint-After: sha256:$workspace_hash
+RESULT
+	progress_resource_output="$("$HARNESS_BIN/manager-reject-task" "$CIRCUIT_ROOT/harness.env" \
+		"001-revision-$revision" "$CIRCUIT_ROOT/resource-review.md")"
+	[[ "$progress_resource_output" == *.needs-replan.md ]]
+	grep -Fqx 'Trigger-Outcome: RESOURCE_PROGRESS_NEEDS_VERIFICATION' "$progress_resource_output"
+	[[ ! -f "$CIRCUIT_ROOT/state/projects/circuitproj/control/progress/circuitproj-task-001.architecture-reassessment-required.md" ]]
+	rm -f "$progress_resource_output"
+done
+grep -q 'TASK_RESOURCE_BLOCKING_FINGERPRINT_NORMALIZED task=001-revision-09.*workspace_changed=1' \
+	"$CIRCUIT_ROOT/state/projects/circuitproj/logs/events.log"
 cat > "$CIRCUIT_ROOT/state/projects/circuitproj/control/progress/circuitproj-task-001.architecture-reassessment-required.md" <<'MARKER'
 # Architecture Reassessment Required
 

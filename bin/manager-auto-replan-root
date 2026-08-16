@@ -44,13 +44,18 @@ fi
 trigger_outcome="$(awk -F': ' '$1 == "Trigger-Outcome" {print $2; exit}' "$replan_marker")"
 resource_decomposition=0
 [[ "$trigger_outcome" != RESOURCE_NEEDS_DECOMPOSITION ]] || resource_decomposition=1
+resource_progress_verification=0
+[[ "$trigger_outcome" != RESOURCE_PROGRESS_NEEDS_VERIFICATION ]] || resource_progress_verification=1
+resource_recovery=$((resource_decomposition || resource_progress_verification))
 blocking_fingerprint="$(awk -F': ' '$1 == "Blocking-Fingerprint" {print $2; exit}' "$replan_marker")"
 [[ -n "$blocking_fingerprint" ]] || blocking_fingerprint="-"
 trigger_blocker_class="$(awk -F': ' '$1 == "Blocker-Class" {print $2; exit}' "$replan_marker")"
 trigger_remediation_scope="$(awk -F': ' '$1 == "Remediation-Scope" {print $2; exit}' "$replan_marker")"
 recovery_mode="AUTOMATIC_REPLAN"
 recovery_reason="bounded strategy change remains available"
-	if [[ "$trigger_outcome" == DETERMINISTIC_BLOCKER ]]; then
+if (( resource_progress_verification == 1 )); then
+	recovery_reason="the preceding resource-bounded episode changed preserved source and requires isolated verification before more implementation"
+elif [[ "$trigger_outcome" == DETERMINISTIC_BLOCKER ]]; then
 	recovery_mode="MANAGER_REMEDIATION"
 	recovery_reason="the configured deterministic local-blocker threshold was reached"
 	elif [[ "$trigger_outcome" == HARD_BLOCKED_LOCAL ]]; then
@@ -65,14 +70,14 @@ elif [[ "$trigger_outcome" == LEGACY_HARD_BLOCKED ]]; then
 # An explicit architecture resolution establishes a fresh operator-reviewed
 # authority boundary. Do not reinterpret the preserved historical fingerprint
 # as proof that manager remediation or scope expansion remains authorized.
-elif (( resource_decomposition == 0 )) &&
+elif (( resource_recovery == 0 )) &&
 	[[ "$trigger_outcome" != ARCHITECTURE_REASSESSMENT_RESOLVED ]] &&
 	root_same_blocker_without_verified_gain "$root" "$blocking_fingerprint"; then
 	recovery_mode="MANAGER_REMEDIATION"
 	recovery_reason="the same local blocker survived a bounded automatic replan without durable verified gain"
 fi
 auto_replans="$(root_auto_replans_without_verified_gain "$root")"
-if [[ "$recovery_mode" != MANAGER_REMEDIATION ]] && (( resource_decomposition == 0 )) &&
+if [[ "$recovery_mode" != MANAGER_REMEDIATION ]] && (( resource_recovery == 0 )) &&
 	(( auto_replans >= HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN )); then
 	recovery_mode="MANAGER_REMEDIATION"
 	recovery_reason="the bounded worker strategy-change budget was exhausted without durable verified gain ($auto_replans/$HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN)"
@@ -173,7 +178,9 @@ if task_root_uses_assignment_criteria "$root" || [[ -f "$criteria_definition" ]]
 		$(root_child_criterion_count "$root") >= HARNESS_MAX_ROOT_CHILD_CRITERIA )); then
 		criteria_instruction="Use the existing immutable criterion inventory. Its first unmet leaf is: $first_unmet. The structural decomposition budget is exhausted at depth $first_unmet_depth/$HARNESS_MAX_CRITERION_DEPTH and children $(root_child_criterion_count "$root")/$HARNESS_MAX_ROOT_CHILD_CRITERIA. Do not write or pass DECOMPOSITION_OUTPUT. Keep exactly this first-unmet criterion, add only the missing bounded context/contract evidence, and publish with $publish_flag only. Never rewrite or remove an existing criterion or decomposition row."
 	else
-		if (( resource_decomposition == 1 )) && [[ "$recovery_mode" != MANAGER_REMEDIATION ]]; then
+		if (( resource_progress_verification == 1 )); then
+			criteria_instruction="Use the existing immutable criterion inventory. Its first unmet leaf is: $first_unmet. The preceding bounded episode changed preserved source before its resource fuse. Do not append decomposition and do not authorize another implementation edit. Target exactly $first_unmet with a VERIFICATION_ONLY leaf, Expected-Max-Implementation-Files: 0, fresh context, and the narrowest executable focused validation that proves or disproves the preserved change."
+		elif (( resource_decomposition == 1 )) && [[ "$recovery_mode" != MANAGER_REMEDIATION ]]; then
 			criteria_instruction="Use the existing immutable criterion inventory. Its first unmet leaf is: $first_unmet. The resource guard proved this leaf is too broad, so decomposition is mandatory. Do not create or replace CRITERIA_OUTPUT. Refine exactly $first_unmet into at least two ordered, independently verifiable direct children by writing DECOMPOSITION_OUTPUT with the exact header parent_criterion<TAB>child_criterion<TAB>title<TAB>acceptance_evidence. Every data row must name exactly $first_unmet as parent_criterion; do not include grandchildren or recursively split a new child in this publication. Target the first new direct child and publish with $publish_flag - DECOMPOSITION_OUTPUT. Publishing the unchanged parent without DECOMPOSITION_OUTPUT is invalid. Never rewrite or remove an existing criterion or decomposition row."
 		else
 			criteria_instruction="Use the existing immutable criterion inventory. Its first unmet leaf is: $first_unmet. Do not create or replace CRITERIA_OUTPUT. If repository evidence proves this leaf is unexpectedly broad, you may refine only $first_unmet into at least two ordered independently verifiable direct children by writing DECOMPOSITION_OUTPUT with the exact header parent_criterion<TAB>child_criterion<TAB>title<TAB>acceptance_evidence. Every data row in this transaction must name exactly $first_unmet as parent_criterion; do not include grandchildren or recursively split a newly introduced child in the same publication. In that case target the first new direct child and publish with $publish_flag - DECOMPOSITION_OUTPUT. A later replan may split that child if it remains too broad. Otherwise target $first_unmet and publish with $publish_flag only. Never rewrite or remove an existing criterion or decomposition row."
@@ -244,6 +251,8 @@ Replan-Strategy-ID: NEW_STABLE_ID
 Strategy-Change: $strategy_change_values
 Supersedes-Task: $trigger_task
 $recovery_task_metadata
+
+When RECOVERY_REASON says preserved source requires isolated verification, the continuation must set Leaf-Type: VERIFICATION_ONLY and Expected-Max-Implementation-Files: 0. It must validate the preserved diff without making implementation edits; a failed verification returns to decomposition with the exact observed failure.
 
 It must also contain nonempty Objective, Acceptance criteria, and Validation commands level-two sections. The objective must isolate the first unmet criterion. The evidence or scope strategy must materially differ from prior entries in REPLAN_LEDGER_FILE and from the triggering assignment. Do not edit the repository in this planning turn.
 

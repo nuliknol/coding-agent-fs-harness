@@ -2129,7 +2129,7 @@ write_worker_episode_evidence_digest()
 			printf 'Worker-JSONL-Bytes: %s\n' "$(stat -c %s "$json_log" 2>/dev/null || printf 0)"
 			if [[ -f "$classification_file" ]]; then
 				printf '\n## Classification\n\n'
-				awk -F= '$1 ~ /^(classification|role|model|exit_status|item_started_count|estimated_processed_tokens|processed_token_limit|resource_guard|git_head_changed|partial_edits)$/ {print}' \
+				awk -F= '$1 ~ /^(classification|role|model|exit_status|item_started_count|estimated_processed_tokens|processed_token_limit|resource_guard|git_head_changed|partial_edits|workspace_fingerprint_before|workspace_fingerprint_after)$/ {print}' \
 					"$classification_file"
 			fi
 			if command -v jq >/dev/null 2>&1; then

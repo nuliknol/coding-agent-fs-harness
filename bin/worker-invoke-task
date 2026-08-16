@@ -413,7 +413,11 @@ emit_synthetic_impact_manifest()
 
 publish_goal_decomposition_handoff()
 {
-	local reason="$1" concern="$2" handoff
+	local reason="$1" concern="$2" handoff classification_file partial_edits workspace_before workspace_after
+	classification_file="${json_log%.jsonl}.classification"
+	partial_edits="$(kv_file_value "$classification_file" partial_edits 2>/dev/null || printf 0)"
+	workspace_before="$(kv_file_value "$classification_file" workspace_fingerprint_before 2>/dev/null || printf -)"
+	workspace_after="$(kv_file_value "$classification_file" workspace_fingerprint_after 2>/dev/null || printf -)"
 	handoff="$PROJECT_TMP_DIR/$base.goal-decomposition-handoff.$$"
 	{
 		printf '# Worker Task Result\n\n'
@@ -425,6 +429,9 @@ publish_goal_decomposition_handoff()
 		# manager review cannot distinguish an exhausted execution context
 		# from a repository-local prerequisite.
 		printf 'Resource-Guard: %s\n' "${resource_guard:--}"
+		printf 'Workspace-Changed: %s\n' "$partial_edits"
+		printf 'Workspace-Fingerprint-Before: %s\n' "$workspace_before"
+		printf 'Workspace-Fingerprint-After: %s\n' "$workspace_after"
 		emit_synthetic_impact_manifest
 		printf '\n'
 		printf '## Summary\n\n%s\n\n' "$reason"
