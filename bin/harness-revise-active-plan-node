@@ -118,7 +118,19 @@ list_is_subset()
 }
 
 list_is_subset "$old_paths" "$new_paths" || die 'revised allowed paths may expand but must not remove original authority'
-list_is_subset "$old_symbols" "$new_symbols" || die 'revised required symbols may expand but must not remove original symbols'
+if ! list_is_subset "$old_symbols" "$new_symbols"; then
+	invalid_symbols="$(metadata_value "$resolution_note" Invalid-Required-Symbols)"
+	[[ -n "$invalid_symbols" ]] ||
+		die 'revised required symbols may remove an original symbol only when the resolution names it in Invalid-Required-Symbols'
+	IFS=',' read -r -a old_symbol_entries <<< "${old_symbols//;/,}"
+	for old_symbol_entry in "${old_symbol_entries[@]}"; do
+		old_symbol_entry="$(trim_surrounding_whitespace "$old_symbol_entry")"
+		[[ -n "$old_symbol_entry" ]] || continue
+		list_is_subset "$old_symbol_entry" "$new_symbols" && continue
+		list_is_subset "$old_symbol_entry" "$invalid_symbols" ||
+			die "resolution does not authorize removal of required symbol: $old_symbol_entry"
+	done
+fi
 [[ "$old_active" != "$new_active" ]] || die 'candidate DAG does not revise the active node'
 
 [[ "$(require_single_metadata_value "$candidate_assignment" Task-ID 'revised root assignment')" == "$root" ]] ||
