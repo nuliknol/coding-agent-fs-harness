@@ -326,8 +326,12 @@ sed \
 	"$TEST_ROOT/harness.env" > "$TEST_ROOT/verification-harness.env"
 chmod 600 "$TEST_ROOT/verification-harness.env"
 "$HARNESS_BIN/harness-init" "$TEST_ROOT/verification-harness.env" >/dev/null
+cat > "$TEST_ROOT/verification-plan.tsv" <<'PLAN'
+node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route	behavioral_concerns	failure_paths	ownership_transitions	concurrency_boundaries	validation_surfaces	implementation_files	predicted_worker_actions	predicted_p95_tokens	terra_exception
+n1	-	-	Implement target_symbol locally	target_symbol returns one	test "$(./focused-smoke)" = 1	src/a.c	target_symbol	LOCAL_IMPLEMENTATION	LOW	LUNA	1	0	0	0	1	1	5	100000	-
+PLAN
 "$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/verification-harness.env" \
-	"$TEST_ROOT/plan.tsv" >/dev/null
+	"$TEST_ROOT/verification-plan.tsv" >/dev/null
 "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/verification-harness.env" 001 \
 	"$TEST_ROOT/task.md" n1 >/dev/null
 verification_project="$TEST_ROOT/verification-state/projects/decompv2verification"

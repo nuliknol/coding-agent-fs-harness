@@ -177,7 +177,7 @@ normalize_recovery_envelope
 
 normalize_measured_assignment_metadata()
 {
-	local report decomposition report_row dag_row tmp
+	local report decomposition report_row dag_row report_parse_row dag_parse_row tmp
 	local complexity_score behavioral failures ownership concurrency validations implementation_files actions declared_p95 effective_p95 complexity_class worker_route terra_exception
 	local planned_effective_p95 planned_worker_route planned_leaf_type
 	local obligation_weight requested_route requested_class requested_leaf requested_architecture requested_validation requested_files requested_turns requested_exception luna_failures
@@ -194,9 +194,15 @@ normalize_measured_assignment_metadata()
 	report_row="$(awk -F '\t' -v node="$plan_item_id" 'NR > 1 && $1 == node {print; exit}' "$report")"
 	dag_row="$(awk -F '\t' -v node="$plan_item_id" 'NR > 1 && $1 == node {print; exit}' "$decomposition")"
 	[[ -n "$report_row" && -n "$dag_row" ]] || die "measured metadata is missing for plan node: $plan_item_id"
-	IFS=$'\t' read -r _ _ _ complexity_score _ obligation_weight _ _ behavioral failures ownership concurrency \
-		validations implementation_files actions declared_p95 effective_p95 _ _ _ <<< "$report_row"
-	IFS=$'\t' read -r _ _ _ _ _ _ _ _ planned_leaf_type complexity_class worker_route _ _ _ _ _ _ _ _ terra_exception <<< "$dag_row"
+	# Bash treats tabs as IFS whitespace and collapses adjacent delimiters. The
+	# complexity report legitimately leaves obligation_weight empty when no
+	# Specification IR is installed, so parse through a non-whitespace separator
+	# to preserve every TSV column position.
+	report_parse_row="${report_row//$'\t'/$'\034'}"
+	dag_parse_row="${dag_row//$'\t'/$'\034'}"
+	IFS=$'\034' read -r _ _ _ complexity_score _ obligation_weight _ _ behavioral failures ownership concurrency \
+		validations implementation_files actions declared_p95 effective_p95 _ _ _ <<< "$report_parse_row"
+	IFS=$'\034' read -r _ _ _ _ _ _ _ _ planned_leaf_type complexity_class worker_route _ _ _ _ _ _ _ _ terra_exception <<< "$dag_parse_row"
 	planned_effective_p95="$effective_p95"
 	planned_worker_route="$worker_route"
 	requested_route="$(metadata_value "$task_file" Worker-Route)"
@@ -313,7 +319,14 @@ normalize_measured_assignment_metadata()
 			else
 				terra_exception=IRREDUCIBLE_CROSS_BOUNDARY
 			fi
-			measured_recovery_route_override=1
+			if [[ "$requested_leaf" == VERIFICATION_ONLY && "$implementation_files" == 0 ]]; then
+				# The exhausted root still escalates to fresh Terra, but this
+				# read-only transaction is a residual execution vector rather than
+				# the original write-capable DAG vector.
+				measured_recovery_route_override=2
+			else
+				measured_recovery_route_override=1
+			fi
 			log_event "RECOVERY_TERRA_ESCALATION_NORMALIZED root=$root task=$task_id luna_failures=$luna_failures exception=$terra_exception"
 		fi
 	elif [[ "$task_id" != "$root" ]]; then
