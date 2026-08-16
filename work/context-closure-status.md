@@ -1,6 +1,6 @@
 # Context Closure Implementation Status
 
-Last updated (UTC): 2026-08-16T21:08:08Z
+Last updated (UTC): 2026-08-16T21:09:47Z
 
 Overall status: `QUALIFIED_PENDING_DEPLOYMENT`
 
@@ -8,7 +8,7 @@ Active phase: `Phase 10 — production qualification and disabled-by-default rol
 
 Active milestone: `Final regression rerun, commit, push, and production fast-forward`
 
-Deployment state: `release 5.17.0 qualified; production checkout verified clean; deployment pending`
+Deployment state: `5.17.0 fast-forwarded; 5.17.1 importer-provenance release fix under qualification`
 
 Commit: `uncommitted`
 
@@ -254,8 +254,8 @@ distinct generation. An indexing failure preserves the prior pointer.
 
 ## Next concrete action
 
-Commit/push version 5.17.0, fast-forward the clean production source tree, and
-verify that production defaults do not alter active project state.
+Qualify and publish the importer version/provenance fix as 5.17.1, fast-forward
+production again, and verify the built production importer and active defaults.
 
 ## Update history
 
@@ -274,3 +274,4 @@ verify that production defaults do not alter active project state.
 | 2026-08-16T20:07:12Z | Phases 1/2/4/6 | IN_PROGRESS | Re-ran static, real-tool, architecture, liveness, specification, decomposition, and complete harness regressions after schema v4; all passed. |
 | 2026-08-16T21:00:44Z | Phases 7/8/9/10 | IN_PROGRESS | Added enforced/patch-only closure, learned admission, provider overlays, normative projection, scorecards, complete fixtures, and rollout documentation; final post-change regression remains. |
 | 2026-08-16T21:08:08Z | Phase 10 | QUALIFIED_PENDING_DEPLOYMENT | All Go and shell suites, real SCIP/Joern/HIP integration, focused Python tests, syntax checks, and diff checks passed; production is clean and active environments inherit disabled defaults. |
+| 2026-08-16T21:09:47Z | Phase 10 | QUALIFIED_PENDING_DEPLOYMENT | Initial fast-forward exposed missing importer `--version`; added stable schema-v5 provenance output and passed Go, real-tool, lifecycle, focused, and diff checks. |

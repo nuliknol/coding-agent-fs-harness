@@ -54,7 +54,10 @@ type definitionRange struct {
 	range_ scip.Range
 }
 
+const importerVersion = "harness-scip-importer schema-v5"
+
 func main() {
+	showVersion := flag.Bool("version", false, "print importer version")
 	indexPath := flag.String("index", "", "SCIP index path")
 	databasePath := flag.String("database", "", "canonical SQLite database path")
 	generation := flag.String("generation", "", "repository-index generation ID")
@@ -62,6 +65,10 @@ func main() {
 	reportPath := flag.String("report", "", "summary TSV output path")
 	unresolvedReportPath := flag.String("unresolved-report", "", "unresolved SCIP document TSV output path")
 	flag.Parse()
+	if *showVersion {
+		fmt.Println(importerVersion)
+		return
+	}
 
 	if *indexPath == "" || *databasePath == "" || *generation == "" || *repository == "" || *reportPath == "" {
 		fmt.Fprintln(os.Stderr, "all of --index, --database, --generation, --repository, and --report are required")

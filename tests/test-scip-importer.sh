@@ -21,6 +21,7 @@ fi
 
 "$HARNESS_HOME/bin/harness-build-index-tools" "$TEST_ROOT/tools" >/dev/null
 importer="$TEST_ROOT/tools/harness-scip-importer"
+test "$($importer --version)" = 'harness-scip-importer schema-v5'
 cmake -S "$SCRIPT_DIR/fixtures/context-index-c" -B "$TEST_ROOT/build" \
 	-DCMAKE_EXPORT_COMPILE_COMMANDS=ON >/dev/null
 scip-clang --compdb-path "$TEST_ROOT/build/compile_commands.json" \
