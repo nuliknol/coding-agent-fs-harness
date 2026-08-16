@@ -135,6 +135,11 @@ repository_index_tool_version()
 	else
 		status=$?
 	fi
+	if [[ "$status" == 124 || "$status" == 137 ]]; then
+		# Discard partial REPL banners or startup diagnostics.  They may contain
+		# process-specific text and must never make immutable identity unstable.
+		output=version-probe-timeout
+	fi
 	# Try the single-dash spelling only when the first command terminated.  A
 	# timed-out launcher is already known to have unsafe version semantics.
 	if [[ -z "$output" && "$status" != 124 && "$status" != 137 ]]; then

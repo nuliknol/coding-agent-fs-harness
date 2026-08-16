@@ -75,9 +75,11 @@ probe_started="$(date +%s)"
 # shellcheck source=../lib/harness-repository-index.sh
 source "$HARNESS_HOME/lib/harness-repository-index.sh"
 probe_fingerprint="$(repository_index_tool_fingerprint "$TEST_ROOT/bin/hanging-version-tool")"
+probe_fingerprint_repeat="$(repository_index_tool_fingerprint "$TEST_ROOT/bin/hanging-version-tool")"
 probe_elapsed="$(( $(date +%s) - probe_started ))"
 [[ "$probe_fingerprint" =~ ^[0-9a-f]{64}$ ]]
-(( probe_elapsed < 10 ))
+[[ "$probe_fingerprint_repeat" == "$probe_fingerprint" ]]
+(( probe_elapsed < 15 ))
 
 write_env()
 {
