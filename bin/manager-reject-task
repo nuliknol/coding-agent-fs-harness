@@ -95,10 +95,10 @@ if [[ "$improvement_percent" == 0 ]]; then
 			fi
 		fi
 	done
-	if [[ "$result_resource_guard" != "-" ]] && (( HARNESS_MAX_IDENTICAL_BLOCKERS > 0 )) &&
-		(( matching_rejections + 1 >= HARNESS_MAX_IDENTICAL_BLOCKERS )); then
+	if [[ "$result_resource_guard" != "-" ]] &&
+		(( matching_rejections + 1 >= HARNESS_MAX_IDENTICAL_RESOURCE_FUSES )); then
 		resource_decomposition_circuit_breaker=1
-		log_event "TASK_CIRCUIT_BREAKER_RESOURCE_DECOMPOSITION task=$task_id root=$root guard=$result_resource_guard fingerprint=$blocking_fingerprint prior_matches=$matching_rejections limit=$HARNESS_MAX_IDENTICAL_BLOCKERS"
+		log_event "TASK_CIRCUIT_BREAKER_RESOURCE_DECOMPOSITION task=$task_id root=$root guard=$result_resource_guard fingerprint=$blocking_fingerprint prior_matches=$matching_rejections limit=$HARNESS_MAX_IDENTICAL_RESOURCE_FUSES"
 	elif assignment_is_manager_remediation "$assignment_archive" &&
 		(( matching_manager_remediations + 1 >= HARNESS_MAX_IDENTICAL_MANAGER_REMEDIATION_BLOCKERS )); then
 		manager_remediation_circuit_breaker=1
