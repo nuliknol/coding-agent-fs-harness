@@ -462,6 +462,19 @@ assignment_material_fingerprint()
 }
 
 declare -a declared_criteria=()
+# The recovery CLI historically reserves argument five for legacy root
+# criteria and argument six for an append-only child decomposition. Modern
+# roots keep criteria in the immutable assignment, so a planner can
+# unambiguously identify a five-argument decomposition by its typed header.
+# Accept that safe shorthand instead of wasting the one correction attempt on
+# a positional '-' placeholder.
+if (( recovery_publish == 1 )) && [[ -n "$criteria_candidate" && -z "$decomposition_candidate" ]] &&
+	task_root_uses_assignment_criteria "$root" &&
+	[[ "$(head -n 1 "$criteria_candidate" 2>/dev/null || true)" == $'parent_criterion\tchild_criterion\ttitle\tacceptance_evidence' ]]; then
+	decomposition_candidate="$criteria_candidate"
+	criteria_candidate=""
+	log_event "RECOVERY_DECOMPOSITION_ARGUMENT_NORMALIZED root=$root task=$task_id candidate=$decomposition_candidate"
+fi
 if [[ "$task_id" == "$root" ]]; then
 	validate_criterion_inventory "$task_file" assignment
 	validate_root_criteria_are_node_local

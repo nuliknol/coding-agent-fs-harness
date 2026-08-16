@@ -459,6 +459,66 @@ grep -Fqx 'Consumer-Plan-Item: CONSUMER' "$invalidation"
 grep -Fq 'Project progress: 0% (0/2 plan items complete)' \
 	< <("$HARNESS_BIN/harness-status" --machine "$TEST_ROOT/harness.env")
 
+# Modern roots have immutable criteria in their assignments. If a recovery
+# planner passes a typed child-decomposition TSV as argument five without the
+# legacy '-' placeholder, normalize it as decomposition input rather than
+# misclassifying it as a forbidden root-criteria replacement.
+"$HARNESS_BIN/harness-resolve-architecture-reassessment" \
+	"$TEST_ROOT/harness.env" consumer "$TEST_ROOT/resolution.md" >/dev/null
+cat > "$TEST_ROOT/argument-normalized-decomposition.tsv" <<'TSV'
+parent_criterion	child_criterion	title	acceptance_evidence
+consumer.validation	consumer.validation.implementation	Implement consumer	Focused implementation validation passes
+consumer.validation	consumer.validation.acceptance	Validate consumer	Independent acceptance validation passes
+TSV
+cat > "$TEST_ROOT/argument-normalized-revision.md" <<'MD'
+Task-ID: consumer-revision-10
+Task-Root: consumer
+Target-Criterion: consumer.validation.implementation
+Worker-Context: FRESH
+Replan-Strategy-ID: argument-normalized-child-decomposition
+Strategy-Change: NARROW_SCOPE
+Supersedes-Task: consumer-revision-03
+Execution-Mode: LEAF_GOAL
+Goal-ID: consumer.argument-normalized
+Goal-Success-Evidence: focused consumer implementation validation passes
+Focused-Validation: cmake --build build --target liveness_consumer_smoke
+Allowed-Scope: src/consumer
+Baseline-Boundary: preserve accepted upstream behavior
+Hard-Block-Conditions: external product authority only
+Leaf-Type: LOCAL_IMPLEMENTATION
+Complexity-Class: LOW
+Worker-Route: LUNA
+Depends-On: UPSTREAM
+Deliverable: consumer
+Required-Symbols: -
+Context-Paths: src/consumer,build
+Architecture-Decisions: NONE
+Validation-Class: FOCUSED
+Expected-Max-Implementation-Files: 2
+Expected-Max-Worker-Turns: 2
+
+## Objective
+
+Implement the bounded consumer child.
+
+## Acceptance criteria
+
+- Focused consumer validation passes.
+
+## Validation commands
+
+cmake --build build --target liveness_consumer_smoke
+MD
+argument_normalized_output="$("$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" \
+	consumer-revision-10 "$TEST_ROOT/argument-normalized-revision.md" --auto-replan \
+	"$TEST_ROOT/argument-normalized-decomposition.tsv")"
+[[ "$argument_normalized_output" == "$project/tasks/livenessproj-task-consumer-revision-10.ready.md" ]]
+grep -Fq 'RECOVERY_DECOMPOSITION_ARGUMENT_NORMALIZED root=consumer task=consumer-revision-10' \
+	"$project/logs/events.log"
+grep -Fqx $'consumer.validation\tconsumer.validation.implementation\tImplement consumer\tFocused implementation validation passes' \
+	"$project/control/progress/livenessproj-task-consumer.criterion-decomposition.tsv"
+rm -f "$argument_normalized_output"
+
 # Replanning and diagnostic checkpoints cannot reset this monotonic boundary.
 # Only a checkpoint containing a completed root criterion resets the count.
 printf 'export HARNESS_MAX_ROOT_REVIEWS_WITHOUT_CRITERION="3"\n' >> "$TEST_ROOT/harness.env"
