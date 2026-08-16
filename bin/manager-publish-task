@@ -294,8 +294,8 @@ normalize_measured_assignment_metadata()
 			if (( implementation_files == 0 )) && [[ "$verified_items" =~ ^[1-9][0-9]*$ ]]; then
 				log_event "RECOVERY_RESIDUAL_EVIDENCE_RECLASSIFIED root=$root task=$task_id leaf_type=$requested_leaf complexity_score=$complexity_score actions=$actions p95=$effective_p95"
 			fi
-		elif (( luna_failures >= HARNESS_MAX_LUNA_STRATEGY_FAILURES )) &&
-			[[ "$requested_leaf" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY|INTEGRATION)$ ]]; then
+		elif luna_strategy_exhausted_coding_leaf "$luna_failures" \
+			"$HARNESS_MAX_LUNA_STRATEGY_FAILURES" "$requested_leaf"; then
 			requested_exception="$(metadata_value "$task_file" Terra-Exception)"
 			worker_route=TERRA
 			complexity_class=HIGH
@@ -307,7 +307,21 @@ normalize_measured_assignment_metadata()
 			measured_recovery_route_override=1
 			log_event "RECOVERY_TERRA_ESCALATION_NORMALIZED root=$root task=$task_id luna_failures=$luna_failures exception=$terra_exception"
 		fi
+	elif [[ "$task_id" != "$root" ]]; then
+		# Checkpoint continuation planning is not an automatic-replan invocation,
+		# but it follows the same model-routing history. Once the root has consumed
+		# its Luna strategies, do not restore the stale DAG route and reject the
+		# planner's next task. Normalize the bounded continuation to fresh Terra.
+		luna_failures="$(root_luna_strategy_failure_count "$root")"
+		if luna_strategy_exhausted_coding_leaf "$luna_failures" \
+			"$HARNESS_MAX_LUNA_STRATEGY_FAILURES" "$requested_leaf"; then
+			worker_route=TERRA
+			complexity_class=HIGH
+			terra_exception=IRREDUCIBLE_CROSS_BOUNDARY
+			measured_recovery_route_override=1
+			log_event "CONTINUATION_TERRA_ESCALATION_NORMALIZED root=$root task=$task_id luna_failures=$luna_failures exception=$terra_exception"
 		fi
+	fi
 	if (( implementation_files > 0 && actions < HARNESS_MIN_SOURCE_CHANGE_AGENT_ACTIONS )); then
 		actions="$HARNESS_MIN_SOURCE_CHANGE_AGENT_ACTIONS"
 	fi

@@ -697,6 +697,14 @@ recovery_terra_architecture_implementation_allowed()
 		[[ "$requested_leaf" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY)$ ]]
 }
 
+luna_strategy_exhausted_coding_leaf()
+{
+	local failures="$1" limit="$2" leaf="$3"
+	[[ "$failures" =~ ^[0-9]+$ && "$limit" =~ ^[1-9][0-9]*$ ]] &&
+		(( failures >= limit )) &&
+		[[ "$leaf" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY|INTEGRATION)$ ]]
+}
+
 architecture_resolve_contract_artifact()
 {
 	local edge="$1" ref="$2" decision evidence

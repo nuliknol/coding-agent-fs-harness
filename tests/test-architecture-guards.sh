@@ -24,6 +24,13 @@ if bash -c 'set -Eeuo pipefail; source "$1/lib/harness-common.sh"; recovery_terr
 	printf 'ordinary Luna coding node received Terra architecture recovery authority\n' >&2
 	exit 1
 fi
+bash -c 'set -Eeuo pipefail; source "$1/lib/harness-common.sh"; luna_strategy_exhausted_coding_leaf 3 3 TEST_IMPLEMENTATION' \
+	_ "$HARNESS_HOME"
+if bash -c 'set -Eeuo pipefail; source "$1/lib/harness-common.sh"; luna_strategy_exhausted_coding_leaf 2 3 TEST_IMPLEMENTATION' \
+	_ "$HARNESS_HOME"; then
+	printf 'Luna coding route escalated before its configured strategy limit\n' >&2
+	exit 1
+fi
 TEST_ROOT="$(mktemp -d /tmp/harness-architecture-guards.XXXXXX)"
 if [[ "${HARNESS_TEST_KEEP_TMP:-0}" == 1 ]]; then
 	trap 'printf "Preserved test root: %s\n" "$TEST_ROOT" >&2' EXIT
