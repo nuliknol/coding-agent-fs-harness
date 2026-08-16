@@ -71,7 +71,7 @@ Bad:
 
 Good:
 
-> `PERF-EXEC-001`: The system MUST process at least 1,000,000 facts per second under benchmark configuration `BENCH-CONFIG-001`.
+> `PERF-EXEC-001`: The system MUST process at least 1,000,000 records per second under benchmark configuration `BENCH-CONFIG-001`.
 
 ---
 
@@ -92,7 +92,7 @@ Examples:
 ```text
 ARCH-SHARD-001
 FUNC-DELTA-001
-DATA-FACT-003
+DATA-OBJ-003
 DET-EXEC-002
 ERR-PARSE-004
 TEST-JOIN-007
@@ -158,7 +158,7 @@ A requirement is not atomic if it contains multiple obligations joined by words 
 Bad:
 
 ```text
-The system MUST shard facts across GPUs, eliminate duplicates, preserve
+The system MUST shard objects across GPUs, eliminate duplicates, preserve
 determinism, and report communication failures.
 ```
 
@@ -166,13 +166,13 @@ Required decomposition:
 
 ```text
 ARCH-SHARD-001:
-Every persistent fact MUST have exactly one owning GPU.
+Every persistent object MUST have exactly one owning GPU.
 
 ALG-UNIQUE-001:
-Duplicate candidate facts MUST be removed before delta insertion.
+Duplicate candidate objects MUST be removed before delta insertion.
 
 DET-SHARD-001:
-Fact ownership MUST be identical across executions with identical inputs,
+Object ownership MUST be identical across executions with identical inputs,
 configuration, executable, and GPU count.
 
 ERR-COMM-001:
@@ -226,7 +226,7 @@ Examples are informative unless explicitly linked to normative requirements.
 
 Bad:
 
-> For example, the system could use a 128-bit hash to distribute facts.
+> For example, the system could use a 128-bit hash to distribute objects.
 
 Good:
 
@@ -461,7 +461,7 @@ Acceptance criterion:
 1. Execute test TEST-DET-004 100 times.
 2. Use identical input bytes, executable hash, configuration, GPU count,
    and initial persistent state.
-3. Capture the ordered output fact stream from every execution.
+3. Capture the ordered output object stream from every execution.
 4. Calculate a SHA-256 digest of each output stream.
 5. PASS only if all 100 digests are identical.
 ```
@@ -594,14 +594,14 @@ Example:
 
 ```text
 DET-EXEC-001:
-Identical executions MUST produce identical ordered output facts.
+Identical executions MUST produce identical ordered output objects.
 ```
 
 This may derive:
 
 ```text
 DET-ORDER-001:
-The system MUST define a deterministic global ordering for output facts.
+The system MUST define a deterministic global ordering for output objects.
 
 DET-HASH-001:
 Hash table iteration order MUST NOT affect observable output order.
@@ -669,7 +669,7 @@ Example:
 
 ```text
 API-SHARD-004:
-assign_fact_owner() MUST return ERR_INVALID_GPU_COUNT when num_gpus equals zero.
+assign_object_owner() MUST return ERR_INVALID_GPU_COUNT when num_gpus equals zero.
 ```
 
 ---
@@ -775,7 +775,7 @@ The specification must separately define:
 * uniqueness identity;
 * subtraction semantics;
 * treatment of duplicates;
-* treatment of existing facts;
+* treatment of existing objects;
 * output ordering;
 * empty-input behavior;
 * distributed execution behavior;
@@ -948,7 +948,7 @@ Specify externally necessary design constraints, but do not prescribe internal i
 
 Bad:
 
-> Use a linked list for the candidate fact queue.
+> Use a linked list for the candidate object queue.
 
 Better:
 
