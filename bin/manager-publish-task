@@ -275,7 +275,7 @@ normalize_measured_assignment_metadata()
 				log_event "RECOVERY_RESIDUAL_EVIDENCE_RECLASSIFIED root=$root task=$task_id leaf_type=$requested_leaf complexity_score=$complexity_score actions=$actions p95=$effective_p95"
 			fi
 		elif (( luna_failures >= HARNESS_MAX_LUNA_STRATEGY_FAILURES )) &&
-			[[ "$requested_leaf" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY)$ ]]; then
+			[[ "$requested_leaf" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY|INTEGRATION)$ ]]; then
 			requested_exception="$(metadata_value "$task_file" Terra-Exception)"
 			worker_route=TERRA
 			complexity_class=HIGH

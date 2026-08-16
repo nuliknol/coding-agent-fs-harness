@@ -508,6 +508,45 @@ grep -Fqx 'Expected-Max-Agent-Actions: 6' "$TEST_ROOT/revision-draft.md"
 # calibrated Luna node's immutable 140K P95 baseline.
 grep -Fqx 'Effective-P95-Tokens: 140000' "$TEST_ROOT/revision-draft.md"
 
+# Once Luna strategies are exhausted and structural depth cannot grow, recovery
+# may promote the bounded remainder to an irreducible Terra integration leaf.
+# Normalization must not restore the original Luna route and manufacture the
+# impossible INTEGRATION/LUNA combination.
+for failed_revision in 90 91 92; do
+	cat > "$project_dir/archive/startup-split-task-leaf-root-revision-$failed_revision.assignment.md" <<'EOF'
+Task-ID: leaf-root-revision-failed
+Task-Root: leaf-root
+Worker-Route: LUNA
+EOF
+	cat > "$project_dir/archive/startup-split-task-leaf-root-revision-$failed_revision.result.md" <<'EOF'
+Task-ID: leaf-root-revision-failed
+Goal-Outcome: NEEDS_DECOMPOSITION
+EOF
+done
+cat > "$TEST_ROOT/integration-draft.md" <<'EOF'
+Task-ID: leaf-root-revision-02
+Leaf-Type: INTEGRATION
+Complexity-Class: HIGH
+Worker-Route: TERRA
+Validation-Class: INCREMENTAL
+Expected-Max-Implementation-Files: 1
+Expected-Max-Worker-Turns: 2
+Required-Symbols: target
+Obligations: REQ-ONE
+Architecture-Decisions: NONE
+Terra-Exception: IRREDUCIBLE_CROSS_BOUNDARY
+EOF
+set +e
+"$HARNESS_BIN/manager-publish-task" "$env_file" leaf-root-revision-02 \
+	"$TEST_ROOT/integration-draft.md" --auto-replan >"$TEST_ROOT/integration.out" 2>"$TEST_ROOT/integration.err"
+integration_status=$?
+set -e
+(( integration_status != 0 ))
+grep -Fqx 'Leaf-Type: INTEGRATION' "$TEST_ROOT/integration-draft.md"
+grep -Fqx 'Worker-Route: TERRA' "$TEST_ROOT/integration-draft.md"
+grep -Fqx 'Terra-Exception: IRREDUCIBLE_CROSS_BOUNDARY' "$TEST_ROOT/integration-draft.md"
+! grep -Fq 'requires Terra' "$TEST_ROOT/integration.err"
+
 cat > "$TEST_ROOT/remediation-draft.md" <<'EOF'
 # Manager remediation draft
 
