@@ -323,6 +323,42 @@ task_published()
 		-f "$(task_root_architecture_reassessment_file "$root")" ]]
 }
 
+manager_remediation_candidate_exceeds_authority()
+{
+	local candidate_scope root_scope scope_override additional_scope effective_scope entry authority_entry allowed
+	local -a candidate_entries=() authority_entries=()
+	[[ "$recovery_mode" == MANAGER_REMEDIATION && -s "$task_output" ]] || return 1
+	candidate_scope="$(metadata_value "$task_output" Remediation-Scope)"
+	root_scope="$(metadata_value "$root_assignment" Allowed-Scope)"
+	[[ -n "$candidate_scope" && -n "$root_scope" ]] || return 1
+	effective_scope="$root_scope"
+	scope_override="$(task_root_architecture_scope_override_file "$root")"
+	if [[ -f "$scope_override" ]] &&
+		[[ "$(kv_file_value "$scope_override" authorized_for 2>/dev/null || true)" == manager_remediation ]]; then
+		additional_scope="$(kv_file_value "$scope_override" additional_scope 2>/dev/null || true)"
+		[[ -z "$additional_scope" ]] || effective_scope+=",$additional_scope"
+	fi
+	candidate_scope="${candidate_scope//;/,}"
+	effective_scope="${effective_scope//;/,}"
+	IFS=',' read -r -a candidate_entries <<< "$candidate_scope"
+	IFS=',' read -r -a authority_entries <<< "$effective_scope"
+	for entry in "${candidate_entries[@]}"; do
+		entry="$(trim_surrounding_whitespace "$entry")"
+		[[ -n "$entry" ]] || continue
+		allowed=0
+		for authority_entry in "${authority_entries[@]}"; do
+			authority_entry="$(trim_surrounding_whitespace "$authority_entry")"
+			[[ -n "$authority_entry" ]] || continue
+			if [[ "$entry" == "$authority_entry" || "$entry" == "$authority_entry"/* ]]; then
+				allowed=1
+				break
+			fi
+		done
+		(( allowed == 1 )) || return 0
+	done
+	return 1
+}
+
 attempt=1
 provider_retries=0
 quota_waits=0
@@ -377,6 +413,17 @@ while true; do
 			printf '\nCorrection turn: the preceding agent exited successfully but no durable task was published. Treat every prior success claim as false. Recreate the expected assignment, call manager-publish-task without output redirection, inspect its exit status, and use the one permitted direct correction if rejected.\n' >> "$prompt_file"
 			attempt=$((attempt + 1))
 			continue
+		fi
+		if manager_remediation_candidate_exceeds_authority; then
+			candidate_scope="$(metadata_value "$task_output" Remediation-Scope)"
+			root_scope="$(metadata_value "$root_assignment" Allowed-Scope)"
+			mark_root_architecture_reassessment "$expected_task_id" \
+				MANAGER_REMEDIATION_SCOPE_EXPANSION \
+				"bounded manager recovery exhausted its publication corrections after identifying remediation scope outside immutable root authority: root=[$root_scope] revision=[$candidate_scope]" \
+				"root_assignment=$root_assignment candidate=$task_output trigger=$trigger_task" >/dev/null
+			log_event "MANAGER_RECOVERY_SCOPE_EXPANSION_PROMOTED root=$root trigger=$trigger_task expected_task=$expected_task_id candidate_scope=$(printf '%q' "$candidate_scope")"
+			printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
+			exit 0
 		fi
 		log_event "MANAGER_RECOVERY_NOT_PUBLISHED root=$root trigger=$trigger_task recovery_mode=$recovery_mode classification=${classification:-unknown}"
 		printf 'Fresh manager did not publish a valid %s continuation for root %s; recovery remains pending.\n' \

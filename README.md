@@ -1195,6 +1195,15 @@ task, blocker class, and exhausted path set. Resolving the liveness epoch
 restores the specific exhausted-scope transition rather than replacing it with
 a generic architecture-resolution replan.
 
+Recovery publication corrections are also bounded. If the final correction
+still identifies a concrete remediation path outside immutable root authority,
+the harness promotes that evidence to
+`MANAGER_REMEDIATION_SCOPE_EXPANSION` instead of reporting a generic
+`RECOVERY_STALLED` failure or spending another planning turn. This promotion
+does not authorize the path automatically: an operator must resolve the
+architecture reassessment with the exact audited `Authorized-Additional-Scope`
+before manager remediation may continue.
+
 With the default value `1`, one materially different automatic strategy is
 allowed from a given verified-item baseline. If it produces a new verified
 item, the budget immediately resets; if it produces no durable gain, the next

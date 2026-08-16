@@ -205,7 +205,11 @@ Isolate only $target with a new focused evidence boundary.
 
 mock-focused-$count
 TASK
-	if [[ "${exercise_exhausted_scope_retry:-0}" == 1 ]]; then
+	leave_out_of_scope="${MOCK_REPLAN_LEAVE_OUT_OF_SCOPE:-0}"
+	if [[ "$leave_out_of_scope" == 1 && "$RECOVERY_MODE" == MANAGER_REMEDIATION ]]; then
+		sed -i 's#^Remediation-Scope: .*$#Remediation-Scope: src/outside-root-authority.c#' \
+			"$TASK_OUTPUT"
+	elif [[ "${exercise_exhausted_scope_retry:-0}" == 1 ]]; then
 		if "$HARNESS_BIN/manager-publish-task" "$ENV_FILE" "$TASK_ID" "$TASK_OUTPUT" \
 			"$publish_flag" "${criteria_arg[@]}" >"$TASK_OUTPUT.same-scope.out" \
 			2>"$TASK_OUTPUT.same-scope.err"; then
@@ -217,8 +221,10 @@ TASK
 		sed -i 's#^Remediation-Scope: src/mock-blocking-prerequisite.c$#Remediation-Scope: src/adjacent-consumer.c#' \
 			"$TASK_OUTPUT"
 	fi
-	"$HARNESS_BIN/manager-publish-task" "$ENV_FILE" "$TASK_ID" "$TASK_OUTPUT" \
-		"$publish_flag" "${criteria_arg[@]}" >/dev/null
+	if [[ "$leave_out_of_scope" != 1 ]]; then
+		"$HARNESS_BIN/manager-publish-task" "$ENV_FILE" "$TASK_ID" "$TASK_OUTPUT" \
+			"$publish_flag" "${criteria_arg[@]}" >/dev/null
+	fi
 elif [[ "$kind" == review ]]; then
 	TASK_ID="$(value TASK_ID)"
 	if [[ "$TASK_ID" == 002 && "$count" == 1 ]]; then
@@ -2182,6 +2188,36 @@ grep -q 'Manager remediation blockers: 2 occurrence(s), 1 unique fingerprint(s);
 	"$AUTO_ROOT/same-blocker-remediation-status.out"
 grep -q 'Hard-block claims: 1 occurrence(s); 1 routed to manager remediation; 0 confirmed human-dependent.' \
 	"$AUTO_ROOT/same-blocker-remediation-status.out"
+
+# If every bounded correction closes with a concrete remediation path outside
+# immutable root authority, preserve that evidence as a typed architecture
+# scope decision. Do not collapse it into generic RECOVERY_STALLED or silently
+# authorize the path.
+mv "$auto_same_blocker_remediation" \
+	"$auto_project/archive/autoreplanproj-task-001-revision-12.checkpointed.md"
+cat >> "$auto_progress/autoreplanproj-task-001.root-assignment.md" <<'ROOT_SCOPE'
+Allowed-Scope: src/root-owned.c
+ROOT_SCOPE
+cat > "$auto_progress/autoreplanproj-task-001.needs-replan.md" <<'MARKER'
+# Root Task Needs Replanning
+
+Task-Root: 001
+Triggered-By: 001-revision-12
+Trigger-Outcome: MANAGER_REMEDIATION_SCOPE_EXHAUSTED
+Blocking-Fingerprint: sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+Blocker-Class: LOCAL_SCOPE_PREREQUISITE
+Remediation-Scope: src/root-owned.c
+MARKER
+printf 'export MOCK_REPLAN_LEAVE_OUT_OF_SCOPE="1"\n' >> "$AUTO_ROOT/harness.env"
+printf 'export HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS="2"\n' >> "$AUTO_ROOT/harness.env"
+scope_expansion_marker="$("$HARNESS_BIN/manager-auto-replan-root" "$AUTO_ROOT/harness.env" 001)"
+[[ "$scope_expansion_marker" == \
+	"$auto_progress/autoreplanproj-task-001.architecture-reassessment-required.md" ]]
+grep -Fqx 'Category: MANAGER_REMEDIATION_SCOPE_EXPANSION' "$scope_expansion_marker"
+grep -Fq 'revision=[src/outside-root-authority.c]' "$scope_expansion_marker"
+grep -Fq 'MANAGER_RECOVERY_SCOPE_EXPANSION_PROMOTED root=001 trigger=001-revision-12' \
+	"$auto_project/logs/events.log"
+[[ ! -f "$auto_project/control/autoreplanproj-task-001.manager-replan-failed.md" ]]
 
 # A broad immutable leaf can be refined only by appending ordered children.
 # The original parent remains in the root inventory and scheduling advances
