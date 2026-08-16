@@ -1072,6 +1072,41 @@ validate_luna_symbol_context()
 	done
 }
 
+emit_required_symbol_locations()
+{
+	local symbol entry candidate location relative
+	local -a symbols=() entries=() searchable_paths=()
+	[[ -n "$leaf_required_symbols" && "$leaf_required_symbols" != - ]] || {
+		printf -- '- No required symbols declared.\n'
+		return 0
+	}
+	IFS=',' read -r -a entries <<< "$leaf_context_paths"
+	for entry in "${entries[@]}"; do
+		entry="$(trim_surrounding_whitespace "$entry")"
+		[[ -n "$entry" && "$entry" != /* && "$entry" != ../* && "$entry" != */../* ]] || continue
+		[[ -e "$REPOSITORY/$entry" ]] || continue
+		searchable_paths+=("$entry")
+	done
+	IFS=',' read -r -a symbols <<< "$leaf_required_symbols"
+	for symbol in "${symbols[@]}"; do
+		symbol="$(trim_surrounding_whitespace "$symbol")"
+		[[ -n "$symbol" && "$symbol" != - ]] || continue
+		candidate=""
+		if (( ${#searchable_paths[@]} > 0 )); then
+			candidate="$(cd "$REPOSITORY" && rg -l --fixed-strings --max-count 1 -- "$symbol" \
+				"${searchable_paths[@]}" 2>/dev/null < /dev/null | LC_ALL=C sort | head -n 1 || true)"
+		fi
+		if [[ -n "$candidate" ]]; then
+			location="$(cd "$REPOSITORY" && rg -n --no-heading --fixed-strings --max-count 1 -- "$symbol" \
+				"$candidate" 2>/dev/null < /dev/null | head -n 1 | cut -d: -f1 || true)"
+			[[ "$location" =~ ^[1-9][0-9]*$ ]] || location='?'
+			printf -- '- `%s`: `%s:%s`\n' "$symbol" "$candidate" "$location"
+		else
+			printf -- '- `%s`: not located in filesystem-backed Context-Paths\n' "$symbol"
+		fi
+	done
+}
+
 if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 	goal_mode=1
 	[[ "$(require_single_metadata_value "$task_file" Execution-Mode 'goal-mode assignment')" == LEAF_GOAL ]] ||
@@ -1685,6 +1720,8 @@ if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 			printf 'Validation-Surfaces: %s\n' "$leaf_validation_surfaces"
 			printf 'Terra-Exception: %s\n' "$leaf_terra_exception"
 		fi
+		printf '\n## Required symbol locations\n\n'
+		emit_required_symbol_locations
 		printf '\n## Dependency evidence\n\n'
 		if [[ "$leaf_depends_on" == - ]]; then
 			printf -- '- No plan-node prerequisites.\n'
