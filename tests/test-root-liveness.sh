@@ -322,7 +322,7 @@ Execution-Mode: LEAF_GOAL
 Goal-ID: consumer.generated-validation
 Target-Criterion: consumer.validation
 Goal-Success-Evidence: deterministic validation passes
-Focused-Validation: cmake --build build
+Focused-Validation: cmake -S . -B build && cmake --build build
 Allowed-Scope: build
 Baseline-Boundary: accepted consumer root
 Hard-Block-Conditions: explicit external authority only
@@ -348,7 +348,7 @@ Run the generated validation target without broadening source authority.
 
 ## Validation commands
 
-cmake --build build
+cmake -S . -B build && cmake --build build
 MD
 if "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" \
 	consumer-revision-05 "$TEST_ROOT/generated-validation-revision.md" \
@@ -383,8 +383,8 @@ target_alias_output="$("$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.e
 	consumer-revision-06 "$TEST_ROOT/cmake-target-alias-revision.md")"
 target_alias_ready="$project/tasks/livenessproj-task-consumer-revision-06.ready.md"
 [[ "$target_alias_output" == "$target_alias_ready" ]]
-grep -Fqx 'Focused-Validation: cmake --build build --target liveness_consumer_smoke' "$target_alias_ready"
-grep -Fqx 'cmake --build build --target liveness_consumer_smoke' "$target_alias_ready"
+grep -Fqx 'Focused-Validation: cmake -S . -B build && cmake --build build --target liveness_consumer_smoke' "$target_alias_ready"
+grep -Fqx 'cmake -S . -B build && cmake --build build --target liveness_consumer_smoke' "$target_alias_ready"
 grep -Fq 'CMAKE_TARGET_ALIAS_NORMALIZED root=consumer task=consumer-revision-06 requested=consumer_smoke registered=liveness_consumer_smoke' \
 	"$project/logs/events.log"
 rm -f "$target_alias_ready"
@@ -395,7 +395,7 @@ rm -f "$target_alias_ready"
 # same focused validation command.
 sed \
 	-e 's/consumer-revision-05/consumer-revision-07/g' \
-	-e 's|Focused-Validation: cmake --build build --target liveness_consumer_smoke|Focused-Validation: FOCUSED: rg -n consumer_smoke src/consumer/smoke.c|' \
+	-e 's|Focused-Validation: cmake -S . -B build && cmake --build build --target liveness_consumer_smoke|Focused-Validation: FOCUSED: rg -n consumer_smoke src/consumer/smoke.c|' \
 	-e 's|cmake --build build --target liveness_consumer_smoke|rg -n consumer_smoke src/consumer/smoke.c|g' \
 	"$TEST_ROOT/generated-validation-revision.md" > "$TEST_ROOT/descriptive-coding-revision.md"
 if "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" \
@@ -481,7 +481,7 @@ Supersedes-Task: consumer-revision-03
 Execution-Mode: LEAF_GOAL
 Goal-ID: consumer.argument-normalized
 Goal-Success-Evidence: focused consumer implementation validation passes
-Focused-Validation: cmake --build build --target liveness_consumer_smoke
+Focused-Validation: cmake -S . -B build && cmake --build build --target liveness_consumer_smoke
 Allowed-Scope: src/consumer
 Baseline-Boundary: preserve accepted upstream behavior
 Hard-Block-Conditions: external product authority only
@@ -507,7 +507,7 @@ Implement the bounded consumer child.
 
 ## Validation commands
 
-cmake --build build --target liveness_consumer_smoke
+cmake -S . -B build && cmake --build build --target liveness_consumer_smoke
 MD
 argument_normalized_output="$("$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" \
 	consumer-revision-10 "$TEST_ROOT/argument-normalized-revision.md" --auto-replan \
