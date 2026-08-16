@@ -138,6 +138,7 @@ for context_key in \
 	CRITERION_LEDGER_FILE RESULT_FILE WORKER_EVIDENCE_DIGEST_FILE \
 	ACCEPT_REVIEW_TEMPLATE_FILE CHECKPOINT_CRITERION_REVIEW_TEMPLATE_FILE \
 	CHECKPOINT_INCREMENT_REVIEW_TEMPLATE_FILE PLAN_NODE_CONTEXT_FILE \
+	ARCHITECTURE_RESOLUTION_FILE \
 	SPECIFICATION_OBLIGATIONS_FILE SPECIFICATION_RELATIONS_FILE \
 	REPOSITORY_FACTS_FILE REPOSITORY_INVENTORY_FILE; do
 	context_value="$(prompt_value "$context_key")"
@@ -174,6 +175,26 @@ agent_item_count=0
 agent_last_estimated_item_count=0
 agent_estimated_processed_tokens=$(( ($(stat -c %s "$prompt" 2>/dev/null || printf 0) + 3) / 4 ))
 agent_max_command_output_bytes=0
+prior_read_command_manifest="$json_log.prior-read-commands"
+: > "$prior_read_command_manifest"
+# Revisions receive the preceding bounded command manifest in their prompt.
+# When that episode made no commit, exact repeated source reads are stale
+# context amplification rather than progress. Keep only read commands; builds,
+# tests, and captured validation are intentionally repeatable after edits.
+if [[ "$role" =~ ^worker || "$role" == manager_remediation ]] &&
+	awk '/^## Immediate predecessor evidence$/,/^## Embedded bounded assignment$/ {if ($0 == "git_head_changed=0") unchanged=1} END {exit unchanged?0:1}' "$prompt"; then
+	awk '/^## Immediate predecessor evidence$/,/^## Embedded bounded assignment$/ {
+		if ($0 ~ /^- command\[[0-9]+\].*: /) {
+			sub(/^- command\[[0-9]+\].*: /, "")
+			print
+		}
+	}' "$prompt" | while IFS= read -r prior_command; do
+		if grep -Eq '(^|[ "'"'"';|&(])(rg|grep|sed|awk|nl|head)[[:space:]]' <<< "$prior_command" &&
+			! grep -Eq 'harness-run-(assigned-validation|logged)|cmake[[:space:]]+--build|ctest|(^|[[:space:]])make([[:space:]]|$)|ninja' <<< "$prior_command"; then
+			printf '%s\n' "$prior_command"
+		fi
+	done | sort -u > "$prior_read_command_manifest"
+fi
 
 resource_task_id="$(prompt_value TASK_ID)"
 resource_task_root="$(prompt_value TASK_ROOT)"
@@ -314,6 +335,17 @@ while kill -0 "$pid" 2>/dev/null; do
 		 ((.item.aggregated_output // "") | utf8bytelength)] | max // 0
 	' "$json_log" 2>/dev/null || printf 0)"
 	[[ "$agent_max_command_output_bytes" =~ ^[0-9]+$ ]] || agent_max_command_output_bytes=0
+	if [[ -s "$prior_read_command_manifest" ]]; then
+		repeated_evidence_command="$(jq -r 'select(.type == "item.started" and .item.type == "command_execution") | .item.command // empty' "$json_log" 2>/dev/null |
+			grep -Fxf "$prior_read_command_manifest" | head -n 1 || true)"
+		if [[ -n "$repeated_evidence_command" ]]; then
+			resource_guard_tripped=1
+			resource_guard_kind=REPEATED_EVIDENCE_COMMAND
+			resource_guard_reason="worker repeated a completed predecessor source-read command instead of consuming its cached evidence"
+			terminate_process_tree "$pid"
+			break
+		fi
+	fi
 	if (( agent_max_command_output_bytes > HARNESS_MAX_AGENT_COMMAND_OUTPUT_BYTES )); then
 		resource_guard_tripped=1
 		resource_guard_kind=COMMAND_OUTPUT_LIMIT
@@ -450,6 +482,7 @@ if (( status != 0 )) || ! jq -e 'select(.type == "turn.completed")' "$json_log" 
 	failure_signal=1
 fi
 if [[ "$resource_guard_kind" == ITEM_LIMIT ]]; then classification="agent_item_budget_exceeded"
+elif [[ "$resource_guard_kind" == REPEATED_EVIDENCE_COMMAND ]]; then classification="agent_repeated_evidence_command"
 elif [[ "$resource_guard_kind" == ESTIMATED_TOKEN_LIMIT ]]; then classification="agent_estimated_token_budget_exceeded"
 elif [[ "$resource_guard_kind" == TOKEN_LIMIT ]]; then classification="agent_token_budget_exceeded"
 elif [[ "$resource_guard_kind" == COMMAND_OUTPUT_LIMIT ]]; then classification="agent_command_output_budget_exceeded"

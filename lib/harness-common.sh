@@ -1279,9 +1279,14 @@ validate_dependency_requirements_file()
 		[[ "$dependency_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "invalid dependency ID: $dependency_id"
 		[[ -z "${seen[$dependency_id]:-}" ]] || die "duplicate dependency ID: $dependency_id"
 		seen[$dependency_id]=1
-		[[ "$type" == GIT_REF ]] || die "unsupported dependency type: $type"
-		[[ "$target_ref" == refs/heads/* ]] || die "Git dependency must target refs/heads: $target_ref"
-		git check-ref-format "$target_ref" >/dev/null 2>&1 || die "invalid dependency target ref: $target_ref"
+		[[ "$type" =~ ^(GIT_REF|GIT_COMMIT)$ ]] || die "unsupported dependency type: $type"
+		if [[ "$type" == GIT_REF ]]; then
+			[[ "$target_ref" == refs/heads/* ]] || die "Git dependency must target refs/heads: $target_ref"
+			git check-ref-format "$target_ref" >/dev/null 2>&1 || die "invalid dependency target ref: $target_ref"
+		else
+			[[ "$target_ref" =~ ^[0-9a-fA-F]{7,64}$ ]] ||
+				die "Git commit dependency must name a 7-64 digit hexadecimal object ID: $target_ref"
+		fi
 		[[ "$source_hint" == - || "$source_hint" == /* ]] || die "source_hint must be '-' or an absolute repository path: $source_hint"
 		[[ "$ancestor" == - || "$ancestor" =~ ^[0-9a-fA-F]{40}$ ]] || die "required_ancestor must be '-' or a full commit ID: $ancestor"
 		if [[ "$ancestor" != - ]]; then
@@ -1332,7 +1337,7 @@ dependency_requirement_failures()
 
 assignment_mandatory_git_refs()
 {
-	local file="$1" refs ref ref_name pinned_commit
+	local file="$1" refs ref ref_name pinned_commit resolved_commit
 	refs="$(metadata_value "$file" Mandatory-Git-Refs)"
 	[[ -n "$refs" && "$refs" != NONE && "$refs" != - ]] || return 0
 	refs="${refs//,/;}"
@@ -1345,8 +1350,13 @@ assignment_mandatory_git_refs()
 		# Cross-harness delivery can additionally pin a branch to an expected
 		# commit as refs/heads/name=<oid>. Do not reinterpret either form as a
 		# branch whose literal name is the hash or contains '=...'.
-		if [[ "$ref" =~ ^[[:xdigit:]]{40}([[:xdigit:]]{24})?$ ]]; then
-			printf '%s\n' "$ref"
+		if [[ "$ref" =~ ^[[:xdigit:]]{7,64}$ ]]; then
+			# A hexadecimal commit-ish is never a branch name. Resolve an
+			# available abbreviation to its immutable full object ID; preserve an
+			# absent abbreviation verbatim so diagnostics request the object
+			# rather than inventing refs/heads/<hash>.
+			resolved_commit="$(git -C "$REPOSITORY" rev-parse --verify "$ref^{commit}" 2>/dev/null || true)"
+			printf '%s\n' "${resolved_commit:-$ref}"
 			continue
 		fi
 		if [[ "$ref" == *=* ]]; then
@@ -2142,7 +2152,7 @@ write_worker_episode_evidence_digest()
 			fi
 		fi
 		printf '\n## Review boundary\n\n'
-		printf 'This digest was generated locally. Reviewers and immediate successor workers must not open the raw worker JSONL, stderr, or raw command/build logs. Reuse the bounded terminal evidence above instead of repeating those reads, inspect only the next missing exact fact, and run focused validation through harness-run-logged.\n'
+		printf 'This digest was generated locally. Reviewers must not open the raw worker JSONL, stderr, or raw command/build logs; immediate successor workers must not open them either. Reuse the bounded terminal evidence above instead of repeating those reads, inspect only the next missing exact fact, and run focused validation through harness-run-logged.\n'
 	} > "$tmp"
 	# A malformed or unexpectedly verbose provider record must never turn the
 	# deterministic digest itself into another context-amplification source.
@@ -4594,11 +4604,17 @@ set_project_plan_item_waiting_dependency()
 publish_dependency_request()
 {
 	local request_id="$1" item_id="$2" root="$3" requirements_source="$4" note_source="$5" trigger_task="${6:--}"
-	local dependency_dir request requirements root_marker tmp failures
+	local dependency_dir request requirements root_marker tmp failures item_status
 	validate_dependency_request_id "$request_id"
 	validate_task_id "$root"
-	[[ "$(project_plan_item_for_root "$root")" == "$item_id" ]] ||
-		die "task root $root is not assigned to project plan item $item_id"
+	item_status="$(project_plan_item_status "$item_id")"
+	if [[ "$item_status" == PENDING ]]; then
+		[[ "$root" == "$item_id" ]] ||
+			die "pending dependency root must equal its project plan item ID: $item_id"
+	else
+		[[ "$(project_plan_item_for_root "$root")" == "$item_id" ]] ||
+			die "task root $root is not assigned to project plan item $item_id"
+	fi
 	[[ -f "$note_source" && -s "$note_source" ]] || die 'dependency request note is missing or empty'
 	validate_dependency_requirements_file "$requirements_source"
 	dependency_requirements_satisfied "$requirements_source" &&
@@ -4627,7 +4643,7 @@ publish_dependency_request()
 		printf '## Agent-authored dependency specification\n\n'
 		cat "$note_source"
 		printf '\n\n## Supply protocol\n\n'
-		printf 'A producer must publish the requested source-only commit and branch, then supply each dependency with `harness-supply-dependency ENV_FILE REQUEST_ID DEPENDENCY_ID SOURCE_REPOSITORY [SOURCE_REF]`. The consumer wakes only after every ref, ancestry constraint, and required path validates.\n'
+		printf 'A producer must publish the requested source-only commit and any requested branch, then supply each dependency with `harness-supply-dependency ENV_FILE REQUEST_ID DEPENDENCY_ID SOURCE_REPOSITORY [SOURCE_REF]`. The consumer wakes only after every commit/ref, ancestry constraint, and required path validates.\n'
 	} > "$tmp"
 	chmod 600 "$tmp"
 	mv "$tmp" "$request"

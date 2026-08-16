@@ -707,6 +707,56 @@ validate_focused_validation_boundary()
 	fi
 }
 
+validation_is_review_descriptor()
+{
+	case "$1" in
+		FOCUSED:*|INCREMENTAL:*|CLEAN_GLOBAL:*) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+assignment_objective_text()
+{
+	awk '
+		$0 == "## Objective" {inside=1; next}
+		inside && /^## / {exit}
+		inside {print}
+	' "$1"
+}
+
+validate_implementation_ready_leaf()
+{
+	local objective lower
+	(( leaf_expected_files > 0 )) || return 0
+	validation_is_review_descriptor "$goal_focused_validation" &&
+		die 'coding leaves require one machine-executable focused validation command; a review descriptor or source audit is not implementation validation'
+	objective="$(assignment_objective_text "$task_file")"
+	lower="${objective,,}"
+	if [[ "$lower" =~ (^|[^a-z])(determine|discover|locate|infer|figure[[:space:]]+out|identify[[:space:]]+the[[:space:]]+exact|inspect[[:space:]]+only)([^a-z]|$) ]]; then
+		die 'coding leaf is not implementation-ready: Objective still delegates interface/contract discovery; decompose a diagnostic prerequisite or embed the exact implementation contract first'
+	fi
+}
+
+validate_direct_cmake_execution_targets()
+{
+	local candidate escaped
+	local -a registered=() requested_targets=()
+	[[ "$goal_focused_validation" == *cmake*--build*--target* ]] || return 0
+	mapfile -t registered < <(registered_literal_cmake_targets)
+	mapfile -t requested_targets < <(
+		grep -oE -- '--target(=|[[:space:]]+)[A-Za-z0-9_.:+-]+' <<< "$goal_focused_validation" |
+			sed -E 's/^--target(=|[[:space:]]+)//' | sort -u
+	)
+	for candidate in "${registered[@]}"; do
+		escaped="$(printf '%s' "$candidate" | sed 's/[][\\.^$*+?{}|()]/\\&/g')"
+		# Only direct build-tree execution is relevant. A target name in the
+		# --target argument itself must not be mistaken for an executed binary.
+		grep -Eq "/${escaped}([[:space:];&|><'\"]|$)" <<< "$goal_focused_validation" || continue
+		printf '%s\n' "${requested_targets[@]}" | grep -Fxq -- "$candidate" ||
+			die "focused validation executes CMake target $candidate directly but does not build that exact target in the same command"
+	done
+}
+
 normalize_revision_execution_metadata()
 {
 	local root_scope root_max_files root_max_turns requested_scope requested_files requested_turns
@@ -956,6 +1006,7 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 		fi
 		[[ "$leaf_expected_files" =~ ^[0-9]+$ ]] || die 'Expected-Max-Implementation-Files must be a non-negative integer'
 		[[ "$leaf_expected_turns" =~ ^[1-9][0-9]*$ ]] || die 'Expected-Max-Worker-Turns must be positive'
+		validate_implementation_ready_leaf
 		if [[ "$leaf_worker_route" == LUNA ]] && (( leaf_expected_turns > 3 )); then
 			requested_luna_turns="$leaf_expected_turns"
 			leaf_expected_turns=3
@@ -1068,6 +1119,7 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 		fi
 	fi
 	normalize_unique_cmake_target_aliases
+	validate_direct_cmake_execution_targets
 	if [[ "$task_id" == "$root" ]]; then
 		[[ "$goal_target" == "${declared_criteria[0]}" ]] ||
 			die "new root goal must target its first declared criterion: ${declared_criteria[0]}"

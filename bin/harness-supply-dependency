@@ -41,6 +41,11 @@ if [[ "$source_hint" != - && "$source_repository" != "$(realpath -m "$source_hin
 fi
 [[ -n "$source_ref" ]] || source_ref="$target_ref"
 source_commit="$(git -C "$source_repository" rev-parse --verify "$source_ref^{commit}")" || die "source ref does not resolve to a commit: $source_ref"
+if [[ "$type" == GIT_COMMIT ]]; then
+	resolved_required="$(git -C "$source_repository" rev-parse --verify "$target_ref^{commit}" 2>/dev/null || true)"
+	[[ -n "$resolved_required" && "$resolved_required" == "$source_commit" ]] ||
+		die "supplied commit does not match required commit object: $target_ref"
+fi
 if [[ "$ancestor" != - ]]; then
 	git -C "$source_repository" merge-base --is-ancestor "$ancestor" "$source_commit" ||
 		die "source commit does not descend from required ancestor: $ancestor"
@@ -55,13 +60,15 @@ if [[ "$source_repository" != "$REPOSITORY" ]]; then
 	git -C "$REPOSITORY" fetch --quiet --no-tags --no-write-fetch-head "$source_repository" "$source_commit"
 fi
 git -C "$REPOSITORY" cat-file -e "$source_commit^{commit}" || die 'source commit import failed'
-old_commit="$(git -C "$REPOSITORY" rev-parse --verify "$target_ref^{commit}" 2>/dev/null || true)"
-if [[ -n "$old_commit" && "$old_commit" != "$source_commit" ]]; then
-	git -C "$REPOSITORY" merge-base --is-ancestor "$old_commit" "$source_commit" ||
-		die "dependency supply would not fast-forward $target_ref"
+if [[ "$type" == GIT_REF ]]; then
+	old_commit="$(git -C "$REPOSITORY" rev-parse --verify "$target_ref^{commit}" 2>/dev/null || true)"
+	if [[ -n "$old_commit" && "$old_commit" != "$source_commit" ]]; then
+		git -C "$REPOSITORY" merge-base --is-ancestor "$old_commit" "$source_commit" ||
+			die "dependency supply would not fast-forward $target_ref"
+	fi
+	git -C "$REPOSITORY" update-ref -m "harness dependency supply: $request_id/$dependency_id" \
+		"$target_ref" "$source_commit" "${old_commit:-$(printf '0%.0s' {1..40})}"
 fi
-git -C "$REPOSITORY" update-ref -m "harness dependency supply: $request_id/$dependency_id" \
-	"$target_ref" "$source_commit" "${old_commit:-$(printf '0%.0s' {1..40})}"
 
 ledger="$(dependency_request_dir)/supplies.tsv"
 if [[ ! -f "$ledger" ]]; then

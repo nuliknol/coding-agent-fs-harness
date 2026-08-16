@@ -21,6 +21,11 @@ ensure_project
 require_repository
 acquire_project_lock
 
+# A dependency may be discovered before the first task for a pending DAG node
+# is published.  That clean planning boundary has no active task root yet; the
+# durable root identity is the plan-item ID that publication would use.
+[[ -n "$root" ]] || root="$item_id"
+
 compgen -G "$(project_dir)/tasks/$PROJECT-task-*.ready.md" >/dev/null && die 'cannot enter dependency waiting while a task is ready'
 compgen -G "$(project_dir)/running/$PROJECT-task-*.running.md" >/dev/null && die 'cannot enter manager dependency waiting while a task is running'
 compgen -G "$(project_dir)/results/$PROJECT-task-*.result.md" >/dev/null && die 'cannot enter dependency waiting while a result awaits review'

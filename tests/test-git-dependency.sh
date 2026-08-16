@@ -27,6 +27,15 @@ Mandatory-Git-Refs: $seed;baseline/test;refs/heads/baseline/test=$seed
 REFS
 bash -c 'set -Eeuo pipefail; source "$1/lib/harness-common.sh"; REPOSITORY="$2"; assignment_mandatory_git_refs_satisfied "$3"' \
 	_ "$HARNESS_HOME" "$TEST_ROOT/repo" "$TEST_ROOT/mandatory-refs.md"
+short_seed="${seed:0:12}"
+cat > "$TEST_ROOT/mandatory-short-commit.md" <<REFS
+Mandatory-Git-Refs: $short_seed
+REFS
+bash -c 'set -Eeuo pipefail; source "$1/lib/harness-common.sh"; REPOSITORY="$2"; assignment_mandatory_git_refs_satisfied "$3"' \
+	_ "$HARNESS_HOME" "$TEST_ROOT/repo" "$TEST_ROOT/mandatory-short-commit.md"
+normalized_short="$(bash -c 'set -Eeuo pipefail; source "$1/lib/harness-common.sh"; REPOSITORY="$2"; assignment_mandatory_git_refs "$3"' \
+	_ "$HARNESS_HOME" "$TEST_ROOT/repo" "$TEST_ROOT/mandatory-short-commit.md")"
+[[ "$normalized_short" == "$seed" ]]
 cat > "$TEST_ROOT/mandatory-pin-mismatch.md" <<REFS
 Mandatory-Git-Refs: refs/heads/baseline/test=0000000000000000000000000000000000000000
 REFS
@@ -61,6 +70,32 @@ chmod 600 "$TEST_ROOT/harness.env"
 "$HARNESS_BIN/harness-init" "$TEST_ROOT/harness.env" >/dev/null
 printf 'item1\tCommit and dependency test\n' > "$TEST_ROOT/plan.tsv"
 "$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/harness.env" "$TEST_ROOT/plan.tsv" >/dev/null
+
+# A dependency can be recorded before a pending plan node has published its
+# first task. An abbreviated commit object remains GIT_COMMIT authority and is
+# never rewritten as refs/heads/<hash>.
+sed \
+	-e 's/export PROJECT="gitdependency"/export PROJECT="gitdependencypending"/' \
+	-e "s|export HARNESS_ROOT=\"$TEST_ROOT/state\"|export HARNESS_ROOT=\"$TEST_ROOT/pending-state\"|" \
+	"$TEST_ROOT/harness.env" > "$TEST_ROOT/pending-harness.env"
+chmod 600 "$TEST_ROOT/pending-harness.env"
+"$HARNESS_BIN/harness-init" "$TEST_ROOT/pending-harness.env" >/dev/null
+printf 'pending1\tPending commit dependency\n' > "$TEST_ROOT/pending-plan.tsv"
+"$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/pending-harness.env" \
+	"$TEST_ROOT/pending-plan.tsv" >/dev/null
+missing_commit=deadbee0000000000000000000000000000000000
+printf 'dependency_id\ttype\ttarget_ref\tsource_hint\trequired_ancestor\trequired_path\tdescription\n' \
+	> "$TEST_ROOT/pending-requirements.tsv"
+printf 'baseline\tGIT_COMMIT\t%s\t-\t-\t-\tImmutable baseline commit object\n' \
+	"$missing_commit" >> "$TEST_ROOT/pending-requirements.tsv"
+printf 'Supply the immutable baseline commit object.\n' > "$TEST_ROOT/pending-note.md"
+"$HARNESS_BIN/manager-wait-dependency" "$TEST_ROOT/pending-harness.env" \
+	pending1 pending1 '' "$TEST_ROOT/pending-requirements.tsv" "$TEST_ROOT/pending-note.md" >/dev/null
+grep -Eq $'^pending1\tWAITING_DEPENDENCY\tpending1\t' \
+	"$TEST_ROOT/pending-state/projects/gitdependencypending/control/project-plan-state.tsv"
+grep -Fqx $'baseline\tmissing-ref\tdeadbee0000000000000000000000000000000000\tImmutable baseline commit object' \
+	< <(bash -c 'set -Eeuo pipefail; source "$1/lib/harness-common.sh"; load_harness_env "$2"; dependency_requirement_failures "$3"' \
+		_ "$HARNESS_HOME" "$TEST_ROOT/pending-harness.env" "$TEST_ROOT/pending-requirements.tsv")
 
 cat > "$TEST_ROOT/task.md" <<TASK
 # Task Assignment

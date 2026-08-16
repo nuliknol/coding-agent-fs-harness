@@ -44,6 +44,7 @@ case "${MOCK_MODE:?}" in
  success_warning) printf 'network error recovered\n' >&2; printf 'done\n' > "$last"; printf '{"type":"turn.completed"}\n' ;;
 	item_loop) for i in $(seq 1 10); do printf '{"type":"item.started","item":{"id":"%s"}}\n' "$i"; done; sleep 5 ;;
 	command_output_heavy) printf '{"type":"item.completed","item":{"id":"cmd-1","type":"command_execution","aggregated_output":"%040d","exit_code":0,"status":"completed"}}\n' 0; sleep 5 ;;
+	repeated_read) printf '{"type":"item.started","item":{"id":"cmd-1","type":"command_execution","command":"/bin/bash -lc '\''rg -n target_symbol src/a.c | head -c 4096'\''"}}\n'; sleep 5 ;;
 	token_heavy) printf 'done\n' > "$last"; printf '{"type":"thread.started","thread_id":"budget-thread"}\n{"type":"turn.completed","usage":{"input_tokens":90,"output_tokens":20}}\n' ;;
 	stop_sentinel) while true; do sleep 1; done ;;
 esac
@@ -267,6 +268,35 @@ grep -q '^classification=agent_item_budget_exceeded$' "$TMP/goal-item-loop.class
 [[ ! -e "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-goal-resource.needs-human.md" ]]
 grep -q 'task=goal-resource.*kind=ITEM_LIMIT' \
 	"$TMP/state/projects/jsonltest/logs/agent-resource-alarms.log"
+
+# A fresh leaf receives completed predecessor reads as cached evidence. Exact
+# repetition with an unchanged predecessor Git head is interrupted immediately
+# instead of consuming the rest of the worker item/token budget.
+repeated_read_prompt="$TMP/repeated-read-prompt"
+cat > "$repeated_read_prompt" <<'PROMPT'
+TASK_ID=repeated-read-root
+TASK_ROOT=repeated-read-root
+WORKER_GOAL_MODE=1
+## Immediate predecessor evidence
+
+git_head_changed=0
+
+## Command manifest
+
+- command[1] exit=0 output_bytes=10: /bin/bash -lc 'rg -n target_symbol src/a.c | head -c 4096'
+
+## Embedded bounded assignment
+PROMPT
+set +e
+MOCK_MODE=repeated_read "$ROOT/bin/codex-exec-jsonl" "$TMP/env-resource" worker gpt-5.5 \
+	"$repeated_read_prompt" "$TMP/repeated-read.jsonl" "$TMP/repeated-read.stderr" \
+	"$TMP/repeated-read.last"
+repeated_read_status=$?
+set -e
+(( repeated_read_status != 0 ))
+grep -q '^classification=agent_repeated_evidence_command$' "$TMP/repeated-read.classification"
+grep -q '^resource_guard=REPEATED_EVIDENCE_COMMAND$' "$TMP/repeated-read.classification"
+[[ ! -e "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-repeated-read-root.needs-human.md" ]]
 
 # Usage is authoritative only at turn completion, so a live transcript/context
 # amplification estimate must stop a looping process before that event exists.

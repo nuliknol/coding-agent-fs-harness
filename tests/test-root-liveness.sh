@@ -18,6 +18,7 @@ cat > "$TEST_ROOT/repo/CMakeLists.txt" <<'CMAKE'
 cmake_minimum_required(VERSION 3.20)
 project(liveness C)
 add_executable(liveness_consumer_smoke src/consumer/smoke.c)
+add_executable(other_smoke src/consumer/smoke.c)
 CMAKE
 git -C "$TEST_ROOT/repo" init -q
 git -C "$TEST_ROOT/repo" config user.name Harness-Test
@@ -387,6 +388,50 @@ grep -Fqx 'cmake --build build --target liveness_consumer_smoke' "$target_alias_
 grep -Fq 'CMAKE_TARGET_ALIAS_NORMALIZED root=consumer task=consumer-revision-06 requested=consumer_smoke registered=liveness_consumer_smoke' \
 	"$project/logs/events.log"
 rm -f "$target_alias_ready"
+
+# Recovery coding leaves must be implementation-ready before they consume an
+# agent invocation. Review descriptors and unresolved discovery objectives are
+# planning work, while directly executed CMake binaries must be built by the
+# same focused validation command.
+sed \
+	-e 's/consumer-revision-05/consumer-revision-07/g' \
+	-e 's|Focused-Validation: cmake --build build --target liveness_consumer_smoke|Focused-Validation: FOCUSED: rg -n consumer_smoke src/consumer/smoke.c|' \
+	-e 's|cmake --build build --target liveness_consumer_smoke|rg -n consumer_smoke src/consumer/smoke.c|g' \
+	"$TEST_ROOT/generated-validation-revision.md" > "$TEST_ROOT/descriptive-coding-revision.md"
+if "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" \
+	consumer-revision-07 "$TEST_ROOT/descriptive-coding-revision.md" \
+	>"$TEST_ROOT/descriptive-coding.out" 2>&1; then
+	printf 'coding recovery accepted a source-audit review descriptor as validation\n' >&2
+	exit 1
+fi
+grep -Fq 'coding leaves require one machine-executable focused validation command' \
+	"$TEST_ROOT/descriptive-coding.out"
+
+sed \
+	-e 's/consumer-revision-05/consumer-revision-08/g' \
+	-e 's/Run the generated validation target/Determine the exact caller contract and run the generated validation target/' \
+	"$TEST_ROOT/generated-validation-revision.md" > "$TEST_ROOT/exploratory-coding-revision.md"
+if "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" \
+	consumer-revision-08 "$TEST_ROOT/exploratory-coding-revision.md" \
+	>"$TEST_ROOT/exploratory-coding.out" 2>&1; then
+	printf 'coding recovery accepted an unresolved discovery objective\n' >&2
+	exit 1
+fi
+grep -Fq 'Objective still delegates interface/contract discovery' \
+	"$TEST_ROOT/exploratory-coding.out"
+
+sed \
+	-e 's/consumer-revision-05/consumer-revision-09/g' \
+	-e 's|cmake --build build --target liveness_consumer_smoke|cmake --build build --target liveness_consumer_smoke \&\& /tmp/build/other_smoke|g' \
+	"$TEST_ROOT/generated-validation-revision.md" > "$TEST_ROOT/mismatched-binary-revision.md"
+if "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" \
+	consumer-revision-09 "$TEST_ROOT/mismatched-binary-revision.md" \
+	>"$TEST_ROOT/mismatched-binary.out" 2>&1; then
+	printf 'focused validation executed an unbuilt CMake target\n' >&2
+	exit 1
+fi
+grep -Fq 'executes CMake target other_smoke directly but does not build that exact target' \
+	"$TEST_ROOT/mismatched-binary.out"
 
 # A stale planning turn cannot publish a second revision while another
 # revision of the same root is ready for execution.
