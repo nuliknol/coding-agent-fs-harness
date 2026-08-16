@@ -52,10 +52,17 @@ if assignment_uses_goal_mode "$running"; then
 	[[ -f "$goal_state" ]] || die "goal state is missing for task: $task_id"
 	reported_goal_id="$(require_single_metadata_value "$result_file" Goal-ID 'goal terminal result')"
 	reported_goal_outcome="$(require_single_metadata_value "$result_file" Goal-Outcome 'goal terminal result')"
+	reported_decomposition_reason="$(metadata_value "$result_file" Decomposition-Reason)"
 	[[ "$reported_goal_id" == "$(kv_file_value "$goal_state" goal_id)" ]] ||
 		die 'terminal result Goal-ID does not match the active goal'
 	[[ "$reported_goal_outcome" =~ ^(COMPLETE|NEEDS_DECOMPOSITION|HARD_BLOCKED)$ ]] ||
 		die 'Goal-Outcome must be COMPLETE, NEEDS_DECOMPOSITION, or HARD_BLOCKED'
+	if [[ -n "$reported_decomposition_reason" ]]; then
+		[[ "$reported_goal_outcome" == NEEDS_DECOMPOSITION ]] ||
+			die 'Decomposition-Reason is valid only with Goal-Outcome: NEEDS_DECOMPOSITION'
+		[[ "$reported_decomposition_reason" =~ ^(TASK_TOO_BROAD|CONTEXT_INCOMPLETE|SCOPE_INCOMPLETE|VALIDATION_PREREQUISITE|RESOURCE_LIMIT)$ ]] ||
+			die 'invalid Decomposition-Reason'
+	fi
 fi
 
 tmp="$dir/results/$base.result.tmp.$$"

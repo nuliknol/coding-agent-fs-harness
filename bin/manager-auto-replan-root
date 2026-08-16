@@ -51,6 +51,7 @@ blocking_fingerprint="$(awk -F': ' '$1 == "Blocking-Fingerprint" {print $2; exit
 [[ -n "$blocking_fingerprint" ]] || blocking_fingerprint="-"
 trigger_blocker_class="$(awk -F': ' '$1 == "Blocker-Class" {print $2; exit}' "$replan_marker")"
 trigger_remediation_scope="$(awk -F': ' '$1 == "Remediation-Scope" {print $2; exit}' "$replan_marker")"
+trigger_context_paths="$(awk -F': ' '$1 == "Context-Paths" {print $2; exit}' "$replan_marker")"
 recovery_mode="AUTOMATIC_REPLAN"
 recovery_reason="bounded strategy change remains available"
 if (( resource_progress_verification == 1 )); then
@@ -70,6 +71,9 @@ elif [[ "$trigger_outcome" == MANAGER_REMEDIATION_CONTINUATION ]]; then
 elif [[ "$trigger_outcome" == MANAGER_REMEDIATION_SCOPE_EXHAUSTED ]]; then
 	recovery_mode="MANAGER_REMEDIATION"
 	recovery_reason="the preceding fresh manager remediation proved its declared mutation scope insufficient and requires an adjacent producer, representation, consumer, or validation seam"
+elif [[ "$trigger_outcome" == MANAGER_REMEDIATION_CONTEXT_INCOMPLETE ]]; then
+	recovery_mode="MANAGER_REMEDIATION"
+	recovery_reason="the preceding fresh manager remediation retained correct write authority but proved its bounded context capsule incomplete"
 elif [[ "$trigger_outcome" == LEGACY_HARD_BLOCKED ]]; then
 	recovery_mode="MANAGER_REMEDIATION"
 	recovery_reason="a legacy terminal hard block requires manager-level repository-local reconsideration before any human escalation"
@@ -163,6 +167,9 @@ if [[ "$recovery_mode" == MANAGER_REMEDIATION ]]; then
 	if [[ "$trigger_outcome" == MANAGER_REMEDIATION_SCOPE_EXHAUSTED ]]; then
 		recovery_authority+=" The preceding Remediation-Scope [$trigger_remediation_scope] is machine-recorded as exhausted for this unchanged criterion. Do not publish that same path set again. Use the terminal evidence to identify the smallest adjacent declaration, producer, representation, consumer, or validation seam that was absent from it. The publisher rejects an unchanged remediation path set before execution."
 		recovery_validator_contract+=" It also rejects reuse of the exhausted remediation path set."
+	elif [[ "$trigger_outcome" == MANAGER_REMEDIATION_CONTEXT_INCOMPLETE ]]; then
+		recovery_authority+=" The preceding Remediation-Scope [$trigger_remediation_scope] remains the exact mutation authority; do not expand or replace it. Its Context-Paths [$trigger_context_paths] were insufficient. Add only the exact missing declaration or implementation paths and Required-Symbols named by terminal evidence. The publisher requires a strict context expansion while preserving the same remediation path set."
+		recovery_validator_contract+=" It also requires the same Remediation-Scope and a strict bounded Context-Paths expansion."
 	fi
 fi
 if task_root_uses_assignment_criteria "$root" || [[ -f "$criteria_definition" ]]; then
@@ -228,6 +235,7 @@ RECOVERY_REASON=$recovery_reason
 BLOCKING_FINGERPRINT=$blocking_fingerprint
 TRIGGER_BLOCKER_CLASS=${trigger_blocker_class:--}
 TRIGGER_REMEDIATION_SCOPE=${trigger_remediation_scope:--}
+TRIGGER_CONTEXT_PATHS=${trigger_context_paths:--}
 TASK_OUTPUT=$task_output
 CRITERIA_OUTPUT=$criteria_output
 DECOMPOSITION_OUTPUT=$decomposition_output

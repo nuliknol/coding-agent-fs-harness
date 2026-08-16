@@ -29,6 +29,7 @@ pending_replan_trigger="$(metadata_value "$marker" Pending-Replan-Trigger)"
 pending_replan_task="$(metadata_value "$marker" Pending-Replan-Triggered-By)"
 pending_replan_blocker_class="$(metadata_value "$marker" Pending-Replan-Blocker-Class)"
 pending_replan_remediation_scope="$(metadata_value "$marker" Pending-Replan-Remediation-Scope)"
+pending_replan_context_paths="$(metadata_value "$marker" Pending-Replan-Context-Paths)"
 additional_scope="$(metadata_value "$note_file" Authorized-Additional-Scope)"
 resolution_action="$(metadata_value "$note_file" Resolution-Action)"
 if [[ -n "$resolution_action" ]]; then
@@ -120,6 +121,14 @@ if [[ -n "$plan_item" && "$(project_plan_item_status "$plan_item")" == ACTIVE ]]
 			MANAGER_REMEDIATION_SCOPE_EXHAUSTED \
 			"${pending_replan_blocker_class:-LOCAL_SCOPE_PREREQUISITE}" \
 			"$pending_replan_remediation_scope" >/dev/null
+	elif [[ "$pending_replan_trigger" == MANAGER_REMEDIATION_CONTEXT_INCOMPLETE ]]; then
+		[[ -n "$pending_replan_remediation_scope" && -n "$pending_replan_context_paths" ]] ||
+			die 'preserved context-incomplete remediation transition is missing scope or context paths'
+		mark_root_needs_replan "${pending_replan_task:-$trigger_task}" \
+			"architecture liveness reassessment was explicitly resolved; preserve the pending context-capsule correction without expanding mutation authority" \
+			MANAGER_REMEDIATION_CONTEXT_INCOMPLETE \
+			"${pending_replan_blocker_class:-LOCAL_SCOPE_PREREQUISITE}" \
+			"$pending_replan_remediation_scope" "$pending_replan_context_paths" >/dev/null
 	elif [[ "$category" == MANAGER_REMEDIATION_SCOPE_EXPANSION && -n "$additional_scope" ]]; then
 		mark_root_needs_replan "$trigger_task" \
 			"architecture reassessment explicitly authorized one bounded local prerequisite; continue with manager remediation" \

@@ -319,7 +319,7 @@ if (( goal_mode == 1 )); then
 Leaf-goal execution is active. This is one logical goal for the independently verifiable criterion GOAL_TARGET_CRITERION, even if it requires several Codex turns. For a legacy task only, read GOAL_SUMMARY_FILE and GOAL_ITERATION_LEDGER_FILE once when they contain prior iterations. A v2 task already embeds the current bounded state and must not reread those harness files. Continue diagnosing, implementing, and running focused validation until exactly one of these terminal outcomes is true:
 
 - COMPLETE: the goal success evidence and focused validation in TASK_FILE pass.
-- NEEDS_DECOMPOSITION: the criterion is still too broad or repeated strategy attempts cannot make material movement.
+- NEEDS_DECOMPOSITION: the criterion is still too broad, the supplied bounded context is incomplete, mutation authority omits the actual seam, validation has an upstream prerequisite, or repeated strategy attempts cannot make material movement. Add exactly one "Decomposition-Reason: TASK_TOO_BROAD|CONTEXT_INCOMPLETE|SCOPE_INCOMPLETE|VALIDATION_PREREQUISITE|RESOURCE_LIMIT" line. Use CONTEXT_INCOMPLETE only when Allowed-Scope remains correct and exact additional Context-Paths/Required-Symbols would make the same leaf implementation-ready. Use SCOPE_INCOMPLETE only when the required edit lies outside Allowed-Scope. Use VALIDATION_PREREQUISITE when the assigned command cannot reach its named test boundary until a build/test prerequisite is repaired.
 - HARD_BLOCKED: an explicit Hard-Block-Conditions boundary in TASK_FILE is actually met.
 
 Current durable iteration: $goal_iteration
@@ -336,7 +336,7 @@ $HARNESS_BIN/worker-continue-task "$HARNESS_ENV_FILE" "$task_id" "$session" RECE
 
 After that command succeeds, end this Codex turn. The harness will review the semantic boundary and either start a fresh implementation episode for the same logical goal or return the leaf to decomposition. A CONTINUE receipt must record a changed boundary, changed workspace, or genuinely new evidence/strategy. If evidence shows that the assigned failure premise is false, that an upstream prerequisite owns the actual failure, or that the next work exceeds this leaf's authority, state that plainly in "Next bounded action" and stop; do not broaden the leaf on your own. Process-local work should stay within $HARNESS_GOAL_PROCESS_MAX_FIXES small corrections and $HARNESS_GOAL_PROCESS_MAX_SMOKE_RUNS focused smoke executions before publishing CONTINUE.
 
-For a terminal result, include "Goal-ID: $goal_id" and exactly one "Goal-Outcome: COMPLETE|NEEDS_DECOMPOSITION|HARD_BLOCKED", retain the normal worker result headings, publish it with worker-complete-task, and terminate. Do not use NEEDS_DECOMPOSITION merely because another ordinary diagnostic/fix turn is required. Do not use HARD_BLOCKED for test failure, complexity, token pressure, or lack of immediate progress.
+For a terminal result, include "Goal-ID: $goal_id" and exactly one "Goal-Outcome: COMPLETE|NEEDS_DECOMPOSITION|HARD_BLOCKED". A NEEDS_DECOMPOSITION result also includes exactly one typed Decomposition-Reason line as defined above. Retain the normal worker result headings, publish it with worker-complete-task, and terminate. Do not use NEEDS_DECOMPOSITION merely because another ordinary diagnostic/fix turn is required. Do not use HARD_BLOCKED for test failure, complexity, token pressure, or lack of immediate progress.
 PROMPT
 fi
 if (( closure_mode == 1 )); then

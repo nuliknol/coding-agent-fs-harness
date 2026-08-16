@@ -1189,6 +1189,16 @@ next Terra remediation must name the smallest evidenced adjacent seam. This
 turns a truthful no-edit diagnostic into a scope transition instead of a
 same-file retry loop.
 
+`NEEDS_DECOMPOSITION` also carries a typed `Decomposition-Reason`. A
+`CONTEXT_INCOMPLETE` manager remediation does not revoke otherwise-correct
+write authority: it records `MANAGER_REMEDIATION_CONTEXT_INCOMPLETE`, rotates
+the agent context, preserves the exact `Remediation-Scope`, and requires the
+next candidate to retain all prior context paths while adding at least one
+exact bounded declaration or implementation path. `SCOPE_INCOMPLETE` remains
+the distinct signal that mutation authority itself must move to an adjacent
+seam. Other reasons distinguish an over-broad task, a validation prerequisite,
+and a resource-limited episode.
+
 If a monotonic architecture/liveness guard pauses the root while that typed
 transition is pending, the architecture marker preserves its trigger, source
 task, blocker class, and exhausted path set. Resolving the liveness epoch

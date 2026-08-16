@@ -2716,7 +2716,7 @@ mark_root_architecture_reassessment()
 {
 	local task_id="$1" category="$2" reason="$3" evidence="${4:--}"
 	local root marker tmp alarm created=0 pending_replan pending_trigger pending_trigger_task
-	local pending_blocker_class pending_remediation_scope
+	local pending_blocker_class pending_remediation_scope pending_context_paths
 	root="$(task_root_id "$task_id")"
 	marker="$(task_root_architecture_reassessment_file "$root")"
 	pending_replan="$(task_root_replan_file "$root")"
@@ -2724,11 +2724,13 @@ mark_root_architecture_reassessment()
 	pending_trigger_task=""
 	pending_blocker_class=""
 	pending_remediation_scope=""
+	pending_context_paths=""
 	if [[ -f "$pending_replan" ]]; then
 		pending_trigger="$(metadata_value "$pending_replan" Trigger-Outcome)"
 		pending_trigger_task="$(metadata_value "$pending_replan" Triggered-By)"
 		pending_blocker_class="$(metadata_value "$pending_replan" Blocker-Class)"
 		pending_remediation_scope="$(metadata_value "$pending_replan" Remediation-Scope)"
+		pending_context_paths="$(metadata_value "$pending_replan" Context-Paths)"
 	fi
 	if [[ ! -f "$marker" ]]; then
 		tmp="$marker.tmp.$$"
@@ -2748,6 +2750,8 @@ mark_root_architecture_reassessment()
 					printf 'Pending-Replan-Blocker-Class: %s\n' "$pending_blocker_class"
 				[[ -z "$pending_remediation_scope" ]] ||
 					printf 'Pending-Replan-Remediation-Scope: %s\n' "$pending_remediation_scope"
+				[[ -z "$pending_context_paths" ]] ||
+					printf 'Pending-Replan-Context-Paths: %s\n' "$pending_context_paths"
 				printf '\n'
 			fi
 			printf 'Total-Root-Reviews: %s\n' "$(root_reviewed_attempt_count "$root")"
@@ -3280,7 +3284,7 @@ mark_root_needs_human()
 mark_root_needs_replan()
 {
 	local task_id="$1" reason="$2" trigger="$3"
-	local blocker_class="${4:-}" remediation_scope="${5:-}"
+	local blocker_class="${4:-}" remediation_scope="${5:-}" context_paths="${6:-}"
 	local root marker progress blocking_fingerprint tmp
 	root="$(task_root_id "$task_id")"
 	marker="$(task_root_replan_file "$root")"
@@ -3308,6 +3312,9 @@ mark_root_needs_replan()
 		fi
 		if [[ -n "$remediation_scope" ]]; then
 			printf 'Remediation-Scope: %s\n\n' "$remediation_scope"
+		fi
+		if [[ -n "$context_paths" ]]; then
+			printf 'Context-Paths: %s\n\n' "$context_paths"
 		fi
 		printf 'Reviewed-Attempts: %s\n' "$(root_reviewed_attempt_count "$root")"
 		printf 'Reviewed-Attempts-Since-Last-Replan: %s\n' "$(root_reviewed_attempts_since_replan "$root")"

@@ -174,7 +174,12 @@ elif [[ "$kind" == replan ]]; then
 		strategy_change="REPAIR_PREREQUISITE"
 		strategy_id="mock.manager-remediation.$count"
 		remediation_scope="src/mock-blocking-prerequisite.c"
+		remediation_context="$remediation_scope"
 		exercise_exhausted_scope_retry=0
+		if printf '%s\n' "$prompt" | grep -Fq 'strict bounded Context-Paths expansion'; then
+			remediation_scope="$(value TRIGGER_REMEDIATION_SCOPE)"
+			remediation_context="$(value TRIGGER_CONTEXT_PATHS),src/missing-context-contract.h"
+		fi
 		if printf '%s\n' "$prompt" | grep -Fq 'machine-recorded as exhausted'; then
 			printf '%s\n' "$prompt" | grep -Fq 'publisher rejects an unchanged remediation path set'
 			exercise_exhausted_scope_retry=1
@@ -192,6 +197,7 @@ Replan-Strategy-ID: $strategy_id
 Strategy-Change: $strategy_change
 Supersedes-Task: $TRIGGER_TASK
 $remediation_metadata
+Context-Paths: ${remediation_context:--}
 
 ## Objective
 
@@ -1282,9 +1288,9 @@ grep -q '^Manager-Remediation: 1$' "$hard_remediation_continuation"
 grep -q '^Strategy-Change: REPAIR_PREREQUISITE$' "$hard_remediation_continuation"
 grep -q '^Supersedes-Task: 001-revision-01$' "$hard_remediation_continuation"
 
-# A manager remediation that truthfully proves its own mutation scope is
-# insufficient must rotate both execution context and path authority. The
-# same path set cannot be republished for the unchanged criterion.
+# Missing bounded context is not missing mutation authority. Preserve the
+# exact remediation scope, rotate execution context, and require a strict
+# Context-Paths expansion before another manager turn can run.
 mv "$hard_remediation_continuation" \
 	"$hard_project/archive/hardblockproj-task-001-revision-02.assignment.md"
 cat > "$hard_project/results/hardblockproj-task-001-revision-02.result.md" <<'RESULT'
@@ -1293,6 +1299,70 @@ cat > "$hard_project/results/hardblockproj-task-001-revision-02.result.md" <<'RE
 Task-ID: 001-revision-02
 Status: COMPLETED
 Goal-Outcome: NEEDS_DECOMPOSITION
+Decomposition-Reason: CONTEXT_INCOMPLETE
+
+## Summary
+
+The declared remediation file is correct, but its capsule omits the defining contract.
+
+## Modified files
+
+None.
+
+## Implemented behavior
+
+None.
+
+## Validation performed
+
+The focused failure was reproduced.
+
+## Deviations from assignment
+
+No nonfunctional edit was made.
+
+## Remaining concerns
+
+The exact missing declaration is required as read-only context.
+
+## Worker assessment
+
+The mutation scope remains correct; bounded context is incomplete.
+RESULT
+cat > "$HARD_ROOT/remediation-context-incomplete-review.md" <<'NOTE'
+Progress-Percent: 0%
+Improvement-Percent: 0%
+NOTE
+context_incomplete_output="$("$HARNESS_BIN/manager-reject-task" \
+	"$HARD_ROOT/harness.env" 001-revision-02 \
+	"$HARD_ROOT/remediation-context-incomplete-review.md")"
+[[ "$context_incomplete_output" == *.needs-replan.md ]]
+grep -Fqx 'Trigger-Outcome: MANAGER_REMEDIATION_CONTEXT_INCOMPLETE' \
+	"$hard_progress/hardblockproj-task-001.needs-replan.md"
+grep -Fqx 'Remediation-Scope: src/mock-blocking-prerequisite.c' \
+	"$hard_progress/hardblockproj-task-001.needs-replan.md"
+grep -Fqx 'Context-Paths: src/mock-blocking-prerequisite.c' \
+	"$hard_progress/hardblockproj-task-001.needs-replan.md"
+"$HARNESS_BIN/manager-auto-replan-root" "$HARD_ROOT/harness.env" 001 >/dev/null
+context_remediation="$hard_project/tasks/hardblockproj-task-001-revision-03.ready.md"
+[[ -f "$context_remediation" ]]
+grep -Fqx 'Remediation-Scope: src/mock-blocking-prerequisite.c' "$context_remediation"
+grep -Fqx 'Context-Paths: src/mock-blocking-prerequisite.c,src/missing-context-contract.h' \
+	"$context_remediation"
+grep -Fqx 'Worker-Context: FRESH' "$context_remediation"
+
+# A manager remediation that truthfully proves its own mutation scope is
+# insufficient must rotate both execution context and path authority. The
+# same path set cannot be republished for the unchanged criterion.
+mv "$context_remediation" \
+	"$hard_project/archive/hardblockproj-task-001-revision-03.assignment.md"
+cat > "$hard_project/results/hardblockproj-task-001-revision-03.result.md" <<'RESULT'
+# Task Result
+
+Task-ID: 001-revision-03
+Status: COMPLETED
+Goal-Outcome: NEEDS_DECOMPOSITION
+Decomposition-Reason: SCOPE_INCOMPLETE
 
 ## Summary
 
@@ -1327,7 +1397,7 @@ Progress-Percent: 0%
 Improvement-Percent: 0%
 NOTE
 scope_exhausted_output="$("$HARNESS_BIN/manager-reject-task" \
-	"$HARD_ROOT/harness.env" 001-revision-02 \
+	"$HARD_ROOT/harness.env" 001-revision-03 \
 	"$HARD_ROOT/remediation-scope-exhausted-review.md")"
 [[ "$scope_exhausted_output" == *.needs-replan.md ]]
 grep -Fqx 'Trigger-Outcome: MANAGER_REMEDIATION_SCOPE_EXHAUSTED' \
@@ -1335,11 +1405,11 @@ grep -Fqx 'Trigger-Outcome: MANAGER_REMEDIATION_SCOPE_EXHAUSTED' \
 grep -Fqx 'Remediation-Scope: src/mock-blocking-prerequisite.c' \
 	"$hard_progress/hardblockproj-task-001.needs-replan.md"
 "$HARNESS_BIN/manager-auto-replan-root" "$HARD_ROOT/harness.env" 001 >/dev/null
-adjacent_remediation="$hard_project/tasks/hardblockproj-task-001-revision-03.ready.md"
+adjacent_remediation="$hard_project/tasks/hardblockproj-task-001-revision-04.ready.md"
 [[ -f "$adjacent_remediation" ]]
 grep -Fqx 'Remediation-Scope: src/adjacent-consumer.c' "$adjacent_remediation"
 grep -Fqx 'Worker-Context: FRESH' "$adjacent_remediation"
-grep -Fqx 'Supersedes-Task: 001-revision-02' "$adjacent_remediation"
+grep -Fqx 'Supersedes-Task: 001-revision-03' "$adjacent_remediation"
 
 # A terminal pause requires an enumerated human dependency and concrete
 # evidence; it uses NEEDS_HUMAN rather than the legacy root-block marker.

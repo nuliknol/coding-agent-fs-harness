@@ -151,6 +151,39 @@ archive_lingering_result()
 	fi
 }
 
+mark_manager_remediation_decomposition_replan()
+{
+	local result_file="$1" reason blocker_class remediation_scope context_paths
+	reason="$(metadata_value "$result_file" Decomposition-Reason)"
+	# Compatibility for results produced before Decomposition-Reason existed.
+	# Their historical contract explicitly meant exhausted mutation scope.
+	[[ -n "$reason" ]] || reason=SCOPE_INCOMPLETE
+	blocker_class="$(require_single_metadata_value "$assignment_archive" Blocker-Class \
+		'manager remediation assignment')"
+	remediation_scope="$(require_single_metadata_value "$assignment_archive" Remediation-Scope \
+		'manager remediation assignment')"
+	context_paths="$(metadata_value "$assignment_archive" Context-Paths)"
+	case "$reason" in
+		CONTEXT_INCOMPLETE)
+			mark_root_needs_replan "$task_id" \
+				'a fresh manager remediation proved its mutation scope correct but its bounded context capsule incomplete; retain the same write authority and add only the exact missing context paths or symbols' \
+				MANAGER_REMEDIATION_CONTEXT_INCOMPLETE "$blocker_class" \
+				"$remediation_scope" "$context_paths"
+			;;
+		SCOPE_INCOMPLETE)
+			mark_root_needs_replan "$task_id" \
+				'a fresh manager remediation proved its declared mutation scope insufficient; the next remediation must name the exact adjacent producer, representation, consumer, or validation seam and must not republish the exhausted scope unchanged' \
+				MANAGER_REMEDIATION_SCOPE_EXHAUSTED "$blocker_class" "$remediation_scope"
+			;;
+		TASK_TOO_BROAD|VALIDATION_PREREQUISITE|RESOURCE_LIMIT)
+			mark_root_needs_replan "$task_id" \
+				"manager remediation requested a bounded follow-up for typed decomposition reason $reason" \
+				MANAGER_REMEDIATION_CONTINUATION "$blocker_class" "$remediation_scope" "$context_paths"
+			;;
+		*) die "invalid manager remediation Decomposition-Reason: $reason" ;;
+	esac
+}
+
 if [[ -f "$rejected" ]]; then
 	archive_lingering_result
 	result_resource_guard="$(metadata_value "$result_archive" Resource-Guard 2>/dev/null || true)"
@@ -177,11 +210,7 @@ if [[ -f "$rejected" ]]; then
 			"adjacent contract or implementation authority outside $(metadata_value "$assignment_archive" Allowed-Scope)"
 	elif [[ "$goal_outcome" == NEEDS_DECOMPOSITION ]] &&
 		assignment_is_manager_remediation "$assignment_archive"; then
-		mark_root_needs_replan "$task_id" \
-			'a fresh manager remediation proved its declared mutation scope insufficient; the next remediation must name the exact adjacent producer, representation, consumer, or validation seam and must not republish the exhausted scope unchanged' \
-			MANAGER_REMEDIATION_SCOPE_EXHAUSTED \
-			"$(require_single_metadata_value "$assignment_archive" Blocker-Class 'manager remediation assignment')" \
-			"$(require_single_metadata_value "$assignment_archive" Remediation-Scope 'manager remediation assignment')"
+		mark_manager_remediation_decomposition_replan "$result_archive"
 	elif ! enforce_root_liveness_or_reassess "$task_id"; then
 		printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
 	elif [[ -f "$result_archive" &&
@@ -238,11 +267,7 @@ if [[ "$goal_outcome" == HARD_BLOCKED ]]; then
 	printf '%s\n' "$replan_marker"
 elif [[ "$goal_outcome" == NEEDS_DECOMPOSITION ]] &&
 	assignment_is_manager_remediation "$assignment_archive"; then
-	replan_marker="$(mark_root_needs_replan "$task_id" \
-		'a fresh manager remediation proved its declared mutation scope insufficient; the next remediation must name the exact adjacent producer, representation, consumer, or validation seam and must not republish the exhausted scope unchanged' \
-		MANAGER_REMEDIATION_SCOPE_EXHAUSTED \
-		"$(require_single_metadata_value "$assignment_archive" Blocker-Class 'manager remediation assignment')" \
-		"$(require_single_metadata_value "$assignment_archive" Remediation-Scope 'manager remediation assignment')")"
+	replan_marker="$(mark_manager_remediation_decomposition_replan "$result_archive")"
 	printf '%s\n' "$replan_marker"
 elif ! enforce_root_liveness_or_reassess "$task_id"; then
 	printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
