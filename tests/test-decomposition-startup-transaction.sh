@@ -484,12 +484,19 @@ Required-Symbols: target
 Obligations: REQ-ONE
 Architecture-Decisions: NONE
 EOF
+# Simulate a durable complexity report produced before the minimum source
+# action floor existed. Recovery must normalize both sides of the comparison.
+cp "$project_dir/control/decomposition-complexity.tsv" "$TEST_ROOT/complexity-report.before-action-floor.tsv"
+awk -F '\t' 'BEGIN {OFS="\t"} NR > 1 && $1 == "n01" {$15=1} {print}' \
+	"$TEST_ROOT/complexity-report.before-action-floor.tsv" > "$project_dir/control/decomposition-complexity.tsv"
 set +e
 "$HARNESS_BIN/manager-publish-task" "$env_file" leaf-root-revision-01 \
-	"$TEST_ROOT/revision-draft.md" --auto-replan >/dev/null 2>&1
+	"$TEST_ROOT/revision-draft.md" --auto-replan >"$TEST_ROOT/legacy-report.out" 2>"$TEST_ROOT/legacy-report.err"
 revision_status=$?
 set -e
 (( revision_status != 0 ))
+! grep -Fq 'Expected-Max-Agent-Actions must match' "$TEST_ROOT/legacy-report.err"
+mv "$TEST_ROOT/complexity-report.before-action-floor.tsv" "$project_dir/control/decomposition-complexity.tsv"
 for field in Complexity-Score Behavioral-Concerns Failure-Paths Ownership-Transitions \
 	Concurrency-Boundaries Validation-Surfaces Expected-Max-Implementation-Files \
 	Expected-Max-Agent-Actions Predicted-P95-Tokens Effective-P95-Tokens Terra-Exception \

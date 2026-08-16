@@ -69,7 +69,6 @@ checkpoint_effective_commit_max_files()
 	local -a entries=()
 	configured="$(metadata_value "$assignment" Expected-Max-Implementation-Files)"
 	[[ "$configured" =~ ^[0-9]+$ ]] || { printf '%s\n' "$configured"; return 0; }
-	[[ "$(metadata_value "$assignment" Manager-Remediation)" == 1 ]] || { printf '%s\n' "$configured"; return 0; }
 	root="$(task_root_id "$task_id")"
 	root_assignment="$(task_root_assignment_file "$root")"
 	[[ -f "$root_assignment" ]] || { printf '%s\n' "$configured"; return 0; }
@@ -77,6 +76,10 @@ checkpoint_effective_commit_max_files()
 	[[ -f "$scope_override" ]] || { printf '%s\n' "$configured"; return 0; }
 	[[ "$(kv_file_value "$scope_override" authorized_for 2>/dev/null || true)" == manager_remediation ]] ||
 		{ printf '%s\n' "$configured"; return 0; }
+	# The audited path remains part of this root's cumulative commit history
+	# after the remediation itself completes. Later ordinary continuations may
+	# not write that path unless it is in their own Allowed-Scope, but its prior
+	# presence must continue to raise the cumulative file ceiling.
 	root_scope="$(metadata_value "$root_assignment" Allowed-Scope)"
 	additional_scope="$(kv_file_value "$scope_override" additional_scope 2>/dev/null || true)"
 	IFS=',' read -r -a entries <<< "${additional_scope//;/,}"

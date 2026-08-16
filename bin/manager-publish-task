@@ -888,6 +888,15 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 				IFS=: read -r metadata_field report_field actual_value <<< "$mapping"
 				if (( measured_recovery_route_override != 2 )); then
 					expected_value="$(awk -F '\t' -v node="$plan_item_id" -v field="$report_field" 'NR>1 && $1==node {print $field; exit}' "$(decomposition_complexity_report_file)")"
+					# Reports created before the source-action floor was introduced
+					# remain valid durable DAGs. Compare against the same normalized
+					# floor applied to the candidate instead of rejecting our own
+					# compatibility correction.
+					if [[ "$metadata_field" == Expected-Max-Agent-Actions &&
+						"$leaf_expected_files" =~ ^[1-9][0-9]*$ && "$expected_value" =~ ^[0-9]+$ ]] &&
+						(( expected_value < HARNESS_MIN_SOURCE_CHANGE_AGENT_ACTIONS )); then
+						expected_value="$HARNESS_MIN_SOURCE_CHANGE_AGENT_ACTIONS"
+					fi
 					[[ "$actual_value" == "$expected_value" ]] ||
 						die "$metadata_field must match the deterministic complexity report for $plan_item_id"
 				fi

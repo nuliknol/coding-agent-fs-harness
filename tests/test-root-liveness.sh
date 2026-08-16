@@ -438,4 +438,22 @@ effective_files="$(bash -c '
 ' _ "$HARNESS_HOME" "$TEST_ROOT/harness.env" "$TEST_ROOT/scope-remediation-assignment.md")"
 [[ "$effective_files" == 2 ]]
 
+# The root-level allowance remains relevant after the remediation. An ordinary
+# continuation cannot mutate the extra path unless its own scope says so, but
+# prior audited commits must not make its cumulative ceiling impossible.
+cat > "$TEST_ROOT/scope-followup-assignment.md" <<'MD'
+Task-ID: scopeexp-revision-03
+Task-Root: scopeexp
+Allowed-Scope: src/root.c
+Expected-Max-Implementation-Files: 1
+MD
+effective_files="$(bash -c '
+	source "$1/lib/harness-common.sh"
+	load_harness_env "$2"
+	source "$1/lib/harness-git-commit.sh"
+	source "$1/lib/harness-checkpoint-commit.sh"
+	checkpoint_effective_commit_max_files scopeexp-revision-03 "$3"
+' _ "$HARNESS_HOME" "$TEST_ROOT/harness.env" "$TEST_ROOT/scope-followup-assignment.md")"
+[[ "$effective_files" == 2 ]]
+
 printf 'root liveness and dependency invalidation tests passed\n'
