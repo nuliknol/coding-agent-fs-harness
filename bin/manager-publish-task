@@ -179,7 +179,7 @@ normalize_measured_assignment_metadata()
 {
 	local report decomposition report_row dag_row tmp
 	local complexity_score behavioral failures ownership concurrency validations implementation_files actions declared_p95 effective_p95 complexity_class worker_route terra_exception
-	local planned_effective_p95 planned_worker_route
+	local planned_effective_p95 planned_worker_route planned_leaf_type
 	local obligation_weight requested_route requested_class requested_leaf requested_architecture requested_validation requested_files requested_turns requested_exception luna_failures
 	local required_symbols symbol_count calibration_rate residual_p95 verified_items
 	local recovery_decisions_resolved recovery_verified_child resource_recovery resource_local_authority decision requested_obligations obligation_count architecture_decisions
@@ -196,7 +196,7 @@ normalize_measured_assignment_metadata()
 	[[ -n "$report_row" && -n "$dag_row" ]] || die "measured metadata is missing for plan node: $plan_item_id"
 	IFS=$'\t' read -r _ _ _ complexity_score _ obligation_weight _ _ behavioral failures ownership concurrency \
 		validations implementation_files actions declared_p95 effective_p95 _ _ _ <<< "$report_row"
-	IFS=$'\t' read -r _ _ _ _ _ _ _ _ _ complexity_class worker_route _ _ _ _ _ _ _ _ terra_exception <<< "$dag_row"
+	IFS=$'\t' read -r _ _ _ _ _ _ _ _ planned_leaf_type complexity_class worker_route _ _ _ _ _ _ _ _ terra_exception <<< "$dag_row"
 	planned_effective_p95="$effective_p95"
 	planned_worker_route="$worker_route"
 	requested_route="$(metadata_value "$task_file" Worker-Route)"
@@ -232,6 +232,15 @@ normalize_measured_assignment_metadata()
 				[[ -n "$decision" && "$decision" != - ]] || continue
 			architecture_decision_accepted "$decision" || recovery_decisions_resolved=0
 			done
+		fi
+		# An unresolved Terra architecture node may expose a concrete coding
+		# continuation without ceasing to own the decision. Keep that bounded
+		# implementation on Terra until the produced decision is accepted; it is
+		# neither an ordinary Terra coding override nor a Luna-ready resolved leaf.
+		if recovery_terra_architecture_implementation_allowed "$recovery_decisions_resolved" \
+			"$planned_worker_route" "$planned_leaf_type" "$requested_leaf"; then
+			architecture_recovery_authority=1
+			log_event "RECOVERY_TERRA_ARCHITECTURE_IMPLEMENTATION_AUTHORIZED root=$root task=$task_id node_type=$planned_leaf_type requested_leaf=$requested_leaf"
 		fi
 		if recovery_candidate_targets_verified_child "$root" "$task_file" "$decomposition_candidate"; then
 			recovery_verified_child=1
@@ -1100,7 +1109,7 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 				architecture_recovery_authority=1
 				preferred_route_override=1
 			fi
-			if [[ -n "$planned_leaf_type" ]]; then
+			if [[ -n "$planned_leaf_type" && "$architecture_recovery_authority" == 0 ]]; then
 				[[ "$leaf_type" == "$planned_leaf_type" ]] || die 'leaf Leaf-Type does not match its DAG node'
 			fi
 			if [[ "$leaf_complexity" != "$planned_complexity" || "$leaf_worker_route" != "$planned_route" ]]; then

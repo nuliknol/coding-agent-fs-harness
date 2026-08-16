@@ -12,6 +12,18 @@ if bash -c 'set -Eeuo pipefail; source "$1/lib/harness-common.sh"; metadata_iden
 	printf 'architecture identifier subset helper accepted unauthorized authority\n' >&2
 	exit 1
 fi
+bash -c 'set -Eeuo pipefail; source "$1/lib/harness-common.sh"; recovery_terra_architecture_implementation_allowed 0 TERRA CROSS_COMPONENT_ARCHITECTURE LOCAL_IMPLEMENTATION' \
+	_ "$HARNESS_HOME"
+if bash -c 'set -Eeuo pipefail; source "$1/lib/harness-common.sh"; recovery_terra_architecture_implementation_allowed 1 TERRA CROSS_COMPONENT_ARCHITECTURE LOCAL_IMPLEMENTATION' \
+	_ "$HARNESS_HOME"; then
+	printf 'resolved Terra architecture decision retained exceptional coding authority\n' >&2
+	exit 1
+fi
+if bash -c 'set -Eeuo pipefail; source "$1/lib/harness-common.sh"; recovery_terra_architecture_implementation_allowed 0 LUNA LOCAL_IMPLEMENTATION LOCAL_IMPLEMENTATION' \
+	_ "$HARNESS_HOME"; then
+	printf 'ordinary Luna coding node received Terra architecture recovery authority\n' >&2
+	exit 1
+fi
 TEST_ROOT="$(mktemp -d /tmp/harness-architecture-guards.XXXXXX)"
 if [[ "${HARNESS_TEST_KEEP_TMP:-0}" == 1 ]]; then
 	trap 'printf "Preserved test root: %s\n" "$TEST_ROOT" >&2' EXIT

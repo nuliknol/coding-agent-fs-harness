@@ -688,6 +688,15 @@ architecture_decision_accepted()
 	[[ "$static" == ACCEPTED ]] || awk -F '\t' -v id="$id" 'NR>1 && $1==id && $2=="ACCEPTED" {ok=1} END {exit !ok}' "$(architecture_decision_ledger_file)"
 }
 
+recovery_terra_architecture_implementation_allowed()
+{
+	local decisions_resolved="$1" planned_route="$2" planned_leaf="$3" requested_leaf="$4"
+	(( decisions_resolved == 0 )) &&
+		[[ "$planned_route" == TERRA ]] &&
+		[[ "$planned_leaf" =~ ^(CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]] &&
+		[[ "$requested_leaf" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY)$ ]]
+}
+
 architecture_resolve_contract_artifact()
 {
 	local edge="$1" ref="$2" decision evidence
