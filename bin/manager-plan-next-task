@@ -218,6 +218,7 @@ attempt=1
 provider_retries=0
 quota_waits=0
 fallback_stage=0
+uncommitted_success_retries=0
 current_model="$MANAGER_MODEL"
 while true; do
 	stamp="$(date -u '+%Y%m%dT%H%M%SZ')"
@@ -257,6 +258,18 @@ while true; do
 		exit 0
 	fi
 	if (( status == 0 )); then
+		if (( uncommitted_success_retries < 1 )); then
+			uncommitted_success_retries=$((uncommitted_success_retries + 1))
+			attempt=$((attempt + 1))
+			fresh_manager_context=1
+			log_event "MANAGER_PLAN_UNCOMMITTED_SUCCESS_RETRY attempt=$attempt retry=$uncommitted_success_retries context=fresh"
+			trace_event MANAGER_PLAN_UNCOMMITTED_SUCCESS_RETRY "attempt=$attempt" "retry=$uncommitted_success_retries" "context=fresh"
+			cat >> "$prompt_file" <<PROMPT
+
+Recovery correction: the preceding manager turn exited successfully but did not durably publish a task or dependency wait. Its final prose is not authoritative. Start one fresh bounded turn, reuse PUBLISH_TASK_ID, run the publisher without redirecting its diagnostic, correct the exact reported metadata error once, and verify success only through the durable publication command. Do not claim publication when that command exits nonzero.
+PROMPT
+			continue
+		fi
 		log_event "MANAGER_PLAN_LEFT_PENDING attempt=$attempt"
 		exit 3
 	fi
