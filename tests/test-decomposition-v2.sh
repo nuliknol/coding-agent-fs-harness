@@ -253,6 +253,7 @@ Deliverable: Record existing authority evidence
 Required-Symbols: target_symbol
 Context-Paths: src/a.c
 Architecture-Decisions: NONE
+Mandatory-Git-Refs: refs/heads/internal-task-id-must-not-be-a-ref
 Expected-Max-Implementation-Files: 0
 Expected-Max-Worker-Turns: 1
 ## Objective
@@ -268,6 +269,8 @@ grep -Fqx 'Goal-Success-Evidence: Named authority is independently recorded' \
 grep -Fqx 'Focused-Validation: FOCUSED: inspect target_symbol' \
 	"$TEST_ROOT/read-only-state/projects/decompv2readonly/tasks/decompv2readonly-task-evidence.ready.md"
 grep -Fqx 'Root-Criterion: evidence.recorded' \
+	"$TEST_ROOT/read-only-state/projects/decompv2readonly/tasks/decompv2readonly-task-evidence.ready.md"
+grep -Fqx 'Mandatory-Git-Refs: -' \
 	"$TEST_ROOT/read-only-state/projects/decompv2readonly/tasks/decompv2readonly-task-evidence.ready.md"
 read_only_session="$("$HARNESS_BIN/harness-new-session" "$TEST_ROOT/read-only-harness.env" worker)"
 "$HARNESS_BIN/worker-claim-task" "$TEST_ROOT/read-only-harness.env" evidence \

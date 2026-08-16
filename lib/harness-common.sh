@@ -1027,6 +1027,7 @@ write_plan_node_context_capsule()
 	local obligations_file relations_file coverage_file allocated='-'
 	local binding_file binding_row binding_invariants binding_consumes
 	local binding_produces binding_edges binding_gates binding_decisions bytes _
+	local active_root root_assignment mandatory_git_refs='-'
 	[[ -n "$node_id" && "$node_id" != - ]] || die 'bounded context capsule requires a plan node'
 	plan_file="$(project_plan_definition_file)"
 	state_file="$(project_plan_state_file)"
@@ -1087,6 +1088,20 @@ write_plan_node_context_capsule()
 				printf '```\n'
 			fi
 		fi
+		# Git refs are an explicit external dependency contract. Internal DAG
+		# node IDs, architecture decision IDs, and the task IDs recorded as
+		# verification evidence are never Git refs. A continuation inherits the
+		# exact root contract; a new plan node has none unless a published root
+		# assignment later establishes one.
+		active_root="$(awk -F '\t' -v id="$node_id" '!/^#/ && $1 == id && $2 == "ACTIVE" {print $3; exit}' "$state_file")"
+		if [[ -n "$active_root" && "$active_root" != - ]]; then
+			root_assignment="$(task_root_assignment_file "$active_root")"
+			if [[ -f "$root_assignment" ]]; then
+				mandatory_git_refs="$(metadata_value "$root_assignment" Mandatory-Git-Refs)"
+			fi
+		fi
+		[[ -n "$mandatory_git_refs" && "$mandatory_git_refs" != - && "${mandatory_git_refs^^}" != NONE ]] || mandatory_git_refs='NONE'
+		printf '\n## Mandatory cross-harness Git refs\n\n```text\n%s\n```\n' "$mandatory_git_refs"
 	} > "$output.tmp.$$"
 	chmod 600 "$output.tmp.$$"
 	bytes="$(wc -c < "$output.tmp.$$" | tr -d '[:space:]')"

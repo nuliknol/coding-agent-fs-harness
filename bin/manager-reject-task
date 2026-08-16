@@ -75,7 +75,11 @@ if [[ "$improvement_percent" == 0 ]]; then
 		"$dir/archive/$PROJECT-task-$root-revision-"*.rejected.md; do
 		[[ -f "$prior_rejection" ]] || continue
 		prior_rejected_at="$(metadata_value "$prior_rejection" Rejected-At)"
-		if [[ -n "$epoch_started" && -n "$prior_rejected_at" && "$prior_rejected_at" < "$epoch_started" ]]; then
+		# Resolution timestamps have one-second precision. A rejection archived in
+		# the same second immediately before the operator opened a fresh liveness
+		# epoch belongs to the old epoch, not the new one.
+		if [[ -n "$epoch_started" && -n "$prior_rejected_at" ]] &&
+			[[ "$prior_rejected_at" == "$epoch_started" || "$prior_rejected_at" < "$epoch_started" ]]; then
 			continue
 		fi
 		if grep -Fqx 'Improvement-Percent: 0%' "$prior_rejection" &&

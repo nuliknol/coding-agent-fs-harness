@@ -91,6 +91,11 @@ normalize_metadata "$publish_file" Project-Plan-Item-ID "$plan_item_id"
 # explain the task in prose, but it must not be able to stall publication by
 # paraphrasing or mistyping fields already fixed by the accepted DAG.
 if [[ -z "$root_assignment" ]]; then
+	# A fresh node has no ad-hoc external Git dependency authority. External
+	# refs must already be represented by durable harness state; internal task,
+	# DAG, and architecture identifiers must never be promoted into branch refs
+	# by a planning model.
+	normalize_metadata "$publish_file" Mandatory-Git-Refs -
 	normalize_metadata "$publish_file" Depends-On "$(project_plan_node_value "$plan_item_id" depends_on)"
 	normalize_metadata "$publish_file" Deliverable "$(project_plan_node_value "$plan_item_id" deliverable)"
 	normalize_metadata "$publish_file" Goal-Success-Evidence "$(project_plan_node_value "$plan_item_id" acceptance_evidence)"
@@ -183,6 +188,7 @@ if [[ -n "$root_assignment" ]]; then
 	# and replace accidental sentinel/spelling changes deterministically.
 	for field in \
 		Leaf-Type Complexity-Class Worker-Route Depends-On Deliverable \
+		Mandatory-Git-Refs \
 		Required-Symbols Context-Paths Architecture-Decisions Validation-Class \
 		Expected-Max-Implementation-Files Expected-Max-Worker-Turns \
 		Expected-Max-Agent-Actions Predicted-P95-Tokens Effective-P95-Tokens Complexity-Score \

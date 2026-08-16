@@ -543,6 +543,10 @@ grep -Fq 'PUBLISH_TASK_ID=' "$plan_prompt"
 grep -Fq 'PUBLISH_PLAN_ITEM_ID=' "$plan_prompt"
 grep -Fq 'manager-publish-planned-task' "$plan_prompt"
 grep -Fq 'Do not open the global files from which it was derived.' "$plan_context"
+grep -Fq 'The section named "Mandatory cross-harness Git refs"' "$plan_prompt"
+grep -Fq 'Never infer a Git ref from Depends-On values' "$plan_prompt"
+grep -Fqx '## Mandatory cross-harness Git refs' "$plan_context"
+grep -A3 -F '## Mandatory cross-harness Git refs' "$plan_context" | grep -Fqx 'NONE'
 [[ -f "$TEST_ROOT/state/projects/testproj/archive/testproj-task-001.assignment.md" ]]
 [[ -f "$TEST_ROOT/state/projects/testproj/archive/testproj-task-002.assignment.md" ]]
 normalized_result="$TEST_ROOT/state/projects/testproj/archive/testproj-task-002.result.md"
