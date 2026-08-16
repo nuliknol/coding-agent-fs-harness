@@ -153,6 +153,11 @@ fi
 if task_root_uses_assignment_criteria "$root" || [[ -f "$criteria_definition" ]]; then
 	first_unmet="$(task_first_unmet_criterion "$root" 2>/dev/null || true)"
 	if [[ -z "$first_unmet" ]]; then
+		if [[ "$(project_plan_item_status "$plan_item_id" 2>/dev/null || true)" == COMPLETE ]]; then
+			rm -f "$replan_marker" "$project_path/control/$PROJECT-task-$root.manager-replan-failed.md"
+			log_event "STALE_RECOVERY_RECONCILED root=$root trigger=$trigger_task reason=completed_plan_item"
+			exit 0
+		fi
 		log_event "MANAGER_RECOVERY_RECONCILIATION_REQUIRED root=$root trigger=$trigger_task reason=all_declared_criteria_passed"
 		printf 'Root %s needs manager evidence reconciliation; no human dependency was established.\n' "$root" >&2
 		exit 70
@@ -242,7 +247,7 @@ Publish the task atomically with:
 
 $HARNESS_BIN/manager-publish-task "$HARNESS_ENV_FILE" "$expected_task_id" "$task_output" $publish_flag [CRITERIA_OUTPUT only for an undecomposed legacy root] [DECOMPOSITION_OUTPUT only after a '-' criteria placeholder]
 
-$recovery_validator_contract A unique verified checkpoint or passed criterion resets ordinary convergence escalation even when Progress-Percent is unchanged. You may call manager-publish-task at most $HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS times: after the first rejection, correct the complete diagnostic set once; after a second rejection, terminate with the exact blocker. Publish exactly one task, then terminate immediately. Do not wait, sleep, poll, watch the filesystem, or call harness-unblock-root.
+$recovery_validator_contract A unique verified checkpoint or passed criterion resets ordinary convergence escalation even when Progress-Percent is unchanged. You may call manager-publish-task at most $HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS times: after the first rejection, correct the complete diagnostic set once; after a second rejection, terminate with the exact blocker. Publish exactly one task, then terminate immediately. Do not redirect manager-publish-task stdout or stderr: its bounded diagnostic is the complete authority for your one correction attempt. A nonzero publisher exit means the task was not published; never claim success unless the durable task exists. Do not wait, sleep, poll, watch the filesystem, or call harness-unblock-root.
 PROMPT
 if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
@@ -331,6 +336,12 @@ while true; do
 		exit 0
 	fi
 	if (( status == 0 )); then
+		if (( attempt < HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS )); then
+			log_event "MANAGER_RECOVERY_FALSE_PUBLICATION_RETRY root=$root trigger=$trigger_task attempt=$attempt classification=${classification:-unknown}"
+			printf '\nCorrection turn: the preceding agent exited successfully but no durable task was published. Treat every prior success claim as false. Recreate the expected assignment, call manager-publish-task without output redirection, inspect its exit status, and use the one permitted direct correction if rejected.\n' >> "$prompt_file"
+			attempt=$((attempt + 1))
+			continue
+		fi
 		log_event "MANAGER_RECOVERY_NOT_PUBLISHED root=$root trigger=$trigger_task recovery_mode=$recovery_mode classification=${classification:-unknown}"
 		printf 'Fresh manager did not publish a valid %s continuation for root %s; recovery remains pending.\n' \
 			"$recovery_mode" "$root" >&2

@@ -783,12 +783,15 @@ validate_static_cmake_validation_paths()
 validate_static_make_validation_target()
 {
 	local validation="$1" make_dir make_target makefile candidate
-	[[ "$validation" == *make* ]] || return 0
+	# `cmake` contains the bytes "make". Require a standalone make command;
+	# otherwise the read below returns 1 under `set -e` and silently aborts an
+	# otherwise valid CMake publication.
+	grep -Eq '(^|[;&|][[:space:]]*)make[[:space:]]+' <<< "$validation" || return 0
 	grep -Eq '(^|[;&|][[:space:]]*)cd[[:space:]]+' <<< "$validation" && return 0
 	read -r make_dir make_target < <(
 		sed -nE 's#^.*(^|[;&|][[:space:]]*)make[[:space:]]+-C[[:space:]]+([^[:space:];&|]+)[[:space:]]+([^[:space:];&|]+).*$#\2 \3#p' \
 			<<< "$validation" | head -n 1
-	)
+	) || return 0
 	make_dir="${make_dir#\"}"; make_dir="${make_dir%\"}"
 	make_dir="${make_dir#\'}"; make_dir="${make_dir%\'}"
 	make_target="${make_target#\"}"; make_target="${make_target%\"}"
@@ -806,6 +809,7 @@ validate_static_make_validation_target()
 	fi
 	grep -Eq "^$(printf '%s' "$make_target" | sed 's/[][\\.^$*+?{}|()]/\\&/g')([[:space:]]*:|::)" "$makefile" ||
 		die "focused validation names missing static make target '$make_target' in $make_dir"
+	return 0
 }
 
 assignment_objective_text()

@@ -231,6 +231,11 @@ if (( ${#accepted_criteria[@]} > 0 )); then
 fi
 update_task_progress "$task_id" 100 "$accept_improvement" ACCEPT "$note_file"
 complete_project_plan_item_for_task "$task_id"
+# A corrected review may accept a result after an earlier review transaction
+# requested replanning. Acceptance is the stronger terminal fact: clear that
+# stale recovery transaction before the supervisor can replan a completed node.
+rm -f "$(task_root_replan_file "$root")" "$(task_root_replanning_file "$root")" \
+	"$dir/control/$PROJECT-task-$root.manager-replan-failed.md"
 # A sibling review can cross the acceptance boundary with a usage alarm. The
 # accepted plan state is authoritative; preserve the alarm for accounting and
 # diagnosis without allowing it to pause completed work.

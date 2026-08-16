@@ -78,7 +78,7 @@ chmod 600 "$TEST_ROOT/harness.env"
 cat > "$TEST_ROOT/plan.tsv" <<'PLAN'
 node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route
 contract	-	-	Define widget ownership contract	ADR and public contract exist	test -f design/adr/widget-ownership.md && printf "contract PASS\n"	design/adr/widget-ownership.md,include/widget.h	widget_value	CONTRACT_DESIGN	HIGH	TERRA
-coding	-	contract	Implement canonical widget behavior	widget_value returns one	grep -q 'return 1' src/widget.c	src/widget.c	widget_value	LOCAL_IMPLEMENTATION	LOW	LUNA
+coding	-	contract	Implement canonical widget behavior	widget_value returns one	printf 'cmake marker\n' >/dev/null && grep -q 'return 1' src/widget.c	src/widget.c	widget_value	LOCAL_IMPLEMENTATION	LOW	LUNA
 PLAN
 cat > "$TEST_ROOT/architecture/invariants.tsv" <<'TSV'
 invariant_id	category	authority	severity	statement	scope	source_requirement	validation_kind	validation_ref	affected_nodes
@@ -541,8 +541,10 @@ printf '# Historical aborted revision\n' > \
 	grep -Fq 'Project status: ABORTED.'
 
 write_task "$TEST_ROOT/coding-task.md" 002 coding.goal coding.done LOCAL_IMPLEMENTATION LOW LUNA contract \
-	'Implement canonical widget behavior' 'widget_value returns one' "grep -q 'return 1' src/widget.c" \
+	'Implement canonical widget behavior' 'widget_value returns one' "printf 'cmake marker\\n' >/dev/null && grep -q 'return 1' src/widget.c" \
 	'src/widget.c' NONE ADR-widget - GATE-widget
+# A validation containing the word `cmake` but no standalone `make` command
+# must not enter the static Make-target validator or silently abort publication.
 mv "$TEST_ROOT/repo/design/adr/widget-ownership.md" \
 	"$TEST_ROOT/repo/design/adr/widget-ownership.md.temporarily-absent"
 if "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" 002 \

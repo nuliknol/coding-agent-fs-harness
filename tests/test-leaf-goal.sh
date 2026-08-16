@@ -658,9 +658,18 @@ The validation-only leaf did not broaden implementation scope.
 ## Conclusion
 All required behavior was independently verified. Accept.
 NOTE
+cat > "$project_dir/control/progress/goalproj-task-001.needs-replan.md" <<'MARKER'
+# Root Task Needs Replanning
+
+Project: goalproj
+Task-Root: 001
+Triggered-By: 001-revision-01
+Trigger-Outcome: RESOURCE_NEEDS_DECOMPOSITION
+MARKER
 "$HARNESS_BIN/manager-accept-task" "$TEST_ROOT/harness.env" 001-revision-01 \
 	"$TEST_ROOT/accept.md" >/dev/null
 grep -q '^state=ACCEPTED$' "$revision_state"
+[[ ! -e "$project_dir/control/progress/goalproj-task-001.needs-replan.md" ]]
 [[ -f "$project_dir/control/oracle/oracle.pending.md" ]]
 # A late usage alarm from a sibling review must not pause an already accepted
 # DAG node. Its diagnostic event remains visible without recreating a marker.
