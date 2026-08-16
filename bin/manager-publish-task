@@ -259,10 +259,9 @@ normalize_measured_assignment_metadata()
 		# much smaller child than the original measured plan node. Derive a fresh
 		# child vector from its executable scope instead of restoring the parent's
 		# HIGH/TERRA vector. Root semantic authority remains immutable.
-		if { (( luna_failures < HARNESS_MAX_LUNA_STRATEGY_FAILURES )) ||
-			[[ "$requested_leaf" == VERIFICATION_ONLY ]]; } &&
-			(( recovery_decisions_resolved == 1 || recovery_verified_child == 1 ||
-			resource_local_authority == 1 )) &&
+		if (( luna_failures < HARNESS_MAX_LUNA_STRATEGY_FAILURES &&
+			(recovery_decisions_resolved == 1 || recovery_verified_child == 1 ||
+			resource_local_authority == 1) )) &&
 			[[ "$requested_leaf" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY)$ &&
 			"$requested_validation" =~ ^(FOCUSED|INCREMENTAL)$ &&
 			"$requested_files" =~ ^[0-9]+$ && "$requested_turns" =~ ^[1-3]$ ]] &&
@@ -990,6 +989,43 @@ normalize_revision_execution_metadata()
 }
 
 normalize_revision_execution_metadata
+
+normalize_exhausted_luna_recovery_route()
+{
+	local requested_route requested_leaf luna_failures requested_exception tmp
+	(( recovery_publish == 1 && manager_remediation == 0 )) || return 0
+	requested_route="$(metadata_value "$task_file" Worker-Route)"
+	requested_leaf="$(metadata_value "$task_file" Leaf-Type)"
+	[[ "$requested_route" == LUNA ]] || return 0
+	luna_failures="$(root_luna_strategy_failure_count "$root")"
+	luna_strategy_exhausted_coding_leaf "$luna_failures" \
+		"$HARNESS_MAX_LUNA_STRATEGY_FAILURES" "$requested_leaf" || return 0
+	requested_exception="$(metadata_value "$task_file" Terra-Exception)"
+	[[ "$requested_exception" =~ ^(CONTRACT_DECISION|ARCHITECTURE_DECISION|CONCURRENCY_DESIGN|AMBIGUOUS_SPECIFICATION|UNEXPLAINED_INTEGRATION|IRREDUCIBLE_CROSS_BOUNDARY)$ ]] ||
+		requested_exception=IRREDUCIBLE_CROSS_BOUNDARY
+	tmp="$task_file.exhausted-luna-route.$$"
+	HARNESS_NORMALIZED_TERRA_EXCEPTION="$requested_exception" awk -F': ' '
+		BEGIN {seen_exception=0}
+		$1 == "Worker-Route" {print "Worker-Route: TERRA"; next}
+		$1 == "Complexity-Class" {print "Complexity-Class: HIGH"; next}
+		$1 == "Terra-Exception" {
+			print "Terra-Exception: " ENVIRON["HARNESS_NORMALIZED_TERRA_EXCEPTION"]
+			seen_exception=1
+			next
+		}
+		{print}
+		END {
+			if (!seen_exception)
+				print "Terra-Exception: " ENVIRON["HARNESS_NORMALIZED_TERRA_EXCEPTION"]
+		}
+	' "$task_file" > "$tmp"
+	chmod --reference="$task_file" "$tmp"
+	mv "$tmp" "$task_file"
+	measured_recovery_route_override=1
+	log_event "RECOVERY_EXHAUSTED_LUNA_ROUTE_NORMALIZED root=$root task=$task_id leaf_type=$requested_leaf luna_failures=$luna_failures exception=$requested_exception"
+}
+
+normalize_exhausted_luna_recovery_route
 
 enforce_revision_authority()
 {

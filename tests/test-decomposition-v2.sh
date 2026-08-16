@@ -333,6 +333,17 @@ chmod 600 "$TEST_ROOT/verification-harness.env"
 verification_project="$TEST_ROOT/verification-state/projects/decompv2verification"
 mv "$verification_project/tasks/decompv2verification-task-001.ready.md" \
 	"$verification_project/archive/decompv2verification-task-001.checkpointed.md"
+# Exhausted Luna implementation strategies apply to the whole root. The
+# required zero-write verification stays bounded, but must route to fresh Terra
+# instead of being normalized back to a prohibited fourth Luna strategy.
+for failed_revision in 90 91 92; do
+	cat > "$verification_project/archive/decompv2verification-task-001-revision-$failed_revision.assignment.md" <<'FAILED_ASSIGNMENT'
+Worker-Route: LUNA
+FAILED_ASSIGNMENT
+	cat > "$verification_project/archive/decompv2verification-task-001-revision-$failed_revision.result.md" <<'FAILED_RESULT'
+Goal-Outcome: NEEDS_DECOMPOSITION
+FAILED_RESULT
+done
 cat > "$verification_project/control/progress/decompv2verification-task-001.needs-replan.md" <<'MARKER'
 # Root Task Needs Replanning
 
@@ -353,7 +364,12 @@ sed \
 verification_ready="$verification_project/tasks/decompv2verification-task-001-revision-01.ready.md"
 grep -Fqx 'Leaf-Type: VERIFICATION_ONLY' "$verification_ready"
 grep -Fqx 'Expected-Max-Implementation-Files: 0' "$verification_ready"
+grep -Fqx 'Worker-Route: TERRA' "$verification_ready"
+grep -Fqx 'Complexity-Class: HIGH' "$verification_ready"
+grep -Fqx 'Terra-Exception: IRREDUCIBLE_CROSS_BOUNDARY' "$verification_ready"
 grep -Fq 'RESOURCE_PROGRESS_VERIFICATION_VECTOR_NORMALIZED root=001 task=001-revision-01 expected_files=0' \
+	"$verification_project/logs/events.log"
+grep -Eq 'RECOVERY_(TERRA_ESCALATION|EXHAUSTED_LUNA_ROUTE)_NORMALIZED root=001 task=001-revision-01 .*luna_failures=3.*exception=IRREDUCIBLE_CROSS_BOUNDARY' \
 	"$verification_project/logs/events.log"
 
 # Decomposition TSV fields are canonicalized at registration. In particular,
