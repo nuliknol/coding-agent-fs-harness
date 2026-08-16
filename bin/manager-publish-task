@@ -1040,6 +1040,38 @@ leaf_concurrency_boundaries=""
 leaf_validation_surfaces=""
 leaf_terra_exception=""
 preferred_route_override=0
+
+validate_luna_symbol_context()
+{
+	local symbol entry suggestion relative
+	local -a symbols=() entries=() searchable_paths=()
+	[[ -n "$leaf_required_symbols" && "$leaf_required_symbols" != - ]] || return 0
+	IFS=',' read -r -a entries <<< "$leaf_context_paths"
+	for entry in "${entries[@]}"; do
+		entry="$(trim_surrounding_whitespace "$entry")"
+		[[ -n "$entry" && "$entry" != /* && "$entry" != ../* && "$entry" != */../* ]] || continue
+		[[ -e "$REPOSITORY/$entry" ]] || continue
+		searchable_paths+=("$entry")
+	done
+	# Legacy symbolic capsules have no filesystem-backed entries. Keep their
+	# compatibility; explicit modern paths receive the stronger machine check.
+	(( ${#searchable_paths[@]} > 0 )) || return 0
+	IFS=',' read -r -a symbols <<< "$leaf_required_symbols"
+	for symbol in "${symbols[@]}"; do
+		symbol="$(trim_surrounding_whitespace "$symbol")"
+		[[ -n "$symbol" && "$symbol" != - ]] || continue
+		if (cd "$REPOSITORY" && rg -l --fixed-strings --max-count 1 -- "$symbol" \
+			"${searchable_paths[@]}" >/dev/null 2>&1 < /dev/null); then
+			continue
+		fi
+		suggestion="$(cd "$REPOSITORY" && rg -l --fixed-strings --max-count 1 -- "$symbol" . \
+			2>/dev/null < /dev/null | head -n 3 | paste -sd, - || true)"
+		suggestion="${suggestion#./}"
+		[[ -n "$suggestion" ]] || suggestion='no repository path found; correct Required-Symbols or route to Terra'
+		die "Luna Context-Paths omit Required-Symbol $symbol; add a bounded definition/usage path (repository candidates: $suggestion)"
+	done
+}
+
 if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 	goal_mode=1
 	[[ "$(require_single_metadata_value "$task_file" Execution-Mode 'goal-mode assignment')" == LEAF_GOAL ]] ||
@@ -1185,6 +1217,7 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 				die 'Luna Context-Paths must use explicit paths without wildcards'
 			(( $(awk -F',' '{print NF}' <<< "$leaf_context_paths") <= 8 )) ||
 				die 'Luna Context-Paths may name at most eight bounded entries'
+			validate_luna_symbol_context
 		fi
 		if [[ -n "$leaf_expected_actions" && "$leaf_worker_route" == TERRA ]]; then
 			if (( manager_remediation == 1 )); then

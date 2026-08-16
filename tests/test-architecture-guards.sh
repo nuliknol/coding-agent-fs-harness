@@ -635,10 +635,11 @@ MIN_ROOT="$TEST_ROOT/minimal"
 mkdir -p "$MIN_ROOT/repo/src" "$MIN_ROOT/repo/tests" "$MIN_ROOT/manager-home" "$MIN_ROOT/worker-home"
 printf 'Add a focused unit test proving value returns one.\n' > "$MIN_ROOT/repo/spec.md"
 printf 'int value(void) { return 1; }\n' > "$MIN_ROOT/repo/src/value.c"
+printf 'unrelated fixture\n' > "$MIN_ROOT/repo/unrelated.txt"
 git -C "$MIN_ROOT/repo" init -q
 git -C "$MIN_ROOT/repo" config user.name test
 git -C "$MIN_ROOT/repo" config user.email test@example.invalid
-git -C "$MIN_ROOT/repo" add spec.md src/value.c
+git -C "$MIN_ROOT/repo" add spec.md src/value.c unrelated.txt
 git -C "$MIN_ROOT/repo" commit -qm seed
 cat > "$MIN_ROOT/harness.env" <<ENV
 export PROJECT="minimaltest"
@@ -730,6 +731,16 @@ Add the focused unit test.
 bash tests/test_value.sh
 ```
 TASK
+sed 's|Context-Paths: tests/test_value.sh|Context-Paths: unrelated.txt|' \
+	"$MIN_ROOT/task.md" > "$MIN_ROOT/task-missing-symbol-context.md"
+if "$HARNESS_BIN/manager-publish-task" "$MIN_ROOT/harness.env" 001 \
+	"$MIN_ROOT/task-missing-symbol-context.md" tests \
+	>"$MIN_ROOT/missing-symbol-context.out" 2>"$MIN_ROOT/missing-symbol-context.err"; then
+	printf 'Luna task omitted its Required-Symbol from Context-Paths.\n' >&2
+	exit 1
+fi
+grep -Fq 'Luna Context-Paths omit Required-Symbol value' \
+	"$MIN_ROOT/missing-symbol-context.err"
 "$HARNESS_BIN/manager-publish-task" "$MIN_ROOT/harness.env" 001 "$MIN_ROOT/task.md" tests >/dev/null
 min_worker="$("$HARNESS_BIN/harness-new-session" "$MIN_ROOT/harness.env" worker)"
 "$HARNESS_BIN/worker-claim-task" "$MIN_ROOT/harness.env" 001 "$min_worker" >/dev/null
