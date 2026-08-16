@@ -732,6 +732,16 @@ bash tests/test_value.sh
 ```
 TASK
 sed 's|Context-Paths: tests/test_value.sh|Context-Paths: unrelated.txt|' \
+	"$MIN_ROOT/task.md" > "$MIN_ROOT/task-missing-edit-context.md"
+if "$HARNESS_BIN/manager-publish-task" "$MIN_ROOT/harness.env" 001 \
+	"$MIN_ROOT/task-missing-edit-context.md" tests \
+	>"$MIN_ROOT/missing-edit-context.out" 2>"$MIN_ROOT/missing-edit-context.err"; then
+	printf 'V2 task omitted its Allowed-Scope from Context-Paths.\n' >&2
+	exit 1
+fi
+grep -Fq 'Context-Paths must cover every Allowed-Scope path' \
+	"$MIN_ROOT/missing-edit-context.err"
+sed 's|Context-Paths: tests/test_value.sh|Context-Paths: tests/test_value.sh,unrelated.txt|' \
 	"$MIN_ROOT/task.md" > "$MIN_ROOT/task-missing-symbol-context.md"
 if "$HARNESS_BIN/manager-publish-task" "$MIN_ROOT/harness.env" 001 \
 	"$MIN_ROOT/task-missing-symbol-context.md" tests \

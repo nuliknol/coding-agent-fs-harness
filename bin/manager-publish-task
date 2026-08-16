@@ -1187,6 +1187,8 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 		fi
 		[[ "$leaf_context_paths" != / && "$leaf_context_paths" != . && "$leaf_context_paths" != '*' && "$leaf_context_paths" != '**' ]] ||
 			die 'Context-Paths must be a bounded path or symbol capsule, not the whole repository'
+		scope_is_within_root_authority "$goal_allowed_scope" "$leaf_context_paths" ||
+			die 'Context-Paths must cover every Allowed-Scope path so the worker capsule includes each editable file'
 		if [[ "$leaf_worker_route" == LUNA ]]; then
 			[[ "$leaf_complexity" == LOW ]] || die 'Luna leaves must have Complexity-Class: LOW'
 			[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY)$ ]] ||
