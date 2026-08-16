@@ -101,6 +101,14 @@ if [[ -z "$root_assignment" ]]; then
 	normalize_metadata "$publish_file" Goal-Success-Evidence "$(project_plan_node_value "$plan_item_id" acceptance_evidence)"
 	node_validation="$(project_plan_node_value "$plan_item_id" focused_validation)"
 	candidate_validation="$(metadata_value "$publish_file" Focused-Validation)"
+	explicit_validation="$(metadata_value "$publish_file" Validation-Command)"
+	if validation_is_review_descriptor "$node_validation" &&
+		validation_is_review_descriptor "$candidate_validation" &&
+		[[ -n "$explicit_validation" ]] && ! validation_is_review_descriptor "$explicit_validation"; then
+		normalize_metadata "$publish_file" Focused-Validation "$explicit_validation"
+		candidate_validation="$explicit_validation"
+		log_event "PLANNED_VALIDATION_COMMAND_PROMOTED item=$plan_item_id task=${task_id:-pending}"
+	fi
 	if ! validation_is_review_descriptor "$node_validation" ||
 		[[ -z "$candidate_validation" ]] || validation_is_review_descriptor "$candidate_validation"; then
 		normalize_metadata "$publish_file" Focused-Validation "$node_validation"
@@ -205,6 +213,14 @@ if [[ -n "$root_assignment" ]]; then
 	done
 	root_validation="$(metadata_value "$root_assignment" Focused-Validation)"
 	candidate_validation="$(metadata_value "$publish_file" Focused-Validation)"
+	explicit_validation="$(metadata_value "$publish_file" Validation-Command)"
+	if validation_is_review_descriptor "$root_validation" &&
+		validation_is_review_descriptor "$candidate_validation" &&
+		[[ -n "$explicit_validation" ]] && ! validation_is_review_descriptor "$explicit_validation"; then
+		normalize_metadata "$publish_file" Focused-Validation "$explicit_validation"
+		candidate_validation="$explicit_validation"
+		log_event "PLANNED_VALIDATION_COMMAND_PROMOTED item=$plan_item_id task=$task_id root=$active_root"
+	fi
 	if ! validation_is_review_descriptor "$root_validation" ||
 		[[ -z "$candidate_validation" ]] || validation_is_review_descriptor "$candidate_validation"; then
 		normalize_metadata "$publish_file" Focused-Validation "$root_validation"

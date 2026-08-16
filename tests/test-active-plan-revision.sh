@@ -57,7 +57,8 @@ Execution-Mode: LEAF_GOAL
 Goal-ID: revisionproj.contract.v1
 Target-Criterion: contract.header
 Goal-Success-Evidence: API smoke passes
-Focused-Validation: ./focused-smoke
+Focused-Validation: FOCUSED: run the focused API smoke
+Validation-Command: ./focused-smoke
 Allowed-Scope: src/api.h
 Baseline-Boundary: seeded public API
 Hard-Block-Conditions: NONE
@@ -113,7 +114,7 @@ contract	-	-	Publish and execute the bounded API	API smoke passes	./focused-smok
 TSV
 sed \
 	-e 's/^Allowed-Scope: src\/api.h$/Allowed-Scope: src\/api.h,src\/api.c/' \
-	-e 's#^Focused-Validation: ./focused-smoke$#Focused-Validation: ./focused-smoke --runtime#' \
+	-e 's#^Focused-Validation: FOCUSED: run the focused API smoke$#Focused-Validation: ./focused-smoke --runtime#' \
 	-e 's/^Leaf-Type: MECHANICAL_API$/Leaf-Type: FOCUSED_BUG/' \
 	-e 's/^Complexity-Class: LOW$/Complexity-Class: MEDIUM/' \
 	-e 's/^Worker-Route: LUNA$/Worker-Route: TERRA/' \
