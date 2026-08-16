@@ -44,6 +44,7 @@ case "${MOCK_MODE:?}" in
  success_warning) printf 'network error recovered\n' >&2; printf 'done\n' > "$last"; printf '{"type":"turn.completed"}\n' ;;
 	item_loop) for i in $(seq 1 10); do printf '{"type":"item.started","item":{"id":"%s"}}\n' "$i"; done; sleep 5 ;;
 	command_output_heavy) printf '{"type":"item.completed","item":{"id":"cmd-1","type":"command_execution","aggregated_output":"%040d","exit_code":0,"status":"completed"}}\n' 0; sleep 5 ;;
+	command_output_completed) printf 'done\n' > "$last"; printf '{"type":"item.completed","item":{"id":"cmd-1","type":"command_execution","aggregated_output":"%040d","exit_code":0,"status":"completed"}}\n{"type":"turn.completed"}\n' 0 ;;
 	repeated_read) printf '{"type":"item.started","item":{"id":"cmd-1","type":"command_execution","command":"/bin/bash -lc '\''rg -n target_symbol src/a.c | head -c 4096'\''"}}\n'; sleep 5 ;;
 	token_heavy) printf 'done\n' > "$last"; printf '{"type":"thread.started","thread_id":"budget-thread"}\n{"type":"turn.completed","usage":{"input_tokens":90,"output_tokens":20}}\n' ;;
 	stop_sentinel) while true; do sleep 1; done ;;
@@ -345,6 +346,18 @@ grep -q '^command_output_limit=32$' "$TMP/command-output.classification"
 grep -Eq '^max_command_output_bytes=[3-9][0-9]+$' "$TMP/command-output.classification"
 [[ -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-command-output-root.token-usage-anomaly.md" ]]
 rm -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-command-output-root.token-usage-anomaly.md"
+
+# The generated manager review capsule may be larger than a worker source
+# excerpt. Its separate limit prevents false anomalies without weakening the
+# worker/build-output guard above.
+cp "$TMP/env-command-output" "$TMP/env-manager-command-output"
+printf 'export HARNESS_MAX_MANAGER_COMMAND_OUTPUT_BYTES="1024"\n' >> "$TMP/env-manager-command-output"
+printf 'TASK_ID=manager-command-output-root\nTASK_ROOT=manager-command-output-root\n' > "$TMP/manager-command-output-prompt"
+MOCK_MODE=command_output_completed "$ROOT/bin/codex-exec-jsonl" "$TMP/env-manager-command-output" manager_review gpt-5.5 \
+	"$TMP/manager-command-output-prompt" "$TMP/manager-command-output.jsonl" \
+	"$TMP/manager-command-output.stderr" "$TMP/manager-command-output.last"
+grep -q '^classification=success$' "$TMP/manager-command-output.classification"
+grep -q '^command_output_limit=1024$' "$TMP/manager-command-output.classification"
 
 printf 'TASK_ID=token-root\nTASK_ROOT=token-root\n' > "$resource_prompt"
 printf 'export HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION="100"\n' >> "$TMP/env-resource"

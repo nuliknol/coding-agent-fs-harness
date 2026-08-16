@@ -175,6 +175,8 @@ agent_item_count=0
 agent_last_estimated_item_count=0
 agent_estimated_processed_tokens=$(( ($(stat -c %s "$prompt" 2>/dev/null || printf 0) + 3) / 4 ))
 agent_max_command_output_bytes=0
+agent_command_output_limit="$HARNESS_MAX_AGENT_COMMAND_OUTPUT_BYTES"
+[[ "$role" != manager* ]] || agent_command_output_limit="$HARNESS_MAX_MANAGER_COMMAND_OUTPUT_BYTES"
 prior_read_command_manifest="$json_log.prior-read-commands"
 : > "$prior_read_command_manifest"
 # Revisions receive the preceding bounded command manifest in their prompt.
@@ -346,10 +348,10 @@ while kill -0 "$pid" 2>/dev/null; do
 			break
 		fi
 	fi
-	if (( agent_max_command_output_bytes > HARNESS_MAX_AGENT_COMMAND_OUTPUT_BYTES )); then
+	if (( agent_max_command_output_bytes > agent_command_output_limit )); then
 		resource_guard_tripped=1
 		resource_guard_kind=COMMAND_OUTPUT_LIMIT
-		resource_guard_reason="single command output exceeded the bounded transcript allowance ($agent_max_command_output_bytes/$HARNESS_MAX_AGENT_COMMAND_OUTPUT_BYTES bytes)"
+		resource_guard_reason="single command output exceeded the bounded transcript allowance ($agent_max_command_output_bytes/$agent_command_output_limit bytes)"
 		terminate_process_tree "$pid"
 		break
 	fi
@@ -396,10 +398,10 @@ agent_max_command_output_bytes="$(jq -rs '
 	 ((.item.aggregated_output // "") | utf8bytelength)] | max // 0
 ' "$json_log" 2>/dev/null || printf 0)"
 [[ "$agent_max_command_output_bytes" =~ ^[0-9]+$ ]] || agent_max_command_output_bytes=0
-if (( resource_guard_tripped == 0 && agent_max_command_output_bytes > HARNESS_MAX_AGENT_COMMAND_OUTPUT_BYTES )); then
+if (( resource_guard_tripped == 0 && agent_max_command_output_bytes > agent_command_output_limit )); then
 	resource_guard_tripped=1
 	resource_guard_kind=COMMAND_OUTPUT_LIMIT
-	resource_guard_reason="single command output exceeded the bounded transcript allowance ($agent_max_command_output_bytes/$HARNESS_MAX_AGENT_COMMAND_OUTPUT_BYTES bytes)"
+	resource_guard_reason="single command output exceeded the bounded transcript allowance ($agent_max_command_output_bytes/$agent_command_output_limit bytes)"
 fi
 git_state_changed=0
 git_head_changed=0
@@ -516,7 +518,7 @@ printf 'classification=%s\nprovider_code=%s\nhttp_status=%s\nexit_status=%s\nidl
 	"$classification" "$error_code" "$http_status" "$status" "$idle_timed_out" "$stop_requested" "$git_state_changed" \
 	"$git_head_changed" "$changed_file_count" "$changed_line_count" "$resume_requested" "$role" "$model" "$usage_thread" "$usage_input" "$usage_cached" "$usage_output" \
 	"$invocation_processed_delta" "$invocation_delta_known" "$agent_item_count" "$agent_estimated_processed_tokens" \
-	"$agent_max_command_output_bytes" "$HARNESS_MAX_AGENT_COMMAND_OUTPUT_BYTES" "$invocation_duration_seconds" \
+	"$agent_max_command_output_bytes" "$agent_command_output_limit" "$invocation_duration_seconds" \
 	"${resource_guard_kind:--}" "${resource_agent_phase:-ordinary}" "$resource_item_limit" "$resource_processed_token_limit" "$resource_estimated_token_limit" \
 	"$json_log" "$stderr_log" "$last_message" > "$classification_file"
 printf 'CODEX_CLASSIFICATION=%s\nCODEX_STDERR_LOG=%s\nCODEX_CLASSIFICATION_FILE=%s\n' "$classification" "$stderr_log" "$classification_file" >&2
