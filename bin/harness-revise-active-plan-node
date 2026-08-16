@@ -35,9 +35,20 @@ active_count="$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" {count++} END {print count 
 root="$(project_plan_item_root "$active_item")"
 [[ -n "$root" && "$root" != - ]] || die "active plan item has no task root: $active_item"
 root_assignment="$(task_root_assignment_file "$root")"
-marker="$(task_root_architecture_reassessment_file "$root")"
+architecture_marker="$(task_root_architecture_reassessment_file "$root")"
+token_marker="$(task_root_token_usage_anomaly_file "$root")"
+marker=""
+incident_name=""
 [[ -f "$root_assignment" ]] || die "active root assignment is missing: $root_assignment"
-[[ -f "$marker" ]] || die "active root does not require architecture reassessment: $root"
+if [[ -f "$architecture_marker" ]]; then
+	marker="$architecture_marker"
+	incident_name=architecture-reassessment.md
+elif [[ -f "$token_marker" ]]; then
+	marker="$token_marker"
+	incident_name=token-usage-anomaly.md
+else
+	die "active root does not require architecture or token-usage reassessment: $root"
+fi
 
 old_header="$(sed -n '1p' "$dag")"
 new_header="$(sed -n '1p' "$candidate_dag")"
@@ -176,7 +187,7 @@ mkdir -p "$archive_dir"
 chmod 700 "$dir/archive/plan-node-revisions" "$dir/archive/plan-node-revisions/$active_item" "$archive_dir"
 install -m 600 "$dag" "$archive_dir/project-decomposition-v2.before.tsv"
 install -m 600 "$root_assignment" "$archive_dir/root-assignment.before.md"
-install -m 600 "$marker" "$archive_dir/architecture-reassessment.md"
+install -m 600 "$marker" "$archive_dir/$incident_name"
 install -m 600 "$resolution_note" "$archive_dir/resolution.md"
 if [[ -f "$(decomposition_complexity_report_file)" ]]; then
 	install -m 600 "$(decomposition_complexity_report_file)" "$archive_dir/decomposition-complexity.before.tsv"
@@ -199,7 +210,20 @@ fi
 if [[ -n "$candidate_complexity" ]]; then
 	mv "$candidate_complexity" "$(decomposition_complexity_report_file)"
 fi
-rm -f "$marker" "$(task_root_replan_file "$root")" "$(task_root_replanning_file "$root")"
+rm -f "$architecture_marker" "$token_marker" "$(task_root_replan_file "$root")" "$(task_root_replanning_file "$root")"
+clear_worker_thread_for_root "$root" active-plan-node-revised
+rotated_goal_threads=0
+shopt -s nullglob
+for goal_state in "$(goal_control_dir)"/"$PROJECT-task-"*.goal; do
+	[[ "$(kv_file_value "$goal_state" task_root 2>/dev/null || true)" == "$root" ]] || continue
+	goal_task="$(kv_file_value "$goal_state" task_id 2>/dev/null || true)"
+	[[ -n "$goal_task" ]] || continue
+	goal_state_set "$goal_state" thread_id ""
+	goal_state_set "$goal_state" thread_context active-plan-node-revised
+	goal_thread_store "$goal_task" "" active-plan-node-revised
+	rotated_goal_threads=$((rotated_goal_threads + 1))
+done
+shopt -u nullglob
 route_override="$(task_root_operator_route_override_file "$root")"
 if [[ "$old_route" == LUNA && "$new_route" == TERRA ]]; then
 	{
@@ -215,6 +239,7 @@ elif [[ "$new_route" == LUNA ]]; then
 fi
 record_root_convergence_baseline "$root"
 record_root_replan_baseline "$root"
+record_root_liveness_epoch "$root" "$archive_dir"
 {
 	printf '# Manager Context Rotation Required\n\n'
 	printf 'Project: %s\n\n' "$PROJECT"
@@ -241,6 +266,8 @@ rm -f "$dir/control/manager-plan-stalled.md"
 	printf 'old_worker_route=%s\n' "$old_route"
 	printf 'new_worker_route=%s\n' "$new_route"
 	printf 'resolution_note=%s\n' "$archive_dir/resolution.md"
+	printf 'incident=%s\n' "$incident_name"
+	printf 'rotated_goal_threads=%s\n' "$rotated_goal_threads"
 } > "$archive_dir/revision.env"
 chmod 600 "$archive_dir/revision.env"
 log_event "ACTIVE_PLAN_NODE_REVISED item=$active_item root=$root old_paths=$(printf '%q' "$old_paths") new_paths=$(printf '%q' "$new_paths") archive=$archive_dir"

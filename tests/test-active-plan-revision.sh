@@ -138,12 +138,15 @@ revision_archive="$(find "$project/archive/plan-node-revisions/contract" -mindep
 [[ -s "$revision_archive/resolution.md" ]]
 [[ -s "$revision_archive/manager-thread.before.env" ]]
 [[ -s "$project/control/manager-context-rotation-required.md" ]]
+grep -Fqx "source=$revision_archive" \
+	"$project/control/progress/revisionproj-task-contract.liveness-epoch.env"
 grep -Fqx 'worker_route=TERRA' \
 	"$project/control/progress/revisionproj-task-contract.operator-worker-route-override.env"
 grep -Fqx 'old_allowed_paths=src/api.h' "$revision_archive/revision.env"
 grep -Fqx 'new_allowed_paths=src/api.h,src/api.c' "$revision_archive/revision.env"
 grep -Fqx 'old_focused_validation=FOCUSED: run the focused API smoke' "$revision_archive/revision.env"
 grep -Fqx 'new_focused_validation=./focused-smoke --runtime' "$revision_archive/revision.env"
+grep -Fqx 'incident=architecture-reassessment.md' "$revision_archive/revision.env"
 
 # The original root assignment has served as the active-plan fixture. Move it
 # out of the live queue before exercising sequential continuation publication;

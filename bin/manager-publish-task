@@ -780,6 +780,34 @@ validate_static_cmake_validation_paths()
 	)
 }
 
+validate_static_make_validation_target()
+{
+	local validation="$1" make_dir make_target makefile candidate
+	[[ "$validation" == *make* ]] || return 0
+	grep -Eq '(^|[;&|][[:space:]]*)cd[[:space:]]+' <<< "$validation" && return 0
+	read -r make_dir make_target < <(
+		sed -nE 's#^.*(^|[;&|][[:space:]]*)make[[:space:]]+-C[[:space:]]+([^[:space:];&|]+)[[:space:]]+([^[:space:];&|]+).*$#\2 \3#p' \
+			<<< "$validation" | head -n 1
+	)
+	make_dir="${make_dir#\"}"; make_dir="${make_dir%\"}"
+	make_dir="${make_dir#\'}"; make_dir="${make_dir%\'}"
+	make_target="${make_target#\"}"; make_target="${make_target%\"}"
+	make_target="${make_target#\'}"; make_target="${make_target%\'}"
+	[[ -n "$make_dir" && -n "$make_target" ]] || return 0
+	[[ "$make_dir" != *'$'* && "$make_target" != *'$'* && "$make_target" != -* ]] || return 0
+	candidate="$make_dir"
+	[[ "$candidate" == /* ]] || candidate="$REPOSITORY/$candidate"
+	if [[ -f "$candidate/Makefile" ]]; then
+		makefile="$candidate/Makefile"
+	elif [[ -f "$candidate/makefile" ]]; then
+		makefile="$candidate/makefile"
+	else
+		die "focused validation uses static make directory '$make_dir' without a Makefile at the repository-root execution boundary"
+	fi
+	grep -Eq "^$(printf '%s' "$make_target" | sed 's/[][\\.^$*+?{}|()]/\\&/g')([[:space:]]*:|::)" "$makefile" ||
+		die "focused validation names missing static make target '$make_target' in $make_dir"
+}
+
 assignment_objective_text()
 {
 	awk '
@@ -1066,6 +1094,7 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 			validate_focused_validation_boundary "$goal_focused_validation"
 		fi
 		validate_static_cmake_validation_paths "$goal_focused_validation"
+		validate_static_make_validation_target "$goal_focused_validation"
 		if [[ "$leaf_validation_class" == CLEAN_GLOBAL ]]; then
 			[[ "$leaf_worker_route" == TERRA && "$leaf_type" == INTEGRATION ]] ||
 				die 'CLEAN_GLOBAL validation requires a Terra INTEGRATION leaf'
