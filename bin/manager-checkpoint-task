@@ -275,7 +275,7 @@ else
 	progress_percent="$current_progress"
 	improvement_percent=0
 fi
-(( progress_percent < 100 )) || die 'all declared leaf criteria would pass; use manager-accept-task instead of checkpointing'
+(( progress_percent < 100 )) || die 'all declared leaf criteria would pass; copy and populate ACCEPT_REVIEW_TEMPLATE_FILE, then call manager-accept-task; do not edit or reuse the checkpoint template'
 
 mapfile -t dirty_scope_paths < <(checkpoint_scope_dirty_paths "$assignment_archive")
 declare -A checkpoint_path_seen=()
@@ -335,7 +335,7 @@ if (( ${#declared_criteria[@]} > 0 )); then
 			die "Verified-Criterion must complete the first unmet criterion: $first_unmet"
 	done
 	(( leaf_criterion_passed + ${#verified_criteria[@]} < leaf_criterion_total )) ||
-		die 'all declared leaf criteria would pass; use manager-accept-task instead of checkpointing'
+		die 'all declared leaf criteria would pass; copy and populate ACCEPT_REVIEW_TEMPLATE_FILE, then call manager-accept-task; do not edit or reuse the checkpoint template'
 fi
 
 if (( ${#checkpoint_paths[@]} > 1 )); then
