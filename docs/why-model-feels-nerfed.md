@@ -1,8 +1,11 @@
-User prompt:
+### User prompt:
+
 	I think coders call a model "nerfed" because their project increases in complexity , and old style coding of just prompting and keep promting , or a vibe-coder style will not work for large projects, you need to decompose, re-design, and refactor. The absence of architectural work produces "nerfed" feeling, would you agree?
 
 --------------------------------------------------
-ChatGPT response:
+
+### ChatGPT response:
+
 
 Yes. I think this explains a **large fraction of the "the model got nerfed" reports from programmers**, especially when they are working on a codebase that has grown substantially over time.
 
@@ -427,3 +430,15 @@ The scalable version is much closer to:
 So yes: **at sufficiently large scale, what feels like model intelligence degradation is often really the disappearance of structure from the problem presented to the model.**
 
 And I would go one step further: **refactoring is not merely maintenance in agentic programming. It is active preservation of the agent's reasoning efficiency.** A well-refactored codebase continuously keeps the agent's search space small.
+
+------------------------------------------
+
+### User prompt:
+
+your insights are amazing. can you write me a document (with instructions) for periodic architecture rebuilds as a part of architecture improvements? I am coding with agents, and they need specific directions on how to rebuild the architecture periodically (to improve all the parameters that you are mentioning): - Architecture as a reasoning index (how to improve the value of this index) - Complexity decomposition - Per-module refactoring And any other thing you want to add
+
+------------------------------------------
+
+### ChatGPT response:
+
+[Architecture Rebuild Protocol](../formats/architecture-rebuild-protocol.md)
