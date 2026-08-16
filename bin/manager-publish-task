@@ -746,6 +746,7 @@ validate_focused_validation_boundary()
 validate_static_cmake_validation_paths()
 {
 	local validation="$1" source_path build_path configured_build_path candidate
+	local source_candidate cached_source cache_file
 	[[ "$validation" == *cmake* ]] || return 0
 	# A leading directory change alters the relative command boundary. Leave
 	# those commands to execution-time validation rather than guessing shell
@@ -760,11 +761,24 @@ validate_static_cmake_validation_paths()
 		[[ "$candidate" == /* ]] || candidate="$REPOSITORY/$candidate"
 		[[ -f "$candidate/CMakeLists.txt" ]] ||
 			die "focused validation uses static CMake source path '$source_path' without CMakeLists.txt at the repository-root execution boundary"
+		source_candidate="$(realpath -m -- "$candidate")"
 	fi
 	configured_build_path="$({ grep -oE 'cmake([^;&|]|[[:space:]])*-B(=|[[:space:]]+)[^[:space:];&|]+' <<< "$validation" || true; } |
 		sed -nE '1{s/^.*-B(=|[[:space:]]+)//;p}')"
 	configured_build_path="${configured_build_path#\"}"; configured_build_path="${configured_build_path%\"}"
 	configured_build_path="${configured_build_path#\'}"; configured_build_path="${configured_build_path%\'}"
+	if [[ -n "$configured_build_path" && "$configured_build_path" != *'$'* &&
+		"$configured_build_path" != *'`'* && -n "${source_candidate:-}" ]]; then
+		candidate="$configured_build_path"
+		[[ "$candidate" == /* ]] || candidate="$REPOSITORY/$candidate"
+		cache_file="$candidate/CMakeCache.txt"
+		if [[ -f "$cache_file" ]]; then
+			cached_source="$(awk -F= '$1 == "CMAKE_HOME_DIRECTORY:INTERNAL" {print $2; exit}' "$cache_file")"
+			if [[ -n "$cached_source" && "$(realpath -m -- "$cached_source")" != "$source_candidate" ]]; then
+				die "focused validation reuses static CMake build path '$configured_build_path' whose cache belongs to '$cached_source', not '$source_path'; use a fresh build path"
+			fi
+		fi
+	fi
 	while IFS= read -r build_path; do
 		build_path="${build_path#\"}"; build_path="${build_path%\"}"
 		build_path="${build_path#\'}"; build_path="${build_path%\'}"
