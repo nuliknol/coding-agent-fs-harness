@@ -135,11 +135,20 @@ repository_index_tool_version()
 	else
 		status=$?
 	fi
-	if [[ "$status" == 124 || "$status" == 137 ]]; then
-		# Discard partial REPL banners or startup diagnostics.  They may contain
-		# process-specific text and must never make immutable identity unstable.
-		output=version-probe-timeout
+	if (( status != 0 )); then
+		# Discard partial REPL banners or startup diagnostics after every failed
+		# probe, including SIGPIPE from a verbose command truncated by head.  Such
+		# output may contain timestamps and must never enter immutable identity.
+		output="version-probe-failed-$status"
 	fi
+	case "$output" in
+		*'Unknown option'*|*'unknown option'*|*'Unrecognized option'*|*'unrecognized option'*|*'Invalid option'*|*'invalid option'*)
+			# Some launchers (notably Joern) report an unsupported version flag on
+			# stdout and still exit successfully.  Their startup banner contains
+			# timestamps, so retain only a stable capability result.
+			output=version-probe-unsupported
+			;;
+	esac
 	# Try the single-dash spelling only when the first command terminated.  A
 	# timed-out launcher is already known to have unsafe version semantics.
 	if [[ -z "$output" && "$status" != 124 && "$status" != 137 ]]; then

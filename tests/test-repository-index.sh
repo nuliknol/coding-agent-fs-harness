@@ -63,7 +63,12 @@ exit 9
 SH
 cat > "$TEST_ROOT/bin/hanging-version-tool" <<'SH'
 #!/usr/bin/env bash
-sleep 30
+printf 'Warning: Unknown option --version\n'
+printf 'dynamic timestamp %s\n' "$(date +%s%N)"
+printf 'startup diagnostic three\n'
+printf 'startup diagnostic four\n'
+# Joern can exit successfully after emitting this unsupported-option banner.
+exit 0
 SH
 chmod +x "$TEST_ROOT/bin/scip-clang" "$TEST_ROOT/bin/scip" "$TEST_ROOT/bin/scip-clang-fail" \
 	"$TEST_ROOT/bin/hanging-version-tool"
