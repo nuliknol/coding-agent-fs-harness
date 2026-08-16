@@ -219,6 +219,8 @@ Read DEVELOPMENT_POLICY_FILE when present, PLAN_NODE_CONTEXT_FILE once, TRIGGER_
 
 Any new child criterion must preserve the semantic type, cardinality, ownership domain, and unit of its parent. Do not infer record counts from argument arity, source-span lengths from role counts, hardware counts from boolean diagnostics, or producer ownership from a downstream facade. If the trigger evidence disproves such an inherited premise, remove that premise and target the first actual failing contract instead of decomposing it again.
 
+Preserve the last independently executable validation root. A relative CMake source path must contain CMakeLists.txt from the repository-root command boundary, and a static cmake --build or ctest --test-dir path must already exist or be configured earlier in the same command. Never rewrite an established path such as component/build to repository-root build merely for brevity.
+
 $criteria_instruction
 
 $recovery_authority

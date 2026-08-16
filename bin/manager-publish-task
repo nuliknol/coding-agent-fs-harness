@@ -743,6 +743,43 @@ validate_focused_validation_boundary()
 	fi
 }
 
+validate_static_cmake_validation_paths()
+{
+	local validation="$1" source_path build_path configured_build_path candidate
+	[[ "$validation" == *cmake* ]] || return 0
+	# A leading directory change alters the relative command boundary. Leave
+	# those commands to execution-time validation rather than guessing shell
+	# state. Static repository-root commands, however, are deterministic.
+	grep -Eq '(^|[;&|][[:space:]]*)cd[[:space:]]+' <<< "$validation" && return 0
+	source_path="$({ grep -oE 'cmake[[:space:]]+-S(=|[[:space:]]+)[^[:space:];&|]+' <<< "$validation" || true; } |
+		sed -nE '1{s/^cmake[[:space:]]+-S(=|[[:space:]]+)//;p}')"
+	source_path="${source_path#\"}"; source_path="${source_path%\"}"
+	source_path="${source_path#\'}"; source_path="${source_path%\'}"
+	if [[ -n "$source_path" && "$source_path" != *'$'* && "$source_path" != *'`'* ]]; then
+		candidate="$source_path"
+		[[ "$candidate" == /* ]] || candidate="$REPOSITORY/$candidate"
+		[[ -f "$candidate/CMakeLists.txt" ]] ||
+			die "focused validation uses static CMake source path '$source_path' without CMakeLists.txt at the repository-root execution boundary"
+	fi
+	configured_build_path="$({ grep -oE 'cmake([^;&|]|[[:space:]])*-B(=|[[:space:]]+)[^[:space:];&|]+' <<< "$validation" || true; } |
+		sed -nE '1{s/^.*-B(=|[[:space:]]+)//;p}')"
+	configured_build_path="${configured_build_path#\"}"; configured_build_path="${configured_build_path%\"}"
+	configured_build_path="${configured_build_path#\'}"; configured_build_path="${configured_build_path%\'}"
+	while IFS= read -r build_path; do
+		build_path="${build_path#\"}"; build_path="${build_path%\"}"
+		build_path="${build_path#\'}"; build_path="${build_path%\'}"
+		[[ -n "$build_path" && "$build_path" != *'$'* && "$build_path" != *'`'* ]] || continue
+		[[ "$build_path" == "$configured_build_path" ]] && continue
+		candidate="$build_path"
+		[[ "$candidate" == /* ]] || candidate="$REPOSITORY/$candidate"
+		[[ -d "$candidate" ]] ||
+			die "focused validation uses missing static CMake build path '$build_path' without configuring it in the same command"
+	done < <(
+		{ grep -oE 'cmake[[:space:]]+--build(=|[[:space:]]+)[^[:space:];&|]+' <<< "$validation" || true; } |
+			sed -E 's/^cmake[[:space:]]+--build(=|[[:space:]]+)//'
+	)
+}
+
 assignment_objective_text()
 {
 	awk '
@@ -1028,6 +1065,7 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 		if [[ "$leaf_validation_class" == FOCUSED ]]; then
 			validate_focused_validation_boundary "$goal_focused_validation"
 		fi
+		validate_static_cmake_validation_paths "$goal_focused_validation"
 		if [[ "$leaf_validation_class" == CLEAN_GLOBAL ]]; then
 			[[ "$leaf_worker_route" == TERRA && "$leaf_type" == INTEGRATION ]] ||
 				die 'CLEAN_GLOBAL validation requires a Terra INTEGRATION leaf'
