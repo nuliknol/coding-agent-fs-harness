@@ -72,7 +72,9 @@ new_complexity="${new_fields[9]}"; new_route="${new_fields[10]}"
 	die 'candidate must preserve active node identity, parent, and dependencies'
 [[ "$new_deliverable" == "$old_deliverable" ]] || die 'candidate must preserve the active deliverable'
 [[ "$new_evidence" == "$old_evidence" ]] || die 'candidate must preserve active acceptance evidence'
-[[ "$new_validation" == "$old_validation" ]] || die 'candidate must preserve active focused validation'
+# A reassessment exists precisely so an invalid or non-observing validation
+# boundary can be corrected without changing the accepted deliverable or
+# evidence. The replacement is still constrained by repository scope below.
 [[ -n "$new_paths" && "$new_paths" != - ]] || die 'revised active node requires explicit allowed paths'
 [[ -n "$new_symbols" ]] || die "revised active node requires symbols or '-'"
 [[ "$new_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]] ||
@@ -234,6 +236,8 @@ rm -f "$dir/control/manager-plan-stalled.md"
 	printf 'new_allowed_paths=%s\n' "$new_paths"
 	printf 'old_leaf_type=%s\n' "$old_type"
 	printf 'new_leaf_type=%s\n' "$new_type"
+	printf 'old_focused_validation=%s\n' "$old_validation"
+	printf 'new_focused_validation=%s\n' "$new_validation"
 	printf 'old_worker_route=%s\n' "$old_route"
 	printf 'new_worker_route=%s\n' "$new_route"
 	printf 'resolution_note=%s\n' "$archive_dir/resolution.md"

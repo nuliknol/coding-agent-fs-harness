@@ -109,10 +109,11 @@ marker="$project/control/progress/revisionproj-task-contract.architecture-reasse
 
 cat > "$TEST_ROOT/revised-plan.tsv" <<'TSV'
 node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route
-contract	-	-	Publish and execute the bounded API	API smoke passes	./focused-smoke	src/api.h,src/api.c	public_api	FOCUSED_BUG	MEDIUM	TERRA
+contract	-	-	Publish and execute the bounded API	API smoke passes	./focused-smoke --runtime	src/api.h,src/api.c	public_api	FOCUSED_BUG	MEDIUM	TERRA
 TSV
 sed \
 	-e 's/^Allowed-Scope: src\/api.h$/Allowed-Scope: src\/api.h,src\/api.c/' \
+	-e 's#^Focused-Validation: ./focused-smoke$#Focused-Validation: ./focused-smoke --runtime#' \
 	-e 's/^Leaf-Type: MECHANICAL_API$/Leaf-Type: FOCUSED_BUG/' \
 	-e 's/^Complexity-Class: LOW$/Complexity-Class: MEDIUM/' \
 	-e 's/^Worker-Route: LUNA$/Worker-Route: TERRA/' \
@@ -140,6 +141,8 @@ grep -Fqx 'worker_route=TERRA' \
 	"$project/control/progress/revisionproj-task-contract.operator-worker-route-override.env"
 grep -Fqx 'old_allowed_paths=src/api.h' "$revision_archive/revision.env"
 grep -Fqx 'new_allowed_paths=src/api.h,src/api.c' "$revision_archive/revision.env"
+grep -Fqx 'old_focused_validation=./focused-smoke' "$revision_archive/revision.env"
+grep -Fqx 'new_focused_validation=./focused-smoke --runtime' "$revision_archive/revision.env"
 
 # The original root assignment has served as the active-plan fixture. Move it
 # out of the live queue before exercising sequential continuation publication;
