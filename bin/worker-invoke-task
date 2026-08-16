@@ -425,6 +425,11 @@ publish_goal_decomposition_handoff()
 		printf 'Status: COMPLETED\n'
 		printf 'Goal-ID: %s\n' "$goal_id"
 		printf 'Goal-Outcome: NEEDS_DECOMPOSITION\n'
+		if [[ "${resource_guard:--}" == - ]]; then
+			printf 'Decomposition-Reason: TASK_TOO_BROAD\n'
+		else
+			printf 'Decomposition-Reason: RESOURCE_LIMIT\n'
+		fi
 		# Preserve the machine reason for a synthetic handoff. Without this
 		# manager review cannot distinguish an exhausted execution context
 		# from a repository-local prerequisite.
@@ -673,6 +678,7 @@ while true; do
 						printf 'Status: COMPLETED\n'
 						printf 'Goal-ID: %s\n' "$goal_id"
 						printf 'Goal-Outcome: NEEDS_DECOMPOSITION\n'
+						printf 'Decomposition-Reason: TASK_TOO_BROAD\n'
 						emit_synthetic_impact_manifest
 						printf '\n'
 						printf '## Summary\n\nThe semantic continuation review closed this leaf after iteration %s.\n\n' "$goal_iteration_after"
@@ -712,6 +718,7 @@ while true; do
 					printf 'Status: COMPLETED\n'
 					printf 'Goal-ID: %s\n' "$goal_id"
 					printf 'Goal-Outcome: NEEDS_DECOMPOSITION\n'
+					printf 'Decomposition-Reason: TASK_TOO_BROAD\n'
 					emit_synthetic_impact_manifest
 					printf '\n'
 					printf '## Summary\n\nThe routed leaf reached its declared maximum of %s durable worker turns without a terminal completion.\n\n' "$leaf_expected_turns"
@@ -821,6 +828,7 @@ while true; do
 			printf 'Status: COMPLETED\n'
 			printf 'Goal-ID: %s\n' "$goal_id"
 			printf 'Goal-Outcome: NEEDS_DECOMPOSITION\n'
+			printf 'Decomposition-Reason: TASK_TOO_BROAD\n'
 			emit_synthetic_impact_manifest
 			printf '\n'
 			printf '## Summary\n\nThe leaf-goal execution protocol made no durable transition for %s consecutive recoverable turns.\n\n' "$protocol_failures"
