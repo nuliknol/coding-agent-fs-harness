@@ -187,6 +187,17 @@ Task-ID: consumer-revision-02
 Task-Root: consumer
 MD
 
+# Legacy epoch files from earlier releases are audit snapshots only. They may
+# not subtract prior attempts from the lifetime acceptance-boundary budget.
+cat > "$project/control/progress/livenessproj-task-consumer.liveness-epoch.env" <<'ENV'
+reviewed_attempts=2
+criterionless_reviews=0
+total_replans=0
+lifetime_seconds=0
+processed_tokens=0
+source=legacy-active-plan-repair
+ENV
+
 # A generic monotonic liveness pause must not erase a more specific pending
 # exhausted-scope transition. Architecture resolution opens a fresh budget
 # epoch but still owes the adjacent-scope remediation.
@@ -208,10 +219,25 @@ grep -Fqx 'Pending-Replan-Trigger: MANAGER_REMEDIATION_SCOPE_EXHAUSTED' "$reasse
 grep -Fqx 'Pending-Replan-Remediation-Scope: src/exhausted-provider.c' "$reassessment"
 grep -Fq 'Project status: ARCHITECTURE_REASSESSMENT_REQUIRED.' \
 	< <("$HARNESS_BIN/harness-status" --machine "$TEST_ROOT/harness.env")
+grep -Eq '^Active root progress: [0-9]+% \([0-9]+ verified item\(s\)\)\.$' \
+	< <("$HARNESS_BIN/harness-status" --machine "$TEST_ROOT/harness.env")
 
 cat > "$TEST_ROOT/resolution.md" <<'MD'
 The operator reviewed the bounded evidence and approved a revised architecture boundary.
 MD
+if "$HARNESS_BIN/harness-resolve-architecture-reassessment" \
+	"$TEST_ROOT/harness.env" consumer "$TEST_ROOT/resolution.md" \
+	>"$TEST_ROOT/liveness-resolution.out" 2>"$TEST_ROOT/liveness-resolution.err"; then
+	printf 'unchanged acceptance boundary reset lifetime liveness\n' >&2
+	exit 1
+fi
+grep -Fq 'incident resolution cannot reset unchanged liveness' \
+	"$TEST_ROOT/liveness-resolution.err"
+[[ -f "$reassessment" ]]
+# Raising a governing lifetime limit is explicit operator authority; unlike an
+# epoch subtraction, it remains visible in configuration and status.
+sed -i 's/HARNESS_MAX_TOTAL_ROOT_REVIEWS="2"/HARNESS_MAX_TOTAL_ROOT_REVIEWS="3"/' \
+	"$TEST_ROOT/harness.env"
 "$HARNESS_BIN/harness-resolve-architecture-reassessment" \
 	"$TEST_ROOT/harness.env" consumer "$TEST_ROOT/resolution.md" >/dev/null
 [[ ! -f "$reassessment" ]]
@@ -220,20 +246,14 @@ grep -Fqx 'Trigger-Outcome: MANAGER_REMEDIATION_SCOPE_EXHAUSTED' \
 	"$project/control/progress/livenessproj-task-consumer.needs-replan.md"
 grep -Fqx 'Remediation-Scope: src/exhausted-provider.c' \
 	"$project/control/progress/livenessproj-task-consumer.needs-replan.md"
-[[ -f "$project/control/progress/livenessproj-task-consumer.liveness-epoch.env" ]]
 (
 	source "$TEST_ROOT/harness.env"
 	source "$HARNESS_HOME/lib/harness-common.sh"
-	[[ "$(root_liveness_epoch_delta consumer reviewed_attempts "$(root_reviewed_attempt_count consumer)")" == 0 ]]
+	[[ "$(root_liveness_epoch_delta consumer reviewed_attempts "$(root_reviewed_attempt_count consumer)")" == 2 ]]
 	[[ "$(root_liveness_epoch_delta consumer total_replans "$(root_total_replan_count consumer)")" == 0 ]]
 )
 "$HARNESS_BIN/harness-unblock-root" "$TEST_ROOT/harness.env" consumer >/dev/null
 find "$project/archive/architecture-reassessments" -type f -name '*.resolved.md' | grep -q .
-# An explicit operator architecture epoch may raise a budget; automatic
-# replanning itself never changes or resets it.
-sed -i 's/HARNESS_MAX_TOTAL_ROOT_REVIEWS="2"/HARNESS_MAX_TOTAL_ROOT_REVIEWS="3"/' \
-	"$TEST_ROOT/harness.env"
-
 cat > "$TEST_ROOT/expanded-revision.md" <<'MD'
 # Unauthorized Scope Expansion
 
@@ -474,7 +494,7 @@ grep -Fqx 'Category: ACCEPTED_DEPENDENCY_INVALIDATED' "$reassessment"
 invalidation="$project/control/plan-invalidations/UPSTREAM--consumer.invalidated.md"
 [[ -f "$invalidation" ]]
 grep -Fqx 'Consumer-Plan-Item: CONSUMER' "$invalidation"
-grep -Fq 'Project progress: 0% (0/2 plan items complete)' \
+grep -Fq 'Project progress: 0.0% (0/2 plan items complete)' \
 	< <("$HARNESS_BIN/harness-status" --machine "$TEST_ROOT/harness.env")
 
 # Modern roots have immutable criteria in their assignments. If a recovery

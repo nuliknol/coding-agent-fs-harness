@@ -36,7 +36,8 @@ if (( status_detail == 0 )); then
 		/^Architecture health: / ||
 		/^Oracle audit: / ||
 		/^Active root evidence: / ||
-		/^Root liveness: / ||
+		/^Active root progress: / ||
+		/^Root liveness/ ||
 		/^First unmet leaf criterion: / ||
 		/^Active worker goal: / ||
 		/^Goal task \/ target: / ||
@@ -123,7 +124,7 @@ manager_replan_failed="$(find "$dir/control" -maxdepth 1 -type f \
 	-name "$PROJECT-task-*.manager-replan-failed.md" -print 2>/dev/null | sort | head -n 1)"
 if project_plan_exists; then
 	printf -v project_progress_line 'Project progress: %s%% (%s/%s plan items complete)' \
-		"$(project_plan_progress_percent)" "$(project_plan_complete_count)" "$(project_plan_total_count)"
+		"$(project_plan_progress_percent_decimal)" "$(project_plan_complete_count)" "$(project_plan_total_count)"
 else
 	project_progress_line='Project progress: unavailable (project plan is missing)'
 fi
@@ -660,7 +661,9 @@ if [[ -n "$active_status_root" ]]; then
 	replans_without_gain="$(root_auto_replans_without_verified_gain "$active_status_root")"
 	printf '\nActive root evidence: %s verified item(s); %s automatic replan(s) since the latest durable gain.\n' \
 		"$verified_items" "$replans_without_gain"
-	printf 'Root liveness: reviews=%s/%s replans=%s/%s children=%s/%s depth=%s/%s age=%ss/%ss tokens=%s/%s\n' \
+	printf 'Active root progress: %s%% (%s verified item(s)).\n' \
+		"$(task_progress_percent "$active_status_root")" "$verified_items"
+	printf 'Root liveness (lifetime boundary): reviews=%s/%s replans=%s/%s children=%s/%s depth=%s/%s age=%ss/%ss tokens=%s/%s\n' \
 		"$(root_reviewed_attempt_count "$active_status_root")" "$HARNESS_MAX_TOTAL_ROOT_REVIEWS" \
 		"$(root_total_replan_count "$active_status_root")" "$HARNESS_MAX_TOTAL_ROOT_REPLANS" \
 		"$(root_child_criterion_count "$active_status_root")" "$HARNESS_MAX_ROOT_CHILD_CRITERIA" \

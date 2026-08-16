@@ -266,13 +266,13 @@ while IFS= read -r -d '' env_file; do
 	harness_root="$(awk -F': ' '$1=="Harness root" {print $2; exit}' <<< "$status_output")"
 	dir="$harness_root/projects/$project"; plan="$dir/control/project-plan-state.tsv"
 	project_progress="$(awk -F': ' '$1=="Project progress" {print $2; exit}' <<< "$status_output")"
-	if [[ "$project_progress" =~ ^([0-9]+)%[[:space:]]+\(([0-9]+)/([0-9]+)[[:space:]] ]]; then
-		percent="${BASH_REMATCH[1]}"; complete="${BASH_REMATCH[2]}"; total="${BASH_REMATCH[3]}"
+	if [[ "$project_progress" =~ ^([0-9]+([.][0-9]+)?)%[[:space:]]+\(([0-9]+)/([0-9]+)[[:space:]] ]]; then
+		percent="${BASH_REMATCH[1]}"; complete="${BASH_REMATCH[3]}"; total="${BASH_REMATCH[4]}"
 	else
 		total="$(full_plan_count "$plan")"; complete="$(full_plan_count "$plan" COMPLETE)"; percent=0
 	fi
 	if (( total > 0 )); then
-		if (( complete > 0 && percent == 0 )); then percent_display='<1%'; else percent_display="${percent}%"; fi
+		if (( complete > 0 )) && awk -v p="$percent" 'BEGIN {exit !(p == 0)}'; then percent_display='<0.1%'; else percent_display="${percent}%"; fi
 		completion="${complete}/${total}"$'\n'"$percent_display"
 	else
 		completion=$'pending\nplan'

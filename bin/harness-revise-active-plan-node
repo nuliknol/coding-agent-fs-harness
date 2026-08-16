@@ -49,6 +49,9 @@ elif [[ -f "$token_marker" ]]; then
 else
 	die "active root does not require architecture or token-usage reassessment: $root"
 fi
+if liveness_reason="$(root_liveness_violation_reason "$root" 2>/dev/null)"; then
+	die "active root remains beyond its lifetime acceptance-boundary budget: $liveness_reason; revising scope or context cannot reset liveness—replace the acceptance boundary, apply a direct operator correction, or explicitly raise the governing limit"
+fi
 
 old_header="$(sed -n '1p' "$dag")"
 new_header="$(sed -n '1p' "$candidate_dag")"
@@ -249,9 +252,6 @@ if [[ "$old_route" == LUNA && "$new_route" == TERRA ]]; then
 elif [[ "$new_route" == LUNA ]]; then
 	rm -f "$route_override"
 fi
-record_root_convergence_baseline "$root"
-record_root_replan_baseline "$root"
-record_root_liveness_epoch "$root" "$archive_dir"
 {
 	printf '# Manager Context Rotation Required\n\n'
 	printf 'Project: %s\n\n' "$PROJECT"

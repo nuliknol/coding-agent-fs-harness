@@ -840,7 +840,7 @@ actual_task_order="$(awk '$1 ~ /^(001|002|003|005-revision-01)$/ {print $1}' \
 	"$TEST_ROOT/progress-status.out")"
 [[ "$actual_task_order" == "$expected_task_order" ]]
 tail -n 2 "$TEST_ROOT/progress-status.out" | sed -n '1p' |
-	grep -Eq '^Project progress: [0-9]+% \([0-9]+/[0-9]+ plan items complete\)$'
+	grep -Eq '^Project progress: [0-9]+[.][0-9]% \([0-9]+/[0-9]+ plan items complete\)$'
 tail -n 1 "$TEST_ROOT/progress-status.out" |
 	grep -q '^Project status: ACTIVE\.'
 
@@ -890,6 +890,10 @@ export MANAGER_CODEX_BIN="$TEST_ROOT/mock-codex"
 export WORKER_CODEX_HOME="$CIRCUIT_ROOT/worker-home"
 export WORKER_CODEX_BIN="$TEST_ROOT/mock-codex"
 export HARNESS_MAX_IDENTICAL_BLOCKERS="2"
+export HARNESS_MAX_TOTAL_ROOT_REVIEWS="100"
+export HARNESS_MAX_ROOT_REVIEWS_WITHOUT_CRITERION="100"
+export HARNESS_MAX_ROOT_LIFETIME_SECONDS="86400"
+export HARNESS_MAX_ROOT_PROCESSED_TOKENS="1000000000"
 ENV
 chmod 600 "$CIRCUIT_ROOT/harness.env"
 "$HARNESS_BIN/harness-init" "$CIRCUIT_ROOT/harness.env" >/dev/null
@@ -934,8 +938,10 @@ grep -q 'TASK_CIRCUIT_BREAKER_MANAGER_REMEDIATION task=001-revision-01' \
 
 # Once escalation is already using manager remediation, the same blocker may
 # not recursively generate unlimited Terra leaves. Three identical remediation
-# rejections require architecture reassessment, and an explicit resolution
-# starts a fresh blocker epoch.
+# rejections require architecture reassessment. Resolving the marker must not
+# erase unchanged blocker history: the same acceptance boundary and blocker
+# fingerprint must immediately return to reassessment instead of buying
+# another sequence of zero-gain worker turns.
 rm -f "$CIRCUIT_ROOT/state/projects/circuitproj/control/progress/circuitproj-task-001.needs-replan.md"
 for revision in 02 03 04; do
 	assignment="$CIRCUIT_ROOT/state/projects/circuitproj/archive/circuitproj-task-001-revision-$revision.assignment.md"
@@ -971,8 +977,15 @@ printf 'worker result\n' > \
 	"$CIRCUIT_ROOT/state/projects/circuitproj/results/circuitproj-task-001-revision-05.result.md"
 post_resolution_output="$("$HARNESS_BIN/manager-reject-task" "$CIRCUIT_ROOT/harness.env" \
 	001-revision-05 "$CIRCUIT_ROOT/review-001.md")"
-[[ "$post_resolution_output" != *.architecture-reassessment-required.md ]]
-[[ ! -f "$remediation_reassessment" ]]
+[[ "$post_resolution_output" == "$remediation_reassessment" ]]
+[[ -f "$remediation_reassessment" ]]
+grep -Fqx 'Category: REPEATED_MANAGER_REMEDIATION_BLOCKER' "$remediation_reassessment"
+grep -q 'TASK_CIRCUIT_BREAKER_ARCHITECTURE_REASSESSMENT task=001-revision-05' \
+	"$CIRCUIT_ROOT/state/projects/circuitproj/logs/events.log"
+
+# The following resource-fuse checks are independent fixtures sharing this
+# synthetic root. Remove the expected reassessment marker only for isolation.
+rm -f "$remediation_reassessment"
 rm -f "$CIRCUIT_ROOT/state/projects/circuitproj/control/progress/circuitproj-task-001.needs-replan.md"
 
 # A machine resource fuse is a decomposition/context failure, not evidence of
@@ -1916,9 +1929,11 @@ grep -q 'project paused for replanning; verified checkpoints are preserved' "$ch
 (
 	source "$CHECKPOINT_ROOT/harness.env"
 	source "$HARNESS_HOME/lib/harness-common.sh"
-	[[ "$(root_reviewed_attempts_since_replan 001)" == 0 ]]
+	# Manual unblocking removes the control marker, but it must not create a
+	# fresh liveness epoch for an unchanged root acceptance boundary.
+	[[ "$(root_reviewed_attempts_since_replan 001)" == 3 ]]
 	[[ "$(root_zero_gain_streak 001)" == 0 ]]
-	[[ "$(root_checkpoint_without_criterion_streak 001)" == 0 ]]
+	[[ "$(root_checkpoint_without_criterion_streak 001)" == 2 ]]
 )
 "$HARNESS_BIN/manager-publish-task" "$CHECKPOINT_ROOT/harness.env" 001-revision-03 \
 	"$CHECKPOINT_ROOT/task.md" >/dev/null

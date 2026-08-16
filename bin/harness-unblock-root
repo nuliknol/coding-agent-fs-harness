@@ -29,10 +29,6 @@ had_human=0
 [[ ! -f "$block" ]] || had_block=1
 [[ ! -f "$replan" ]] || had_replan=1
 [[ ! -f "$human" ]] || had_human=1
-if (( had_replan == 1 || had_human == 1 )); then
-	record_root_convergence_baseline "$root"
-	record_root_replan_baseline "$root"
-fi
 rm -f "$block" "$replan" "$human"
 log_event "TASK_ROOT_UNBLOCKED root=$root cleared_block=$had_block cleared_replan=$had_replan cleared_human=$had_human"
 printf '%s\n' "$root"

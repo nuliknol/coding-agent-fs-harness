@@ -284,7 +284,7 @@ printf '%s\n' '{"type":"turn.started"}' > "$pending_log"
 "$HARNESS_BIN/harness-status" --full "$TEST_ROOT/harness.env" > "$TEST_ROOT/status-pending.out"
 grep -q 'Latest worker/provider classification: not-yet-recorded' "$TEST_ROOT/status-pending.out"
 tail -n 2 "$TEST_ROOT/status-pending.out" | sed -n '1p' |
-	grep -Eq '^Project progress: [0-9]+% \([0-9]+/[0-9]+ plan items complete\)$'
+	grep -Eq '^Project progress: [0-9]+[.][0-9]% \([0-9]+/[0-9]+ plan items complete\)$'
 tail -n 1 "$TEST_ROOT/status-pending.out" |
 	grep -q '^Project status: ACTIVE\.'
 rm -f "$pending_log"

@@ -2660,15 +2660,14 @@ record_worker_complexity_outcome()
 
 root_liveness_epoch_delta()
 {
-	local root="$1" key="$2" current="$3" baseline=0 epoch
-	epoch="$(task_root_liveness_epoch_file "$root")"
-	if [[ -f "$epoch" ]]; then
-		baseline="$(kv_file_value "$epoch" "$key" 2>/dev/null || printf 0)"
-	fi
-	[[ "$baseline" =~ ^[0-9]+$ ]] || baseline=0
+	local root="$1" key="$2" current="$3"
+	# Compatibility name retained for external integrations. Liveness is now
+	# scoped to the lifetime of the original root acceptance boundary. Context
+	# rotation, active-node repair, and incident resolution must not subtract
+	# historical work while that boundary remains unchanged.
+	: "$root" "$key"
 	[[ "$current" =~ ^[0-9]+$ ]] || current=0
-	(( current >= baseline )) || baseline=0
-	printf '%s\n' "$((current - baseline))"
+	printf '%s\n' "$current"
 }
 
 record_root_liveness_epoch()
@@ -2677,6 +2676,8 @@ record_root_liveness_epoch()
 	epoch="$(task_root_liveness_epoch_file "$root")"
 	tmp="$epoch.tmp.$$"
 	{
+		printf 'snapshot_only=1\n'
+		printf 'budget_scope=lifetime-root-acceptance-boundary\n'
 		printf 'reviewed_attempts=%s\n' "$(root_reviewed_attempt_count "$root")"
 		printf 'criterionless_reviews=%s\n' "$(root_reviews_without_criterion_completion "$root")"
 		printf 'total_replans=%s\n' "$(root_total_replan_count "$root")"
@@ -2692,11 +2693,11 @@ record_root_liveness_epoch()
 root_liveness_violation_reason()
 {
 	local root="$1" reviews criterionless_reviews replans lifetime tokens
-	reviews="$(root_liveness_epoch_delta "$root" reviewed_attempts "$(root_reviewed_attempt_count "$root")")"
-	criterionless_reviews="$(root_liveness_epoch_delta "$root" criterionless_reviews "$(root_reviews_without_criterion_completion "$root")")"
-	replans="$(root_liveness_epoch_delta "$root" total_replans "$(root_total_replan_count "$root")")"
-	lifetime="$(root_liveness_epoch_delta "$root" lifetime_seconds "$(root_lifetime_seconds "$root")")"
-	tokens="$(root_liveness_epoch_delta "$root" processed_tokens "$(root_processed_token_count "$root")")"
+	reviews="$(root_reviewed_attempt_count "$root")"
+	criterionless_reviews="$(root_reviews_without_criterion_completion "$root")"
+	replans="$(root_total_replan_count "$root")"
+	lifetime="$(root_lifetime_seconds "$root")"
+	tokens="$(root_processed_token_count "$root")"
 	if (( criterionless_reviews >= HARNESS_MAX_ROOT_REVIEWS_WITHOUT_CRITERION )); then
 		printf 'NO_CRITERION_PROGRESS: reviews without a completed root criterion reached the monotonic limit (%s/%s)' "$criterionless_reviews" "$HARNESS_MAX_ROOT_REVIEWS_WITHOUT_CRITERION"
 	elif (( reviews >= HARNESS_MAX_TOTAL_ROOT_REVIEWS )); then
@@ -2757,9 +2758,7 @@ mark_root_architecture_reassessment()
 			printf 'Total-Root-Reviews: %s\n' "$(root_reviewed_attempt_count "$root")"
 			printf 'Reviews-Without-Criterion: %s\n' "$(root_reviews_without_criterion_completion "$root")"
 			printf 'Total-Root-Replans: %s\n' "$(root_total_replan_count "$root")"
-			printf 'Epoch-Root-Reviews: %s\n' "$(root_liveness_epoch_delta "$root" reviewed_attempts "$(root_reviewed_attempt_count "$root")")"
-			printf 'Epoch-Reviews-Without-Criterion: %s\n' "$(root_liveness_epoch_delta "$root" criterionless_reviews "$(root_reviews_without_criterion_completion "$root")")"
-			printf 'Epoch-Root-Replans: %s\n' "$(root_liveness_epoch_delta "$root" total_replans "$(root_total_replan_count "$root")")"
+			printf 'Liveness-Budget-Scope: LIFETIME_ROOT_ACCEPTANCE_BOUNDARY\n'
 			printf 'Child-Criteria: %s\n' "$(root_child_criterion_count "$root")"
 			printf 'Criterion-Depth: %s\n' "$(root_criterion_max_depth "$root")"
 			printf 'Root-Lifetime-Seconds: %s\n' "$(root_lifetime_seconds "$root")"
@@ -4621,6 +4620,17 @@ project_plan_progress_percent()
 	else
 		printf '%s\n' "$((complete * 100 / total))"
 	fi
+}
+
+project_plan_progress_percent_decimal()
+{
+	local total complete
+	total="$(project_plan_total_count)"
+	complete="$(project_plan_complete_count)"
+	awk -v complete="$complete" -v total="$total" 'BEGIN {
+		if (total == 0) printf "0.0\n";
+		else printf "%.1f\n", complete * 100.0 / total;
+	}'
 }
 
 project_plan_item_is_invalidated()

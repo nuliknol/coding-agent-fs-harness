@@ -44,19 +44,29 @@ touch -d '2 hours ago' "$project/control/progress/rotationproj-task-root1.root-a
 printf 'manager-thread-id=test-manager-thread\n' > "$project/control/manager.thread"
 printf 'Project: rotationproj\n' > "$project/control/manager-plan-stalled.md"
 printf 'stale planning context was inspected and may be replaced\n' > "$TEST_ROOT/reason.md"
+epoch="$project/control/progress/rotationproj-task-root1.liveness-epoch.env"
+cat > "$epoch" <<'ENV'
+reviewed_attempts=7
+criterionless_reviews=6
+total_replans=5
+lifetime_seconds=100
+processed_tokens=200
+source=legacy-context-rotation
+ENV
+epoch_before="$(sha256sum "$epoch" | awk '{print $1}')"
 
 "$HARNESS_BIN/harness-rotate-manager-context" \
 	"$TEST_ROOT/harness.env" "$TEST_ROOT/reason.md" >/dev/null
 
 [[ ! -f "$project/control/manager-plan-stalled.md" ]]
-epoch="$project/control/progress/rotationproj-task-root1.liveness-epoch.env"
 [[ -s "$epoch" ]]
-grep -Fq '/archive/manager-context-rotations/' "$epoch"
+[[ "$(sha256sum "$epoch" | awk '{print $1}')" == "$epoch_before" ]]
 (
 	source "$TEST_ROOT/harness.env"
 	source "$HARNESS_HOME/lib/harness-common.sh"
-	[[ "$(root_liveness_epoch_delta root1 lifetime_seconds "$(root_lifetime_seconds root1)")" -le 1 ]]
+	[[ "$(root_liveness_epoch_delta root1 lifetime_seconds "$(root_lifetime_seconds root1)")" -ge 7100 ]]
 )
-grep -Fq 'MANAGER_CONTEXT_ROTATION_LIVENESS_EPOCHS roots=1' "$project/logs/events.log"
+grep -Fq 'MANAGER_CONTEXT_ROTATION_LIVENESS_PRESERVED scope=lifetime-root-acceptance-boundary' \
+	"$project/logs/events.log"
 
 printf 'manager context rotation tests passed\n'

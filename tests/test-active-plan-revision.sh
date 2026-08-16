@@ -138,8 +138,7 @@ revision_archive="$(find "$project/archive/plan-node-revisions/contract" -mindep
 [[ -s "$revision_archive/resolution.md" ]]
 [[ -s "$revision_archive/manager-thread.before.env" ]]
 [[ -s "$project/control/manager-context-rotation-required.md" ]]
-grep -Fqx "source=$revision_archive" \
-	"$project/control/progress/revisionproj-task-contract.liveness-epoch.env"
+[[ ! -e "$project/control/progress/revisionproj-task-contract.liveness-epoch.env" ]]
 grep -Fqx 'worker_route=TERRA' \
 	"$project/control/progress/revisionproj-task-contract.operator-worker-route-override.env"
 grep -Fqx 'old_allowed_paths=src/api.h' "$revision_archive/revision.env"
