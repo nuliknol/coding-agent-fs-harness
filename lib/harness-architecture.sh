@@ -79,7 +79,7 @@ architecture_registry_has_id()
 architecture_require_id_list()
 {
 	local label="$1" list="$2" registry="$3" id
-	local -a ids=()
+	local -a ids=() allowed_entries=()
 	[[ -n "$list" ]] || die "$label must be '-' or a comma-separated identifier list"
 	architecture_parse_id_list "$list" ids
 	for id in "${ids[@]}"; do
@@ -621,7 +621,7 @@ architecture_validate_registries()
 
 architecture_validate_against_plan()
 {
-	local node producer consumer trigger affected decision producer_node gate edge dependencies authority invariants id depends validation severity gate_invariants gate_edges
+	local node producer consumer trigger affected decision producer_node gate edge dependencies authority invariants id depends validation severity gate_invariants gate_edges evidence evidence_path allowed_paths allowed_entry evidence_authorized
 	local -a ids=()
 	(( HARNESS_ARCHITECTURE_GUARDS == 1 )) || return 0
 	architecture_validate_registries
@@ -638,10 +638,31 @@ architecture_validate_against_plan()
 		architecture_list_contains "$(architecture_node_value "$producer" edge_contracts)" "$edge" || die "edge $edge is absent from producer binding $producer"
 		architecture_list_contains "$(architecture_node_value "$consumer" edge_contracts)" "$edge" || die "edge $edge is absent from consumer binding $consumer"
 	done < "$(architecture_edges_file)"
-	while IFS=$'\t' read -r decision _ producer_node _; do
+	while IFS=$'\t' read -r decision _ producer_node _ _ _ _ evidence; do
 		[[ "$decision" != decision_id ]] || continue
 		[[ -n "$(project_plan_node_value "$producer_node" deliverable)" ]] || die "decision $decision has unknown producer: $producer_node"
 		architecture_list_contains "$(architecture_node_value "$producer_node" produces_decisions)" "$decision" || die "decision $decision is absent from producer binding $producer_node"
+		# A decision producer must be able to publish its durable evidence.  Merely
+		# validating that the registry contains a syntactically valid path allowed
+		# contradictory DAGs whose CONTRACT_DESIGN node authorized only source
+		# files. Recovery then edited implementation code while the actual decision
+		# artifact remained impossible to commit.
+		if [[ "$evidence" != operator-worktree:* ]]; then
+			evidence_path="$evidence"
+			allowed_paths="$(project_plan_node_value "$producer_node" allowed_paths)"
+			evidence_authorized=0
+			IFS=',' read -r -a allowed_entries <<< "${allowed_paths//;/,}"
+			for allowed_entry in "${allowed_entries[@]}"; do
+				allowed_entry="$(trim_surrounding_whitespace "$allowed_entry")"
+				[[ -n "$allowed_entry" && "$allowed_entry" != - ]] || continue
+				if [[ "$evidence_path" == "$allowed_entry" || "$evidence_path" == "$allowed_entry"/* ]]; then
+					evidence_authorized=1
+					break
+				fi
+			done
+			(( evidence_authorized == 1 )) ||
+				die "decision $decision evidence path is outside producer $producer_node allowed_paths: $evidence_path"
+		fi
 	done < "$(architecture_decisions_file)"
 	while IFS=$'\t' read -r gate trigger depends validation severity gate_invariants gate_edges; do
 		[[ "$gate" != gate_id ]] || continue

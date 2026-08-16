@@ -373,6 +373,14 @@ quota_waits=0
 fallback_stage=0
 current_model="$MANAGER_MODEL"
 while true; do
+	# Publication corrections are bounded per fresh manager invocation, not for
+	# the entire automatic-recovery transaction.  A schema-invalid draft from a
+	# previous fresh turn must not consume the corrected turn's publisher slots.
+	# The outer loop remains independently bounded, so this reset permits repair
+	# without creating an unbounded launch or publication loop.
+	goal_state_set "$running_marker" publish_attempts 0
+	goal_state_set "$running_marker" manager_attempt "$attempt"
+	log_event "MANAGER_RECOVERY_TURN_BUDGET_RESET root=$root trigger=$trigger_task manager_attempt=$attempt limit=$HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS"
 	stamp="$(timestamp_compact_utc)"
 	attempt_label="$(printf '%03d' "$attempt")"
 	json_log="$project_path/logs/manager-replan-$root-$stamp-attempt-$attempt_label.jsonl"
@@ -404,19 +412,6 @@ while true; do
 	fi
 	if (( status == 0 )); then
 		if (( attempt < HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS )); then
-			# The fresh correction process must own one publisher call. The first
-			# process may have consumed both in-turn attempts before falsely
-			# reporting success, so reserve exactly one extra durable slot rather
-			# than resetting its full budget.
-			used_publish_attempts="$(kv_file_value "$running_marker" publish_attempts 2>/dev/null || printf 0)"
-			max_publish_attempts="$(kv_file_value "$running_marker" max_publish_attempts 2>/dev/null || printf '%s' "$HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS")"
-			[[ "$used_publish_attempts" =~ ^[0-9]+$ ]] || used_publish_attempts=0
-			[[ "$max_publish_attempts" =~ ^[1-9][0-9]*$ ]] || max_publish_attempts="$HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS"
-			reserved_publish_limit=$((HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS + 1))
-			if (( used_publish_attempts >= max_publish_attempts && max_publish_attempts < reserved_publish_limit )); then
-				goal_state_set "$running_marker" max_publish_attempts "$reserved_publish_limit"
-				log_event "MANAGER_RECOVERY_FRESH_PUBLISH_SLOT_RESERVED root=$root trigger=$trigger_task attempts=$used_publish_attempts previous_limit=$max_publish_attempts new_limit=$reserved_publish_limit"
-			fi
 			log_event "MANAGER_RECOVERY_FALSE_PUBLICATION_RETRY root=$root trigger=$trigger_task attempt=$attempt classification=${classification:-unknown}"
 			printf '\nCorrection turn: the preceding agent exited successfully but no durable task was published. Treat every prior success claim as false. Recreate the expected assignment, call manager-publish-task without output redirection, inspect its exit status, and use the one permitted direct correction if rejected.\n' >> "$prompt_file"
 			attempt=$((attempt + 1))

@@ -2143,6 +2143,23 @@ grep -q 'manager recovery publication attempt budget exhausted (2/2)' \
 	"$AUTO_ROOT/publish-attempt-3.err"
 grep -q 'MANAGER_RECOVERY_PUBLISH_ATTEMPT_BLOCKED root=001 task=001-revision-09 attempts=2 limit=2' \
 	"$auto_project/logs/events.log"
+# A fresh manager correction turn receives its own direct-publication budget.
+# Resetting the per-turn counter must expose semantic validation again instead
+# of carrying the prior turn's exhausted budget forward.
+sed -i 's/^publish_attempts=.*/publish_attempts=0/; s/^manager_attempt=.*/manager_attempt=2/' \
+	"$auto_progress/autoreplanproj-task-001.replanning.md"
+if "$HARNESS_BIN/manager-publish-task" "$AUTO_ROOT/harness.env" 001-revision-09 \
+	"$AUTO_ROOT/materially-same.md" --auto-replan \
+	>"$AUTO_ROOT/fresh-turn-publication.out" 2>"$AUTO_ROOT/fresh-turn-publication.err"; then
+	printf 'Expected the fresh-turn fixture to remain semantically invalid.\n' >&2
+	exit 1
+fi
+grep -q 'manager recovery is not materially different from an earlier bounded strategy' \
+	"$AUTO_ROOT/fresh-turn-publication.err"
+if grep -q 'publication attempt budget exhausted' "$AUTO_ROOT/fresh-turn-publication.err"; then
+	printf 'Fresh manager correction turn inherited the prior publication budget.\n' >&2
+	exit 1
+fi
 rm -f "$auto_progress/autoreplanproj-task-001.replanning.md"
 rm -f "$auto_progress/autoreplanproj-task-001.needs-replan.md"
 

@@ -560,6 +560,45 @@ criterionless_marker="$("$HARNESS_BIN/harness-audit-root-liveness" "$TEST_ROOT/h
 grep -Fqx 'Category: NO_CRITERION_PROGRESS' "$criterionless_marker"
 grep -Fqx 'Reviews-Without-Criterion: 3' "$criterionless_marker"
 
+# A typed manager-remediation decomposition request is still subordinate to
+# root liveness. It must pause at the monotonic boundary rather than bypassing
+# the guard and recursively publishing another Terra remediation.
+for revision in 01 02 03; do
+	cat > "$project/archive/livenessproj-task-remediationlimit-revision-$revision.rejected.md" <<MD
+# Rejected Task
+
+Task-ID: remediationlimit-revision-$revision
+Task-Root: remediationlimit
+MD
+done
+cat > "$project/archive/livenessproj-task-remediationlimit-revision-04.assignment.md" <<'MD'
+Task-ID: remediationlimit-revision-04
+Task-Root: remediationlimit
+Manager-Remediation: 1
+Blocker-Class: LOCAL_CODE_PREREQUISITE
+Remediation-Scope: src/consumer/smoke.c
+Allowed-Scope: src/consumer/smoke.c
+Context-Paths: src/consumer/smoke.c
+MD
+cat > "$project/results/livenessproj-task-remediationlimit-revision-04.result.md" <<'MD'
+# Task Result
+
+Task-ID: remediationlimit-revision-04
+Task-Root: remediationlimit
+Goal-Outcome: NEEDS_DECOMPOSITION
+Decomposition-Reason: CONTEXT_INCOMPLETE
+MD
+cat > "$TEST_ROOT/remediation-limit-review.md" <<'MD'
+Progress-Percent: 0%
+Improvement-Percent: 0%
+MD
+remediation_limit_output="$("$HARNESS_BIN/manager-reject-task" "$TEST_ROOT/harness.env" \
+	remediationlimit-revision-04 "$TEST_ROOT/remediation-limit-review.md")"
+[[ "$remediation_limit_output" == \
+	"$project/control/progress/livenessproj-task-remediationlimit.architecture-reassessment-required.md" ]]
+grep -Fqx 'Category: TOTAL_ROOT_REVIEWS' "$remediation_limit_output"
+[[ ! -f "$project/control/progress/livenessproj-task-remediationlimit.needs-replan.md" ]]
+
 # An operator-audited manager remediation may persist only the exact bounded
 # additional source path named by the architecture resolution.
 scope_root=scopeexp

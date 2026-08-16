@@ -203,7 +203,13 @@ if [[ -f "$rejected" ]]; then
 		retain_worker_thread_for_rejection "$task_id"
 	fi
 	trace_event TASK_REJECT_IDEMPOTENT "task_id=$task_id" "rejected_file=$rejected"
-	if [[ "$goal_outcome" == HARD_BLOCKED ]]; then
+	# Every terminal rejection path is subordinate to the monotonic root
+	# liveness budget.  In particular, a manager-remediation worker may request
+	# another typed decomposition, but that request must not bypass an already
+	# exhausted review/replan/depth boundary and recursively mint Terra leaves.
+	if ! enforce_root_liveness_or_reassess "$task_id"; then
+		printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
+	elif [[ "$goal_outcome" == HARD_BLOCKED ]]; then
 		mark_root_needs_replan "$task_id" \
 			'a worker-reported hard boundary was not accepted; inspect the smallest adjacent repository-local declaration, producer, consumer, or validation prerequisite with fresh manager context before another implementation attempt' \
 			HARD_BLOCK_SCOPE_DIAGNOSTIC LOCAL_SCOPE_PREREQUISITE \
@@ -259,7 +265,13 @@ else
 fi
 log_event "TASK_REJECTED task=$task_id"
 trace_event TASK_REJECTED "task_id=$task_id" "rejected_file=$rejected" "result_archive=$result_archive" "note_file=$note_file"
-if [[ "$goal_outcome" == HARD_BLOCKED ]]; then
+# Check the monotonic root boundary before dispatching any specialized recovery
+# transition.  These branches used to precede the guard, allowing
+# HARD_BLOCKED and manager-remediation NEEDS_DECOMPOSITION outcomes to replan
+# indefinitely after the configured root limits were exceeded.
+if ! enforce_root_liveness_or_reassess "$task_id"; then
+	printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
+elif [[ "$goal_outcome" == HARD_BLOCKED ]]; then
 	replan_marker="$(mark_root_needs_replan "$task_id" \
 		'a worker-reported hard boundary was not accepted; inspect the smallest adjacent repository-local declaration, producer, consumer, or validation prerequisite with fresh manager context before another implementation attempt' \
 		HARD_BLOCK_SCOPE_DIAGNOSTIC LOCAL_SCOPE_PREREQUISITE \
@@ -269,8 +281,6 @@ elif [[ "$goal_outcome" == NEEDS_DECOMPOSITION ]] &&
 	assignment_is_manager_remediation "$assignment_archive"; then
 	replan_marker="$(mark_manager_remediation_decomposition_replan "$result_archive")"
 	printf '%s\n' "$replan_marker"
-elif ! enforce_root_liveness_or_reassess "$task_id"; then
-	printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
 elif (( manager_remediation_circuit_breaker == 1 )); then
 	mark_root_architecture_reassessment "$task_id" REPEATED_MANAGER_REMEDIATION_BLOCKER \
 		"identical manager-remediation blocker $blocking_fingerprint reached the bounded limit ($HARNESS_MAX_IDENTICAL_MANAGER_REMEDIATION_BLOCKERS) without criterion gain" \

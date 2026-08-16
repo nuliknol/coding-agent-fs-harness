@@ -251,6 +251,19 @@ grep -Fq 'edge EDGE-widget contract artifact references unknown decision: ADR-mi
 	"$TEST_ROOT/unknown-decision.out"
 test ! -e "$TEST_ROOT/state/projects/archguard/control/architecture"
 "$HARNESS_BIN/manager-init-architecture" "$TEST_ROOT/harness.env" "$TEST_ROOT/architecture" >/dev/null
+# A decision producer must authorize the exact durable evidence path. Without
+# this cross-registry check, a decision-only DAG can authorize source files but
+# leave its required decision artifact impossible to publish.
+awk -F '\t' 'BEGIN {OFS=FS} $1 == "contract" {$7="include/widget.h"} {print}' \
+	"$TEST_ROOT/plan.tsv" > "$TEST_ROOT/missing-decision-evidence-scope-plan.tsv"
+if "$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/harness.env" \
+	"$TEST_ROOT/missing-decision-evidence-scope-plan.tsv" \
+	> "$TEST_ROOT/missing-decision-evidence-scope.out" 2>&1; then
+	printf 'decision producer without evidence-path authority was accepted\n' >&2
+	exit 1
+fi
+grep -Fq 'decision ADR-widget evidence path is outside producer contract allowed_paths: design/adr/widget-ownership.md' \
+	"$TEST_ROOT/missing-decision-evidence-scope.out"
 "$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/harness.env" "$TEST_ROOT/plan.tsv" >/dev/null
 
 # Operators can replace a defective immutable registry only while stopped. The
