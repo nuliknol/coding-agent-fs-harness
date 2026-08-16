@@ -1,11 +1,58 @@
 package main
 
 import (
+	"context"
+	"database/sql"
 	"strings"
 	"testing"
 
 	"github.com/scip-code/scip/bindings/go/scip"
 )
+
+func TestEnsureFileReturnsStableIDAfterConflict(t *testing.T) {
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	ctx := context.Background()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`
+		CREATE TABLE files (
+			file_id INTEGER PRIMARY KEY,
+			generation_id TEXT NOT NULL,
+			repository_path TEXT NOT NULL,
+			language TEXT,
+			content_sha256 TEXT,
+			tracked INTEGER NOT NULL,
+			generated INTEGER NOT NULL,
+			UNIQUE(generation_id, repository_path)
+		);
+		CREATE TABLE unrelated (unrelated_id INTEGER PRIMARY KEY);`); err != nil {
+		t.Fatal(err)
+	}
+	imp := &importer{ctx: ctx, tx: tx, generation: "generation"}
+	first, err := imp.ensureFile("src/repeated.c", "c", "first", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for count := 0; count < 20; count++ {
+		if _, err := tx.Exec("INSERT INTO unrelated DEFAULT VALUES"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	second, err := imp.ensureFile("src/repeated.c", "c", "second", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second != first {
+		t.Fatalf("conflicting document changed file id: first=%d second=%d", first, second)
+	}
+}
 
 func TestExpandStructuralRangeFunction(t *testing.T) {
 	source := []byte(`static int bounded(int value)

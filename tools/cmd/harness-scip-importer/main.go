@@ -179,22 +179,9 @@ func (i *importer) consumeDocument(document *scip.Document) error {
 			break
 		}
 	}
-	result, err := i.tx.ExecContext(i.ctx, `
-		INSERT INTO files(generation_id, repository_path, language, content_sha256, tracked, generated)
-		VALUES(?, ?, ?, ?, 1, ?)
-		ON CONFLICT(generation_id, repository_path) DO UPDATE SET
-			language=excluded.language, content_sha256=excluded.content_sha256, generated=excluded.generated`,
-		i.generation, filepath.ToSlash(relPath), document.GetLanguage(), contentHash, boolInt(generated))
+	fileID, err := i.ensureFile(filepath.ToSlash(relPath), document.GetLanguage(), contentHash, generated)
 	if err != nil {
-		return err
-	}
-	fileID, err := result.LastInsertId()
-	if err != nil || fileID == 0 {
-		if err := i.tx.QueryRowContext(i.ctx,
-			"SELECT file_id FROM files WHERE generation_id=? AND repository_path=?",
-			i.generation, filepath.ToSlash(relPath)).Scan(&fileID); err != nil {
-			return err
-		}
+		return fmt.Errorf("register SCIP document %q: %w", relPath, err)
 	}
 	i.counts.files++
 
@@ -203,7 +190,7 @@ func (i *importer) consumeDocument(document *scip.Document) error {
 		canonical := canonicalSymbol(relPath, info.GetSymbol())
 		infoBySymbol[canonical] = info
 		if err := i.upsertSymbol(relPath, document.GetLanguage(), info.GetSymbol(), info); err != nil {
-			return err
+			return fmt.Errorf("register document symbol %q in %q: %w", canonical, relPath, err)
 		}
 	}
 	for _, occurrence := range document.GetOccurrences() {
@@ -213,7 +200,7 @@ func (i *importer) consumeDocument(document *scip.Document) error {
 		canonical := canonicalSymbol(relPath, occurrence.GetSymbol())
 		if _, ok := infoBySymbol[canonical]; !ok {
 			if err := i.upsertSymbol(relPath, document.GetLanguage(), occurrence.GetSymbol(), nil); err != nil {
-				return err
+				return fmt.Errorf("register occurrence symbol %q in %q: %w", canonical, relPath, err)
 			}
 		}
 	}
@@ -243,15 +230,32 @@ func (i *importer) consumeDocument(document *scip.Document) error {
 			continue
 		}
 		if err := i.importOccurrence(fileID, relPath, content, occurrence, definitions); err != nil {
-			return err
+			return fmt.Errorf("import occurrence in %q: %w", relPath, err)
 		}
 	}
 	for _, info := range document.GetSymbols() {
 		if err := i.importRelationships(relPath, document.GetLanguage(), info); err != nil {
-			return err
+			return fmt.Errorf("import relationships in %q: %w", relPath, err)
 		}
 	}
 	return nil
+}
+
+func (i *importer) ensureFile(repositoryPath, language, contentHash string, generated bool) (int64, error) {
+	_, err := i.tx.ExecContext(i.ctx, `
+		INSERT INTO files(generation_id, repository_path, language, content_sha256, tracked, generated)
+		VALUES(?, ?, ?, ?, 1, ?)
+		ON CONFLICT(generation_id, repository_path) DO UPDATE SET
+			language=excluded.language, content_sha256=excluded.content_sha256, generated=excluded.generated`,
+		i.generation, repositoryPath, language, contentHash, boolInt(generated))
+	if err != nil {
+		return 0, err
+	}
+	var fileID int64
+	err = i.tx.QueryRowContext(i.ctx,
+		"SELECT file_id FROM files WHERE generation_id=? AND repository_path=?",
+		i.generation, repositoryPath).Scan(&fileID)
+	return fileID, err
 }
 
 func (i *importer) resolveDocumentPath(relative string) (string, string, error) {
@@ -328,7 +332,7 @@ func (i *importer) importOccurrence(fileID int64, documentPath string, content [
 		if _, err := i.tx.ExecContext(i.ctx,
 			"INSERT OR IGNORE INTO symbol_definitions(symbol_id, region_id, definition_kind, provider) VALUES(?, ?, ?, 'scip-clang')",
 			symbol, regionID, kind); err != nil {
-			return err
+			return fmt.Errorf("insert definition for %q: %w", symbol, err)
 		}
 		i.counts.definitions++
 		text := sourceRegionText(content, regionRange, 65536)
@@ -346,12 +350,12 @@ func (i *importer) importOccurrence(fileID int64, documentPath string, content [
 			if _, err := i.tx.ExecContext(i.ctx,
 				"INSERT OR IGNORE INTO tests(test_id, generation_id, name, file_id, region_id, provider) VALUES(?, ?, ?, ?, ?, 'scip-clang')",
 				testID, i.generation, displayName(occurrence.GetSymbol(), nil), fileID, regionID); err != nil {
-				return err
+				return fmt.Errorf("insert test for %q: %w", symbol, err)
 			}
 			if _, err := i.tx.ExecContext(i.ctx,
 				"INSERT OR IGNORE INTO test_symbol_edges(test_id, symbol_id, edge_kind, provider) VALUES(?, ?, 'DEFINES', 'scip-clang')",
 				testID, symbol); err != nil {
-				return err
+				return fmt.Errorf("insert test definition edge for %q: %w", symbol, err)
 			}
 		}
 		return nil
@@ -361,14 +365,14 @@ func (i *importer) importOccurrence(fileID int64, documentPath string, content [
 	if _, err := i.tx.ExecContext(i.ctx,
 		"INSERT OR IGNORE INTO symbol_references(symbol_id, region_id, reference_kind, provider) VALUES(?, ?, ?, 'scip-clang')",
 		symbol, regionID, referenceKind); err != nil {
-		return err
+		return fmt.Errorf("insert reference for %q: %w", symbol, err)
 	}
 	i.counts.references++
 	if owner := enclosingDefinition(definitions, range_.Start); owner != "" && owner != symbol {
 		if _, err := i.tx.ExecContext(i.ctx, `
 			INSERT OR IGNORE INTO symbol_edges(source_symbol_id, target_symbol_id, edge_kind, provider, confidence, evidence_region_id)
 			VALUES(?, ?, 'REFERENCES', 'scip-clang', 'AUTHORITATIVE', ?)`, owner, symbol, regionID); err != nil {
-			return err
+			return fmt.Errorf("insert reference edge %q -> %q: %w", owner, symbol, err)
 		}
 		if isTestPath(documentPath) {
 			testID := stableID("test", documentPath, owner)
@@ -376,7 +380,7 @@ func (i *importer) importOccurrence(fileID int64, documentPath string, content [
 				INSERT OR IGNORE INTO test_symbol_edges(test_id, symbol_id, edge_kind, provider)
 				SELECT ?, ?, 'REFERENCES', 'scip-clang'
 				WHERE EXISTS (SELECT 1 FROM tests WHERE test_id=?)`, testID, symbol, testID); err != nil {
-				return err
+				return fmt.Errorf("insert test reference edge for %q: %w", symbol, err)
 			}
 		}
 	}
@@ -385,8 +389,14 @@ func (i *importer) importOccurrence(fileID int64, documentPath string, content [
 
 func (i *importer) importRelationships(documentPath, language string, info *scip.SymbolInformation) error {
 	source := canonicalSymbol(documentPath, info.GetSymbol())
+	if source == "" {
+		return nil
+	}
 	for _, relationship := range info.GetRelationships() {
 		target := canonicalSymbol(documentPath, relationship.GetSymbol())
+		if target == "" {
+			continue
+		}
 		if err := i.upsertSymbol(documentPath, language, relationship.GetSymbol(), nil); err != nil {
 			return err
 		}
@@ -407,13 +417,13 @@ func (i *importer) importRelationships(documentPath, language string, info *scip
 			if _, err := i.tx.ExecContext(i.ctx, `
 				INSERT OR IGNORE INTO symbol_edges(source_symbol_id, target_symbol_id, edge_kind, provider, confidence)
 				VALUES(?, ?, ?, 'scip-clang', 'AUTHORITATIVE')`, source, target, kind); err != nil {
-				return err
+				return fmt.Errorf("insert relationship edge %q -> %q (%s): %w", source, target, kind, err)
 			}
 			if kind == "TYPE_DEFINITION" {
 				if _, err := i.tx.ExecContext(i.ctx, `
 					INSERT OR IGNORE INTO type_edges(source_symbol_id, type_symbol_id, edge_kind, provider)
 					VALUES(?, ?, 'TYPE_DEFINITION', 'scip-clang')`, source, target); err != nil {
-					return err
+					return fmt.Errorf("insert type edge %q -> %q: %w", source, target, err)
 				}
 			}
 			i.counts.relationships++
