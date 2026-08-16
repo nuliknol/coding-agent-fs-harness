@@ -150,6 +150,7 @@ printf 'Per-agent circuit breaker: %s item starts, %s live-estimated tokens, %s 
 	"$HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION" "$HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION" \
 	"$HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION"
 printf 'Per-worker-task processed-token anomaly limit: %s\n' "$HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS"
+printf 'Per-round fixed context estimate for runtime token floors: %s\n' "$HARNESS_AGENT_BASE_CONTEXT_TOKENS_PER_ROUND"
 printf 'Global decomposition processed-token limit: %s\n' "$HARNESS_MAX_DECOMPOSITION_PROCESSED_TOKENS_PER_INVOCATION"
 printf 'Codex wall timeout seconds: %s (0 means unlimited)\n' "$HARNESS_CODEX_WALL_TIMEOUT_SECONDS"
 printf 'Codex idle timeout seconds: %s (0 means unlimited)\n' "$HARNESS_CODEX_IDLE_TIMEOUT_SECONDS"

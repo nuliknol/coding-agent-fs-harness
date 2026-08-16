@@ -58,12 +58,15 @@ if (( resource_progress_verification == 1 )); then
 elif [[ "$trigger_outcome" == DETERMINISTIC_BLOCKER ]]; then
 	recovery_mode="MANAGER_REMEDIATION"
 	recovery_reason="the configured deterministic local-blocker threshold was reached"
-	elif [[ "$trigger_outcome" == HARD_BLOCKED_LOCAL ]]; then
-		recovery_mode="MANAGER_REMEDIATION"
-		recovery_reason="a verified leaf hard block identified a repository-local prerequisite outside the earlier worker scope"
-	elif [[ "$trigger_outcome" == MANAGER_REMEDIATION_CONTINUATION ]]; then
-		recovery_mode="MANAGER_REMEDIATION"
-		recovery_reason="a checkpointed baseline remediation exposed one more directly implicated local prerequisite"
+elif [[ "$trigger_outcome" == HARD_BLOCK_SCOPE_DIAGNOSTIC ]]; then
+	recovery_mode="MANAGER_REMEDIATION"
+	recovery_reason="a rejected worker hard-boundary claim requires one fresh manager-owned scope diagnostic before any implementation retry"
+elif [[ "$trigger_outcome" == HARD_BLOCKED_LOCAL ]]; then
+	recovery_mode="MANAGER_REMEDIATION"
+	recovery_reason="a verified leaf hard block identified a repository-local prerequisite outside the earlier worker scope"
+elif [[ "$trigger_outcome" == MANAGER_REMEDIATION_CONTINUATION ]]; then
+	recovery_mode="MANAGER_REMEDIATION"
+	recovery_reason="a checkpointed baseline remediation exposed one more directly implicated local prerequisite"
 elif [[ "$trigger_outcome" == LEGACY_HARD_BLOCKED ]]; then
 	recovery_mode="MANAGER_REMEDIATION"
 	recovery_reason="a legacy terminal hard block requires manager-level repository-local reconsideration before any human escalation"

@@ -260,7 +260,7 @@ Execution-Mode: LEAF_GOAL
 Goal-ID: evidence.goal
 Target-Criterion: evidence.recorded
 Goal-Success-Evidence: Model-authored paraphrase that must be replaced
-Focused-Validation: Model-authored validation that must be replaced
+Focused-Validation: `test -f src/a.c`; retain the output and report the result.
 Allowed-Scope: src/a.c
 Baseline-Boundary: Existing source is read-only.
 Hard-Block-Conditions: Any implementation edit is forbidden.
@@ -279,13 +279,22 @@ Expected-Max-Worker-Turns: 1
 
 Record bounded read-only evidence without editing source.
 TASK
+if "$HARNESS_BIN/manager-publish-planned-task" "$TEST_ROOT/read-only-harness.env" \
+	"$TEST_ROOT/read-only-task.md" >"$TEST_ROOT/read-only-invalid-validation.out" 2>&1; then
+	printf 'Markdown-wrapped validation was published as an executable command\n' >&2
+	exit 1
+fi
+grep -Fq 'Focused-Validation must be one machine-executable shell command' \
+	"$TEST_ROOT/read-only-invalid-validation.out"
+sed -i 's#^Focused-Validation:.*#Focused-Validation: test -f src/a.c#' \
+	"$TEST_ROOT/read-only-task.md"
 "$HARNESS_BIN/manager-publish-planned-task" "$TEST_ROOT/read-only-harness.env" \
 	"$TEST_ROOT/read-only-task.md" >/dev/null
 grep -Fqx 'Expected-Max-Implementation-Files: 0' \
 	"$TEST_ROOT/read-only-state/projects/decompv2readonly/tasks/decompv2readonly-task-evidence.ready.md"
 grep -Fqx 'Goal-Success-Evidence: Named authority is independently recorded' \
 	"$TEST_ROOT/read-only-state/projects/decompv2readonly/tasks/decompv2readonly-task-evidence.ready.md"
-grep -Fqx 'Focused-Validation: FOCUSED: inspect target_symbol' \
+grep -Fqx 'Focused-Validation: test -f src/a.c' \
 	"$TEST_ROOT/read-only-state/projects/decompv2readonly/tasks/decompv2readonly-task-evidence.ready.md"
 grep -Fqx 'Root-Criterion: evidence.recorded' \
 	"$TEST_ROOT/read-only-state/projects/decompv2readonly/tasks/decompv2readonly-task-evidence.ready.md"
@@ -489,7 +498,7 @@ Worker-Route: LUNA
 Depends-On: -
 Deliverable: Implement one bounded six-path concern
 Required-Symbols: target_symbol
-Context-Paths: src/a.c,include/a.h,tests/a.c,CMakeLists.txt
+Context-Paths: src/a.c,src/b.c,include/a.h,tests/a.c,tests/fixture.dat,CMakeLists.txt
 Architecture-Decisions: NONE
 Expected-Max-Implementation-Files: 5
 Expected-Max-Worker-Turns: 3

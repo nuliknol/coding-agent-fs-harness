@@ -1020,6 +1020,43 @@ grep -Fqx 'Trigger-Outcome: RESOURCE_NEEDS_DECOMPOSITION' \
 	"$CIRCUIT_ROOT/state/projects/circuitproj/control/progress/circuitproj-task-001.needs-replan.md"
 rm -f "$CIRCUIT_ROOT/state/projects/circuitproj/control/progress/circuitproj-task-001.needs-replan.md"
 
+# Rejecting a worker-reported hard boundary must not resume the same coding
+# thread or republish the same narrow implementation leaf. Route one fresh
+# manager-owned scope diagnostic even when the reviewer did not accept the
+# worker's hard-block proof.
+cat > "$CIRCUIT_ROOT/state/projects/circuitproj/archive/circuitproj-task-001-revision-10.assignment.md" <<'MD'
+Task-ID: 001-revision-10
+Task-Root: 001
+Allowed-Scope: src/narrow-provider.c
+MD
+cat > "$CIRCUIT_ROOT/state/projects/circuitproj/results/circuitproj-task-001-revision-10.result.md" <<'RESULT'
+# Worker Task Result
+
+Goal-Outcome: HARD_BLOCKED
+RESULT
+mkdir -p "$CIRCUIT_ROOT/state/projects/circuitproj/control/goals"
+cat > "$CIRCUIT_ROOT/state/projects/circuitproj/control/goals/circuitproj-task-001-revision-10.goal" <<'GOAL'
+task_id=001-revision-10
+task_root=001
+goal_id=hard-boundary-goal
+state=REVIEW
+thread_id=worker-thread-must-rotate
+thread_context=resumed
+manager_reviews=0
+GOAL
+hard_reject_output="$("$HARNESS_BIN/manager-reject-task" "$CIRCUIT_ROOT/harness.env" \
+	001-revision-10 "$CIRCUIT_ROOT/resource-review.md")"
+[[ "$hard_reject_output" == *.needs-replan.md ]]
+grep -Fqx 'Trigger-Outcome: HARD_BLOCK_SCOPE_DIAGNOSTIC' "$hard_reject_output"
+grep -Fqx 'Blocker-Class: LOCAL_SCOPE_PREREQUISITE' "$hard_reject_output"
+grep -Fq 'adjacent contract or implementation authority outside src/narrow-provider.c' \
+	"$hard_reject_output"
+grep -Fqx 'thread_id=' \
+	"$CIRCUIT_ROOT/state/projects/circuitproj/control/goals/circuitproj-task-001-revision-10.goal"
+grep -Fqx 'thread_context=rejected-boundary-requires-fresh-context' \
+	"$CIRCUIT_ROOT/state/projects/circuitproj/control/goals/circuitproj-task-001-revision-10.goal"
+rm -f "$hard_reject_output"
+
 # An operator who independently confirms preserved source movement may request
 # verification rather than another implementation/decomposition episode.
 cat > "$CIRCUIT_ROOT/state/projects/circuitproj/control/progress/circuitproj-task-001.architecture-reassessment-required.md" <<'MARKER'

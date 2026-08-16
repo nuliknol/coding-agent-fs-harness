@@ -34,11 +34,8 @@ done
 
 validation="$(metadata_value "$assignment" Focused-Validation)"
 [[ -n "$validation" && "$validation" != - ]] || die 'assignment has no focused validation command'
-case "$validation" in
-	FOCUSED:*|INCREMENTAL:*|CLEAN_GLOBAL:*)
-		die 'Focused-Validation is descriptive rather than executable; use harness-run-logged with one explicitly quoted shell command'
-		;;
-esac
+validation_is_executable_command "$validation" ||
+	die 'Focused-Validation is not one machine-executable shell command; correct the assignment instead of interpreting Markdown or prose at runtime'
 
 # Execute the complete machine-recorded expression inside the capture wrapper.
 # Shell operators therefore cannot escape logging through the caller's shell.

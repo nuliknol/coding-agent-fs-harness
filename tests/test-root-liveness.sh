@@ -404,7 +404,7 @@ if "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" \
 	printf 'coding recovery accepted a source-audit review descriptor as validation\n' >&2
 	exit 1
 fi
-grep -Fq 'coding leaves require one machine-executable focused validation command' \
+grep -Fq 'Focused-Validation must be one machine-executable shell command' \
 	"$TEST_ROOT/descriptive-coding.out"
 
 sed \

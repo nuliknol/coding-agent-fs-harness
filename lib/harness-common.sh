@@ -18,6 +18,13 @@ validation_is_review_descriptor()
 	esac
 }
 
+validation_is_executable_command()
+{
+	local validation="$1"
+	validation_is_review_descriptor "$validation" && return 1
+	architecture_validation_is_command_shaped "$validation"
+}
+
 timestamp_utc()
 {
 	date -u '+%Y-%m-%dT%H:%M:%SZ'
@@ -192,7 +199,7 @@ load_harness_env()
 	unset HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION HARNESS_MAX_MANAGER_REVIEW_ITEMS_PER_INVOCATION
 	unset HARNESS_MAX_MANAGER_REPLAN_ITEMS_PER_INVOCATION HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS
 	unset HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION
-	unset HARNESS_AGENT_P95_TOKEN_HEADROOM_PERCENT
+	unset HARNESS_AGENT_P95_TOKEN_HEADROOM_PERCENT HARNESS_AGENT_BASE_CONTEXT_TOKENS_PER_ROUND
 	unset HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION
 	unset HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS
 	unset HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION
@@ -438,6 +445,11 @@ load_harness_env()
 	# tail allowance below the independent absolute fuse so ordinary fixed
 	# prompt/tool framing does not pause successful, compact leaf episodes.
 	HARNESS_AGENT_P95_TOKEN_HEADROOM_PERCENT="${HARNESS_AGENT_P95_TOKEN_HEADROOM_PERCENT:-50}"
+	# Provider usage is cumulative across the model/tool rounds inside one
+	# invocation. Account for fixed system/tool framing per round in addition to
+	# the generated prompt; otherwise a tiny semantic prediction can become an
+	# unrealistically low runtime fuse before useful verification completes.
+	HARNESS_AGENT_BASE_CONTEXT_TOKENS_PER_ROUND="${HARNESS_AGENT_BASE_CONTEXT_TOKENS_PER_ROUND:-20000}"
 	# Codex reports authoritative usage only when a turn ends. Estimate live
 	# context amplification from prompt/transcript size at every tool boundary so
 	# an internally looping process can be interrupted before final accounting.
@@ -665,6 +677,7 @@ load_harness_env()
 	[[ "$HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION must be a positive integer'
 	[[ "$HARNESS_AGENT_P95_TOKEN_HEADROOM_PERCENT" =~ ^[0-9]+$ ]] || die 'HARNESS_AGENT_P95_TOKEN_HEADROOM_PERCENT must be a non-negative integer'
 	(( HARNESS_AGENT_P95_TOKEN_HEADROOM_PERCENT <= 100 )) || die 'HARNESS_AGENT_P95_TOKEN_HEADROOM_PERCENT must not exceed 100'
+	[[ "$HARNESS_AGENT_BASE_CONTEXT_TOKENS_PER_ROUND" =~ ^[0-9]+$ ]] || die 'HARNESS_AGENT_BASE_CONTEXT_TOKENS_PER_ROUND must be a non-negative integer'
 	[[ "$HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION must be a positive integer'
 	[[ "$HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS must be a positive integer'
 	[[ "$HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION must be a positive integer'
@@ -719,6 +732,7 @@ load_harness_env()
 	export HARNESS_MAX_MANAGER_REPLAN_ITEMS_PER_INVOCATION HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS
 	export HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION
 	export HARNESS_AGENT_P95_TOKEN_HEADROOM_PERCENT
+	export HARNESS_AGENT_BASE_CONTEXT_TOKENS_PER_ROUND
 	export HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION
 	export HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS
 	export HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION
@@ -1854,6 +1868,17 @@ goal_thread_store()
 	mv "$tmp" "$file"
 }
 
+clear_worker_goal_thread_for_task()
+{
+	local task_id="$1" reason="${2:-fresh-context-required}" state_file
+	state_file="$(goal_state_file "$task_id")"
+	[[ -f "$state_file" ]] || return 0
+	goal_state_set "$state_file" thread_id ""
+	goal_state_set "$state_file" thread_context "$reason"
+	goal_thread_store "$task_id" "" "$reason"
+	log_event "WORKER_GOAL_THREAD_CLEARED task=$task_id root=$(task_root_id "$task_id") reason=$reason"
+}
+
 goal_record_manager_decision()
 {
 	local task_id="$1" decision="$2" state_file reviews prior_decision archive_dir source
@@ -2129,7 +2154,7 @@ write_worker_episode_evidence_digest()
 			printf 'Worker-JSONL-Bytes: %s\n' "$(stat -c %s "$json_log" 2>/dev/null || printf 0)"
 			if [[ -f "$classification_file" ]]; then
 				printf '\n## Classification\n\n'
-				awk -F= '$1 ~ /^(classification|role|model|exit_status|item_started_count|estimated_processed_tokens|processed_token_limit|resource_guard|git_head_changed|partial_edits|workspace_fingerprint_before|workspace_fingerprint_after)$/ {print}' \
+				awk -F= '$1 ~ /^(classification|role|model|exit_status|item_started_count|estimated_processed_tokens|processed_token_limit|resource_guard|git_head_changed|partial_edits|workspace_fingerprint_before|workspace_fingerprint_after|declared_effective_p95|runtime_p95_floor|prompt_bytes|context_rounds)$/ {print}' \
 					"$classification_file"
 			fi
 			if command -v jq >/dev/null 2>&1; then

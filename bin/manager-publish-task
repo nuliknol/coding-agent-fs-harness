@@ -751,6 +751,8 @@ validate_focused_validation_boundary()
 	local validation="$1" lower
 	lower="${validation,,}"
 	[[ -n "$validation" ]] || die 'FOCUSED validation requires a nonempty bounded command or evidence boundary'
+	validation_is_executable_command "$validation" ||
+		die 'Focused-Validation must be one machine-executable shell command without Markdown quoting or trailing prose; use Validation-Command to refine a descriptive DAG boundary'
 	if [[ "$lower" == *"cmake --build"* && "$lower" != *"--target"* ]]; then
 		die 'FOCUSED validation cannot run an unqualified CMake all-target build; name the exact --target or use a separate CLEAN_GLOBAL Terra integration leaf'
 	fi

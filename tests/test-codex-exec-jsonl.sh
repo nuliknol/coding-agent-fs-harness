@@ -67,6 +67,7 @@ export WORKER_CODEX_BIN="$TMP/mock-codex"
 export HARNESS_CODEX_WALL_TIMEOUT_SECONDS="2"
 export HARNESS_CODEX_IDLE_TIMEOUT_SECONDS="1"
 export HARNESS_CODEX_KILL_GRACE_SECONDS="1"
+export HARNESS_AGENT_BASE_CONTEXT_TOKENS_PER_ROUND="0"
 ENV
 chmod 600 "$TMP/env"
 prompt="$TMP/prompt"; printf 'test\n' > "$prompt"
@@ -404,6 +405,20 @@ set -e
 grep -q '^classification=agent_token_budget_exceeded$' "$TMP/predicted-token.classification"
 grep -q '^processed_token_limit=105$' "$TMP/predicted-token.classification"
 rm -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-predicted-token-root.token-usage-anomaly.md"
+
+# Runtime worker budgets include generated prompt bytes and fixed provider
+# framing for every expected model/tool round. This raises an implausibly tiny
+# decomposition estimate without weakening the independent absolute fuse.
+cp "$TMP/env" "$TMP/env-runtime-floor"
+printf 'export HARNESS_AGENT_BASE_CONTEXT_TOKENS_PER_ROUND="100"\n' >> "$TMP/env-runtime-floor"
+MOCK_MODE=success "$ROOT/bin/codex-exec-jsonl" "$TMP/env-runtime-floor" worker gpt-5.5 \
+	"$TMP/predicted-token-prompt" "$TMP/runtime-floor.jsonl" "$TMP/runtime-floor.stderr" \
+	"$TMP/runtime-floor.last"
+runtime_floor="$(awk -F= '$1=="runtime_p95_floor" {print $2}' "$TMP/runtime-floor.classification")"
+runtime_limit="$(awk -F= '$1=="processed_token_limit" {print $2}' "$TMP/runtime-floor.classification")"
+(( runtime_floor > 70 ))
+(( runtime_limit > 105 && runtime_limit <= 500000 ))
+grep -q '^context_rounds=10$' "$TMP/runtime-floor.classification"
 
 # The named specification-normalization phase has a separate bounded allowance
 # while ordinary manager/worker turns retain the lower default limit.

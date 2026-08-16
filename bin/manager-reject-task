@@ -155,10 +155,21 @@ if [[ -f "$rejected" ]]; then
 	archive_lingering_result
 	result_resource_guard="$(metadata_value "$result_archive" Resource-Guard 2>/dev/null || true)"
 	[[ -n "$result_resource_guard" ]] || result_resource_guard="-"
+	goal_outcome="$(metadata_value "$result_archive" Goal-Outcome 2>/dev/null || true)"
 	goal_record_manager_decision "$task_id" REJECTED
-	retain_worker_thread_for_rejection "$task_id"
+	if [[ "$result_resource_guard" != "-" || "$goal_outcome" == HARD_BLOCKED ]]; then
+		clear_worker_thread_for_root "$task_id" rejected-boundary-requires-fresh-context
+		clear_worker_goal_thread_for_task "$task_id" rejected-boundary-requires-fresh-context
+	else
+		retain_worker_thread_for_rejection "$task_id"
+	fi
 	trace_event TASK_REJECT_IDEMPOTENT "task_id=$task_id" "rejected_file=$rejected"
-	if ! enforce_root_liveness_or_reassess "$task_id"; then
+	if [[ "$goal_outcome" == HARD_BLOCKED ]]; then
+		mark_root_needs_replan "$task_id" \
+			'a worker-reported hard boundary was not accepted; inspect the smallest adjacent repository-local declaration, producer, consumer, or validation prerequisite with fresh manager context before another implementation attempt' \
+			HARD_BLOCK_SCOPE_DIAGNOSTIC LOCAL_SCOPE_PREREQUISITE \
+			"adjacent contract or implementation authority outside $(metadata_value "$assignment_archive" Allowed-Scope)"
+	elif ! enforce_root_liveness_or_reassess "$task_id"; then
 		printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
 	elif [[ -f "$result_archive" &&
 		"$(metadata_value "$result_archive" Goal-Outcome)" == NEEDS_DECOMPOSITION ]]; then
@@ -196,10 +207,21 @@ chmod 600 "$tmp"
 mv "$tmp" "$rejected"
 update_task_progress "$task_id" "$progress_percent" "$improvement_percent" REJECT "$note_file"
 goal_record_manager_decision "$task_id" REJECTED
-retain_worker_thread_for_rejection "$task_id"
+if [[ "$result_resource_guard" != "-" || "$goal_outcome" == HARD_BLOCKED ]]; then
+	clear_worker_thread_for_root "$task_id" rejected-boundary-requires-fresh-context
+	clear_worker_goal_thread_for_task "$task_id" rejected-boundary-requires-fresh-context
+else
+	retain_worker_thread_for_rejection "$task_id"
+fi
 log_event "TASK_REJECTED task=$task_id"
 trace_event TASK_REJECTED "task_id=$task_id" "rejected_file=$rejected" "result_archive=$result_archive" "note_file=$note_file"
-if ! enforce_root_liveness_or_reassess "$task_id"; then
+if [[ "$goal_outcome" == HARD_BLOCKED ]]; then
+	replan_marker="$(mark_root_needs_replan "$task_id" \
+		'a worker-reported hard boundary was not accepted; inspect the smallest adjacent repository-local declaration, producer, consumer, or validation prerequisite with fresh manager context before another implementation attempt' \
+		HARD_BLOCK_SCOPE_DIAGNOSTIC LOCAL_SCOPE_PREREQUISITE \
+		"adjacent contract or implementation authority outside $(metadata_value "$assignment_archive" Allowed-Scope)")"
+	printf '%s\n' "$replan_marker"
+elif ! enforce_root_liveness_or_reassess "$task_id"; then
 	printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
 elif (( manager_remediation_circuit_breaker == 1 )); then
 	mark_root_architecture_reassessment "$task_id" REPEATED_MANAGER_REMEDIATION_BLOCKER \

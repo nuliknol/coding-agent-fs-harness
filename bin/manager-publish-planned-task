@@ -103,13 +103,13 @@ if [[ -z "$root_assignment" ]]; then
 	candidate_validation="$(metadata_value "$publish_file" Focused-Validation)"
 	explicit_validation="$(metadata_value "$publish_file" Validation-Command)"
 	if validation_is_review_descriptor "$node_validation" &&
-		validation_is_review_descriptor "$candidate_validation" &&
-		[[ -n "$explicit_validation" ]] && ! validation_is_review_descriptor "$explicit_validation"; then
+		! validation_is_executable_command "$candidate_validation" &&
+		[[ -n "$explicit_validation" ]] && validation_is_executable_command "$explicit_validation"; then
 		normalize_metadata "$publish_file" Focused-Validation "$explicit_validation"
 		candidate_validation="$explicit_validation"
 		log_event "PLANNED_VALIDATION_COMMAND_PROMOTED item=$plan_item_id task=${task_id:-pending}"
 	fi
-	if ! validation_is_review_descriptor "$node_validation" ||
+	if validation_is_executable_command "$node_validation" ||
 		[[ -z "$candidate_validation" ]] || validation_is_review_descriptor "$candidate_validation"; then
 		normalize_metadata "$publish_file" Focused-Validation "$node_validation"
 	fi
@@ -215,13 +215,13 @@ if [[ -n "$root_assignment" ]]; then
 	candidate_validation="$(metadata_value "$publish_file" Focused-Validation)"
 	explicit_validation="$(metadata_value "$publish_file" Validation-Command)"
 	if validation_is_review_descriptor "$root_validation" &&
-		validation_is_review_descriptor "$candidate_validation" &&
-		[[ -n "$explicit_validation" ]] && ! validation_is_review_descriptor "$explicit_validation"; then
+		! validation_is_executable_command "$candidate_validation" &&
+		[[ -n "$explicit_validation" ]] && validation_is_executable_command "$explicit_validation"; then
 		normalize_metadata "$publish_file" Focused-Validation "$explicit_validation"
 		candidate_validation="$explicit_validation"
 		log_event "PLANNED_VALIDATION_COMMAND_PROMOTED item=$plan_item_id task=$task_id root=$active_root"
 	fi
-	if ! validation_is_review_descriptor "$root_validation" ||
+	if validation_is_executable_command "$root_validation" ||
 		[[ -z "$candidate_validation" ]] || validation_is_review_descriptor "$candidate_validation"; then
 		normalize_metadata "$publish_file" Focused-Validation "$root_validation"
 	fi
