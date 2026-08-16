@@ -99,7 +99,12 @@ if [[ -z "$root_assignment" ]]; then
 	normalize_metadata "$publish_file" Depends-On "$(project_plan_node_value "$plan_item_id" depends_on)"
 	normalize_metadata "$publish_file" Deliverable "$(project_plan_node_value "$plan_item_id" deliverable)"
 	normalize_metadata "$publish_file" Goal-Success-Evidence "$(project_plan_node_value "$plan_item_id" acceptance_evidence)"
-	normalize_metadata "$publish_file" Focused-Validation "$(project_plan_node_value "$plan_item_id" focused_validation)"
+	node_validation="$(project_plan_node_value "$plan_item_id" focused_validation)"
+	candidate_validation="$(metadata_value "$publish_file" Focused-Validation)"
+	if ! validation_is_review_descriptor "$node_validation" ||
+		[[ -z "$candidate_validation" ]] || validation_is_review_descriptor "$candidate_validation"; then
+		normalize_metadata "$publish_file" Focused-Validation "$node_validation"
+	fi
 	normalize_metadata "$publish_file" Allowed-Scope "$(project_plan_node_value "$plan_item_id" allowed_paths)"
 	normalize_metadata "$publish_file" Required-Symbols "$(project_plan_node_value "$plan_item_id" required_symbols)"
 	node_leaf_type="$(project_plan_node_value "$plan_item_id" leaf_type)"
@@ -121,7 +126,6 @@ if [[ -z "$root_assignment" ]]; then
 		normalize_metadata "$publish_file" Complexity-Score "$complexity_score"
 		normalize_metadata "$publish_file" Effective-P95-Tokens "$effective_p95"
 	fi
-	node_validation="$(project_plan_node_value "$plan_item_id" focused_validation)"
 	case "$node_validation" in
 		CLEAN_GLOBAL:*) node_validation_class=CLEAN_GLOBAL ;;
 		INCREMENTAL:*) node_validation_class=INCREMENTAL ;;
@@ -199,6 +203,12 @@ if [[ -n "$root_assignment" ]]; then
 		[[ -n "$value" ]] || continue
 		normalize_metadata "$publish_file" "$field" "$value"
 	done
+	root_validation="$(metadata_value "$root_assignment" Focused-Validation)"
+	candidate_validation="$(metadata_value "$publish_file" Focused-Validation)"
+	if ! validation_is_review_descriptor "$root_validation" ||
+		[[ -z "$candidate_validation" ]] || validation_is_review_descriptor "$candidate_validation"; then
+		normalize_metadata "$publish_file" Focused-Validation "$root_validation"
+	fi
 	# Legacy roots could be reclassified from Terra to Luna before the
 	# three-turn Luna contract was machine-enforced.  Preserve the root's
 	# immutable write/architecture authority, but narrow that stale execution

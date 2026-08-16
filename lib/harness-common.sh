@@ -10,6 +10,14 @@ die()
 	exit 1
 }
 
+validation_is_review_descriptor()
+{
+	case "$1" in
+		FOCUSED:*|INCREMENTAL:*|CLEAN_GLOBAL:*) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
 timestamp_utc()
 {
 	date -u '+%Y-%m-%dT%H:%M:%SZ'

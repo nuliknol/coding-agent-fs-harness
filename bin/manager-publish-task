@@ -743,14 +743,6 @@ validate_focused_validation_boundary()
 	fi
 }
 
-validation_is_review_descriptor()
-{
-	case "$1" in
-		FOCUSED:*|INCREMENTAL:*|CLEAN_GLOBAL:*) return 0 ;;
-		*) return 1 ;;
-	esac
-}
-
 assignment_objective_text()
 {
 	awk '
@@ -1107,7 +1099,14 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 			[[ "$leaf_depends_on" == "$(project_plan_node_value "$plan_item_id" depends_on)" ]] || die 'leaf Depends-On does not match its DAG node'
 			[[ "$leaf_deliverable" == "$(project_plan_node_value "$plan_item_id" deliverable)" ]] || die 'leaf Deliverable does not match its DAG node'
 			[[ "$goal_success_evidence" == "$(project_plan_node_value "$plan_item_id" acceptance_evidence)" ]] || die 'leaf Goal-Success-Evidence does not match its DAG node'
-			[[ "$goal_focused_validation" == "$(project_plan_node_value "$plan_item_id" focused_validation)" ]] || die 'leaf Focused-Validation does not match its DAG node'
+			planned_validation="$(project_plan_node_value "$plan_item_id" focused_validation)"
+			if [[ "$goal_focused_validation" != "$planned_validation" ]]; then
+				validation_is_review_descriptor "$planned_validation" ||
+					die 'leaf Focused-Validation does not match its DAG node'
+				! validation_is_review_descriptor "$goal_focused_validation" ||
+					die 'descriptive DAG validation must be refined to one machine-executable focused command'
+				log_event "DESCRIPTIVE_VALIDATION_REFINED node=$plan_item_id task=$task_id"
+			fi
 			[[ "$goal_allowed_scope" == "$(project_plan_node_value "$plan_item_id" allowed_paths)" ]] || die 'leaf Allowed-Scope does not match its DAG node'
 			[[ "$leaf_required_symbols" == "$(project_plan_node_value "$plan_item_id" required_symbols)" ]] || die 'leaf Required-Symbols does not match its DAG node'
 			planned_complexity="$(project_plan_node_value "$plan_item_id" complexity_class)"

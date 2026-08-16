@@ -43,7 +43,7 @@ chmod 600 "$TEST_ROOT/harness.env"
 "$HARNESS_BIN/harness-init" "$TEST_ROOT/harness.env" >/dev/null
 cat > "$TEST_ROOT/plan.tsv" <<'TSV'
 node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route
-contract	-	-	Publish and execute the bounded API	API smoke passes	./focused-smoke	src/api.h	public_api	MECHANICAL_API	LOW	LUNA
+contract	-	-	Publish and execute the bounded API	API smoke passes	FOCUSED: run the focused API smoke	src/api.h	public_api	MECHANICAL_API	LOW	LUNA
 TSV
 "$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/harness.env" "$TEST_ROOT/plan.tsv" >/dev/null
 
@@ -95,7 +95,7 @@ Run the focused API smoke.
 MD
 sed 's/^Expected-Max-Worker-Turns: 2$/Expected-Max-Worker-Turns: 5/' \
 	"$TEST_ROOT/root.md" > "$TEST_ROOT/root-overturn.md"
-"$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" contract "$TEST_ROOT/root-overturn.md" contract >/dev/null
+"$HARNESS_BIN/manager-publish-planned-task" "$TEST_ROOT/harness.env" "$TEST_ROOT/root-overturn.md" >/dev/null
 project="$TEST_ROOT/state/projects/revisionproj"
 grep -Fqx 'Expected-Max-Worker-Turns: 3' \
 	"$project/tasks/revisionproj-task-contract.ready.md"
@@ -141,7 +141,7 @@ grep -Fqx 'worker_route=TERRA' \
 	"$project/control/progress/revisionproj-task-contract.operator-worker-route-override.env"
 grep -Fqx 'old_allowed_paths=src/api.h' "$revision_archive/revision.env"
 grep -Fqx 'new_allowed_paths=src/api.h,src/api.c' "$revision_archive/revision.env"
-grep -Fqx 'old_focused_validation=./focused-smoke' "$revision_archive/revision.env"
+grep -Fqx 'old_focused_validation=FOCUSED: run the focused API smoke' "$revision_archive/revision.env"
 grep -Fqx 'new_focused_validation=./focused-smoke --runtime' "$revision_archive/revision.env"
 
 # The original root assignment has served as the active-plan fixture. Move it
