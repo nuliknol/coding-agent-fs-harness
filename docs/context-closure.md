@@ -35,6 +35,10 @@ harness-build-index-tools "$HARNESS_HOME/libexec"
 
 Joern and Recoll are not required for ordinary structural closure. A leaf that
 explicitly requests flow class `F` fails closed when Joern evidence is absent.
+When Joern is enabled on a repository containing generated build trees, set
+`HARNESS_JOERN_EXCLUDE_REGEX` explicitly. The harness also supplies the selected
+compilation database to C2CPG; exclusions affect Joern only and never hide SCIP,
+Git, specification, or registered architecture evidence.
 
 ## Configuration
 
@@ -51,6 +55,7 @@ export HARNESS_JOERN_BIN="joern"
 export HARNESS_JOERN_ENABLED="0"
 export HARNESS_JOERN_ANALYSIS_CLASSES="call,control-flow,data-flow,mutation"
 export HARNESS_JOERN_SOURCE_ROOT="."
+export HARNESS_JOERN_EXCLUDE_REGEX='(^|/)(\.git|build)($|/)'
 export HARNESS_RECOLL_BIN="recollq"
 export HARNESS_RECOLL_ENABLED="0"
 ```

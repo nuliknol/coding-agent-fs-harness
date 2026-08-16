@@ -185,8 +185,13 @@ if (( HARNESS_JOERN_ENABLED == 1 )); then
 	joern_export="$(dirname "$joern_command_path")/joern-export"
 	[[ -x "$joern_parse" && -x "$joern_export" ]] ||
 		die 'Joern is enabled but joern-parse/joern-export are not adjacent to HARNESS_JOERN_BIN'
+	joern_frontend_args=(--compilation-database "$compile_commands")
+	if [[ -n "$HARNESS_JOERN_EXCLUDE_REGEX" ]]; then
+		joern_frontend_args+=(--exclude-regex "$HARNESS_JOERN_EXCLUDE_REGEX")
+	fi
 	set +e
 	timeout 900 "$joern_parse" --language c --output "$tmp_generation/joern/cpg.bin" "$joern_source" \
+		--frontend-args "${joern_frontend_args[@]}" \
 		> "$tmp_generation/reports/joern-parse.log" 2>&1
 	joern_parse_status=$?
 	if (( joern_parse_status == 0 )); then
@@ -296,6 +301,7 @@ printf 'metric\tvalue\nscip_index_bytes\t%s\ncompile_commands\t%s\nfiles\t%s\nsy
 	printf 'joern_enabled=%s\n' "$HARNESS_JOERN_ENABLED"
 	printf 'joern_fingerprint=%s\n' "$REPOSITORY_INDEX_JOERN_FINGERPRINT"
 	printf 'joern_source_root=%s\n' "$HARNESS_JOERN_SOURCE_ROOT"
+	printf 'joern_exclude_regex=%s\n' "$HARNESS_JOERN_EXCLUDE_REGEX"
 	printf 'joern_status=%s\n' "$joern_status"
 	printf 'recoll_enabled=%s\n' "$HARNESS_RECOLL_ENABLED"
 	printf 'recoll_fingerprint=%s\n' "$REPOSITORY_INDEX_RECOLL_FINGERPRINT"
