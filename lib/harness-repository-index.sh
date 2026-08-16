@@ -118,7 +118,10 @@ repository_index_normalize_compile_commands()
 repository_index_tool_fingerprint()
 {
 	local executable="$1" version content_hash
-	version="$($executable --version 2>&1 | head -n 4 || true)"
+	# Optional analysis tools are not guaranteed to implement a terminating
+	# --version action.  In particular, some Joern launchers enter the REPL.
+	# Reuse the bounded probe so tool identity can never stall index startup.
+	version="$(repository_index_tool_version "$executable")"
 	content_hash="$(sha256sum "$executable" | awk '{print $1}')"
 	[[ -n "$version" ]] || version='no-version-output'
 	printf '%s\n%s\n%s\n' "$executable" "$content_hash" "$version" | sha256sum | awk '{print $1}'
@@ -126,9 +129,17 @@ repository_index_tool_fingerprint()
 
 repository_index_tool_version()
 {
-	local executable="$1" output
-	output="$(timeout 10 "$executable" --version 2>&1 | head -n 4 || true)"
-	[[ -n "$output" ]] || output="$(timeout 10 "$executable" -version 2>&1 | head -n 4 || true)"
+	local executable="$1" output status=0
+	if output="$(timeout --signal=TERM --kill-after=2 5 "$executable" --version 2>&1 | head -n 4)"; then
+		status=0
+	else
+		status=$?
+	fi
+	# Try the single-dash spelling only when the first command terminated.  A
+	# timed-out launcher is already known to have unsafe version semantics.
+	if [[ -z "$output" && "$status" != 124 && "$status" != 137 ]]; then
+		output="$(timeout --signal=TERM --kill-after=2 5 "$executable" -version 2>&1 | head -n 4 || true)"
+	fi
 	[[ -n "$output" ]] || output=no-version-output
 	printf '%s' "$output" | tr '\n\t' '  '
 }

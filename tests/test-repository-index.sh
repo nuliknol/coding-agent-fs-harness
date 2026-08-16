@@ -61,7 +61,23 @@ if [[ "${1:-}" == --version ]]; then printf 'fixture-scip-clang-fail 1.0\n'; exi
 printf 'intentional indexing failure\n' >&2
 exit 9
 SH
-chmod +x "$TEST_ROOT/bin/scip-clang" "$TEST_ROOT/bin/scip" "$TEST_ROOT/bin/scip-clang-fail"
+cat > "$TEST_ROOT/bin/hanging-version-tool" <<'SH'
+#!/usr/bin/env bash
+sleep 30
+SH
+chmod +x "$TEST_ROOT/bin/scip-clang" "$TEST_ROOT/bin/scip" "$TEST_ROOT/bin/scip-clang-fail" \
+	"$TEST_ROOT/bin/hanging-version-tool"
+
+# A provider whose --version action enters a REPL must not stall immutable
+# identity construction.  Keep this assertion outside a harness invocation so
+# it directly exercises the shared fingerprint helper.
+probe_started="$(date +%s)"
+# shellcheck source=../lib/harness-repository-index.sh
+source "$HARNESS_HOME/lib/harness-repository-index.sh"
+probe_fingerprint="$(repository_index_tool_fingerprint "$TEST_ROOT/bin/hanging-version-tool")"
+probe_elapsed="$(( $(date +%s) - probe_started ))"
+[[ "$probe_fingerprint" =~ ^[0-9a-f]{64}$ ]]
+(( probe_elapsed < 10 ))
 
 write_env()
 {
