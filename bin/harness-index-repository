@@ -209,6 +209,12 @@ if (( HARNESS_JOERN_ENABLED == 1 )); then
 		joern_status=READY
 	else
 		joern_status=DEGRADED
+		# Partial CPG/GraphML exports are not authoritative evidence and can be
+		# many gigabytes on large repositories.  Retain bounded provider logs and
+		# the DEGRADED manifest row, but do not publish incomplete graph data.
+		find "$tmp_generation/joern/export" -type f -delete
+		find "$tmp_generation/joern/export" -depth -type d -empty -delete
+		find "$tmp_generation/joern" -maxdepth 1 -type f -name 'cpg.bin*' -delete
 		joern_version_q="$(repository_index_sql_quote "$(repository_index_tool_version "$HARNESS_JOERN_BIN")")"
 		joern_fingerprint_q="$(repository_index_sql_quote "$REPOSITORY_INDEX_JOERN_FINGERPRINT")"
 		sqlite3 "$tmp_generation/architecture.sqlite" "INSERT OR REPLACE INTO provider_runs VALUES('joern',$generation_q,$joern_version_q,$joern_fingerprint_q,'DEGRADED','reports/joern-parse.log',datetime('now'));"

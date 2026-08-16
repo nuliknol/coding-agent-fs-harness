@@ -120,6 +120,7 @@ def infer(args: argparse.Namespace) -> None:
                                (source, target, kind, count))
 
         concept_records: list[tuple] = []
+        concept_owner_rows: list[tuple[str, str, str]] = []
         owner_by_concept: dict[str, set[str]] = {}
         public_interfaces: list[tuple] = []
         for row in rows(connection, """SELECT s.symbol_id,s.display_name,s.symbol_kind,f.repository_path
@@ -130,12 +131,15 @@ def infer(args: argparse.Namespace) -> None:
             modules = symbol_modules.get(row["symbol_id"], set())
             for module_id in sorted(modules):
                 owner_by_concept.setdefault(concept, set()).add(module_id)
-                connection.execute("INSERT OR IGNORE INTO concept_owners VALUES(?, 'MODULE', ?, 'DERIVED', 'architecture-normalizer', ?)",
-                                   (concept, module_id, row["repository_path"]))
+                concept_owner_rows.append((concept, module_id, row["repository_path"]))
                 concept_records.append((concept, "MODULE", module_id, row["repository_path"], "DERIVED"))
             if Path(row["repository_path"]).suffix.lower() in {".h", ".hh", ".hpp", ".hxx", ".inc"}:
                 public_interfaces.append((row["display_name"], row["symbol_kind"], row["repository_path"],
                                           ",".join(sorted(modules)) or "-", "DERIVED"))
+        connection.executemany(
+            "INSERT OR IGNORE INTO concept_owners VALUES(?, 'MODULE', ?, 'DERIVED', 'architecture-normalizer', ?)",
+            concept_owner_rows,
+        )
 
         findings: list[tuple[str, str, str, str, str, str]] = []
         for concept, owners in sorted(owner_by_concept.items()):
