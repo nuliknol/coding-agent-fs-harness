@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+[[ $# -eq 1 ]] || { printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"; ensure_project
+python3 "$HARNESS_HOME/tools/context_closure_metrics.py" promotion --project "$(project_dir)" \
+	--min-samples "$HARNESS_CONTEXT_CLOSURE_PROMOTION_MIN_SAMPLES" \
+	--min-recall "$HARNESS_CONTEXT_CLOSURE_MIN_FILE_RECALL_PERCENT" \
+	--min-success "$HARNESS_CONTEXT_CLOSURE_MIN_LUNA_SUCCESS_PERCENT" \
+	--max-false-block "$HARNESS_CONTEXT_CLOSURE_MAX_FALSE_BLOCK_PERCENT"

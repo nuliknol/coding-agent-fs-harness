@@ -1,0 +1,3 @@
+#pragma once
+
+#define CONTEXT_NESTED_BASE @CONTEXT_NESTED_BASE@

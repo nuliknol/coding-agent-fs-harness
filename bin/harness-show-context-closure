@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 2 || ( $# -eq 4 && "$3" == --why ) ]] || {
+	printf 'Usage: %s ENV_FILE TASK_ID [--why ITEM_ID_OR_SYMBOL_OR_PATH]\n' "${0##*/}" >&2
+	exit 2
+}
+load_harness_env "$1"
+ensure_project
+closure_dir="$(project_dir)/control/context-closures/$(task_base "$2")"
+context="$closure_dir/context.md"
+[[ -f "$context" ]] || die "compiled Context Closure does not exist: $context"
+if (( $# == 4 )); then
+	ledger="$closure_dir/closure.tsv"
+	[[ -f "$ledger" ]] || die "compiled Context Closure ledger does not exist: $ledger"
+	awk -F '\t' -v wanted="$4" '
+		NR == 1 {header=$0; next}
+		$1 == wanted || $3 == wanted || $6 == wanted {
+			if (!found++) print header
+			print
+		}
+		END {if (!found) exit 3}
+	' "$ledger"
+	exit $?
+fi
+cat "$context"

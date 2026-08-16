@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+[[ $# -eq 2 ]] || { printf 'Usage: %s BEFORE_BASELINE_TSV AFTER_BASELINE_TSV\n' "${0##*/}" >&2; exit 2; }
+for file in "$@"; do [[ -f "$file" ]] || { printf 'missing baseline: %s\n' "$file" >&2; exit 2; }; done
+metric()
+{
+	awk -F '\t' -v wanted="$2" 'NR>1 && $1==wanted {print $2; found=1; exit} END {if(!found) print 0}' "$1"
+}
+before_tokens="$(metric "$1" processed_tokens)"
+after_tokens="$(metric "$2" processed_tokens)"
+before_verified=$(( $(metric "$1" accepted_outcomes) + $(metric "$1" checkpointed_outcomes) ))
+after_verified=$(( $(metric "$2" accepted_outcomes) + $(metric "$2" checkpointed_outcomes) ))
+before_per=0; after_per=0
+(( before_verified == 0 )) || before_per=$((before_tokens / before_verified))
+(( after_verified == 0 )) || after_per=$((after_tokens / after_verified))
+printf 'metric\tbefore\tafter\tdelta\n'
+printf 'processed_tokens\t%s\t%s\t%s\n' "$before_tokens" "$after_tokens" "$((after_tokens - before_tokens))"
+printf 'verified_criteria\t%s\t%s\t%s\n' "$before_verified" "$after_verified" "$((after_verified - before_verified))"
+printf 'tokens_per_verified_criterion\t%s\t%s\t%s\n' "$before_per" "$after_per" "$((after_per - before_per))"

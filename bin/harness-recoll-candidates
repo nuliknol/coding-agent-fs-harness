@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+source "$SCRIPT_DIR/../lib/harness-repository-index.sh"
+[[ $# -ge 2 ]] || { printf 'Usage: %s ENV_FILE QUERY...\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+(( HARNESS_RECOLL_ENABLED == 1 )) || die 'Recoll candidate retrieval is disabled'
+shift
+repository_index_project_pointer_is_current || die "Recoll import requires a current index: $REPOSITORY_INDEX_POINTER_REASON"
+pointer="$(repository_index_project_pointer_file)"
+generation_dir="$(kv_file_value "$pointer" generation_dir)"
+generation="$(kv_file_value "$pointer" generation)"
+report="$(project_dir)/logs/recoll-$generation-$(timestamp_compact_utc).tsv"
+query_hash="$(printf '%s' "$*" | sha256sum | awk '{print $1}')"
+overlay="$(project_dir)/control/repository-architecture/$generation/recoll-$query_hash.sqlite"
+python3 "$HARNESS_HOME/tools/import_recoll_candidates.py" --output-database "$overlay" \
+	--generation "$generation" --repository "$REPOSITORY" --recoll-bin "$HARNESS_RECOLL_BIN" \
+	--query "$*" --report "$report"
+cat "$report"

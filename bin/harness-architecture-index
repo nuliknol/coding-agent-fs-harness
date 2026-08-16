@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+source "$SCRIPT_DIR/../lib/harness-repository-index.sh"
+source "$SCRIPT_DIR/../lib/harness-architecture.sh"
+[[ $# -ge 1 && $# -le 2 ]] || { printf 'Usage: %s ENV_FILE [--rebuild]\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+if [[ "${2:-}" == --rebuild ]] || ! repository_index_project_pointer_is_current; then
+	"$HARNESS_BIN/harness-index-repository" "$HARNESS_ENV_FILE" ${2:+--force} >/dev/null
+fi
+repository_index_project_pointer_is_current || die "architecture index is unavailable: $REPOSITORY_INDEX_POINTER_REASON"
+generation_dir="$(kv_file_value "$(repository_index_project_pointer_file)" generation_dir)"
+generation="$(kv_file_value "$(repository_index_project_pointer_file)" generation)"
+output="$(project_dir)/control/repository-architecture/$generation"
+mkdir -p "$output"
+cp -a "$generation_dir/reports/architecture/." "$output/"
+if architecture_registered; then
+	python3 "$HARNESS_HOME/tools/project_normative_architecture.py" \
+		--database "$generation_dir/architecture.sqlite" --generation "$generation" \
+		--architecture "$(architecture_dir)" --output "$output/normative-projection.tsv"
+else
+	printf 'record_kind\trecord_id\tauthority\tdeclared_scopes\tdeclared_symbols\taffected_nodes\tmatched_symbol_ids\tmatched_module_ids\tunresolved\n' \
+		> "$output/normative-projection.tsv"
+fi
+printf 'ARCHITECTURE_INDEX_READY generation=%s path=%s\n' "$generation" "$output"

@@ -717,6 +717,10 @@ Role-specific arrays are appended after `CODEX_EXTRA_ARGS`, so they can add more
 - Codex CLI
 - Optional: `inotifywait` from `inotify-tools`
 - `jq` (required to validate and classify Codex JSON Lines)
+- Optional repository intelligence: `sqlite3` with FTS5, `scip-clang`, and the
+  SCIP CLI. Joern and Recoll remain supplemental providers. See
+  [`docs/context-closure.md`](docs/context-closure.md) for installation,
+  rollout, maintenance, troubleshooting, migration, and rollback.
 
 ## Project environment file
 
@@ -797,6 +801,33 @@ export HARNESS_MIN_LUNA_CODING_NODE_PERCENT="80"
 export HARNESS_PREFERRED_WORKER_ROUTE="LUNA"
 export HARNESS_ARCHITECTURE_GUARDS="1"
 
+# Repository intelligence remains disabled for compatibility until explicitly
+# enabled. Advisory mode builds and measures indexes without restricting worker
+# repository access.
+export HARNESS_REPOSITORY_INDEX_MODE="off"       # off|advisory|required
+export HARNESS_CONTEXT_CLOSURE_MODE="off"        # off|advisory|required|patch_only
+# export HARNESS_COMPILE_COMMANDS="$REPOSITORY/build/compile_commands.json"
+export HARNESS_SCIP_CLANG_BIN="scip-clang"
+export HARNESS_SCIP_BIN="scip"
+export HARNESS_SCIP_IMPORTER_BIN="$HARNESS_HOME/libexec/harness-scip-importer"
+export HARNESS_JOERN_BIN="joern"
+export HARNESS_JOERN_ENABLED="0"
+export HARNESS_JOERN_ANALYSIS_CLASSES="call,control-flow,data-flow,mutation"
+export HARNESS_JOERN_SOURCE_ROOT="."
+export HARNESS_SCIP_CLANG_JOBS="1"
+export HARNESS_RECOLL_BIN="recollq"
+export HARNESS_RECOLL_ENABLED="0"
+export HARNESS_CONTEXT_CLOSURE_MAX_BYTES="32768"
+export HARNESS_CONTEXT_CLOSURE_MAX_SYMBOLS="64"
+export HARNESS_CONTEXT_CLOSURE_MAX_MODULES="4"
+export HARNESS_CONTEXT_CLOSURE_MAX_OWNERSHIP_BOUNDARIES="2"
+export HARNESS_CONTEXT_CLOSURE_MAX_DIRECT_RELATIONSHIPS="16"
+export HARNESS_CONTEXT_CLOSURE_MAX_TESTS="8"
+export HARNESS_CONTEXT_CLOSURE_MAX_BUILD_TARGETS="4"
+export HARNESS_CONTEXT_CLOSURE_MAX_ESTIMATED_TOKENS="250000"
+export HARNESS_REPOSITORY_INDEX_RETENTION="3"
+export HARNESS_REPOSITORY_INDEX_REFRESH_ACCEPTED_LEAVES="4"
+
 export HARNESS_POLL_SECONDS="2"
 export HARNESS_WAIT_SECONDS="300"
 export HARNESS_STALE_SECONDS="900"
@@ -871,6 +902,113 @@ chmod 600 /path/to/repository/harness.env
 ```
 
 The file is trusted Bash input and is sourced by every command.
+
+### Repository index foundation
+
+Repository intelligence is disabled by default and does not change existing
+project behavior. To build an advisory SCIP generation, first provide one
+compilation database. CMake can generate it without writing into the source
+tree:
+
+```bash
+cmake -S "$REPOSITORY" -B /tmp/project-context-index \
+  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+```
+
+Set `HARNESS_REPOSITORY_INDEX_MODE=advisory` and, when auto-discovery would be
+ambiguous, set `HARNESS_COMPILE_COMMANDS` to that file. Then run:
+
+```bash
+harness-build-index-tools "$HARNESS_HOME/libexec"
+harness-index-repository project.env
+harness-index-status project.env --details
+harness-context-baseline project.env
+harness-index-invalidate project.env --reason "build configuration changed"
+```
+
+The builder requires a clean tracked worktree, normalizes the compilation
+database, hashes recursive generated/external headers selected by its include
+paths, runs `scip-clang`, validates the result with the SCIP CLI, initializes
+the versioned architecture database, imports SCIP definitions, references,
+relationships, structural source regions, tests, build targets/inputs, and FTS5
+lexical records, and atomically publishes an immutable generation under
+`HARNESS_REPOSITORY_INDEX_ROOT`. Failed generations preserve the prior project
+pointer. Untracked files are not indexed. `scip lint` findings are retained as
+quality evidence because some valid `scip-clang` versions omit optional local
+symbol metadata; malformed protobuf or failed database integrity remains fatal.
+
+`harness-context-baseline` summarizes existing context-capsule size, processed
+tokens, agent actions, command output, source reads, repeated reads, and worker
+outcomes without replaying transcript contents.
+
+The first advisory Context Closure compiler can resolve an existing task,
+context capsule, decomposition node, or explicit assignment against the current
+repository index:
+
+```bash
+harness-build-context-closure project.env TASK_OR_PLAN_NODE
+harness-context-closure-check project.env TASK_ID
+harness-context-closure-usage project.env TASK_ID
+harness-evaluate-decomposition-context project.env DAG_TSV COVERAGE_TSV - OUTPUT_DIR
+harness-export-architecture-slice project.env
+harness-show-context-closure project.env TASK_ID
+harness-show-context-closure project.env TASK_ID --why SYMBOL_OR_PATH
+harness-query-architecture project.env EXACT_SYMBOL
+```
+
+It emits a deterministic context document plus item, edge, build-target,
+ownership-boundary, unresolved, provenance, quality, and suggested-child-cut
+ledgers under the project state directory. Missing required structural evidence
+returns `INCOMPLETE`; exceeded context, symbol, module, ownership, relationship,
+test, build-target, or estimated-token budgets return
+`NEEDS_FURTHER_DECOMPOSITION`. The compiler refuses stale commits, tracked
+changes, changed compilation databases, changed SCIP toolchains, importer
+binaries, scanner/importer logic, recursive generated-input content, and schema
+content. Generated build inputs selected by a leaf are embedded as bounded,
+hash-addressed read-only prerequisites even when `scip-clang` does not emit
+them as repository documents.
+
+On a new project with repository indexing enabled, `harness-start` builds or
+reuses the immutable generation before the first Sol decomposition turn and
+exports a compact architecture slice. Proposed Luna rows are dry-run against
+the exact graph during decomposition staging. Advisory reports record measured
+context bounds and cohesive build-target/source-root seams; recursive Sol repair
+can use those seams without re-scanning the repository. These measurements do
+not block a candidate until required mode is separately qualified.
+
+With `HARNESS_CONTEXT_CLOSURE_MODE=advisory`, the worker launcher attempts a
+fresh closure before claiming the task. A `READY` closure is embedded after the
+normal bounded capsule; missing/stale indexes and incomplete/oversized closures
+are recorded but do not block the worker or remove repository access. Outcomes
+are appended to `logs/context-closure-events.tsv`, with complete compiler
+diagnostics retained in task-specific logs. In `required` mode a non-ready Luna
+closure returns to deterministic decomposition before a model launch. In
+`patch_only` mode Luna receives only the compiled context in a read-only,
+tool-less invocation and emits one Git patch; the harness validates the
+workspace baseline, syntax, declared paths, binary/generated exclusions,
+focused validation, and controlled commit.
+
+Promotion, prediction, omission, architecture, and cost-comparison reports are
+available through:
+
+```bash
+harness-context-closure-promotion project.env
+harness-context-closure-predictions project.env
+harness-context-closure-outliers project.env
+harness-context-closure-omissions project.env
+harness-architecture-index project.env
+harness-architecture-benchmarks project.env queries.tsv
+harness-architecture-scorecard project.env
+harness-compare-architecture-scorecards before.tsv after.tsv
+harness-compare-context-baselines before.tsv after.tsv
+```
+
+After each advisory worker invocation, the harness compares repository paths
+observed in the bounded transcript with the compiled closure. It records used
+evidence, unused candidates, paths discovered outside the closure, and changed
+paths outside the closure. This is recall/precision telemetry only: implicit
+compiler reads and shell indirection mean that absence from the transcript is
+not proof that a context item was unnecessary.
 
 ## First initialization
 
@@ -1488,6 +1626,8 @@ bash tests/test-git-dependency.sh
 bash tests/test-specification-review.sh
 bash tests/test-root-liveness.sh
 bash tests/test-active-plan-revision.sh
+bash tests/test-repository-index.sh
+bash tests/test-scip-importer.sh
 ```
 
 The leaf-goal test covers assignment validation, code-only continuation,

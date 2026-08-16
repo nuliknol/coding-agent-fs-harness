@@ -140,13 +140,21 @@ for context_key in \
 	CHECKPOINT_INCREMENT_REVIEW_TEMPLATE_FILE PLAN_NODE_CONTEXT_FILE \
 	ARCHITECTURE_RESOLUTION_FILE \
 	SPECIFICATION_OBLIGATIONS_FILE SPECIFICATION_RELATIONS_FILE \
-	REPOSITORY_FACTS_FILE REPOSITORY_INVENTORY_FILE; do
+	REPOSITORY_FACTS_FILE REPOSITORY_INVENTORY_FILE REPOSITORY_ARCHITECTURE_SLICE; do
 	context_value="$(prompt_value "$context_key")"
 	[[ -n "$context_value" && "$context_value" != - ]] || continue
 	agent_context_env+=("$context_key=$context_value")
 done
 
-cmd=(env "${agent_context_env[@]}" "$bin" exec --json --model "$model" --sandbox "$sandbox" --add-dir "$HARNESS_ROOT" --add-dir "$PROJECT_TMP_DIR" --cd "$REPOSITORY" "${extras[@]}" -c 'approval_policy="never"' -c "model_reasoning_effort=\"$effort\"" --output-last-message "$last_message")
+agent_workdir="$REPOSITORY"
+agent_add_dirs=(--add-dir "$HARNESS_ROOT" --add-dir "$PROJECT_TMP_DIR")
+if [[ "$role" =~ ^worker && "$(prompt_value CONTEXT_CLOSURE_MODE)" == patch_only ]]; then
+	sandbox=read-only
+	agent_workdir="$PROJECT_TMP_DIR/patch-only-$(prompt_value TASK_ID)"
+	mkdir -p "$agent_workdir"
+	agent_add_dirs=()
+fi
+cmd=(env "${agent_context_env[@]}" "$bin" exec --json --model "$model" --sandbox "$sandbox" "${agent_add_dirs[@]}" --cd "$agent_workdir" "${extras[@]}" -c 'approval_policy="never"' -c "model_reasoning_effort=\"$effort\"" --output-last-message "$last_message")
 if [[ $# -eq 2 ]]; then
  [[ "$1" == resume ]] || usage
  cmd+=(resume "$2")

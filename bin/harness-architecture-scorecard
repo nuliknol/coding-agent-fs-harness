@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+source "$SCRIPT_DIR/../lib/harness-repository-index.sh"
+[[ $# -eq 1 ]] || { printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"; ensure_project
+repository_index_project_pointer_is_current || die "scorecard requires a current index: $REPOSITORY_INDEX_POINTER_REASON"
+pointer="$(repository_index_project_pointer_file)"; generation="$(kv_file_value "$pointer" generation)"; generation_dir="$(kv_file_value "$pointer" generation_dir)"
+output_dir="$(project_dir)/control/architecture-scorecards/$generation"; mkdir -p "$output_dir"
+benchmarks="$(project_dir)/control/repository-architecture/$generation/benchmarks.tsv"
+benchmark_args=()
+[[ ! -s "$benchmarks" ]] || benchmark_args=(--benchmarks "$benchmarks")
+python3 "$HARNESS_HOME/tools/architecture_scorecard.py" --database "$generation_dir/architecture.sqlite" \
+	--generation "$generation" --output "$output_dir/scorecard.tsv" --proposal "$output_dir/rebuild-proposal.md" \
+	"${benchmark_args[@]}"
+cat "$output_dir/scorecard.tsv"
+printf 'proposal\t%s\n' "$output_dir/rebuild-proposal.md"

@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 2 || $# -eq 3 ]] || {
+	printf 'Usage: %s ENV_FILE TASK_ID [WORKER_JSONL]\n' "${0##*/}" >&2
+	exit 2
+}
+load_harness_env "$1"
+ensure_project
+task_id="$2"
+jsonl="${3:-$(latest_worker_jsonl_for_task "$task_id" 2>/dev/null || true)}"
+[[ -n "$jsonl" && -f "$jsonl" ]] || die "worker JSONL was not found for task: $task_id"
+closure_dir="$(project_dir)/control/context-closures/$(task_base "$task_id")"
+closure="$closure_dir/closure.tsv"
+[[ -f "$closure" ]] || die "Context Closure ledger was not found for task: $task_id"
+stamp="$(timestamp_compact_utc)"
+output="$(project_dir)/logs/context-closure-usage-$task_id-$stamp.tsv"
+summary="${output%.tsv}.env"
+python3 "$HARNESS_HOME/tools/analyze_context_usage.py" \
+	--repository "$REPOSITORY" --closure "$closure" --jsonl "$jsonl" \
+	--output "$output" --summary "$summary"
+chmod 600 "$output" "$summary"
+cat "$summary"
+printf 'report=%s\n' "$output"

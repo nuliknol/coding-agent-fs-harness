@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+[[ $# -eq 1 ]] || { printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"; ensure_project
+output="$(project_dir)/control/context-closure-systematic-omissions.tsv"
+python3 "$HARNESS_HOME/tools/context_closure_metrics.py" omissions --project "$(project_dir)" > "$output.tmp.$$"
+chmod 600 "$output.tmp.$$"; mv "$output.tmp.$$" "$output"; cat "$output"

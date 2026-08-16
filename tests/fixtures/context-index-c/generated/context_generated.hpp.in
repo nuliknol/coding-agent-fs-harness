@@ -1,0 +1,5 @@
+#pragma once
+
+#include "context_nested.hpp"
+
+#define CONTEXT_GENERATED_VALUE (CONTEXT_NESTED_BASE + @CONTEXT_GENERATED_OFFSET@)

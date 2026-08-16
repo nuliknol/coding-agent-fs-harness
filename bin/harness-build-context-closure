@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+source "$SCRIPT_DIR/../lib/harness-repository-index.sh"
+
+[[ $# -eq 2 ]] || { printf 'Usage: %s ENV_FILE PLAN_NODE_OR_TASK_OR_ASSIGNMENT\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+if (( HARNESS_ARCHITECTURE_GUARDS == 1 )); then architecture_require_registered; fi
+selector="$2"
+pointer="$(repository_index_project_pointer_file)"
+repository_index_project_pointer_is_current ||
+	die "Context Closure requires a current repository index: $REPOSITORY_INDEX_POINTER_REASON"
+generation="$(kv_file_value "$pointer" generation)"
+generation_dir="$(kv_file_value "$pointer" generation_dir)"
+
+dir="$(project_dir)"
+synthetic=
+if [[ -f "$selector" ]]; then
+	assignment="$(realpath "$selector")"
+else
+	assignment=
+	for candidate in \
+		"$(task_context_capsule_file "$selector")" \
+		"$dir/tasks/$(task_base "$selector").ready.md" \
+		"$dir/archive/$(task_base "$selector").assignment.md" \
+		"$(task_root_assignment_file "$selector")"; do
+		if [[ -f "$candidate" ]]; then assignment="$candidate"; break; fi
+	done
+	if [[ -z "$assignment" ]] && project_plan_uses_dag &&
+		awk -F '\t' -v node="$selector" 'NR>1 && $1==node {found=1} END {exit found?0:1}' "$(project_decomposition_plan_file)"; then
+		mkdir -p "$PROJECT_TMP_DIR"
+		synthetic="$PROJECT_TMP_DIR/context-closure-$selector-$$.md"
+		awk -F '\t' -v node="$selector" '
+			NR>1 && $1==node {
+				print "Task-ID: plan-node-" $1
+				print "Plan-Node: " $1
+				print "Deliverable: " $4
+				print "Acceptance-Evidence: " $5
+				print "Focused-Validation: " $6
+				print "Allowed-Scope: " $7
+				print "Context-Paths: " $7
+				print "Required-Symbols: " $8
+				print "Leaf-Type: " $9
+				print "Complexity-Class: " $10
+				print "Worker-Route: " $11
+				exit
+			}
+		' "$(project_decomposition_plan_file)" > "$synthetic"
+		if specification_ir_available; then
+			allocated="$(specification_obligations_for_node "$selector" | paste -sd, -)"
+			printf 'Specification-Obligations: %s\n' "${allocated:--}" >> "$synthetic"
+		fi
+		if (( HARNESS_ARCHITECTURE_GUARDS == 1 )) && architecture_registered; then
+			printf 'Affected-Invariants: %s\n' "$(architecture_node_value "$selector" invariant_ids)" >> "$synthetic"
+			printf 'Consumed-Decisions: %s\n' "$(architecture_node_value "$selector" consumes_decisions)" >> "$synthetic"
+			printf 'Produced-Decisions: %s\n' "$(architecture_node_value "$selector" produces_decisions)" >> "$synthetic"
+			printf 'Edge-Contracts: %s\n' "$(architecture_node_value "$selector" edge_contracts)" >> "$synthetic"
+			printf 'Health-Gates: %s\n' "$(architecture_node_value "$selector" health_gates)" >> "$synthetic"
+		fi
+		assignment="$synthetic"
+	fi
+	[[ -n "$assignment" ]] || die "no task, context capsule, or plan node matches: $selector"
+fi
+cleanup_context_closure_build()
+{
+	local result=$?
+	trap - EXIT
+	[[ -z "$synthetic" ]] || rm -f -- "$synthetic"
+	if [[ -n "${temporary:-}" && -d "$temporary" ]]; then
+		rm -rf -- "$temporary"
+	fi
+	exit "$result"
+}
+trap cleanup_context_closure_build EXIT
+
+task_id="$(metadata_value "$assignment" Task-ID)"
+[[ -n "$task_id" ]] || task_id="$selector"
+output_root="$dir/control/context-closures"
+target="$output_root/$(task_base "$task_id")"
+temporary="$output_root/.${PROJECT}-task-${task_id}.tmp.$$.$RANDOM"
+mkdir -p "$output_root" "$temporary"
+chmod 700 "$output_root" "$temporary"
+compiler_args=(
+	--assignment "$assignment" --database "$generation_dir/architecture.sqlite"
+	--repository "$REPOSITORY" --generation "$generation" --output "$temporary"
+	--max-bytes "$HARNESS_CONTEXT_CLOSURE_MAX_BYTES"
+	--max-symbols "$HARNESS_CONTEXT_CLOSURE_MAX_SYMBOLS"
+	--max-modules "$HARNESS_CONTEXT_CLOSURE_MAX_MODULES"
+	--max-ownership-boundaries "$HARNESS_CONTEXT_CLOSURE_MAX_OWNERSHIP_BOUNDARIES"
+	--max-direct-relationships "$HARNESS_CONTEXT_CLOSURE_MAX_DIRECT_RELATIONSHIPS"
+	--max-tests "$HARNESS_CONTEXT_CLOSURE_MAX_TESTS"
+	--max-build-targets "$HARNESS_CONTEXT_CLOSURE_MAX_BUILD_TARGETS"
+	--max-tokens "$HARNESS_CONTEXT_CLOSURE_MAX_ESTIMATED_TOKENS"
+)
+if specification_ir_available; then
+	compiler_args+=(--obligations-file "$(specification_obligations_file)")
+	compiler_args+=(--relations-file "$(specification_relations_file)")
+fi
+if (( HARNESS_ARCHITECTURE_GUARDS == 1 )) && architecture_registered; then
+	compiler_args+=(--invariants-file "$(architecture_invariants_file)")
+	compiler_args+=(--decisions-file "$(architecture_decisions_file)")
+	compiler_args+=(--edges-file "$(architecture_edges_file)")
+	compiler_args+=(--health-gates-file "$(architecture_health_gates_file)")
+	compiler_args+=(--node-bindings-file "$(architecture_node_bindings_file)")
+fi
+omissions_file="$dir/control/context-closure-systematic-omissions.tsv"
+[[ ! -s "$omissions_file" ]] || compiler_args+=(--omissions-file "$omissions_file")
+status="$(python3 "$HARNESS_HOME/tools/context_closure.py" "${compiler_args[@]}")"
+find "$temporary" -type f -exec chmod 600 {} +
+if [[ -d "$target" ]]; then
+	history="$output_root/history"
+	mkdir -p "$history"
+	archive="$history/$(task_base "$task_id")-$(timestamp_compact_utc)"
+	if [[ -e "$archive" ]]; then archive="$archive-$$-$RANDOM"; fi
+	mv "$target" "$archive"
+fi
+mv "$temporary" "$target"
+temporary=
+printf 'CONTEXT_CLOSURE status=%s task=%s path=%s\n' "$status" "$task_id" "$target"

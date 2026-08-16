@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 2 ]] || { printf 'Usage: %s ENV_FILE TASK_ID\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+manifest="$(project_dir)/control/context-closures/$(task_base "$2")/manifest.env"
+[[ -f "$manifest" ]] || die "compiled Context Closure does not exist: $manifest"
+status="$(kv_file_value "$manifest" status 2>/dev/null || true)"
+cat "$manifest"
+[[ "$status" == READY ]] || exit 3
+

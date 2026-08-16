@@ -140,6 +140,25 @@ if ! project_plan_exists; then
 	export HARNESS_START_AGENT_BUDGET_FILE="$startup_budget_file"
 fi
 
+# Build deterministic repository intelligence before any global Sol planning.
+# Advisory failures remain visible but cannot prevent the legacy planning path;
+# required mode fails before spending decomposition tokens without its evidence.
+if ! project_plan_exists && [[ "$HARNESS_REPOSITORY_INDEX_MODE" != off ]]; then
+	index_log="$dir/logs/repository-index-startup-$(timestamp_compact_utc).log"
+	set +e
+	"$HARNESS_BIN/harness-index-repository" "$HARNESS_ENV_FILE" > >(tee "$index_log") 2>&1
+	index_status=$?
+	set -e
+	if (( index_status == 0 )); then
+		"$HARNESS_BIN/harness-export-architecture-slice" "$HARNESS_ENV_FILE" >/dev/null
+		printf 'Repository architecture slice ready: %s\n' "$dir/control/repository-architecture-slice.md"
+	elif [[ "$HARNESS_REPOSITORY_INDEX_MODE" == required ]]; then
+		die "required repository indexing failed; inspect $index_log"
+	else
+		printf 'Advisory repository indexing unavailable; continuing without Context Closure evidence. Inspect %s\n' "$index_log" >&2
+	fi
+fi
+
 renormalizations=0
 while ! project_plan_exists; do
 	if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )); then

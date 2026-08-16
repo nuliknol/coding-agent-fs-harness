@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+[[ $# -eq 1 || $# -eq 3 ]] || { printf 'Usage: %s ENV_FILE [--limit N]\n' "${0##*/}" >&2; exit 2; }
+limit=10; [[ $# -eq 1 ]] || { [[ "$2" == --limit && "$3" =~ ^[1-9][0-9]*$ ]] || exit 2; limit="$3"; }
+load_harness_env "$1"; ensure_project
+python3 "$HARNESS_HOME/tools/context_closure_metrics.py" outliers --project "$(project_dir)" --limit "$limit"

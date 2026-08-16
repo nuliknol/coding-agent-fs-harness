@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+source "$SCRIPT_DIR/../lib/harness-repository-index.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE [--details]\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -ge 1 && $# -le 2 ]] || usage
+env_file="$1"
+details=0
+if (( $# == 2 )); then
+	[[ "$2" == --details ]] || usage
+	details=1
+fi
+
+load_harness_env "$env_file"
+ensure_project
+pointer="$(repository_index_project_pointer_file)"
+if [[ ! -f "$pointer" ]]; then
+	printf 'status\tMISSING\nmode\t%s\ncontext_closure_mode\t%s\n' \
+		"$HARNESS_REPOSITORY_INDEX_MODE" "$HARNESS_CONTEXT_CLOSURE_MODE"
+	exit 0
+fi
+
+generation="$(kv_file_value "$pointer" generation 2>/dev/null || true)"
+generation_dir="$(kv_file_value "$pointer" generation_dir 2>/dev/null || true)"
+pointer_status="$(kv_file_value "$pointer" status 2>/dev/null || true)"
+recorded_revision="$(kv_file_value "$pointer" source_revision 2>/dev/null || true)"
+status=READY
+reason=-
+if [[ "$pointer_status" == INVALIDATED ]]; then
+	status=INVALIDATED
+	reason="$(kv_file_value "$pointer" invalidation_reason 2>/dev/null || printf operator-invalidated)"
+elif [[ -z "$generation" || -z "$generation_dir" ]] || ! repository_index_verify_generation "$generation_dir"; then
+	status=INVALID
+	reason=generation-verification-failed
+elif ! repository_index_project_pointer_is_current; then
+	status=STALE
+	reason="$REPOSITORY_INDEX_POINTER_REASON"
+fi
+
+printf 'status\t%s\n' "$status"
+printf 'reason\t%s\n' "$reason"
+printf 'mode\t%s\n' "$HARNESS_REPOSITORY_INDEX_MODE"
+printf 'context_closure_mode\t%s\n' "$HARNESS_CONTEXT_CLOSURE_MODE"
+printf 'generation\t%s\n' "${generation:--}"
+printf 'generation_dir\t%s\n' "${generation_dir:--}"
+printf 'source_revision\t%s\n' "${recorded_revision:--}"
+if (( details == 1 )) && [[ -f "$generation_dir/architecture.sqlite" ]]; then
+	database="$generation_dir/architecture.sqlite"
+	printf 'schema_version\t%s\n' "$(sqlite3 "$database" 'PRAGMA user_version;')"
+	printf 'scip_index_bytes\t%s\n' "$(stat -c %s "$generation_dir/index.scip")"
+	for table in files source_regions symbols symbol_edges include_edges call_edges type_edges \
+		control_flow_edges data_flow_edges mutation_edges modules module_edges concept_owners tests \
+		build_targets build_target_files build_inputs build_target_inputs diagnostics provider_runs \
+		architecture_findings architecture_benchmarks facts; do
+		printf '%s\t%s\n' "$table" "$(sqlite3 "$database" "SELECT count(*) FROM $table;")"
+	done
+fi

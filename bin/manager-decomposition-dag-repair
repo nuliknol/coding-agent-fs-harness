@@ -53,11 +53,21 @@ mkdir -p "$repair_dir"
 install -m 600 "$candidate_dir/dag.tsv" "$repair_dir/dag.tsv"
 install -m 600 "$candidate_dir/coverage.tsv" "$repair_dir/coverage.tsv"
 [[ ! -f "$candidate_dir/complexity.tsv" ]] || install -m 600 "$candidate_dir/complexity.tsv" "$repair_dir/complexity.tsv"
+context_admission='-'
+context_suggested_cuts='-'
+if [[ -s "$candidate_dir/context-admission/admission.tsv" ]]; then
+	context_admission="$repair_dir/context-admission.tsv"
+	install -m 600 "$candidate_dir/context-admission/admission.tsv" "$context_admission"
+fi
+if [[ -s "$candidate_dir/context-admission/suggested-cuts.tsv" ]]; then
+	context_suggested_cuts="$repair_dir/context-suggested-cuts.tsv"
+	install -m 600 "$candidate_dir/context-admission/suggested-cuts.tsv" "$context_suggested_cuts"
+fi
 
 repair_phase=decomposition_repair
 complexity_repair=0
 complexity_context='Correct only the reported deterministic DAG/coverage defect. Every DAG row is executable through LUNA or TERRA; never emit SOL or grouping nodes. Routine LOCAL_IMPLEMENTATION, TEST_IMPLEMENTATION, MECHANICAL_API, FOCUSED_BUG, DOCUMENTATION, and VERIFICATION_ONLY rows remain LOW/LUNA and must be split rather than converted to Terra with an invented exception.'
-if grep -q 'LUNA_COMPLEXITY_OVER_BUDGET.*status=OVER_BUDGET' "$rejection_log"; then
+if grep -Eq '(LUNA_COMPLEXITY_OVER_BUDGET|CONTEXT_CLOSURE_OVER_BUDGET).*status=OVER_BUDGET' "$rejection_log"; then
 	complexity_repair=1
 	repair_phase=decomposition
 	complexity_report="$candidate_dir/complexity.tsv"
@@ -136,11 +146,11 @@ if grep -q 'LUNA_COMPLEXITY_OVER_BUDGET.*status=OVER_BUDGET' "$rejection_log"; t
 	} > "$complexity_state.tmp.$$"
 	chmod 600 "$complexity_state.tmp.$$"
 	mv "$complexity_state.tmp.$$" "$complexity_state"
-	complexity_context="The deterministic complexity contract rejected one or more routine leaves. Read the complete diagnostics and COMPLEXITY_REPORT and recursively split every invalid or OVER_BUDGET Luna node into ordered, independently acceptance-complete children. Every DAG row is executable work and must use an allowed leaf_type plus worker_route LUNA or TERRA; never emit DECOMPOSITION, SOL, planner-only, or grouping rows. Preserve exact obligation coverage and typed dependencies. Reduce the measured excess across this pass and make every routine coding leaf LOW/LUNA. When risk_domains is the only violation, isolate one semantic risk domain per child and narrow each child's allowed paths and implementation files; never clone the same multi-domain scope onto every child. Do not merely lower declared numbers, weaken evidence, erase obligations, or route coding to Terra. If and only if a one-file, one-acceptance-boundary leaf still spans more than the Luna risk-domain limit and cannot be split into independently verifiable changes, replace that executable boundary with leaf_type INTEGRATION, complexity_class HIGH, worker_route TERRA, and terra_exception IRREDUCIBLE_CROSS_BOUNDARY. Do not invent another exception spelling and do not retain a routine coding leaf_type on that Terra boundary."
+	complexity_context="The deterministic complexity contract rejected one or more routine leaves. Read the complete diagnostics, COMPLEXITY_REPORT, and the optional CONTEXT_ADMISSION_REPORT and CONTEXT_SUGGESTED_CUTS when they are not '-'. Recursively split every invalid or OVER_BUDGET Luna node into ordered, independently acceptance-complete children. Context measurements are deterministic repository evidence: use the suggested build-target/source seams and exact unresolved facts, but preserve normative obligation meaning and do not mechanically split implementation from its focused test when one acceptance boundary requires both. Every DAG row is executable work and must use an allowed leaf_type plus worker_route LUNA or TERRA; never emit DECOMPOSITION, SOL, planner-only, or grouping rows. Preserve exact obligation coverage and typed dependencies. Reduce the measured excess across this pass and make every routine coding leaf LOW/LUNA. When risk_domains is the only violation, isolate one semantic risk domain per child and narrow each child's allowed paths and implementation files; never clone the same multi-domain scope onto every child. Do not merely lower declared numbers, weaken evidence, erase obligations, or route coding to Terra. If and only if a one-file, one-acceptance-boundary leaf still spans more than the Luna risk-domain limit and cannot be split into independently verifiable changes, replace that executable boundary with leaf_type INTEGRATION, complexity_class HIGH, worker_route TERRA, and terra_exception IRREDUCIBLE_CROSS_BOUNDARY. Do not invent another exception spelling and do not retain a routine coding leaf_type on that Terra boundary."
 fi
 
 split_context=''
-repair_read_instruction='Read VALIDATOR_DIAGNOSTICS, DAG_FILE, SPECIFICATION_COVERAGE_FILE, and COMPLEXITY_REPORT.'
+repair_read_instruction='Read VALIDATOR_DIAGNOSTICS, DAG_FILE, SPECIFICATION_COVERAGE_FILE, COMPLEXITY_REPORT, and optional Context Closure reports when their paths are not dash.'
 if (( complexity_repair == 1 )); then
 	split_rows="$repair_dir/rejected-rows.tsv"
 	split_coverage="$repair_dir/rejected-coverage.tsv"
@@ -161,7 +171,7 @@ if (( complexity_repair == 1 )); then
 	} > "$mapping"
 	chmod 600 "$split_rows" "$split_coverage" "$split_obligations" "$split_relations" "$replacements" "$mapping"
 	split_context="This is a bounded node-split transaction. Read REJECTED_DAG_ROWS, REJECTED_COVERAGE, REJECTED_OBLIGATIONS, REJECTED_RELATIONS, VALIDATOR_DIAGNOSTICS, and COMPLEXITY_REPORT only. Do not read or rewrite DAG_FILE or SPECIFICATION_COVERAGE_FILE. NODE_MAPPING_FILE is machine-owned in its first column and already contains exactly the current rejected node IDs. Do not add, remove, reorder, or replace those rows; replace only each REPLACE_WITH_ORDERED_CHILD_IDS value. For every listed old node, append at least two complete measured executable rows to REPLACEMENT_DAG_FILE and set its existing second field to ordered,comma-separated-new-node-ids. New IDs must not already exist. Preserve the old node's semantic obligation across ordered children, but isolate risk domains, paths, symbols, evidence, and focused validation so every child is independently Luna-ready. The first child inherits external prerequisites; later children depend on prior children as needed. Submit exactly once with: $HARNESS_BIN/manager-stage-decomposition-node-split \"$HARNESS_ENV_FILE\" \"$replacements\" \"$mapping\". The harness merges the bounded patch into the immutable full DAG and rewrites coverage mechanically."
-	repair_read_instruction='Read only the bounded REJECTED_* files, VALIDATOR_DIAGNOSTICS, and COMPLEXITY_REPORT described below.'
+	repair_read_instruction='Read only the bounded REJECTED_* files, VALIDATOR_DIAGNOSTICS, COMPLEXITY_REPORT, and optional Context Closure reports described below.'
 fi
 
 obligation_count="$(awk 'NR > 1 {count++} END {print count + 0}' "$(specification_obligations_file)")"
@@ -198,6 +208,8 @@ DAG_FILE=$repair_dir/dag.tsv
 SPECIFICATION_COVERAGE_FILE=$repair_dir/coverage.tsv
 VALIDATOR_DIAGNOSTICS=$rejection_log
 COMPLEXITY_REPORT=$repair_dir/complexity.tsv
+CONTEXT_ADMISSION_REPORT=$context_admission
+CONTEXT_SUGGESTED_CUTS=$context_suggested_cuts
 SPECIFICATION_OBLIGATIONS_FILE=$(specification_obligations_file)
 SPECIFICATION_RELATIONS_FILE=$(specification_relations_file)
 REJECTED_DAG_ROWS=${split_rows:--}

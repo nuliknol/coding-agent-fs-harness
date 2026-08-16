@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/harness-common.sh"
 source "$SCRIPT_DIR/../lib/harness-git-commit.sh"
 source "$SCRIPT_DIR/../lib/harness-checkpoint-commit.sh"
+source "$SCRIPT_DIR/../lib/harness-repository-index.sh"
 
 usage()
 {
@@ -246,6 +247,7 @@ clear_worker_thread_for_root "$task_id" accepted
 rm -f "$dir/control/$base.lease" "$dir/control/$base.abort.md" "$dir/control/$base.worker-triggered" "$dir/control/$base.worker-failed.md" "$dir/control/$base.worker-supervisor-failed.md"
 log_event "TASK_ACCEPTED task=$task_id"
 trace_event TASK_ACCEPTED "task_id=$task_id" "accepted_file=$accepted" "result_archive=$result_archive" "note_file=${note_file:-}"
+repository_index_refresh_at_safe_boundary "$task_id" ACCEPTED
 if project_plan_all_complete; then
 	if oracle_enabled && ! oracle_audit_budget_exhausted; then
 		mark_project_awaiting_oracle "$task_id" "$note_file"

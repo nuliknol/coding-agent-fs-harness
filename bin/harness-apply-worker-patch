@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+[[ $# -eq 5 ]] || { printf 'Usage: %s ENV_FILE TASK_ID SESSION RESPONSE EXPECTED_BASELINE\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+task_id="$2"; session="$3"; response="$4"; expected="$5"
+ensure_project
+validate_task_id "$task_id"
+ensure_session "$session"
+running="$(project_dir)/running/$(task_base "$task_id").running.md"
+lease="$(project_dir)/control/$(task_base "$task_id").lease"
+[[ -f "$running" && -f "$lease" ]] || die 'patch-only task is not actively leased'
+[[ "$(lease_value "$lease" owner)" == "$session" ]] || die 'patch-only task lease owner changed'
+current="$($HARNESS_BIN/harness-workspace-fingerprint "$HARNESS_ENV_FILE")"
+[[ "$current" == "$expected" ]] || die 'workspace baseline changed while patch-only worker was reasoning'
+scope="$(require_single_metadata_value "$running" Allowed-Scope 'patch-only assignment')"
+max_files="$(metadata_value "$running" Expected-Max-Implementation-Files)"
+[[ "$max_files" =~ ^[1-9][0-9]*$ ]] || max_files=1
+base="$(task_base "$task_id")"
+patch="$(project_dir)/control/$base.proposed.patch"
+paths="$(project_dir)/control/$base.proposed-paths"
+python3 "$HARNESS_HOME/tools/apply_worker_patch.py" --repository "$REPOSITORY" --response "$response" \
+	--allowed-scope "$scope" --patch-output "$patch" --paths-output "$paths" --max-files "$max_files"
+printf 'PATCH=%s\nPATHS=%s\n' "$patch" "$paths"

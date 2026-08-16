@@ -127,6 +127,25 @@ if (( HARNESS_ARCHITECTURE_GUARDS == 1 )) && [[ "$architecture_stage" != - ]] &&
 	sed -i 's/^architecture_registered_by_candidate=.*/architecture_registered_by_candidate=1/' "$state"
 fi
 
+if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" != off ]]; then
+	context_enforce=()
+	[[ "$HARNESS_CONTEXT_CLOSURE_MODE" == advisory ]] || context_enforce=(--enforce)
+	if "$HARNESS_BIN/harness-evaluate-decomposition-context" "$HARNESS_ENV_FILE" \
+		"$dag_stage" "$coverage_stage" "$architecture_stage" \
+		"$candidate_dir/context-admission" "${context_enforce[@]}"; then
+		printf 'Context Closure architecture-bound dry-run report: %s\n' \
+			"$candidate_dir/context-admission/admission.tsv"
+	else
+		if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == advisory ]]; then
+			printf 'ADVISORY: architecture-bound Context Closure dry-run was unavailable; candidate installation continues under declarative validation.\n' >&2
+		else
+			sed -i 's/^status=.*/status=REJECTED/' "$state"
+			printf 'rejection_stage=context_closure\nrejection_log=%s\n' "$candidate_dir/context-admission/admission.tsv" >> "$state"
+			die 'architecture-bound Context Closure rejected one or more Luna leaves; continue Sol decomposition'
+		fi
+	fi
+fi
+
 set +e
 (
 	initialize_project_plan "$dag_stage" "$coverage_stage"

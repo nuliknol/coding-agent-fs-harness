@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+source "$SCRIPT_DIR/../lib/harness-repository-index.sh"
+
+[[ $# -ge 2 ]] || { printf 'Usage: %s ENV_FILE SYMBOL_OR_QUERY...\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+shift
+query="$*"
+pointer="$(repository_index_project_pointer_file)"
+repository_index_project_pointer_is_current ||
+	die "architecture query requires a current repository index: $REPOSITORY_INDEX_POINTER_REASON"
+generation_dir="$(kv_file_value "$pointer" generation_dir)"
+database="$generation_dir/architecture.sqlite"
+query_q="$(repository_index_sql_quote "$query")"
+printf 'KIND\tSYMBOL\tPATH\tSTART\tEND\tPROVIDER\n'
+sqlite3 -tabs "$database" "
+SELECT 'DEFINITION', s.display_name, f.repository_path, r.start_line, r.end_line, d.provider
+FROM symbols s JOIN symbol_definitions d ON d.symbol_id=s.symbol_id
+JOIN source_regions r ON r.region_id=d.region_id JOIN files f ON f.file_id=r.file_id
+WHERE s.display_name=$query_q COLLATE NOCASE OR s.symbol_id=$query_q
+UNION ALL
+SELECT 'REFERENCE', s.display_name, f.repository_path, r.start_line, r.end_line, x.provider
+FROM symbols s JOIN symbol_references x ON x.symbol_id=s.symbol_id
+JOIN source_regions r ON r.region_id=x.region_id JOIN files f ON f.file_id=r.file_id
+WHERE s.display_name=$query_q COLLATE NOCASE OR s.symbol_id=$query_q
+UNION ALL
+SELECT 'BUILD_OWNER', s.display_name, bt.name, 0, 0, bt.provider
+FROM symbols s JOIN symbol_definitions d ON d.symbol_id=s.symbol_id
+JOIN source_regions r ON r.region_id=d.region_id JOIN build_target_files btf ON btf.file_id=r.file_id
+JOIN build_targets bt ON bt.target_id=btf.target_id
+WHERE s.display_name=$query_q COLLATE NOCASE OR s.symbol_id=$query_q
+UNION ALL
+SELECT 'CONCEPT_OWNER', concept_id, owner_id, 0, 0, provider
+FROM concept_owners WHERE concept_id=$query_q COLLATE NOCASE
+UNION ALL
+SELECT 'FOCUSED_TEST', s.display_name, COALESCE(f.repository_path,t.name),
+       COALESCE(r.start_line,0),COALESCE(r.end_line,0),x.provider
+FROM symbols s JOIN test_symbol_edges x ON x.symbol_id=s.symbol_id
+JOIN tests t ON t.test_id=x.test_id LEFT JOIN files f ON f.file_id=t.file_id
+LEFT JOIN source_regions r ON r.region_id=t.region_id
+WHERE s.display_name=$query_q COLLATE NOCASE OR s.symbol_id=$query_q
+UNION ALL
+SELECT 'CALLEE', caller.display_name, callee.display_name,0,0,c.provider
+FROM call_edges c JOIN symbols caller ON caller.symbol_id=c.caller_symbol_id
+JOIN symbols callee ON callee.symbol_id=c.callee_symbol_id
+WHERE caller.display_name=$query_q COLLATE NOCASE OR caller.symbol_id=$query_q
+UNION ALL
+SELECT 'CALLER', callee.display_name, caller.display_name,0,0,c.provider
+FROM call_edges c JOIN symbols caller ON caller.symbol_id=c.caller_symbol_id
+JOIN symbols callee ON callee.symbol_id=c.callee_symbol_id
+WHERE callee.display_name=$query_q COLLATE NOCASE OR callee.symbol_id=$query_q
+ORDER BY 1, 3, 4 LIMIT 100;"
+exact_count="$(sqlite3 "$database" "SELECT count(*) FROM symbols WHERE display_name=$query_q COLLATE NOCASE OR symbol_id=$query_q;")"
+if (( exact_count == 0 )); then
+	printf 'LEXICAL\t%s\n' "$query"
+	fts_q="$(repository_index_sql_quote "\"$query\"")"
+	sqlite3 -tabs "$database" "SELECT document_kind, symbol_name, repository_path, '-', '-', 'fts5' FROM lexical_documents WHERE lexical_documents MATCH $fts_q ORDER BY rank LIMIT 20;"
+fi

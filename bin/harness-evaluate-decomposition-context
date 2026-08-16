@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+source "$SCRIPT_DIR/../lib/harness-repository-index.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE DAG_TSV COVERAGE_TSV ARCHITECTURE_DIR_OR_DASH OUTPUT_DIR [--enforce]\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 5 || ( $# -eq 6 && "$6" == --enforce ) ]] || usage
+load_harness_env "$1"
+ensure_project
+dag="$(realpath "$2")"
+coverage="$(realpath "$3")"
+architecture="$4"
+output="$(realpath -m "$5")"
+[[ -f "$dag" && -f "$coverage" ]] || die 'decomposition context evaluation requires DAG and coverage TSV files'
+pointer="$(repository_index_project_pointer_file)"
+repository_index_project_pointer_is_current ||
+	die "decomposition context evaluation requires a current repository index: $REPOSITORY_INDEX_POINTER_REASON"
+generation="$(kv_file_value "$pointer" generation)"
+generation_dir="$(kv_file_value "$pointer" generation_dir)"
+if [[ "$architecture" == - ]]; then
+	architecture_args=()
+else
+	architecture="$(realpath "$architecture")"
+	[[ -d "$architecture" ]] || die "architecture directory does not exist: $architecture"
+	architecture_args=(--architecture "$architecture")
+fi
+if specification_ir_available; then
+	specification_args=(--obligations-file "$(specification_obligations_file)" --relations-file "$(specification_relations_file)")
+else
+	specification_args=()
+fi
+enforce_args=()
+[[ "${6:-}" != --enforce ]] || enforce_args=(--enforce)
+prediction_args=()
+predictions="$(project_dir)/control/context-closure-predictions.tsv"
+[[ ! -s "$predictions" ]] || prediction_args=(--predictions "$predictions")
+omission_args=()
+omissions="$(project_dir)/control/context-closure-systematic-omissions.tsv"
+[[ ! -s "$omissions" ]] || omission_args=(--omissions-file "$omissions")
+temporary="$output.tmp.$$.$RANDOM"
+cleanup_evaluation()
+{
+	local result=$?
+	trap - EXIT
+	[[ ! -d "$temporary" ]] || rm -rf -- "$temporary"
+	exit "$result"
+}
+trap cleanup_evaluation EXIT
+mkdir -p "$temporary"
+set +e
+python3 "$HARNESS_HOME/tools/evaluate_decomposition_context.py" \
+	--dag "$dag" --coverage "$coverage" "${architecture_args[@]}" \
+	--database "$generation_dir/architecture.sqlite" --repository "$REPOSITORY" \
+	--generation "$generation" --output "$temporary" "${specification_args[@]}" \
+	--max-bytes "$HARNESS_CONTEXT_CLOSURE_MAX_BYTES" \
+	--max-symbols "$HARNESS_CONTEXT_CLOSURE_MAX_SYMBOLS" \
+	--max-modules "$HARNESS_CONTEXT_CLOSURE_MAX_MODULES" \
+	--max-ownership-boundaries "$HARNESS_CONTEXT_CLOSURE_MAX_OWNERSHIP_BOUNDARIES" \
+	--max-direct-relationships "$HARNESS_CONTEXT_CLOSURE_MAX_DIRECT_RELATIONSHIPS" \
+	--max-tests "$HARNESS_CONTEXT_CLOSURE_MAX_TESTS" \
+	--max-build-targets "$HARNESS_CONTEXT_CLOSURE_MAX_BUILD_TARGETS" \
+	--max-tokens "$HARNESS_CONTEXT_CLOSURE_MAX_ESTIMATED_TOKENS" "${prediction_args[@]}" \
+	"${omission_args[@]}" "${enforce_args[@]}"
+evaluation_status=$?
+set -e
+[[ "$evaluation_status" == 0 || "$evaluation_status" == 3 ]] || exit "$evaluation_status"
+find "$temporary" -type f -exec chmod 600 {} +
+if [[ -d "$output" ]]; then
+	history="${output%/*}/history"
+	mkdir -p "$history"
+	mv "$output" "$history/${output##*/}-$(timestamp_compact_utc)-$$"
+fi
+mv "$temporary" "$output"
+temporary=
+printf 'DECOMPOSITION_CONTEXT_EVALUATED output=%s %s\n' "$output" "$(tr '\n' ' ' < "$output/summary.env")"
+exit "$evaluation_status"

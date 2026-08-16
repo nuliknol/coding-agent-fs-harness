@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/harness-common.sh"
 source "$SCRIPT_DIR/../lib/harness-git-commit.sh"
 source "$SCRIPT_DIR/../lib/harness-checkpoint-commit.sh"
+source "$SCRIPT_DIR/../lib/harness-repository-index.sh"
 
 usage()
 {
@@ -467,6 +468,7 @@ rm -f "$dir/control/$base.lease" "$dir/control/$base.abort.md" \
 	"$dir/control/$base.worker-supervisor-failed.md"
 log_event "TASK_CHECKPOINTED task=$task_id root=$root criteria=${#verified_criteria[@]} increments=${#verified_increments[@]} artifact=$artifact_dir"
 trace_event TASK_CHECKPOINTED "task_id=$task_id" "task_root=$root" "checkpoint_file=$checkpointed" "artifact_dir=$artifact_dir"
+repository_index_refresh_at_safe_boundary "$task_id" CHECKPOINTED
 
 if ! enforce_root_liveness_or_reassess "$task_id"; then
 	printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"

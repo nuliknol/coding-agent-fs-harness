@@ -28,7 +28,16 @@ append_project()
 	ledger="$(project_dir)/logs/complexity-observations.tsv"
 	planner_model="$(decomposition_provenance_value planner_model "$DECOMPOSITION_MODEL" 2>/dev/null || printf '%s' "$DECOMPOSITION_MODEL")"
 	planner_effort="$(decomposition_provenance_value planner_reasoning_effort "$DECOMPOSITION_REASONING_EFFORT" 2>/dev/null || printf '%s' "$DECOMPOSITION_REASONING_EFFORT")"
-	[[ ! -f "$ledger" ]] || awk -F '\t' -v OFS='\t' -v planner="$planner_model" -v effort="$planner_effort" 'NR>1 {if(NF==21)print $0,0,planner,effort; else print $0,planner,effort}' "$ledger" >> "$observations"
+	[[ ! -f "$ledger" ]] || awk -F '\t' -v OFS='\t' -v planner="$planner_model" -v effort="$planner_effort" '
+		NR==1 {for(i=1;i<=NF;i++) column[$i]=i; next}
+		{
+			for(i=1;i<=22;i++) value[i]=(i<=NF?$i:0)
+			pm=("planner_model" in column ? $(column["planner_model"]) : planner)
+			pe=("planner_effort" in column ? $(column["planner_effort"]) : effort)
+			lt=("leaf_type" in column ? $(column["leaf_type"]) : $7)
+			for(i=1;i<=22;i++) printf "%s%s",value[i],OFS
+			print pm,pe,lt
+		}' "$ledger" >> "$observations"
 	outcome_ledger="$(project_dir)/logs/complexity-outcomes.tsv"
 	[[ ! -f "$outcome_ledger" ]] || tail -n +2 "$outcome_ledger" >> "$outcomes"
 	if [[ "$target" != --all ]]; then

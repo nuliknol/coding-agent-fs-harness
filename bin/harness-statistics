@@ -85,3 +85,20 @@ printf '  Luna workers: %s; Terra workers: %s; legacy/unclassified workers: %s\n
 	"$worker_luna" "$worker_terra" "$worker_unknown"
 printf '  Manager/worker ratio: %s\n' "$(ratio "$manager" "$worker")"
 printf '  Luna/Terra model ratio: %s\n' "$(ratio "$luna" "$terra")"
+
+printf '\nContext Closure\n'
+if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == off ]]; then
+	printf '  Mode: off\n'
+else
+	baseline="$($HARNESS_BIN/harness-context-baseline "$HARNESS_ENV_FILE" 2>/dev/null || true)"
+	promotion="$($HARNESS_BIN/harness-context-closure-promotion "$HARNESS_ENV_FILE" 2>/dev/null || true)"
+	printf '  Mode: %s; reviewed episodes: %s\n' "$HARNESS_CONTEXT_CLOSURE_MODE" "$(metric "$baseline" context_closure_reviewed_episodes)"
+	printf '  Used / missing / unused paths: %s / %s / %s\n' \
+		"$(metric "$baseline" context_closure_used_paths)" "$(metric "$baseline" context_closure_missing_candidates)" \
+		"$(metric "$baseline" context_closure_unused_candidates)"
+	printf '  Promotion: %s; file recall: %s%%; completion: %s%%; false blocks: %s%%\n' \
+		"$(metric "$promotion" status UNKNOWN)" "$(metric "$promotion" file_recall_percent 0)" \
+		"$(metric "$promotion" completion_percent 0)" "$(metric "$promotion" false_block_percent 0)"
+	printf '  Outliers: harness-context-closure-outliers %s\n' "$HARNESS_ENV_FILE"
+	printf '  Predictions: harness-context-closure-predictions %s\n' "$HARNESS_ENV_FILE"
+fi

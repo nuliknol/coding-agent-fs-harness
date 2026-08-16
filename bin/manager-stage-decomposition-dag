@@ -80,6 +80,23 @@ set +e
 		' "$candidate_dir/dag.tsv" || die 'decomposition DAG must treat the accepted governing specification as immutable authority'
 	fi
 	validate_specification_coverage_file "$candidate_dir/coverage.tsv" "$candidate_dir/dag.tsv"
+	if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" != off ]]; then
+		context_enforce=()
+		[[ "$HARNESS_CONTEXT_CLOSURE_MODE" == advisory ]] || context_enforce=(--enforce)
+		if "$HARNESS_BIN/harness-evaluate-decomposition-context" "$HARNESS_ENV_FILE" \
+			"$candidate_dir/dag.tsv" "$candidate_dir/coverage.tsv" - \
+			"$candidate_dir/context-admission" "${context_enforce[@]}"; then
+			printf 'Context Closure dry-run report: %s\n' "$candidate_dir/context-admission/admission.tsv"
+		else
+			if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == advisory ]]; then
+				printf 'ADVISORY: Context Closure dry-run was unavailable; declarative decomposition validation remains authoritative for this candidate.\n' >&2
+			else
+				printf 'CONTEXT_CLOSURE_OVER_BUDGET status=OVER_BUDGET report=%s cuts=%s\n' \
+					"$candidate_dir/context-admission/admission.tsv" "$candidate_dir/context-admission/suggested-cuts.tsv" >&2
+				exit 3
+			fi
+		fi
+	fi
 	if [[ "$dag_header" == "$complexity_dag_header" ]]; then
 		write_decomposition_complexity_report "$candidate_dir/dag.tsv" "$candidate_dir/coverage.tsv" "$candidate_dir/complexity.tsv"
 	fi

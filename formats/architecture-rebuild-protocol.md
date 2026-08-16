@@ -1745,3 +1745,22 @@ A powerful architecture does not merely help an agent find information.
 **It allows the agent to prove that most information in the repository is irrelevant to the current task.**
 
 That is the fundamental mechanism by which architectural work preserves effective agent intelligence as a software project grows.
+## Machine-generated repository architecture evidence
+
+Architecture rebuilding now consumes an immutable repository-index generation
+and its project-local scorecard. The canonical inputs are:
+
+- `responsibility-map.tsv`, `dependency-map.tsv`, `ownership-map.tsv`,
+  `public-interface-map.tsv`, `test-map.tsv`, and `concept-owner-map.tsv`;
+- `findings.tsv`, with provider, authority class, subject, and evidence;
+- architecture-navigation `benchmarks.tsv`;
+- `scorecard.tsv` and the advisory `rebuild-proposal.md`.
+
+The former reasoning-index ratio is not an acceptance metric. It is replaced
+by navigation precision and recall, returned-path search breadth, compiled
+context bytes per query, dependency fan-out, ownership ambiguity, module
+cycles, cross-subsystem mutation, and failed reasoning-firewall candidates.
+Machine-derived findings remain `DERIVED` or `PROPOSED`; they cannot override
+registered invariants, decisions, ownership, or edge contracts. A redesign is
+performed only by a separate operator-approved harness. Before/after
+scorecards are compared with `harness-compare-architecture-scorecards`.

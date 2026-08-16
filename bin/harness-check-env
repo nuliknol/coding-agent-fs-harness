@@ -19,6 +19,27 @@ require_manager_codex
 require_worker_codex
 require_oracle_codex
 require_goal_mode_clean_boundary
+if [[ "$HARNESS_REPOSITORY_INDEX_MODE" != off ]]; then
+	command -v sqlite3 >/dev/null 2>&1 || die 'repository indexing requires sqlite3'
+	command -v jq >/dev/null 2>&1 || die 'repository indexing requires jq'
+	if [[ "$HARNESS_SCIP_CLANG_BIN" == */* ]]; then
+		[[ -x "$HARNESS_SCIP_CLANG_BIN" ]] || die "scip-clang is not executable: $HARNESS_SCIP_CLANG_BIN"
+	else
+		command -v "$HARNESS_SCIP_CLANG_BIN" >/dev/null 2>&1 || die "scip-clang command not found: $HARNESS_SCIP_CLANG_BIN"
+	fi
+	if [[ "$HARNESS_SCIP_BIN" == */* ]]; then
+		[[ -x "$HARNESS_SCIP_BIN" ]] || die "SCIP CLI is not executable: $HARNESS_SCIP_BIN"
+	else
+		command -v "$HARNESS_SCIP_BIN" >/dev/null 2>&1 || die "SCIP CLI command not found: $HARNESS_SCIP_BIN"
+	fi
+	if [[ "$HARNESS_SCIP_IMPORTER_BIN" == */* ]]; then
+		[[ -x "$HARNESS_SCIP_IMPORTER_BIN" ]] ||
+			die "SCIP importer is not executable: $HARNESS_SCIP_IMPORTER_BIN; run harness-build-index-tools"
+	else
+		command -v "$HARNESS_SCIP_IMPORTER_BIN" >/dev/null 2>&1 ||
+			die "SCIP importer command not found: $HARNESS_SCIP_IMPORTER_BIN"
+	fi
+fi
 
 printf 'Environment file: %s\n' "$HARNESS_ENV_FILE"
 printf 'Project: %s\n' "$PROJECT"
@@ -39,6 +60,20 @@ printf 'Worker Codex: %s\n' "$WORKER_CODEX_BIN"
 printf 'Worker Codex home: %s\n' "$WORKER_CODEX_HOME"
 printf 'Worker model: %s (%s)\n' "$WORKER_MODEL" "$WORKER_REASONING_EFFORT"
 printf 'Validated agent source commits: %s\n' "$([[ "$HARNESS_AGENT_COMMITS_ENABLED" == 1 ]] && printf enabled || printf disabled)"
+printf 'Repository index mode: %s\n' "$HARNESS_REPOSITORY_INDEX_MODE"
+printf 'Context Closure mode: %s\n' "$HARNESS_CONTEXT_CLOSURE_MODE"
+if [[ "$HARNESS_REPOSITORY_INDEX_MODE" != off ]]; then
+	printf 'Repository index root: %s\n' "$HARNESS_REPOSITORY_INDEX_ROOT"
+	printf 'Compilation database: %s\n' "${HARNESS_COMPILE_COMMANDS:-auto-discover}"
+	printf 'SCIP tools: %s / %s / %s (%s indexing job(s))\n' \
+		"$HARNESS_SCIP_CLANG_BIN" "$HARNESS_SCIP_BIN" "$HARNESS_SCIP_IMPORTER_BIN" \
+		"$HARNESS_SCIP_CLANG_JOBS"
+	printf 'Context Closure bounds: bytes<=%s symbols<=%s modules<=%s ownership<=%s direct-edges<=%s tests<=%s build-targets<=%s estimated-tokens<=%s\n' \
+		"$HARNESS_CONTEXT_CLOSURE_MAX_BYTES" "$HARNESS_CONTEXT_CLOSURE_MAX_SYMBOLS" \
+		"$HARNESS_CONTEXT_CLOSURE_MAX_MODULES" "$HARNESS_CONTEXT_CLOSURE_MAX_OWNERSHIP_BOUNDARIES" \
+		"$HARNESS_CONTEXT_CLOSURE_MAX_DIRECT_RELATIONSHIPS" "$HARNESS_CONTEXT_CLOSURE_MAX_TESTS" \
+		"$HARNESS_CONTEXT_CLOSURE_MAX_BUILD_TARGETS" "$HARNESS_CONTEXT_CLOSURE_MAX_ESTIMATED_TOKENS"
+fi
 if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 	if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )); then
 		command -v tsort >/dev/null 2>&1 || die 'tsort is required for normalized specification dependency validation'

@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 1 ]] || { printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+
+dir="$(project_dir)"
+report="$dir/control/context-baseline.tsv"
+episodes_report="$dir/control/context-baseline-episodes.tsv"
+observations="$dir/logs/complexity-observations.tsv"
+outcomes="$dir/logs/complexity-outcomes.tsv"
+closure_outcomes="$dir/logs/context-closure-outcomes.tsv"
+
+capsule_count=0
+capsule_bytes=0
+capsule_max_bytes=0
+while IFS= read -r capsule; do
+	[[ -f "$capsule" ]] || continue
+	bytes="$(stat -c %s "$capsule")"
+	capsule_count=$((capsule_count + 1))
+	capsule_bytes=$((capsule_bytes + bytes))
+	(( bytes <= capsule_max_bytes )) || capsule_max_bytes="$bytes"
+done < <(find "$dir/control/context-capsules" -maxdepth 1 -type f -name '*.md' -print 2>/dev/null | LC_ALL=C sort)
+
+episodes=0
+tokens=0
+actions=0
+commands=0
+output_bytes=0
+source_read_bytes=0
+repeated_reads=0
+changed_files=0
+if [[ -f "$observations" ]]; then
+	read -r episodes tokens actions commands output_bytes source_read_bytes repeated_reads changed_files < <(
+		awk -F '\t' 'NR>1 {episodes++; tokens+=$11; actions+=$13; commands+=$14; output+=$15; source+=$17; repeats+=$18; changed+=$19}
+			END {printf "%d %d %d %d %d %d %d %d\n", episodes, tokens, actions, commands, output, source, repeats, changed}' "$observations"
+	)
+	awk -F '\t' 'BEGIN {OFS="\t"; print "project","plan_node","task_id","role","model","worker_route","complexity_score","predicted_actions","predicted_p95_tokens","processed_tokens","items","commands","output_bytes","source_read_bytes","repeated_source_reads","changed_files","duration_seconds","classification"}
+		NR>1 {print $2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$13,$14,$15,$17,$18,$19,$20,$21}' \
+		"$observations" > "$episodes_report.tmp.$$"
+else
+	printf 'project\tplan_node\ttask_id\trole\tmodel\tworker_route\tcomplexity_score\tpredicted_actions\tpredicted_p95_tokens\tprocessed_tokens\titems\tcommands\toutput_bytes\tsource_read_bytes\trepeated_source_reads\tchanged_files\tduration_seconds\tclassification\n' \
+		> "$episodes_report.tmp.$$"
+fi
+chmod 600 "$episodes_report.tmp.$$"
+mv "$episodes_report.tmp.$$" "$episodes_report"
+
+accepted=0
+checkpointed=0
+rejected=0
+if [[ -f "$outcomes" ]]; then
+	accepted="$(awk -F '\t' 'NR>1 && $5=="ACCEPTED" {n++} END {print n+0}' "$outcomes")"
+	checkpointed="$(awk -F '\t' 'NR>1 && $5=="CHECKPOINTED" {n++} END {print n+0}' "$outcomes")"
+	rejected="$(awk -F '\t' 'NR>1 && $5=="REJECTED" {n++} END {print n+0}' "$outcomes")"
+fi
+closure_reviewed_episodes=0
+closure_used_paths=0
+closure_unused_candidates=0
+closure_missing_candidates=0
+closure_changed_outside=0
+if [[ -f "$closure_outcomes" ]]; then
+	read -r closure_reviewed_episodes closure_used_paths closure_unused_candidates \
+		closure_missing_candidates closure_changed_outside < <(
+		awk -F '\t' 'NR>1 {n++; used+=$9; unused+=$10; missing+=$11; changed+=$12}
+			END {printf "%d %d %d %d %d\n",n,used,unused,missing,changed}' "$closure_outcomes"
+	)
+fi
+
+{
+	printf 'metric\tvalue\n'
+	printf 'context_capsules\t%s\n' "$capsule_count"
+	printf 'context_capsule_bytes_total\t%s\n' "$capsule_bytes"
+	printf 'context_capsule_bytes_max\t%s\n' "$capsule_max_bytes"
+	printf 'worker_episodes\t%s\n' "$episodes"
+	printf 'processed_tokens\t%s\n' "$tokens"
+	printf 'agent_actions\t%s\n' "$actions"
+	printf 'commands\t%s\n' "$commands"
+	printf 'command_output_bytes\t%s\n' "$output_bytes"
+	printf 'source_read_bytes\t%s\n' "$source_read_bytes"
+	printf 'repeated_source_reads\t%s\n' "$repeated_reads"
+	printf 'changed_files\t%s\n' "$changed_files"
+	printf 'accepted_outcomes\t%s\n' "$accepted"
+	printf 'checkpointed_outcomes\t%s\n' "$checkpointed"
+	printf 'rejected_outcomes\t%s\n' "$rejected"
+	printf 'context_closure_reviewed_episodes\t%s\n' "$closure_reviewed_episodes"
+	printf 'context_closure_used_paths\t%s\n' "$closure_used_paths"
+	printf 'context_closure_unused_candidates\t%s\n' "$closure_unused_candidates"
+	printf 'context_closure_missing_candidates\t%s\n' "$closure_missing_candidates"
+	printf 'context_closure_changed_outside\t%s\n' "$closure_changed_outside"
+	printf 'episodes_report\t%s\n' "$episodes_report"
+} > "$report.tmp.$$"
+chmod 600 "$report.tmp.$$"
+mv "$report.tmp.$$" "$report"
+cat "$report"

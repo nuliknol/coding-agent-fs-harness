@@ -260,15 +260,15 @@ Closure provenance and budget summary
 
 Deliverables:
 
-- [ ] Inventory current context-capsule creation, required-symbol lookup,
+- [x] Inventory current context-capsule creation, required-symbol lookup,
   repository inventory, decomposition metrics, and worker prompt boundaries.
-- [ ] Record baseline measurements from representative completed and problematic
+- [x] Record baseline measurements from representative completed and problematic
   harnesses: capsule size, files searched, repeated reads, tool actions, output
   bytes, processed tokens, completion/replan result.
-- [ ] Define repository-index identity, freshness, locking, and atomic
+- [x] Define repository-index identity, freshness, locking, and atomic
   publication contracts.
-- [ ] Define the SQLite schema and versioning policy.
-- [ ] Add fixture repositories representing C, C++, CMake, generated headers,
+- [x] Define the SQLite schema and versioning policy.
+- [x] Add fixture repositories representing C, C++, CMake, generated headers,
   multiple build configurations, and an optional HIP source.
 
 Exit criteria:
@@ -289,16 +289,16 @@ harness-index-invalidate ENV_FILE [--reason TEXT]
 
 Deliverables:
 
-- [ ] Discover or generate `compile_commands.json` without modifying tracked
+- [x] Discover or generate `compile_commands.json` without modifying tracked
   source state.
-- [ ] Normalize command paths and calculate configuration/input hashes.
-- [ ] Record compiler, SCIP, Joern, SQLite, Recoll, and harness versions.
-- [ ] Implement per-repository lock, temporary generation, integrity check, and
+- [x] Normalize command paths and calculate configuration/input hashes.
+- [x] Record compiler, SCIP, Joern, SQLite, Recoll, and harness versions.
+- [x] Implement per-repository lock, temporary generation, integrity check, and
   atomic pointer update.
-- [ ] Detect stale commit, changed compilation database, changed generated
+- [x] Detect stale commit, changed compilation database, changed generated
   headers, and changed tool versions.
-- [ ] Reconcile interrupted index generation after a machine crash.
-- [ ] Add retention limits that never delete an active generation.
+- [x] Reconcile interrupted index generation after a machine crash.
+- [x] Add retention limits that never delete an active generation.
 
 Exit criteria:
 
@@ -310,19 +310,19 @@ Exit criteria:
 
 Deliverables:
 
-- [ ] Invoke `scip-clang` and validate the resulting `index.scip` with the SCIP
+- [x] Invoke `scip-clang` and validate the resulting `index.scip` with the SCIP
   CLI.
-- [ ] Implement a decoder/importer using generated SCIP bindings rather than
+- [x] Implement a decoder/importer using generated SCIP bindings rather than
   parsing CLI display text.
-- [ ] Import definitions, references, relationships, files, locations, and
+- [x] Import definitions, references, relationships, files, locations, and
   diagnostics into SQLite.
-- [ ] Build structural lexical units and the FTS5 index.
-- [ ] Add an optional Recoll candidate-provider adapter with deterministic
+- [x] Build structural lexical units and the FTS5 index.
+- [x] Add an optional Recoll candidate-provider adapter with deterministic
   normalization and deduplication.
-- [ ] Invoke Joern only for configured languages/components or on-demand
+- [x] Invoke Joern only for configured languages/components or on-demand
   analysis classes.
-- [ ] Import selected call, control-flow, data-flow, and mutation evidence.
-- [ ] Produce coverage and unresolved-symbol reports.
+- [x] Import selected call, control-flow, data-flow, and mutation evidence.
+- [x] Produce coverage and unresolved-symbol reports.
 
 Exit criteria:
 
@@ -344,19 +344,19 @@ harness-architecture-benchmarks ENV_FILE
 
 Deliverables:
 
-- [ ] Infer module candidates from build targets, source roots, include
+- [x] Infer module candidates from build targets, source roots, include
   boundaries, and symbol clusters.
-- [ ] Project registered invariants, decisions, edge contracts, and node
+- [x] Project registered invariants, decisions, edge contracts, and node
   bindings onto indexed symbols/modules.
-- [ ] Generate responsibility, dependency, ownership, public-interface, test,
+- [x] Generate responsibility, dependency, ownership, public-interface, test,
   and concept-owner maps.
-- [ ] Detect cycles, ambiguous concept ownership, cross-subsystem writes,
+- [x] Detect cycles, ambiguous concept ownership, cross-subsystem writes,
   high-fanout symbols, and failed reasoning firewalls.
-- [ ] Keep inferred facts separate from normative architecture authority.
-- [ ] Replace the misleading reasoning-index ratio in the architecture protocol
+- [x] Keep inferred facts separate from normative architecture authority.
+- [x] Replace the misleading reasoning-index ratio in the architecture protocol
   with measurable navigation precision, recall, search breadth, and context
   cost metrics.
-- [ ] Add representative architecture-navigation benchmark queries.
+- [x] Add representative architecture-navigation benchmark queries.
 
 Exit criteria:
 
@@ -377,16 +377,16 @@ harness-context-closure-check ENV_FILE PLAN_NODE_OR_TASK
 
 Deliverables:
 
-- [ ] Implement seed resolution and typed fixed-point expansion.
-- [ ] Implement deterministic ranking within each evidence class.
-- [ ] Extract bounded structural source regions with byte limits.
-- [ ] Generate closure manifest, item/edge ledgers, unresolved ledger, context
+- [x] Implement seed resolution and typed fixed-point expansion.
+- [x] Implement deterministic ranking within each evidence class.
+- [x] Extract bounded structural source regions with byte limits.
+- [x] Generate closure manifest, item/edge ledgers, unresolved ledger, context
   document, and quality report.
-- [ ] Prevent duplicate regions and repeated declarations.
-- [ ] Report why each context item was selected.
-- [ ] Fail closed for unresolved required symbols, stale indexes, conflicting
+- [x] Prevent duplicate regions and repeated declarations.
+- [x] Report why each context item was selected.
+- [x] Fail closed for unresolved required symbols, stale indexes, conflicting
   build configurations, or missing normative architecture records.
-- [ ] Keep full diagnostics on disk and only bounded summaries in context.
+- [x] Keep full diagnostics on disk and only bounded summaries in context.
 
 Exit criteria:
 
@@ -399,21 +399,21 @@ Exit criteria:
 
 Deliverables:
 
-- [ ] Provide Sol with a compact architecture slice before DAG generation.
-- [ ] Add measured decomposition fields for estimated closure bytes, symbol
+- [x] Provide Sol with a compact architecture slice before DAG generation.
+- [x] Add measured decomposition fields for estimated closure bytes, symbol
   count, module count, ownership crossings, dependency fan-out, and unresolved
   facts.
-- [ ] Validate every proposed Luna leaf against a dry-run context closure.
-- [ ] Require Sol to continue decomposition when the predicted upper bound is
+- [x] Validate every proposed Luna leaf against a dry-run context closure.
+- [x] Require Sol to continue decomposition when the predicted upper bound is
   above Luna limits.
-- [ ] Return exact suggested child cuts based on graph seams, contracts,
+- [x] Return exact suggested child cuts based on graph seams, contracts,
   ownership, and independently testable behavior.
-- [ ] Route inherently indivisible architectural/integration work to Terra with
+- [x] Route inherently indivisible architectural/integration work to Terra with
   a recorded exception.
-- [ ] Emit `REDESIGN_REQUIRED` when the requested feature relies on unresolved
+- [x] Emit `REDESIGN_REQUIRED` when the requested feature relies on unresolved
   ownership, incompatible architecture decisions, cycles that prevent a safe
   boundary, or an absent reasoning firewall.
-- [ ] Preserve `--force-decomposition` as an explicit operator override with a
+- [x] Preserve `--force-decomposition` as an explicit operator override with a
   permanent audit record.
 
 Exit criteria:
@@ -443,15 +443,15 @@ HARNESS_RECOLL_ENABLED
 
 Deliverables:
 
-- [ ] Extend generated worker capsules with compiled context and closure
+- [x] Extend generated worker capsules with compiled context and closure
   provenance.
-- [ ] In advisory mode, preserve current repository access while comparing
+- [x] In advisory mode, preserve current repository access while comparing
   worker discoveries against the generated closure.
-- [ ] Record missing-context discoveries, unused context, repeated reads,
+- [x] Record missing-context discoveries, unused context, repeated reads,
   exploration outside closure, and validation outcomes.
-- [ ] Rebuild or refresh indexes only at safe task/checkpoint boundaries.
-- [ ] Preserve current recovery semantics and source commits.
-- [ ] Add `harness-info`, `harness-statistics`, and decomposition metrics for
+- [x] Rebuild or refresh indexes only at safe task/checkpoint boundaries.
+- [x] Preserve current recovery semantics and source commits.
+- [x] Add `harness-info`, `harness-statistics`, and decomposition metrics for
   index/closure state without overloading `harness-status`.
 
 Exit criteria:
@@ -464,18 +464,18 @@ Exit criteria:
 
 Deliverables:
 
-- [ ] Define promotion thresholds for required mode: required-symbol recall,
+- [x] Define promotion thresholds for required mode: required-symbol recall,
   test linkage recall, closure stability, Luna success rate, and false-block
   rate.
-- [ ] Require a valid closure before launching Luna leaves.
-- [ ] Replace broad worker search authority with closure-contained source and
+- [x] Require a valid closure before launching Luna leaves.
+- [x] Replace broad worker search authority with closure-contained source and
   narrowly declared diagnostic expansion.
-- [ ] Implement an experimental patch-proposal protocol in which a worker emits
+- [x] Implement an experimental patch-proposal protocol in which a worker emits
   a patch, and the harness validates paths before applying it.
-- [ ] Validate patch syntax, allowed scope, generated/binary exclusions, and
+- [x] Validate patch syntax, allowed scope, generated/binary exclusions, and
   workspace baseline before application.
-- [ ] Keep Terra remediation available for a proven closure/index defect.
-- [ ] Never classify an index deficiency as a human product decision.
+- [x] Keep Terra remediation available for a proven closure/index defect.
+- [x] Never classify an index deficiency as a human product decision.
 
 Exit criteria:
 
@@ -489,15 +489,15 @@ Exit criteria:
 
 Deliverables:
 
-- [ ] Join predicted leaf complexity with observed tokens, actions, source
+- [x] Join predicted leaf complexity with observed tokens, actions, source
   bytes, repeated reads, output volume, files/lines changed, retries, reviews,
   duration, and outcome.
-- [ ] Attribute worker outcomes to both executing model and decomposition model.
-- [ ] Add closure-specific outlier reporting.
-- [ ] Calculate model-specific completion probability and conservative upper
+- [x] Attribute worker outcomes to both executing model and decomposition model.
+- [x] Add closure-specific outlier reporting.
+- [x] Calculate model-specific completion probability and conservative upper
   bounds from accumulated local data.
-- [ ] Tune Luna admission using the upper bound, not the average.
-- [ ] Detect systematic context omissions and feed them into index/closure
+- [x] Tune Luna admission using the upper bound, not the average.
+- [x] Detect systematic context omissions and feed them into index/closure
   quality reports rather than repeatedly expanding worker freedom.
 
 Exit criteria:
@@ -510,15 +510,15 @@ Exit criteria:
 
 Deliverables:
 
-- [ ] Generate periodic architecture scorecards from indexed facts and
+- [x] Generate periodic architecture scorecards from indexed facts and
   benchmark tasks.
-- [ ] Detect rising search breadth, fan-out, duplicate ownership, failed
+- [x] Detect rising search breadth, fan-out, duplicate ownership, failed
   reasoning firewalls, and context size.
-- [ ] Produce an architecture-rebuild proposal; do not modify production code
+- [x] Produce an architecture-rebuild proposal; do not modify production code
   automatically.
-- [ ] Update `formats/architecture-rebuild-protocol.md` with machine-generated
+- [x] Update `formats/architecture-rebuild-protocol.md` with machine-generated
   input artifacts and corrected metrics.
-- [ ] Compare architecture metrics before and after an operator-approved
+- [x] Compare architecture metrics before and after an operator-approved
   redesign harness.
 
 Exit criteria:
@@ -531,16 +531,16 @@ Exit criteria:
 
 Deliverables:
 
-- [ ] Run all harness test suites.
-- [ ] Run real-tool integration tests against at least one C/C++ project and
+- [x] Run all harness test suites.
+- [x] Run real-tool integration tests against at least one C/C++ project and
   one HIP-containing project.
-- [ ] Run advisory-mode benchmarks on completed harness history.
-- [ ] Compare token cost per verified criterion before and after closure.
-- [ ] Document installation, configuration, index maintenance, troubleshooting,
+- [x] Run advisory-mode benchmarks on completed harness history.
+- [x] Compare token cost per verified criterion before and after closure.
+- [x] Document installation, configuration, index maintenance, troubleshooting,
   migration, and rollback.
-- [ ] Deploy disabled-by-default, then advisory, then required for selected new
+- [x] Deploy disabled-by-default, then advisory, then required for selected new
   projects.
-- [ ] Do not rebuild active project DAGs automatically.
+- [x] Do not rebuild active project DAGs automatically.
 
 Exit criteria:
 
@@ -670,4 +670,3 @@ This initiative is complete when:
 8. production rollout and rollback are documented and tested;
 9. existing serial execution, checkpoint, recovery, liveness, token-fuse, and
    architecture-guard behavior remains intact.
-

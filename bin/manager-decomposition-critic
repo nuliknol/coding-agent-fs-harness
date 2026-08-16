@@ -31,6 +31,7 @@ specification_obligations_file_path='-'
 specification_relations_file_path='-'
 repository_inventory_file='-'
 domain_manifest_file='-'
+repository_architecture_slice='-'
 if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )); then
 	specification_review_is_accepted || die 'decomposition requires an accepted current specification review'
 	specification_review_report="$REPOSITORY/$(specification_review_state_value report)"
@@ -39,6 +40,9 @@ if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )); then
 	specification_relations_file_path="$(specification_relations_file)"
 	repository_inventory_file="$(specification_repository_inventory_file)"
 	domain_manifest_file="$(specification_domain_manifest_file)"
+fi
+if [[ -s "$dir/control/repository-architecture-slice.md" ]]; then
+	repository_architecture_slice="$dir/control/repository-architecture-slice.md"
 fi
 cat > "$prompt.tmp.$$" <<PROMPT
 You are the fresh DAG construction planner for a filesystem-backed coding harness. Do not edit the repository.
@@ -54,6 +58,7 @@ SPECIFICATION_OBLIGATIONS_FILE=$specification_obligations_file_path
 SPECIFICATION_RELATIONS_FILE=$specification_relations_file_path
 REPOSITORY_INVENTORY_FILE=$repository_inventory_file
 DOMAIN_PROFILE_MANIFEST=$domain_manifest_file
+REPOSITORY_ARCHITECTURE_SLICE=$repository_architecture_slice
 PROJECT_TMP_DIR=$PROJECT_TMP_DIR
 AGENT_PHASE=decomposition
 ARCHITECTURE_GUARDS=$HARNESS_ARCHITECTURE_GUARDS
@@ -86,7 +91,7 @@ When FORCE_DECOMPOSITION=1, a human has explicitly waived a matching redesign re
 
 The accepted review, normalized IR, and architecture-fit review have survived the independent challenge, or a matching force waiver has converted every blocker into prerequisite remediation. Construct and submit the DAG now.
 
-Read the accepted specification review, normalized obligations, typed semantic relations, repository facts, selected domain-profile manifest, and ARCHITECTURE_FIT_REPORT. These are the bounded semantic capsule. Search the repository inventory only for exact paths or symbols needed by a node; never print or read the complete inventory, complete development policy, harness implementation, unrelated Git history, or broad source trees. Retain verbose command output in files and return bounded excerpts. Treat OBSERVED repository facts as evidence, INFERRED facts as hypotheses to verify, and PLANNING_HINT facts as advisory only. Produce a topologically ordered decomposition DAG with this exact tab-separated header:
+Read the accepted specification review, normalized obligations, typed semantic relations, repository facts, selected domain-profile manifest, REPOSITORY_ARCHITECTURE_SLICE when it is not '-', and ARCHITECTURE_FIT_REPORT. These are the bounded semantic capsule. The architecture slice is deterministic structural navigation evidence: use its build ownership, public-interface candidates, high-fanout seams, and focused-test map to choose cohesive boundaries, but do not treat inferred structure as normative authority. Search the repository inventory only for exact paths or symbols needed by a node; never print or read the complete inventory, complete development policy, harness implementation, unrelated Git history, or broad source trees. Retain verbose command output in files and return bounded excerpts. Treat OBSERVED repository facts as evidence, INFERRED facts as hypotheses to verify, and PLANNING_HINT facts as advisory only. Produce a topologically ordered decomposition DAG with this exact tab-separated header:
 
 Preserve specification-declared component ownership and principal source paths. Before staging every contract, architecture, producer, adopter, or delivery node, trace its allocated obligations back to any exact component-definition or principal-source-path declaration at their source locations. The node's allowed_paths and required_symbols must include the implementation seam owned by that component; a similarly named downstream compiler, transport, facade, or presentation surface is not a substitute. Split producer/adopter work from delivery work when the specification assigns them to different components. If the repository facts disagree with a governing component declaration, challenge or renormalize the authority instead of silently rebinding the work.
 

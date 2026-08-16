@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+source "$SCRIPT_DIR/../lib/harness-repository-index.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE --reason TEXT\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 3 && "$2" == --reason ]] || usage
+load_harness_env "$1"
+ensure_project
+reason="$3"
+[[ -n "$reason" && "$reason" != *$'\n'* && "$reason" != *$'\r'* && "$reason" != *$'\t'* ]] ||
+	die 'repository-index invalidation reason must be one nonempty tab-free line'
+
+pointer="$(repository_index_project_pointer_file)"
+[[ -f "$pointer" ]] || die 'project has no repository-index pointer to invalidate'
+history="$(project_dir)/control/repository-index-history"
+mkdir -p "$history"
+chmod 700 "$history"
+exec 9>"$(project_dir)/control/repository-index.lock"
+flock -x 9
+archive="$history/repository-index-$(timestamp_compact_utc).env"
+install -m 600 "$pointer" "$archive"
+tmp="$pointer.tmp.$$"
+awk -F= '$1 != "status" && $1 != "invalidated_at" && $1 != "invalidation_reason" {print}' \
+	"$pointer" > "$tmp"
+{
+	printf 'status=INVALIDATED\n'
+	printf 'invalidated_at=%s\n' "$(timestamp_utc)"
+	printf 'invalidation_reason=%s\n' "$reason"
+} >> "$tmp"
+chmod 600 "$tmp"
+mv "$tmp" "$pointer"
+printf 'INDEX_INVALIDATED pointer=%s archived=%s reason=%s\n' "$pointer" "$archive" "$reason"
+

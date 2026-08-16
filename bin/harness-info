@@ -128,3 +128,17 @@ if (( HARNESS_ARCHITECTURE_GUARDS == 1 )); then
 else
 	printf '  Guards: disabled\n'
 fi
+
+printf '\nRepository intelligence\n'
+printf '  Index / Context Closure mode: %s / %s\n' "$HARNESS_REPOSITORY_INDEX_MODE" "$HARNESS_CONTEXT_CLOSURE_MODE"
+if [[ "$HARNESS_REPOSITORY_INDEX_MODE" != off ]]; then
+	index_summary="$($HARNESS_BIN/harness-index-status "$HARNESS_ENV_FILE" 2>/dev/null || true)"
+	printf '  Index status: %s (%s)\n' \
+		"$(awk -F '\t' '$1=="status" {print $2}' <<< "$index_summary")" \
+		"$(awk -F '\t' '$1=="reason" {print $2}' <<< "$index_summary")"
+	printf '  Index details: harness-index-status %s --details\n' "$HARNESS_ENV_FILE"
+	printf '  Architecture maps: harness-architecture-index %s\n' "$HARNESS_ENV_FILE"
+	printf '  Closure promotion: harness-context-closure-promotion %s\n' "$HARNESS_ENV_FILE"
+else
+	printf '  Repository intelligence: disabled\n'
+fi

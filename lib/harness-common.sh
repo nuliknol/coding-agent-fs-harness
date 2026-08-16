@@ -180,6 +180,18 @@ load_harness_env()
 	unset HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS HARNESS_START_MAX_AGENT_INVOCATIONS
 	unset HARNESS_LARGE_DECOMPOSITION_OBLIGATION_THRESHOLD
 	unset HARNESS_DOMAIN_PROFILES
+	unset HARNESS_REPOSITORY_INDEX_MODE HARNESS_CONTEXT_CLOSURE_MODE
+	unset HARNESS_REPOSITORY_INDEX_ROOT HARNESS_COMPILE_COMMANDS
+	unset HARNESS_SCIP_CLANG_BIN HARNESS_SCIP_BIN HARNESS_SCIP_IMPORTER_BIN HARNESS_JOERN_BIN HARNESS_JOERN_ENABLED
+	unset HARNESS_JOERN_ANALYSIS_CLASSES HARNESS_JOERN_SOURCE_ROOT HARNESS_RECOLL_BIN HARNESS_RECOLL_ENABLED HARNESS_REPOSITORY_INDEX_RETENTION
+	unset HARNESS_REPOSITORY_INDEX_REFRESH_ACCEPTED_LEAVES
+	unset HARNESS_SCIP_CLANG_JOBS HARNESS_CONTEXT_CLOSURE_MAX_BYTES
+	unset HARNESS_CONTEXT_CLOSURE_MAX_SYMBOLS HARNESS_CONTEXT_CLOSURE_MAX_MODULES
+	unset HARNESS_CONTEXT_CLOSURE_MAX_OWNERSHIP_BOUNDARIES
+	unset HARNESS_CONTEXT_CLOSURE_MAX_DIRECT_RELATIONSHIPS HARNESS_CONTEXT_CLOSURE_MAX_TESTS
+	unset HARNESS_CONTEXT_CLOSURE_MAX_BUILD_TARGETS HARNESS_CONTEXT_CLOSURE_MAX_ESTIMATED_TOKENS
+	unset HARNESS_CONTEXT_CLOSURE_PROMOTION_MIN_SAMPLES HARNESS_CONTEXT_CLOSURE_MIN_FILE_RECALL_PERCENT
+	unset HARNESS_CONTEXT_CLOSURE_MIN_LUNA_SUCCESS_PERCENT HARNESS_CONTEXT_CLOSURE_MAX_FALSE_BLOCK_PERCENT
 	unset HARNESS_MAX_LUNA_STRATEGY_FAILURES HARNESS_MAX_LUNA_ALLOWED_PATHS HARNESS_MIN_LUNA_NODE_PERCENT
 	unset HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF HARNESS_MAX_LUNA_CONTEXT_CAPSULE_BYTES
 	unset HARNESS_MAX_LUNA_BEHAVIORAL_CONCERNS HARNESS_MAX_LUNA_FAILURE_PATHS
@@ -351,6 +363,54 @@ load_harness_env()
 	# no product semantics. Names resolve first from the repository and then from
 	# the harness installation.
 	HARNESS_DOMAIN_PROFILES="${HARNESS_DOMAIN_PROFILES:-}"
+	# Repository intelligence is initially inert. Advisory and required modes are
+	# introduced behind explicit configuration so installing a newer harness
+	# cannot mutate or block an existing project.
+	HARNESS_REPOSITORY_INDEX_MODE="${HARNESS_REPOSITORY_INDEX_MODE:-off}"
+	HARNESS_CONTEXT_CLOSURE_MODE="${HARNESS_CONTEXT_CLOSURE_MODE:-off}"
+	HARNESS_REPOSITORY_INDEX_ROOT="${HARNESS_REPOSITORY_INDEX_ROOT:-$HARNESS_ROOT/repository-indexes}"
+	if [[ "$HARNESS_REPOSITORY_INDEX_ROOT" != /* ]]; then
+		HARNESS_REPOSITORY_INDEX_ROOT="$(resolve_from_env_dir "$HARNESS_REPOSITORY_INDEX_ROOT")"
+	else
+		HARNESS_REPOSITORY_INDEX_ROOT="$(realpath -m "$HARNESS_REPOSITORY_INDEX_ROOT")"
+	fi
+	HARNESS_COMPILE_COMMANDS="${HARNESS_COMPILE_COMMANDS:-}"
+	if [[ -n "$HARNESS_COMPILE_COMMANDS" && "$HARNESS_COMPILE_COMMANDS" != /* ]]; then
+		HARNESS_COMPILE_COMMANDS="$(realpath -m "$REPOSITORY/$HARNESS_COMPILE_COMMANDS")"
+	elif [[ -n "$HARNESS_COMPILE_COMMANDS" ]]; then
+		HARNESS_COMPILE_COMMANDS="$(realpath -m "$HARNESS_COMPILE_COMMANDS")"
+	fi
+	HARNESS_SCIP_CLANG_BIN="${HARNESS_SCIP_CLANG_BIN:-scip-clang}"
+	HARNESS_SCIP_BIN="${HARNESS_SCIP_BIN:-scip}"
+	HARNESS_SCIP_IMPORTER_BIN="${HARNESS_SCIP_IMPORTER_BIN:-$HARNESS_HOME/libexec/harness-scip-importer}"
+	HARNESS_JOERN_BIN="${HARNESS_JOERN_BIN:-joern}"
+	HARNESS_JOERN_ENABLED="${HARNESS_JOERN_ENABLED:-0}"
+	HARNESS_JOERN_ANALYSIS_CLASSES="${HARNESS_JOERN_ANALYSIS_CLASSES:-call,data-flow,control-flow,mutation}"
+	HARNESS_JOERN_SOURCE_ROOT="${HARNESS_JOERN_SOURCE_ROOT:-.}"
+	HARNESS_RECOLL_BIN="${HARNESS_RECOLL_BIN:-recollq}"
+	HARNESS_SCIP_CLANG_BIN="$(resolve_command_path "$HARNESS_SCIP_CLANG_BIN")"
+	HARNESS_SCIP_BIN="$(resolve_command_path "$HARNESS_SCIP_BIN")"
+	HARNESS_SCIP_IMPORTER_BIN="$(resolve_command_path "$HARNESS_SCIP_IMPORTER_BIN")"
+	HARNESS_JOERN_BIN="$(resolve_command_path "$HARNESS_JOERN_BIN")"
+	HARNESS_RECOLL_ENABLED="${HARNESS_RECOLL_ENABLED:-0}"
+	if (( HARNESS_RECOLL_ENABLED == 1 )); then
+		HARNESS_RECOLL_BIN="$(resolve_command_path "$HARNESS_RECOLL_BIN")"
+	fi
+	HARNESS_REPOSITORY_INDEX_RETENTION="${HARNESS_REPOSITORY_INDEX_RETENTION:-3}"
+	HARNESS_REPOSITORY_INDEX_REFRESH_ACCEPTED_LEAVES="${HARNESS_REPOSITORY_INDEX_REFRESH_ACCEPTED_LEAVES:-5}"
+	HARNESS_SCIP_CLANG_JOBS="${HARNESS_SCIP_CLANG_JOBS:-1}"
+	HARNESS_CONTEXT_CLOSURE_MAX_BYTES="${HARNESS_CONTEXT_CLOSURE_MAX_BYTES:-32768}"
+	HARNESS_CONTEXT_CLOSURE_MAX_SYMBOLS="${HARNESS_CONTEXT_CLOSURE_MAX_SYMBOLS:-64}"
+	HARNESS_CONTEXT_CLOSURE_MAX_MODULES="${HARNESS_CONTEXT_CLOSURE_MAX_MODULES:-4}"
+	HARNESS_CONTEXT_CLOSURE_MAX_OWNERSHIP_BOUNDARIES="${HARNESS_CONTEXT_CLOSURE_MAX_OWNERSHIP_BOUNDARIES:-2}"
+	HARNESS_CONTEXT_CLOSURE_MAX_DIRECT_RELATIONSHIPS="${HARNESS_CONTEXT_CLOSURE_MAX_DIRECT_RELATIONSHIPS:-16}"
+	HARNESS_CONTEXT_CLOSURE_MAX_TESTS="${HARNESS_CONTEXT_CLOSURE_MAX_TESTS:-8}"
+	HARNESS_CONTEXT_CLOSURE_MAX_BUILD_TARGETS="${HARNESS_CONTEXT_CLOSURE_MAX_BUILD_TARGETS:-4}"
+	HARNESS_CONTEXT_CLOSURE_MAX_ESTIMATED_TOKENS="${HARNESS_CONTEXT_CLOSURE_MAX_ESTIMATED_TOKENS:-250000}"
+	HARNESS_CONTEXT_CLOSURE_PROMOTION_MIN_SAMPLES="${HARNESS_CONTEXT_CLOSURE_PROMOTION_MIN_SAMPLES:-20}"
+	HARNESS_CONTEXT_CLOSURE_MIN_FILE_RECALL_PERCENT="${HARNESS_CONTEXT_CLOSURE_MIN_FILE_RECALL_PERCENT:-95}"
+	HARNESS_CONTEXT_CLOSURE_MIN_LUNA_SUCCESS_PERCENT="${HARNESS_CONTEXT_CLOSURE_MIN_LUNA_SUCCESS_PERCENT:-90}"
+	HARNESS_CONTEXT_CLOSURE_MAX_FALSE_BLOCK_PERCENT="${HARNESS_CONTEXT_CLOSURE_MAX_FALSE_BLOCK_PERCENT:-5}"
 	HARNESS_MAX_LUNA_STRATEGY_FAILURES="${HARNESS_MAX_LUNA_STRATEGY_FAILURES:-3}"
 	# Allowed-Scope includes source, build registration, fixtures, and focused
 	# validation paths. Keep the implementation-file budget at five, but permit
@@ -611,6 +671,43 @@ load_harness_env()
 	[[ "$HARNESS_DECOMPOSITION_V2" =~ ^[01]$ ]] || die 'HARNESS_DECOMPOSITION_V2 must be 0 or 1'
 	[[ "$HARNESS_DECOMPOSITION_CRITIC_ENABLED" =~ ^[01]$ ]] || die 'HARNESS_DECOMPOSITION_CRITIC_ENABLED must be 0 or 1'
 	[[ "$HARNESS_SPECIFICATION_REVIEW_ENABLED" =~ ^[01]$ ]] || die 'HARNESS_SPECIFICATION_REVIEW_ENABLED must be 0 or 1'
+	[[ "$HARNESS_REPOSITORY_INDEX_MODE" =~ ^(off|advisory|required)$ ]] ||
+		die 'HARNESS_REPOSITORY_INDEX_MODE must be off, advisory, or required'
+	[[ "$HARNESS_CONTEXT_CLOSURE_MODE" =~ ^(off|advisory|required|patch_only)$ ]] ||
+		die 'HARNESS_CONTEXT_CLOSURE_MODE must be off, advisory, required, or patch_only'
+	[[ "$HARNESS_RECOLL_ENABLED" =~ ^[01]$ ]] || die 'HARNESS_RECOLL_ENABLED must be 0 or 1'
+	[[ "$HARNESS_JOERN_ENABLED" =~ ^[01]$ ]] || die 'HARNESS_JOERN_ENABLED must be 0 or 1'
+	[[ "$HARNESS_JOERN_ANALYSIS_CLASSES" =~ ^[A-Za-z0-9,_-]+$ ]] ||
+		die 'HARNESS_JOERN_ANALYSIS_CLASSES contains invalid characters'
+	[[ "$HARNESS_JOERN_SOURCE_ROOT" != /* && "$HARNESS_JOERN_SOURCE_ROOT" != .. &&
+		"$HARNESS_JOERN_SOURCE_ROOT" != ../* && "$HARNESS_JOERN_SOURCE_ROOT" != */../* &&
+		"$HARNESS_JOERN_SOURCE_ROOT" != */.. ]] || die 'HARNESS_JOERN_SOURCE_ROOT must remain inside the repository'
+	[[ "$HARNESS_REPOSITORY_INDEX_RETENTION" =~ ^[1-9][0-9]*$ ]] ||
+		die 'HARNESS_REPOSITORY_INDEX_RETENTION must be a positive integer'
+	[[ "$HARNESS_REPOSITORY_INDEX_REFRESH_ACCEPTED_LEAVES" =~ ^[1-9][0-9]*$ ]] ||
+		die 'HARNESS_REPOSITORY_INDEX_REFRESH_ACCEPTED_LEAVES must be a positive integer'
+	[[ "$HARNESS_SCIP_CLANG_JOBS" =~ ^[1-9][0-9]*$ ]] ||
+		die 'HARNESS_SCIP_CLANG_JOBS must be a positive integer'
+	local context_closure_limit_name
+	for context_closure_limit_name in HARNESS_CONTEXT_CLOSURE_MAX_BYTES \
+		HARNESS_CONTEXT_CLOSURE_MAX_SYMBOLS HARNESS_CONTEXT_CLOSURE_MAX_MODULES \
+		HARNESS_CONTEXT_CLOSURE_MAX_OWNERSHIP_BOUNDARIES \
+		HARNESS_CONTEXT_CLOSURE_MAX_DIRECT_RELATIONSHIPS HARNESS_CONTEXT_CLOSURE_MAX_TESTS \
+		HARNESS_CONTEXT_CLOSURE_MAX_BUILD_TARGETS \
+		HARNESS_CONTEXT_CLOSURE_MAX_ESTIMATED_TOKENS; do
+		[[ "${!context_closure_limit_name}" =~ ^[1-9][0-9]*$ ]] ||
+			die "$context_closure_limit_name must be a positive integer"
+	done
+	for context_closure_percent_name in HARNESS_CONTEXT_CLOSURE_MIN_FILE_RECALL_PERCENT \
+		HARNESS_CONTEXT_CLOSURE_MIN_LUNA_SUCCESS_PERCENT HARNESS_CONTEXT_CLOSURE_MAX_FALSE_BLOCK_PERCENT; do
+		[[ "${!context_closure_percent_name}" =~ ^([0-9]|[1-9][0-9]|100)$ ]] ||
+			die "$context_closure_percent_name must be an integer from 0 through 100"
+	done
+	[[ "$HARNESS_CONTEXT_CLOSURE_PROMOTION_MIN_SAMPLES" =~ ^[1-9][0-9]*$ ]] ||
+		die 'HARNESS_CONTEXT_CLOSURE_PROMOTION_MIN_SAMPLES must be a positive integer'
+	if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" != off && "$HARNESS_REPOSITORY_INDEX_MODE" == off ]]; then
+		die 'HARNESS_CONTEXT_CLOSURE_MODE requires HARNESS_REPOSITORY_INDEX_MODE=advisory or required'
+	fi
 	(( HARNESS_DECOMPOSITION_V2 == 0 || HARNESS_WORKER_GOAL_MODE == 1 )) ||
 		die 'HARNESS_DECOMPOSITION_V2=1 requires HARNESS_WORKER_GOAL_MODE=1'
 	(( HARNESS_DECOMPOSITION_CRITIC_ENABLED == 0 || HARNESS_DECOMPOSITION_V2 == 1 )) ||
@@ -754,6 +851,19 @@ load_harness_env()
 	export HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED
 	export HARNESS_DECOMPOSITION_V2 HARNESS_DECOMPOSITION_CRITIC_ENABLED HARNESS_SPECIFICATION_REVIEW_ENABLED
 	export HARNESS_DOMAIN_PROFILES
+	export HARNESS_REPOSITORY_INDEX_MODE HARNESS_CONTEXT_CLOSURE_MODE
+	export HARNESS_REPOSITORY_INDEX_ROOT HARNESS_COMPILE_COMMANDS
+	export HARNESS_SCIP_CLANG_BIN HARNESS_SCIP_BIN HARNESS_SCIP_IMPORTER_BIN HARNESS_JOERN_BIN HARNESS_JOERN_ENABLED
+	export HARNESS_JOERN_ANALYSIS_CLASSES HARNESS_JOERN_SOURCE_ROOT HARNESS_RECOLL_BIN HARNESS_RECOLL_ENABLED HARNESS_REPOSITORY_INDEX_RETENTION
+	export HARNESS_REPOSITORY_INDEX_REFRESH_ACCEPTED_LEAVES
+	export HARNESS_SCIP_CLANG_JOBS HARNESS_CONTEXT_CLOSURE_MAX_BYTES
+	export HARNESS_CONTEXT_CLOSURE_MAX_SYMBOLS HARNESS_CONTEXT_CLOSURE_MAX_MODULES
+	export HARNESS_CONTEXT_CLOSURE_MAX_OWNERSHIP_BOUNDARIES
+	export HARNESS_CONTEXT_CLOSURE_MAX_DIRECT_RELATIONSHIPS HARNESS_CONTEXT_CLOSURE_MAX_TESTS
+	export HARNESS_CONTEXT_CLOSURE_MAX_BUILD_TARGETS
+	export HARNESS_CONTEXT_CLOSURE_MAX_ESTIMATED_TOKENS
+	export HARNESS_CONTEXT_CLOSURE_PROMOTION_MIN_SAMPLES HARNESS_CONTEXT_CLOSURE_MIN_FILE_RECALL_PERCENT
+	export HARNESS_CONTEXT_CLOSURE_MIN_LUNA_SUCCESS_PERCENT HARNESS_CONTEXT_CLOSURE_MAX_FALSE_BLOCK_PERCENT
 	export HARNESS_MAX_LUNA_STRATEGY_FAILURES
 	export HARNESS_MAX_LUNA_ALLOWED_PATHS
 	export HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF HARNESS_MAX_LUNA_CONTEXT_CAPSULE_BYTES
@@ -2579,15 +2689,19 @@ record_worker_complexity_observation()
 {
 	local task_id="$1" plan_node="$2" role="$3" model="$4" classification="$5" json="$6"
 	local report score predicted_actions predicted_p95 actual usage_source items commands output_bytes max_output source_read_bytes repeated_reads
-	local changed_files changed_lines duration class route ledger lock metrics
+	local changed_files changed_lines duration class route leaf_type planner_model planner_effort ledger lock metrics header tmp
 	[[ -f "$classification" && -f "$json" ]] || return 0
 	report="$(decomposition_complexity_report_file)"
-	score=0; predicted_actions=0; predicted_p95=0; route=UNKNOWN
+	score=0; predicted_actions=0; predicted_p95=0; route=UNKNOWN; leaf_type=UNKNOWN
 	if [[ -f "$report" && -n "$plan_node" ]]; then
-		IFS=$'\t' read -r route _ score _ _ _ _ _ _ _ _ _ _ predicted_actions _ predicted_p95 _ _ _ < <(
+		IFS=$'\t' read -r route leaf_type score _ _ _ _ _ _ _ _ _ _ predicted_actions _ predicted_p95 _ _ _ < <(
 			awk -F '\t' -v node="$plan_node" 'NR>1 && $1==node {for(i=2;i<=NF;i++) printf "%s%s",$i,(i==NF?"\n":"\t"); exit}' "$report"
 		) || true
 	fi
+	[[ -n "$leaf_type" && "$leaf_type" != - ]] || leaf_type="$(project_plan_node_value "$plan_node" leaf_type 2>/dev/null || printf UNKNOWN)"
+	[[ -n "$leaf_type" ]] || leaf_type=UNKNOWN
+	planner_model="$(decomposition_provenance_value planner_model "$DECOMPOSITION_MODEL" 2>/dev/null || printf '%s' "$DECOMPOSITION_MODEL")"
+	planner_effort="$(decomposition_provenance_value planner_reasoning_effort "$DECOMPOSITION_REASONING_EFFORT" 2>/dev/null || printf '%s' "$DECOMPOSITION_REASONING_EFFORT")"
 	[[ "$score" =~ ^[0-9]+$ ]] || score=0
 	[[ "$predicted_actions" =~ ^[0-9]+$ ]] || predicted_actions=0
 	[[ "$predicted_p95" =~ ^[0-9]+$ ]] || predicted_p95=0
@@ -2622,13 +2736,25 @@ record_worker_complexity_observation()
 	exec 6>"$lock"
 	flock -x 6
 	if [[ ! -f "$ledger" ]]; then
-		printf 'recorded_at\tproject\tplan_node\ttask_id\trole\tmodel\tworker_route\tcomplexity_score\tpredicted_actions\tpredicted_p95_tokens\tprocessed_tokens\tusage_source\titems\tcommands\toutput_bytes\tmax_output_bytes\tsource_read_bytes\trepeated_source_reads\tchanged_files\tduration_seconds\tclassification\tchanged_lines\n' > "$ledger"
+		printf 'recorded_at\tproject\tplan_node\ttask_id\trole\tmodel\tworker_route\tcomplexity_score\tpredicted_actions\tpredicted_p95_tokens\tprocessed_tokens\tusage_source\titems\tcommands\toutput_bytes\tmax_output_bytes\tsource_read_bytes\trepeated_source_reads\tchanged_files\tduration_seconds\tclassification\tchanged_lines\tplanner_model\tplanner_effort\tleaf_type\n' > "$ledger"
 		chmod 600 "$ledger"
+	else
+		header="$(head -n 1 "$ledger")"
+		if [[ "$header" != *$'\tplanner_model\tplanner_effort\tleaf_type' ]]; then
+			tmp="$ledger.migrate.$$"
+			awk -F '\t' -v OFS='\t' -v planner="$planner_model" -v effort="$planner_effort" '
+				NR==1 {print $0,"planner_model","planner_effort","leaf_type"; next}
+				{print $0,planner,effort,($7==""?"UNKNOWN":$7)}
+			' "$ledger" > "$tmp"
+			chmod 600 "$tmp"
+			mv "$tmp" "$ledger"
+		fi
 	fi
-	printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+	printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
 		"$(timestamp_utc)" "$PROJECT" "${plan_node:--}" "$task_id" "$role" "$model" "$route" "$score" \
 		"$predicted_actions" "$predicted_p95" "$actual" "$usage_source" "$items" "$commands" "$output_bytes" \
-		"$max_output" "$source_read_bytes" "$repeated_reads" "$changed_files" "$duration" "$class" "$changed_lines" >> "$ledger"
+		"$max_output" "$source_read_bytes" "$repeated_reads" "$changed_files" "$duration" "$class" "$changed_lines" \
+		"$planner_model" "$planner_effort" "$leaf_type" >> "$ledger"
 	flock -u 6
 }
 
@@ -2656,6 +2782,79 @@ record_worker_complexity_outcome()
 			"$task_id" "$outcome" "$replans" "$planner_model" "$planner_effort" >> "$ledger"
 	fi
 	flock -u 6
+	record_context_closure_outcome "$task_id" "$outcome" "${plan_node:--}"
+	refresh_context_closure_feedback
+}
+
+refresh_context_closure_feedback()
+{
+	local dir predictions omissions tmp
+	dir="$(project_dir)"
+	[[ -f "$HARNESS_HOME/tools/context_closure_metrics.py" ]] || return 0
+	predictions="$dir/control/context-closure-predictions.tsv"
+	tmp="$predictions.tmp.$$"
+	if python3 "$HARNESS_HOME/tools/context_closure_metrics.py" predictions --project "$dir" > "$tmp"; then
+		chmod 600 "$tmp"
+		mv "$tmp" "$predictions"
+	else
+		rm -f "$tmp"
+	fi
+	omissions="$dir/control/context-closure-systematic-omissions.tsv"
+	tmp="$omissions.tmp.$$"
+	if python3 "$HARNESS_HOME/tools/context_closure_metrics.py" omissions --project "$dir" > "$tmp"; then
+		chmod 600 "$tmp"
+		mv "$tmp" "$omissions"
+	else
+		rm -f "$tmp"
+	fi
+}
+
+record_context_closure_outcome()
+{
+	local task_id="$1" outcome="$2" plan_node="$3" dir ledger lock summary report closure_manifest closure_status header tmp
+	local commands closure_paths used unused missing changed_outside
+	dir="$(project_dir)"
+	ledger="$dir/logs/context-closure-outcomes.tsv"
+	lock="$dir/control/context-closure-outcomes.lock"
+	exec 5>"$lock"
+	flock -x 5
+	if [[ ! -f "$ledger" ]]; then
+		printf 'recorded_at\tproject\tplan_node\ttask_id\toutcome\tusage_report\tcommands\tclosure_paths\tused_paths\tunused_candidates\tmissing_candidates\tchanged_outside_closure\tclosure_status\n' > "$ledger"
+		chmod 600 "$ledger"
+	else
+		header="$(head -n 1 "$ledger")"
+		if [[ "$header" != *$'\tclosure_status' ]]; then
+			tmp="$ledger.migrate.$$"
+			awk -F '\t' -v OFS='\t' 'NR==1 {print $0,"closure_status"; next} {print $0,"UNKNOWN"}' "$ledger" > "$tmp"
+			chmod 600 "$tmp"
+			mv "$tmp" "$ledger"
+		fi
+	fi
+	closure_manifest="$dir/control/context-closures/$(task_base "$task_id")/manifest.env"
+	closure_status=UNKNOWN
+	if [[ -f "$closure_manifest" ]]; then
+		closure_status="$(kv_file_value "$closure_manifest" status 2>/dev/null || true)"
+		[[ -n "$closure_status" ]] || closure_status=UNKNOWN
+	fi
+	shopt -s nullglob
+	for summary in "$dir/logs/context-closure-usage-$task_id-"*.env; do
+		report="${summary%.env}.tsv"
+		[[ -f "$report" ]] || continue
+		if awk -F '\t' -v usage="$report" 'NR>1 && $6==usage {found=1} END{exit found?0:1}' "$ledger"; then
+			continue
+		fi
+		commands="$(kv_file_value "$summary" commands 2>/dev/null || printf 0)"
+		closure_paths="$(kv_file_value "$summary" closure_paths 2>/dev/null || printf 0)"
+		used="$(kv_file_value "$summary" used_paths 2>/dev/null || printf 0)"
+		unused="$(kv_file_value "$summary" unused_candidates 2>/dev/null || printf 0)"
+		missing="$(kv_file_value "$summary" missing_candidates 2>/dev/null || printf 0)"
+		changed_outside="$(kv_file_value "$summary" changed_outside_closure 2>/dev/null || printf 0)"
+		printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+			"$(timestamp_utc)" "$PROJECT" "$plan_node" "$task_id" "$outcome" "$report" \
+			"$commands" "$closure_paths" "$used" "$unused" "$missing" "$changed_outside" "$closure_status" >> "$ledger"
+	done
+	shopt -u nullglob
+	flock -u 5
 }
 
 root_liveness_epoch_delta()
@@ -5474,6 +5673,10 @@ write_project_snapshot()
 		printf 'domain_profiles=%s\n' "${HARNESS_DOMAIN_PROFILES:-}"
 		printf 'domain_profiles_sha256=%s\n' "$(domain_profiles_sha256)"
 		printf 'architecture_guards=%s\n' "$HARNESS_ARCHITECTURE_GUARDS"
+		printf 'repository_index_mode=%s\n' "$HARNESS_REPOSITORY_INDEX_MODE"
+		printf 'context_closure_mode=%s\n' "$HARNESS_CONTEXT_CLOSURE_MODE"
+		printf 'repository_index_root=%s\n' "$HARNESS_REPOSITORY_INDEX_ROOT"
+		printf 'compile_commands=%s\n' "$HARNESS_COMPILE_COMMANDS"
 		printf 'semantic_continuation_review_enabled=%s\n' "$HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED"
 		printf 'harness_home=%s\n' "$HARNESS_HOME"
 		printf 'harness_bin=%s\n' "$HARNESS_BIN"

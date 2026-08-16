@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HARNESS_HOME="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+[[ $# -eq 1 ]] || { printf 'Usage: %s OUTPUT_DIRECTORY\n' "${0##*/}" >&2; exit 2; }
+output="$(realpath -m "$1")"
+mkdir -p "$output"
+(
+	cd "$HARNESS_HOME/tools"
+	CGO_ENABLED=1 go build -tags sqlite_fts5 -trimpath \
+		-o "$output/harness-scip-importer.tmp.$$" ./cmd/harness-scip-importer
+)
+chmod 755 "$output/harness-scip-importer.tmp.$$"
+mv "$output/harness-scip-importer.tmp.$$" "$output/harness-scip-importer"
+printf '%s\n' "$output/harness-scip-importer"

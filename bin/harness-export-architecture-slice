@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+source "$SCRIPT_DIR/../lib/harness-repository-index.sh"
+
+[[ $# -eq 1 || $# -eq 2 ]] || {
+	printf 'Usage: %s ENV_FILE [OUTPUT_FILE]\n' "${0##*/}" >&2
+	exit 2
+}
+load_harness_env "$1"
+ensure_project
+pointer="$(repository_index_project_pointer_file)"
+repository_index_project_pointer_is_current ||
+	die "architecture slice requires a current repository index: $REPOSITORY_INDEX_POINTER_REASON"
+generation="$(kv_file_value "$pointer" generation)"
+generation_dir="$(kv_file_value "$pointer" generation_dir)"
+output="${2:-$(project_dir)/control/repository-architecture-slice.md}"
+output="$(realpath -m "$output")"
+temporary="$output.tmp.$$"
+python3 "$HARNESS_HOME/tools/export_architecture_slice.py" \
+	--database "$generation_dir/architecture.sqlite" --generation "$generation" \
+	--output "$temporary"
+chmod 600 "$temporary"
+mv "$temporary" "$output"
+printf '%s\n' "$output"

@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+[[ $# -eq 2 ]] || { printf 'Usage: %s BEFORE_TSV AFTER_TSV\n' "${0##*/}" >&2; exit 2; }
+for file in "$@"; do [[ -f "$file" ]] || { printf 'missing scorecard: %s\n' "$file" >&2; exit 2; }; done
+printf 'metric\tbefore\tafter\tdelta\n'
+awk -F '\t' 'NR==FNR {if(FNR>1) before[$1]=$2; next} FNR>1 {b=($1 in before?before[$1]:"-"); d="-"; if(b ~ /^-?[0-9.]+$/ && $2 ~ /^-?[0-9.]+$/) d=$2-b; print $1,b,$2,d}' OFS='\t' "$1" "$2"

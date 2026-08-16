@@ -76,6 +76,46 @@ elif (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 	die 'refusing to claim a legacy assignment after HARNESS_WORKER_GOAL_MODE was enabled; change mode only at a clean task boundary'
 fi
 
+compiled_context_closure_file=""
+context_closure_status=OFF
+context_closure_reason=-
+context_closure_bytes=0
+context_closure_tokens=0
+if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" != off ]]; then
+	closure_build_log="$dir/logs/context-closure-$task_id-$(timestamp_compact_utc)-$$.log"
+	set +e
+	closure_build_output="$($HARNESS_BIN/harness-build-context-closure \
+		"$HARNESS_ENV_FILE" "$ready" 2> "$closure_build_log")"
+	closure_build_status=$?
+	set -e
+	if (( closure_build_status == 0 )); then
+		closure_path="$(sed -n 's/^.* path=//p' <<< "$closure_build_output" | tail -n 1)"
+		closure_manifest="$closure_path/manifest.env"
+		context_closure_status="$(kv_file_value "$closure_manifest" status 2>/dev/null || printf INVALID)"
+		context_closure_reason="$(kv_file_value "$closure_manifest" reasons 2>/dev/null || printf missing-manifest)"
+		context_closure_bytes="$(kv_file_value "$closure_manifest" context_bytes 2>/dev/null || printf 0)"
+		context_closure_tokens="$(kv_file_value "$closure_manifest" estimated_tokens 2>/dev/null || printf 0)"
+		if [[ "$context_closure_status" == READY && -s "$closure_path/context.md" ]]; then
+			compiled_context_closure_file="$closure_path/context.md"
+		fi
+	else
+		context_closure_status=UNAVAILABLE
+		context_closure_reason="build-exit-$closure_build_status"
+	fi
+	closure_events="$dir/logs/context-closure-events.tsv"
+	if [[ ! -f "$closure_events" ]]; then
+		printf 'recorded_at\ttask_id\tmode\tstatus\treason\tcontext_bytes\testimated_tokens\tcontext_file\n' \
+			> "$closure_events"
+		chmod 600 "$closure_events"
+	fi
+	printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+		"$(timestamp_utc)" "$task_id" "$HARNESS_CONTEXT_CLOSURE_MODE" \
+		"$context_closure_status" "$context_closure_reason" \
+		"$context_closure_bytes" "$context_closure_tokens" \
+		"${compiled_context_closure_file:--}" >> "$closure_events"
+	log_event "CONTEXT_CLOSURE_PREPARED task=$task_id mode=$HARNESS_CONTEXT_CLOSURE_MODE status=$context_closure_status reason=$context_closure_reason bytes=$context_closure_bytes estimated_tokens=$context_closure_tokens file=${compiled_context_closure_file:-none} log=$closure_build_log"
+fi
+
 session="$("$HARNESS_BIN/harness-new-session" "$HARNESS_ENV_FILE" worker)"
 trace_event WORKER_SESSION_CREATED "task_id=$task_id" "session=$session"
 claim_output="$("$HARNESS_BIN/worker-claim-task" "$HARNESS_ENV_FILE" "$task_id" "$session")"
@@ -257,6 +297,9 @@ PROGRESS_FILE=$progress_file
 STARTING_PROGRESS_PERCENT=$starting_progress
 DEVELOPMENT_POLICY_FILE=$development_policy_file
 CONTEXT_CAPSULE_FILE=$context_capsule_file
+CONTEXT_CLOSURE_MODE=$HARNESS_CONTEXT_CLOSURE_MODE
+CONTEXT_CLOSURE_STATUS=$context_closure_status
+CONTEXT_CLOSURE_FILE=$compiled_context_closure_file
 SPECIFICATION_OBLIGATIONS_FILE=$specification_obligations_path
 SPECIFICATION_RELATIONS_FILE=$specification_relations_path
 SPECIFICATION_COVERAGE_FILE=$specification_coverage_path
@@ -289,6 +332,8 @@ EFFECTIVE_P95_TOKENS=$effective_p95_tokens
 
 The task is already claimed by this launcher. For a v2 task, the complete bounded assignment and context capsule are embedded below. They are the worker's entire harness context: do not open DEVELOPMENT_POLICY_FILE, ROOT_ASSIGNMENT_FILE, PROGRESS_FILE, GOAL_SUMMARY_FILE, specification IR/coverage files, or other harness control files. Do not reread the embedded assignment or capsule through shell commands. Inspect only Context-Paths, Allowed-Scope, Required-Symbols, and repository files directly implicated by a bounded compiler/linker diagnostic. Legacy tasks without an embedded capsule may read their named task and progress files once.
 
+When CONTEXT_CLOSURE_STATUS=READY, a deterministic repository-index closure is embedded after the normal capsule. Treat its exact definitions, interfaces, tests, and normative authority as the starting implementation context. Advisory mode does not remove repository access and does not broaden Allowed-Scope. If required evidence is absent, report that omission rather than compensating with repository-wide exploration.
+
 The context boundary is enforceable. Direct rg/grep/find/sed inspection is limited to Context-Paths and Allowed-Scope, and every complete shell command must return at most OUTPUT_MAX_LINES lines and OUTPUT_MAX_BYTES bytes in aggregate. The cap applies to the combined stdout/stderr of the whole command, not separately to each command joined by a newline, semicolon, pipe, subshell, or logical operator. Inspect exactly one source file or one exact source window per agent action. A command that joins multiple source reads with logical operators, semicolons, a loop, or printed section markers is invalid even when all files are listed in Context-Paths. The embedded capsule's Required symbol locations are machine-derived repository coordinates: start at those coordinates and do not spend actions rediscovering them. Start from Required-Symbols in the smallest implicated file; do not dump every Context-Paths file or a whole large function as an initial survey. If one required symbol spans too much behavior to understand from one bounded local window, terminate NEEDS_DECOMPOSITION and name the exact sub-boundary needed instead of walking the file in successive broad windows. Do not concatenate multiple individually capped reads; issue one bounded read per agent action or wrap the entire compound command in one final head -n OUTPUT_MAX_LINES followed by head -c OUTPUT_MAX_BYTES. A line cap alone is invalid because minified/generated source can contain giant lines. Bound a source search before launching it with exact patterns, --max-count, rg --max-columns 512 --max-columns-preview, and a final head -c OUTPUT_MAX_BYTES; use a similarly explicit byte cap for non-rg output. An unbounded contextual search such as rg -C N PATTERN FILES is prohibited even across listed files because many matches multiply the context; inspect one exact line window and byte-cap it. Never print a repository-wide content search. If an exact required symbol is absent from the supplied context, one filename-only discovery command such as rg -l --fixed-strings SYMBOL BOUNDED_REPOSITORY_SUBTREE piped to head -n 20 is permitted; inspect only the smallest exact match. If more than one such discovery is needed, or a required contract still cannot be located, terminate with NEEDS_DECOMPOSITION and name the missing symbols/context paths. If a required test observation is absent from the supplied public/test surface and producing it requires a production contract outside Allowed-Scope, terminate HARD_BLOCKED immediately with that exact local prerequisite; do not consume the remaining episode on exploratory reads. Reserve at least one action for a source edit and one for focused validation. If the remaining action budget cannot reach both, terminate NEEDS_DECOMPOSITION with the missing implementation-ready fact. Interpret diagnostic values according to their declared source type: a field such as has_two_devices=1 is a true boolean, not a one-device count. Do not use broad exploration to repair an incomplete planner capsule. Create any new build tree under PROJECT_TMP_DIR; an existing configured build tree may be consumed, but do not create an untracked build directory in REPOSITORY.
 
 Preserve verified work and continue from STARTING_PROGRESS_PERCENT rather than reimplementing the root task from zero. Implement exactly the remaining bounded assignment. Run build and test validation through this command so complete output is retained on disk and only a bounded summary enters this transcript:
@@ -297,6 +342,12 @@ $HARNESS_BIN/harness-run-assigned-validation "$HARNESS_ENV_FILE" "$task_id" LABE
 
 Use that command when Focused-Validation is executable. When it is descriptive, run a concrete validation through harness-run-logged. A compound command must be passed as one quoted /bin/bash -lc argument; placing a logical operator after the harness-run-logged invocation is forbidden because the following command escapes capture. Never invoke a potentially verbose build/test command directly. Validation-Class CLEAN_GLOBAL authorizes observation only in a Terra integration leaf; it never broadens implementation scope. Commit every task-owned source/source-related change with harness-commit-source before a terminal result. Use harness-publish-branch when Publish-Branch is declared. Never run direct Git index/history mutations. Generated output, object files, binaries, ignored files, and paths outside Allowed-Scope must remain uncommitted. Write scratch files and the result report under PROJECT_TMP_DIR, publish the result with worker-complete-task, and terminate. If an exact mandatory cross-harness Git ref is absent, use worker-wait-dependency with a precise requirements TSV and supplier note instead of repeating absence audits or claiming gain. Do not wait for another task.
 PROMPT
+if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only && "$worker_route" == LUNA ]]; then
+	cat >> "$prompt_file.tmp.$$" <<'PROMPT'
+
+Patch-only Context Closure execution is active. The compiled closure below is the complete implementation context. Do not use shell, filesystem, web, search, or repository tools. Do not attempt to call harness commands. Reason only from the embedded task and closure. Your final response must contain exactly one fenced `diff` block containing a standard `diff --git` patch, followed by the normal worker-result metadata and headings. The trusted harness will validate scope, baseline, patch syntax, apply it, run Focused-Validation, and commit accepted source changes. If the closed evidence is insufficient, emit no patch and report Goal-Outcome: NEEDS_DECOMPOSITION with Decomposition-Reason: CONTEXT_INCOMPLETE.
+PROMPT
+fi
 if (( manager_remediation == 1 )); then
 	remediation_scope="$(require_single_metadata_value "$task_file" Remediation-Scope 'manager remediation assignment')"
 	remediation_class="$(require_single_metadata_value "$task_file" Blocker-Class 'manager remediation assignment')"
@@ -364,6 +415,10 @@ if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 		cat "$task_file"
 		printf '\n## Embedded bounded context capsule\n\n'
 		cat "$context_capsule_file"
+		if [[ -n "$compiled_context_closure_file" ]]; then
+			printf '\n## Embedded compiled Context Closure (advisory)\n\n'
+			cat "$compiled_context_closure_file"
+		fi
 		printf '\n## End embedded worker context\n'
 	} >> "$prompt_file.tmp.$$"
 fi
@@ -386,6 +441,10 @@ provider_retries=0
 quota_waits=0
 fallback_stage=0
 current_model="$execution_model"
+patch_only_baseline=""
+if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only && "$worker_route" == LUNA ]]; then
+	patch_only_baseline="$($HARNESS_BIN/harness-workspace-fingerprint "$HARNESS_ENV_FILE")"
+fi
 heartbeat_pid=""
 
 completion_committed()
@@ -410,6 +469,34 @@ emit_synthetic_impact_manifest()
 	printf 'Affected-Invariants: %s\n' "$(require_single_metadata_value "$task_file" Affected-Invariants 'active assignment')"
 	printf 'Affected-Edges: %s\n' "$(require_single_metadata_value "$task_file" Edge-Contracts 'active assignment')"
 }
+
+# Required closure is a deterministic launch gate for Luna.  Publish a normal
+# decomposition handoff so the manager can repair the index/capsule or split
+# the node; never spend a worker invocation and never turn an index deficiency
+# into NEEDS_HUMAN.
+if [[ "$worker_route" == LUNA && "$HARNESS_CONTEXT_CLOSURE_MODE" =~ ^(required|patch_only)$ &&
+	"$context_closure_status" != READY ]]; then
+	closure_handoff="$PROJECT_TMP_DIR/$base.context-closure-handoff.$$"
+	{
+		printf '# Worker Task Result\n\nTask-ID: %s\nStatus: COMPLETED\n' "$task_id"
+		if (( goal_mode == 1 )); then
+			printf 'Goal-ID: %s\nGoal-Outcome: NEEDS_DECOMPOSITION\nDecomposition-Reason: CONTEXT_INCOMPLETE\n' "$goal_id"
+		fi
+		emit_synthetic_impact_manifest
+		printf '\n## Summary\n\nThe Luna worker was not launched because its required Context Closure is %s (%s).\n' "$context_closure_status" "$context_closure_reason"
+		printf '\n## Modified files\n\nNone.\n\n## Implemented behavior\n\nNone; deterministic admission stopped before inference.\n'
+		printf '\n## Validation performed\n\nContext Closure manifest and unresolved ledger only.\n'
+		printf '\n## Deviations from assignment\n\nNo worker execution occurred.\n'
+		printf '\n## Remaining concerns\n\nRepair missing index/context evidence or split this leaf using the recorded graph cuts.\n'
+		printf '\n## Worker assessment\n\nNEEDS_DECOMPOSITION due to deterministic Context Closure admission failure, not a product decision.\n'
+	} > "$closure_handoff"
+	chmod 600 "$closure_handoff"
+	"$HARNESS_BIN/worker-complete-task" "$HARNESS_ENV_FILE" "$task_id" "$session" "$closure_handoff" >/dev/null
+	rm -f "$closure_handoff"
+	log_event "CONTEXT_CLOSURE_LAUNCH_REJECTED task=$task_id route=$worker_route status=$context_closure_status reason=$context_closure_reason"
+	printf 'Luna task %s returned to decomposition before worker launch.\n' "$task_id"
+	exit 0
+fi
 
 publish_goal_decomposition_handoff()
 {
@@ -568,6 +655,62 @@ while true; do
 		"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" "$execution_role" "$current_model" "$prompt_file" "$json_log" "$stderr_log" "$last_message" "${resume_args[@]}"
 	status=$?
 	set -e
+	if (( status == 0 )) && [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only && "$worker_route" == LUNA ]]; then
+		if ! grep -Eq '^```(diff|patch)[[:space:]]*$' "$last_message"; then
+			patch_apply_status=3
+			patch_apply_output='patch-only response omitted the required single fenced Git diff'
+		else
+		set +e
+		patch_apply_output="$($HARNESS_BIN/harness-apply-worker-patch "$HARNESS_ENV_FILE" "$task_id" "$session" "$last_message" "$patch_only_baseline" 2>&1)"
+		patch_apply_status=$?
+		set -e
+		fi
+		if (( patch_apply_status == 0 )); then
+			patch_file="$(sed -n 's/^PATCH=//p' <<< "$patch_apply_output" | tail -n 1)"
+			patch_paths_file="$(sed -n 's/^PATHS=//p' <<< "$patch_apply_output" | tail -n 1)"
+			set +e
+			"$HARNESS_BIN/harness-run-assigned-validation" "$HARNESS_ENV_FILE" "$task_id" patch-only > "$dir/logs/patch-only-validation-$task_id-$stamp.log" 2>&1
+			patch_validation_status=$?
+			set -e
+			if (( patch_validation_status == 0 )); then
+				patch_message="$PROJECT_TMP_DIR/$base.patch-commit-message.$$"
+				printf 'Implement %s through validated Context Closure patch\n' "$task_id" > "$patch_message"
+				mapfile -t patch_paths < "$patch_paths_file"
+				"$HARNESS_BIN/harness-commit-source" "$HARNESS_ENV_FILE" "$task_id" "$session" "$patch_message" "${patch_paths[@]}" \
+					> "$dir/logs/patch-only-commit-$task_id-$stamp.log"
+				rm -f "$patch_message"
+				printf '\n<!-- Harness patch-only validation: PASS; patch=%s -->\n' "$patch_file" >> "$last_message"
+				log_event "PATCH_ONLY_APPLIED task=$task_id patch=$patch_file paths=$patch_paths_file"
+			else
+				git -C "$REPOSITORY" apply -R --whitespace=nowarn "$patch_file"
+				{
+					printf '# Worker Task Result\n\nTask-ID: %s\nStatus: COMPLETED\n' "$task_id"
+					if (( goal_mode == 1 )); then printf 'Goal-ID: %s\nGoal-Outcome: NEEDS_DECOMPOSITION\nDecomposition-Reason: VALIDATION_PREREQUISITE\n' "$goal_id"; fi
+					emit_synthetic_impact_manifest
+					printf '\n## Summary\n\nThe patch proposal was syntactically valid and scoped, but deterministic focused validation failed. The proposal remains at `%s`.\n' "$patch_file"
+					printf '\n## Modified files\n\nThe failed proposal was rolled back; no source delta remains.\n\n## Implemented behavior\n\nNone accepted.\n'
+					printf '\n## Validation performed\n\nSee `%s`.\n' "$dir/logs/patch-only-validation-$task_id-$stamp.log"
+					printf '\n## Deviations from assignment\n\nPatch-only validation rejected the proposal.\n\n## Remaining concerns\n\nManager must repair the context or split the leaf.\n\n## Worker assessment\n\nNEEDS_DECOMPOSITION without another worker retry.\n'
+				} > "$last_message"
+				log_event "PATCH_ONLY_VALIDATION_FAILED task=$task_id patch=$patch_file"
+			fi
+		else
+			log_event "PATCH_ONLY_REJECTED task=$task_id reason=$(printf '%q' "$patch_apply_output")"
+			{
+				printf '# Worker Task Result\n\nTask-ID: %s\nStatus: COMPLETED\n' "$task_id"
+				if (( goal_mode == 1 )); then
+					printf 'Goal-ID: %s\nGoal-Outcome: NEEDS_DECOMPOSITION\nDecomposition-Reason: CONTEXT_INCOMPLETE\n' "$goal_id"
+				fi
+				emit_synthetic_impact_manifest
+				printf '\n## Summary\n\nThe patch-only proposal was rejected before source mutation: %s.\n' "$patch_apply_output"
+				printf '\n## Modified files\n\nNone.\n\n## Implemented behavior\n\nNone accepted.\n'
+				printf '\n## Validation performed\n\nPatch syntax, baseline, and scope validation did not complete successfully.\n'
+				printf '\n## Deviations from assignment\n\nThe worker did not produce an admissible patch-only result.\n'
+				printf '\n## Remaining concerns\n\nManager must split the leaf or repair the compiled context/instructions.\n'
+				printf '\n## Worker assessment\n\nNEEDS_DECOMPOSITION without another identical worker retry.\n'
+			} > "$last_message"
+		fi
+	fi
 	observed_thread_id="$(codex_thread_id_from_jsonl "$json_log" 2>/dev/null || true)"
 	if [[ "$observed_thread_id" =~ ^[A-Za-z0-9-]+$ ]]; then
 		worker_resume_thread_id="$observed_thread_id"
@@ -581,8 +724,17 @@ while true; do
 	fi
 	classification="$(kv_file_value "${json_log%.jsonl}.classification" classification 2>/dev/null || true)"
 	record_root_agent_tokens "$task_id" "$execution_role" "${json_log%.jsonl}.classification"
-	record_worker_complexity_observation "$task_id" "$plan_item_id" "$execution_role" "$current_model" \
-		"${json_log%.jsonl}.classification" "$json_log"
+		record_worker_complexity_observation "$task_id" "$plan_item_id" "$execution_role" "$current_model" \
+			"${json_log%.jsonl}.classification" "$json_log"
+		if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == advisory && "$context_closure_status" == READY ]]; then
+			usage_log="$dir/logs/context-closure-usage-$task_id-$stamp-attempt-$attempt_label.log"
+			if "$HARNESS_BIN/harness-context-closure-usage" "$HARNESS_ENV_FILE" "$task_id" "$json_log" \
+				> "$usage_log" 2>&1; then
+				log_event "CONTEXT_CLOSURE_USAGE_RECORDED task=$task_id jsonl=$json_log summary=$usage_log"
+			else
+				log_event "CONTEXT_CLOSURE_USAGE_UNAVAILABLE task=$task_id jsonl=$json_log log=$usage_log"
+			fi
+		fi
 	resource_guard="$(kv_file_value "${json_log%.jsonl}.classification" resource_guard 2>/dev/null || printf -)"
 	worker_task_tokens="$(worker_task_processed_token_count "$task_id")"
 	[[ "$worker_task_tokens" =~ ^[0-9]+$ ]] || worker_task_tokens=0

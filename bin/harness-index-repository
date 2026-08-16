@@ -1,0 +1,309 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+source "$SCRIPT_DIR/../lib/harness-repository-index.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE [--force]\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -ge 1 && $# -le 2 ]] || usage
+env_file="$1"
+force=0
+if (( $# == 2 )); then
+	[[ "$2" == --force ]] || usage
+	force=1
+fi
+
+load_harness_env "$env_file"
+ensure_project
+command -v sqlite3 >/dev/null 2>&1 || die 'repository indexing requires sqlite3'
+scip_importer="$(repository_index_command_path "$HARNESS_SCIP_IMPORTER_BIN")"
+repository_index_require_clean_tracked_tree
+
+mkdir -p "$PROJECT_TMP_DIR" "$HARNESS_REPOSITORY_INDEX_ROOT"
+chmod 700 "$HARNESS_REPOSITORY_INDEX_ROOT"
+compile_commands="$(repository_index_compile_commands_file)"
+normalized="$PROJECT_TMP_DIR/compile-commands.normalized.$$.$RANDOM.json"
+generated_inputs="$PROJECT_TMP_DIR/compile-inputs.$$.$RANDOM.tsv"
+generated_inputs_unresolved="$generated_inputs.unresolved.tsv"
+tmp_generation=
+cleanup_repository_index_build()
+{
+	local result=$? failed_dir
+	trap - EXIT
+	rm -f -- "$normalized"
+	rm -f -- "$generated_inputs"
+	rm -f -- "$generated_inputs_unresolved"
+	if [[ -n "$tmp_generation" && -d "$tmp_generation" ]]; then
+		if (( result != 0 )) && [[ -n "${REPOSITORY_INDEX_REPOSITORY_ROOT:-}" &&
+			-d "$REPOSITORY_INDEX_REPOSITORY_ROOT/quarantine" ]]; then
+			failed_dir="$REPOSITORY_INDEX_REPOSITORY_ROOT/quarantine/failed-${REPOSITORY_INDEX_GENERATION:-unknown}-$(timestamp_compact_utc)-$$"
+			mv "$tmp_generation" "$failed_dir"
+			printf 'Failed repository-index artifacts preserved at %s\n' "$failed_dir" >&2
+		else
+			rm -rf -- "$tmp_generation"
+		fi
+	fi
+	exit "$result"
+}
+trap cleanup_repository_index_build EXIT
+repository_index_normalize_compile_commands "$compile_commands" "$normalized"
+python3 "$(repository_index_build_scanner_file)" --compile-commands "$normalized" \
+	--repository "$REPOSITORY" --output "$generated_inputs"
+repository_index_prepare_identity "$normalized" "$generated_inputs"
+
+mkdir -p "$REPOSITORY_INDEX_REPOSITORY_ROOT/generations" "$REPOSITORY_INDEX_REPOSITORY_ROOT/quarantine"
+chmod 700 "$REPOSITORY_INDEX_REPOSITORY_ROOT" "$REPOSITORY_INDEX_REPOSITORY_ROOT/generations" \
+	"$REPOSITORY_INDEX_REPOSITORY_ROOT/quarantine"
+exec 9>"$REPOSITORY_INDEX_REPOSITORY_ROOT/index.lock"
+flock -x 9
+repository_index_reconcile_interrupted_generations "$REPOSITORY_INDEX_REPOSITORY_ROOT"
+
+if repository_index_verify_generation "$REPOSITORY_INDEX_GENERATION_DIR"; then
+	if (( force == 1 )); then
+		set +e
+		"$REPOSITORY_INDEX_SCIP_PATH" lint "$REPOSITORY_INDEX_GENERATION_DIR/index.scip" \
+			> "$REPOSITORY_INDEX_GENERATION_DIR/reports/scip-lint.log.tmp.$$" 2>&1
+		lint_status=$?
+		set -e
+		mv "$REPOSITORY_INDEX_GENERATION_DIR/reports/scip-lint.log.tmp.$$" \
+			"$REPOSITORY_INDEX_GENERATION_DIR/reports/scip-lint.log"
+		printf '%s\n' "$lint_status" > "$REPOSITORY_INDEX_GENERATION_DIR/reports/scip-lint.status"
+	fi
+	repository_index_publish_project_pointer "$REPOSITORY_INDEX_GENERATION_DIR"
+	printf 'INDEX_REUSED generation=%s path=%s\n' "$REPOSITORY_INDEX_GENERATION" "$REPOSITORY_INDEX_GENERATION_DIR"
+	exit 0
+fi
+
+if [[ -e "$REPOSITORY_INDEX_GENERATION_DIR" ]]; then
+	quarantine="$REPOSITORY_INDEX_REPOSITORY_ROOT/quarantine/$REPOSITORY_INDEX_GENERATION-$(timestamp_compact_utc)"
+	mv "$REPOSITORY_INDEX_GENERATION_DIR" "$quarantine"
+fi
+
+tmp_generation="$REPOSITORY_INDEX_REPOSITORY_ROOT/generations/.${REPOSITORY_INDEX_GENERATION}.tmp.$$.$RANDOM"
+mkdir -p "$tmp_generation/reports" "$tmp_generation/joern/export"
+chmod 700 "$tmp_generation" "$tmp_generation/reports" "$tmp_generation/joern" "$tmp_generation/joern/export"
+install -m 600 "$normalized" "$tmp_generation/compile-commands.normalized.json"
+install -m 600 "$generated_inputs" "$tmp_generation/compile-inputs.tsv"
+install -m 600 "$generated_inputs_unresolved" "$tmp_generation/reports/compile-inputs-unresolved.tsv"
+
+printf 'SCIP indexing repository %s at %s\n' "$REPOSITORY" "$REPOSITORY_INDEX_SOURCE_REVISION"
+(
+	cd "$REPOSITORY"
+	"$REPOSITORY_INDEX_SCIP_CLANG_PATH" \
+		--compdb-path "$tmp_generation/compile-commands.normalized.json" \
+		--index-output-path "$tmp_generation/index.scip" \
+		--jobs "$HARNESS_SCIP_CLANG_JOBS" \
+		--no-progress-report
+) > "$tmp_generation/reports/scip-clang.log" 2>&1 ||
+	die "scip-clang failed; inspect $tmp_generation/reports/scip-clang.log"
+[[ -s "$tmp_generation/index.scip" ]] || die 'scip-clang produced an empty index.scip'
+
+set +e
+"$REPOSITORY_INDEX_SCIP_PATH" lint "$tmp_generation/index.scip" \
+	> "$tmp_generation/reports/scip-lint.log" 2>&1
+lint_status=$?
+set -e
+printf '%s\n' "$lint_status" > "$tmp_generation/reports/scip-lint.status"
+"$REPOSITORY_INDEX_SCIP_PATH" stats --from "$tmp_generation/index.scip" \
+	> "$tmp_generation/reports/scip-stats.txt" 2>&1 ||
+	die "SCIP statistics failed; inspect $tmp_generation/reports/scip-stats.txt"
+
+schema="$(repository_index_schema_file)"
+[[ -f "$schema" ]] || die "repository-index schema is missing: $schema"
+sqlite3 "$tmp_generation/architecture.sqlite" < "$schema" >/dev/null
+generation_q="$(repository_index_sql_quote "$REPOSITORY_INDEX_GENERATION")"
+repository_q="$(repository_index_sql_quote "$REPOSITORY_INDEX_REPOSITORY_ID")"
+revision_q="$(repository_index_sql_quote "$REPOSITORY_INDEX_SOURCE_REVISION")"
+compdb_q="$(repository_index_sql_quote "$REPOSITORY_INDEX_COMPILE_COMMANDS_SHA256")"
+generated_q="$(repository_index_sql_quote "$REPOSITORY_INDEX_GENERATED_INPUTS_SHA256")"
+scip_clang_q="$(repository_index_sql_quote "$REPOSITORY_INDEX_SCIP_CLANG_FINGERPRINT")"
+scip_q="$(repository_index_sql_quote "$REPOSITORY_INDEX_SCIP_FINGERPRINT")"
+importer_q="$(repository_index_sql_quote "$REPOSITORY_INDEX_IMPORTER_FINGERPRINT")"
+build_importer_q="$(repository_index_sql_quote "$REPOSITORY_INDEX_BUILD_IMPORTER_FINGERPRINT")"
+schema_sha_q="$(repository_index_sql_quote "$REPOSITORY_INDEX_SCHEMA_SHA256")"
+created_q="$(repository_index_sql_quote "$(timestamp_utc)")"
+compile_path_q="$(repository_index_sql_quote "$compile_commands")"
+sqlite3 "$tmp_generation/architecture.sqlite" <<SQL
+PRAGMA foreign_keys = ON;
+BEGIN IMMEDIATE;
+INSERT INTO index_generations(
+    generation_id, repository_id, source_revision, compile_commands_sha256, generated_inputs_sha256,
+    scip_clang_fingerprint, scip_fingerprint, importer_fingerprint, build_importer_fingerprint,
+    schema_sha256, status, created_at
+) VALUES (
+    $generation_q, $repository_q, $revision_q, $compdb_q, $generated_q,
+    $scip_clang_q, $scip_q, $importer_q, $build_importer_q, $schema_sha_q, 'READY', $created_q
+);
+INSERT INTO build_configurations(
+    configuration_id, generation_id, compile_commands_path, compile_commands_sha256
+) VALUES ($compdb_q, $generation_q, $compile_path_q, $compdb_q);
+COMMIT;
+SQL
+"$scip_importer" \
+	--index "$tmp_generation/index.scip" \
+	--database "$tmp_generation/architecture.sqlite" \
+	--generation "$REPOSITORY_INDEX_GENERATION" \
+	--repository "$REPOSITORY" \
+	--report "$tmp_generation/reports/scip-import.tsv" \
+	--unresolved-report "$tmp_generation/reports/scip-unresolved-documents.tsv" \
+	> "$tmp_generation/reports/scip-import.log" 2>&1 ||
+	die "SCIP import failed; inspect $tmp_generation/reports/scip-import.log"
+[[ -f "$tmp_generation/reports/scip-unresolved-documents.tsv" ]] ||
+	printf 'document\treason\n' > "$tmp_generation/reports/scip-unresolved-documents.tsv"
+[[ -f "$tmp_generation/reports/compile-inputs-unresolved.tsv" ]] ||
+	printf 'source\tinclude\treason\n' > "$tmp_generation/reports/compile-inputs-unresolved.tsv"
+python3 "$REPOSITORY_INDEX_BUILD_IMPORTER_PATH" \
+	--compile-commands "$tmp_generation/compile-commands.normalized.json" \
+	--database "$tmp_generation/architecture.sqlite" \
+	--generation "$REPOSITORY_INDEX_GENERATION" \
+	--configuration "$REPOSITORY_INDEX_COMPILE_COMMANDS_SHA256" \
+	--repository "$REPOSITORY" \
+	--compile-inputs "$tmp_generation/compile-inputs.tsv" \
+	--report "$tmp_generation/reports/build-target-import.tsv" \
+	> "$tmp_generation/reports/build-target-import.log" 2>&1 ||
+	die "build-target import failed; inspect $tmp_generation/reports/build-target-import.log"
+python3 "$HARNESS_HOME/tools/import_index_diagnostics.py" \
+	--database "$tmp_generation/architecture.sqlite" --generation "$REPOSITORY_INDEX_GENERATION" \
+	--configuration "$REPOSITORY_INDEX_COMPILE_COMMANDS_SHA256" \
+	--scip-unresolved "$tmp_generation/reports/scip-unresolved-documents.tsv" \
+	--include-unresolved "$tmp_generation/reports/compile-inputs-unresolved.tsv" \
+	--scip-lint-status "$lint_status" --scip-lint-log "$tmp_generation/reports/scip-lint.log"
+
+joern_status=UNAVAILABLE
+if (( HARNESS_JOERN_ENABLED == 1 )); then
+	joern_source="$(realpath -m "$REPOSITORY/$HARNESS_JOERN_SOURCE_ROOT")"
+	case "$joern_source" in "$REPOSITORY"|"$REPOSITORY"/*) ;; *) die 'Joern source root escapes the repository' ;; esac
+	[[ -d "$joern_source" ]] || die "Joern source root is not a directory: $joern_source"
+	joern_command_path="$(repository_index_command_path "$HARNESS_JOERN_BIN")"
+	joern_parse="$(dirname "$joern_command_path")/joern-parse"
+	joern_export="$(dirname "$joern_command_path")/joern-export"
+	[[ -x "$joern_parse" && -x "$joern_export" ]] ||
+		die 'Joern is enabled but joern-parse/joern-export are not adjacent to HARNESS_JOERN_BIN'
+	set +e
+	timeout 900 "$joern_parse" --language c --output "$tmp_generation/joern/cpg.bin" "$joern_source" \
+		> "$tmp_generation/reports/joern-parse.log" 2>&1
+	joern_parse_status=$?
+	if (( joern_parse_status == 0 )); then
+		timeout 900 "$joern_export" --repr cpg --format graphml --out "$tmp_generation/joern/export/cpg" \
+			"$tmp_generation/joern/cpg.bin" > "$tmp_generation/reports/joern-export.log" 2>&1
+		joern_export_status=$?
+	else
+		joern_export_status=1
+	fi
+	set -e
+	if (( joern_parse_status == 0 && joern_export_status == 0 )); then
+		python3 "$HARNESS_HOME/tools/import_joern_graphml.py" \
+			--database "$tmp_generation/architecture.sqlite" --generation "$REPOSITORY_INDEX_GENERATION" \
+			--export "$tmp_generation/joern/export/cpg" --classes "$HARNESS_JOERN_ANALYSIS_CLASSES" \
+			--version "$(repository_index_tool_version "$HARNESS_JOERN_BIN")" \
+			--fingerprint "$REPOSITORY_INDEX_JOERN_FINGERPRINT" \
+			--report "$tmp_generation/reports/joern-import.tsv" \
+			> "$tmp_generation/reports/joern-import.log" 2>&1 ||
+			die "Joern import failed; inspect $tmp_generation/reports/joern-import.log"
+		joern_status=READY
+	else
+		joern_status=DEGRADED
+		joern_version_q="$(repository_index_sql_quote "$(repository_index_tool_version "$HARNESS_JOERN_BIN")")"
+		joern_fingerprint_q="$(repository_index_sql_quote "$REPOSITORY_INDEX_JOERN_FINGERPRINT")"
+		sqlite3 "$tmp_generation/architecture.sqlite" "INSERT OR REPLACE INTO provider_runs VALUES('joern',$generation_q,$joern_version_q,$joern_fingerprint_q,'DEGRADED','reports/joern-parse.log',datetime('now'));"
+	fi
+fi
+
+python3 "$HARNESS_HOME/tools/normalize_repository_architecture.py" normalize \
+	--database "$tmp_generation/architecture.sqlite" --generation "$REPOSITORY_INDEX_GENERATION" \
+	--output "$tmp_generation/reports/architecture" \
+	> "$tmp_generation/reports/architecture-normalize.log" 2>&1 ||
+	die "architecture normalization failed; inspect $tmp_generation/reports/architecture-normalize.log"
+
+scip_clang_version="$(repository_index_tool_version "$REPOSITORY_INDEX_SCIP_CLANG_PATH")"
+scip_version="$(repository_index_tool_version "$REPOSITORY_INDEX_SCIP_PATH")"
+sqlite_version="$(sqlite3 --version | head -n 1)"
+if (( HARNESS_JOERN_ENABLED == 1 )); then
+	joern_version="$(repository_index_tool_version "$HARNESS_JOERN_BIN")"
+else
+	joern_version=disabled
+fi
+if (( HARNESS_RECOLL_ENABLED == 1 )); then
+	recoll_version="$(repository_index_tool_version "$HARNESS_RECOLL_BIN")"
+else
+	recoll_version=disabled
+fi
+harness_version="$(head -n 1 "$HARNESS_HOME/VERSION" 2>/dev/null || printf unknown)"
+{
+	printf 'tool\tversion\tfingerprint\tstatus\n'
+	printf 'scip-clang\t%s\t%s\tREADY\n' "$scip_clang_version" "$REPOSITORY_INDEX_SCIP_CLANG_FINGERPRINT"
+	printf 'scip\t%s\t%s\tREADY\n' "$scip_version" "$REPOSITORY_INDEX_SCIP_FINGERPRINT"
+	printf 'sqlite\t%s\t%s\tREADY\n' "$sqlite_version" "$(printf '%s' "$sqlite_version" | sha256sum | awk '{print $1}')"
+	printf 'joern\t%s\t%s\t%s\n' "$joern_version" "$REPOSITORY_INDEX_JOERN_FINGERPRINT" "$joern_status"
+	printf 'recoll\t%s\t%s\t%s\n' "$recoll_version" "$REPOSITORY_INDEX_RECOLL_FINGERPRINT" "$([[ "$HARNESS_RECOLL_ENABLED" == 1 ]] && printf READY || printf UNAVAILABLE)"
+	printf 'harness\t%s\t%s\tREADY\n' "$harness_version" "$REPOSITORY_INDEX_PROVIDER_FINGERPRINT"
+} > "$tmp_generation/reports/tool-versions.tsv"
+sqlite_fingerprint="$(printf '%s' "$sqlite_version" | sha256sum | awk '{print $1}')"
+sqlite3 "$tmp_generation/architecture.sqlite" <<SQL
+INSERT OR REPLACE INTO provider_runs VALUES('scip-clang',$generation_q,$(repository_index_sql_quote "$scip_clang_version"),$(repository_index_sql_quote "$REPOSITORY_INDEX_SCIP_CLANG_FINGERPRINT"),'READY','index.scip',datetime('now'));
+INSERT OR REPLACE INTO provider_runs VALUES('scip',$generation_q,$(repository_index_sql_quote "$scip_version"),$(repository_index_sql_quote "$REPOSITORY_INDEX_SCIP_FINGERPRINT"),'READY','index.scip',datetime('now'));
+INSERT OR REPLACE INTO provider_runs VALUES('sqlite',$generation_q,$(repository_index_sql_quote "$sqlite_version"),$(repository_index_sql_quote "$sqlite_fingerprint"),'READY','architecture.sqlite',datetime('now'));
+INSERT OR IGNORE INTO provider_runs VALUES('joern',$generation_q,$(repository_index_sql_quote "$joern_version"),$(repository_index_sql_quote "$REPOSITORY_INDEX_JOERN_FINGERPRINT"),'UNAVAILABLE',NULL,datetime('now'));
+INSERT OR REPLACE INTO provider_runs VALUES('recoll',$generation_q,$(repository_index_sql_quote "$recoll_version"),$(repository_index_sql_quote "$REPOSITORY_INDEX_RECOLL_FINGERPRINT"),'$([[ "$HARNESS_RECOLL_ENABLED" == 1 ]] && printf READY || printf UNAVAILABLE)',NULL,datetime('now'));
+INSERT OR REPLACE INTO provider_runs VALUES('harness',$generation_q,$(repository_index_sql_quote "$harness_version"),$(repository_index_sql_quote "$REPOSITORY_INDEX_PROVIDER_FINGERPRINT"),'READY','reports/tool-versions.tsv',datetime('now'));
+SQL
+[[ "$(sqlite3 "$tmp_generation/architecture.sqlite" 'PRAGMA integrity_check;')" == ok ]] ||
+	die 'new repository-index SQLite database failed integrity validation'
+
+printf 'metric\tvalue\nscip_index_bytes\t%s\ncompile_commands\t%s\nfiles\t%s\nsymbols\t%s\ndefinitions\t%s\nreferences\t%s\nunresolved_documents\t%s\nunresolved_includes\t%s\njoern_status\t%s\n' \
+	"$(stat -c %s "$tmp_generation/index.scip")" \
+	"$(jq 'length' "$tmp_generation/compile-commands.normalized.json")" \
+	"$(sqlite3 "$tmp_generation/architecture.sqlite" 'SELECT count(*) FROM files;')" \
+	"$(sqlite3 "$tmp_generation/architecture.sqlite" 'SELECT count(*) FROM symbols;')" \
+	"$(sqlite3 "$tmp_generation/architecture.sqlite" 'SELECT count(*) FROM symbol_definitions;')" \
+	"$(sqlite3 "$tmp_generation/architecture.sqlite" 'SELECT count(*) FROM symbol_references;')" \
+	"$(awk 'END{print (NR>0 ? NR-1 : 0)}' "$tmp_generation/reports/scip-unresolved-documents.tsv")" \
+	"$(awk 'END{print (NR>0 ? NR-1 : 0)}' "$tmp_generation/reports/compile-inputs-unresolved.tsv")" \
+	"$joern_status" \
+	> "$tmp_generation/reports/coverage.tsv"
+
+{
+	printf 'status=READY\n'
+	printf 'schema_version=%s\n' "$HARNESS_REPOSITORY_INDEX_SCHEMA_VERSION"
+	printf 'repository_id=%s\n' "$REPOSITORY_INDEX_REPOSITORY_ID"
+	printf 'repository_path=%s\n' "$REPOSITORY"
+	printf 'generation=%s\n' "$REPOSITORY_INDEX_GENERATION"
+	printf 'source_revision=%s\n' "$REPOSITORY_INDEX_SOURCE_REVISION"
+	printf 'compile_commands_source=%s\n' "$compile_commands"
+	printf 'compile_commands_sha256=%s\n' "$REPOSITORY_INDEX_COMPILE_COMMANDS_SHA256"
+	printf 'generated_inputs_sha256=%s\n' "$REPOSITORY_INDEX_GENERATED_INPUTS_SHA256"
+	printf 'scip_clang_path=%s\n' "$REPOSITORY_INDEX_SCIP_CLANG_PATH"
+	printf 'scip_clang_fingerprint=%s\n' "$REPOSITORY_INDEX_SCIP_CLANG_FINGERPRINT"
+	printf 'scip_path=%s\n' "$REPOSITORY_INDEX_SCIP_PATH"
+	printf 'scip_fingerprint=%s\n' "$REPOSITORY_INDEX_SCIP_FINGERPRINT"
+	printf 'importer_path=%s\n' "$REPOSITORY_INDEX_IMPORTER_PATH"
+	printf 'importer_fingerprint=%s\n' "$REPOSITORY_INDEX_IMPORTER_FINGERPRINT"
+	printf 'build_importer_path=%s\n' "$REPOSITORY_INDEX_BUILD_IMPORTER_PATH"
+	printf 'build_scanner_path=%s\n' "$REPOSITORY_INDEX_BUILD_SCANNER_PATH"
+	printf 'build_importer_fingerprint=%s\n' "$REPOSITORY_INDEX_BUILD_IMPORTER_FINGERPRINT"
+	printf 'joern_enabled=%s\n' "$HARNESS_JOERN_ENABLED"
+	printf 'joern_fingerprint=%s\n' "$REPOSITORY_INDEX_JOERN_FINGERPRINT"
+	printf 'joern_source_root=%s\n' "$HARNESS_JOERN_SOURCE_ROOT"
+	printf 'joern_status=%s\n' "$joern_status"
+	printf 'recoll_enabled=%s\n' "$HARNESS_RECOLL_ENABLED"
+	printf 'recoll_fingerprint=%s\n' "$REPOSITORY_INDEX_RECOLL_FINGERPRINT"
+	printf 'provider_fingerprint=%s\n' "$REPOSITORY_INDEX_PROVIDER_FINGERPRINT"
+	printf 'schema_sha256=%s\n' "$REPOSITORY_INDEX_SCHEMA_SHA256"
+	printf 'scip_lint_status=%s\n' "$lint_status"
+	printf 'created_at=%s\n' "$(timestamp_utc)"
+} > "$tmp_generation/manifest.env"
+
+find "$tmp_generation" -type f -exec chmod 600 {} +
+mv "$tmp_generation" "$REPOSITORY_INDEX_GENERATION_DIR"
+tmp_generation=
+repository_index_verify_generation "$REPOSITORY_INDEX_GENERATION_DIR" ||
+	die 'published repository-index generation failed verification'
+repository_index_publish_project_pointer "$REPOSITORY_INDEX_GENERATION_DIR"
+repository_index_apply_retention "$REPOSITORY_INDEX_REPOSITORY_ROOT" "$HARNESS_REPOSITORY_INDEX_RETENTION" "$REPOSITORY_INDEX_GENERATION_DIR"
+printf 'INDEX_READY generation=%s path=%s\n' "$REPOSITORY_INDEX_GENERATION" "$REPOSITORY_INDEX_GENERATION_DIR"

@@ -1,0 +1,209 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HARNESS_HOME="$(cd "$SCRIPT_DIR/.." && pwd)"
+HARNESS_BIN="$HARNESS_HOME/bin"
+TEST_ROOT="$(mktemp -d /tmp/harness-repository-index.XXXXXX)"
+if [[ "${HARNESS_TEST_KEEP_TMP:-0}" == 1 ]]; then
+	trap 'printf "Preserved test root: %s\n" "$TEST_ROOT" >&2' EXIT
+else
+	cleanup_test_root() { result=$?; trap - EXIT; rm -rf -- "$TEST_ROOT"; exit "$result"; }
+	trap cleanup_test_root EXIT
+fi
+
+cp -a "$SCRIPT_DIR/fixtures/context-index-c" "$TEST_ROOT/repo"
+git -C "$TEST_ROOT/repo" init -q
+git -C "$TEST_ROOT/repo" add .
+git -C "$TEST_ROOT/repo" -c user.name=test -c user.email=test@example.invalid commit -qm seed
+
+mkdir -p "$TEST_ROOT/bin" "$TEST_ROOT/manager-home" "$TEST_ROOT/worker-home"
+cat > "$TEST_ROOT/bin/scip-clang" <<'SH'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+if [[ "${1:-}" == --version ]]; then
+	printf 'fixture-scip-clang 1.0\n'
+	exit 0
+fi
+compdb=
+output=
+while (( $# > 0 )); do
+	case "$1" in
+		--compdb-path) compdb="$2"; shift 2 ;;
+		--index-output-path) output="$2"; shift 2 ;;
+		--jobs) shift 2 ;;
+		--no-progress-report) shift ;;
+		*) printf 'unexpected scip-clang argument: %s\n' "$1" >&2; exit 2 ;;
+	esac
+done
+[[ -s "$compdb" && -n "$output" ]]
+printf 'fixture-index %s\n' "$(sha256sum "$compdb" | awk '{print $1}')" > "$output"
+SH
+cat > "$TEST_ROOT/bin/scip" <<'SH'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+if [[ "${1:-}" == --version ]]; then
+	printf 'fixture-scip 1.0\n'
+	exit 0
+fi
+case "${1:-}" in
+	lint) [[ -s "$2" ]]; printf 'fixture lint ok\n' ;;
+	stats)
+		[[ "$2" == --from && -s "$3" ]]
+		printf 'Documents: 3\nOccurrences: 4\n'
+		;;
+	*) printf 'unexpected scip command: %s\n' "$*" >&2; exit 2 ;;
+esac
+SH
+cat > "$TEST_ROOT/bin/scip-clang-fail" <<'SH'
+#!/usr/bin/env bash
+if [[ "${1:-}" == --version ]]; then printf 'fixture-scip-clang-fail 1.0\n'; exit 0; fi
+printf 'intentional indexing failure\n' >&2
+exit 9
+SH
+chmod +x "$TEST_ROOT/bin/scip-clang" "$TEST_ROOT/bin/scip" "$TEST_ROOT/bin/scip-clang-fail"
+
+write_env()
+{
+	local project="$1" compdb="$2" scip_clang="$3" env_file="$4"
+	cat > "$env_file" <<ENV
+export PROJECT="$project"
+export REPOSITORY="$TEST_ROOT/repo"
+export SPECIFICATION="$TEST_ROOT/repo/spec.md"
+export HARNESS_MODE="full"
+export HARNESS_HOME="$HARNESS_HOME"
+export HARNESS_BIN="$HARNESS_BIN"
+export HARNESS_ROOT="$TEST_ROOT/state"
+export HARNESS_AGENT_MIN_INTERVAL_SECONDS="0"
+export MANAGER_CODEX_HOME="$TEST_ROOT/manager-home"
+export MANAGER_CODEX_BIN="/bin/true"
+export WORKER_CODEX_HOME="$TEST_ROOT/worker-home"
+export WORKER_CODEX_BIN="/bin/true"
+export MANAGER_MODEL="gpt-5.6-terra"
+export WORKER_MODEL="gpt-5.6-luna"
+export LUNA_WORKER_MODEL="gpt-5.6-luna"
+export TERRA_WORKER_MODEL="gpt-5.6-terra"
+export DECOMPOSITION_MODEL="gpt-5.6-sol"
+export HARNESS_WORKER_GOAL_MODE="1"
+export HARNESS_DECOMPOSITION_V2="0"
+export HARNESS_DECOMPOSITION_CRITIC_ENABLED="0"
+export HARNESS_SPECIFICATION_REVIEW_ENABLED="0"
+export HARNESS_ARCHITECTURE_GUARDS="0"
+export HARNESS_REPOSITORY_INDEX_MODE="advisory"
+export HARNESS_CONTEXT_CLOSURE_MODE="off"
+export HARNESS_REPOSITORY_INDEX_ROOT="$TEST_ROOT/state/repository-indexes"
+export HARNESS_COMPILE_COMMANDS="$compdb"
+export HARNESS_SCIP_CLANG_BIN="$scip_clang"
+export HARNESS_SCIP_BIN="$TEST_ROOT/bin/scip"
+export HARNESS_SCIP_IMPORTER_BIN="/bin/true"
+export HARNESS_SCIP_CLANG_JOBS="1"
+export MAX_ORACLE_RUNS="0"
+ENV
+	chmod 600 "$env_file"
+}
+
+cmake -S "$TEST_ROOT/repo" -B "$TEST_ROOT/build-a" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON >/dev/null
+env_a="$TEST_ROOT/index-a.env"
+write_env indexa "$TEST_ROOT/build-a/compile_commands.json" "$TEST_ROOT/bin/scip-clang" "$env_a"
+"$HARNESS_BIN/harness-init" "$env_a" >/dev/null
+
+missing_status="$($HARNESS_BIN/harness-index-status "$env_a")"
+grep -Fqx $'status\tMISSING' <<< "$missing_status"
+
+first_output="$($HARNESS_BIN/harness-index-repository "$env_a")"
+grep -Fq 'INDEX_READY generation=' <<< "$first_output"
+pointer_a="$TEST_ROOT/state/projects/indexa/control/repository-index.env"
+generation_a="$(awk -F= '$1=="generation" {print $2}' "$pointer_a")"
+generation_dir_a="$(awk -F= '$1=="generation_dir" {print $2}' "$pointer_a")"
+test -s "$generation_dir_a/index.scip"
+test -s "$generation_dir_a/architecture.sqlite"
+test "$(sqlite3 "$generation_dir_a/architecture.sqlite" 'PRAGMA user_version;')" = 5
+test "$(sqlite3 "$generation_dir_a/architecture.sqlite" 'SELECT count(*) FROM index_generations;')" = 1
+test "$(sqlite3 "$generation_dir_a/architecture.sqlite" "SELECT count(*) FROM sqlite_master WHERE name='lexical_documents';")" = 1
+
+ready_status="$($HARNESS_BIN/harness-index-status "$env_a" --details)"
+grep -Fqx $'status\tREADY' <<< "$ready_status"
+grep -Fqx $'schema_version\t5' <<< "$ready_status"
+
+# Importer semantics participate in both immutable identity and live freshness.
+sed 's#HARNESS_SCIP_IMPORTER_BIN="/bin/true"#HARNESS_SCIP_IMPORTER_BIN="/bin/false"#' \
+	"$env_a" > "$TEST_ROOT/index-importer-changed.env"
+chmod 600 "$TEST_ROOT/index-importer-changed.env"
+importer_stale_status="$($HARNESS_BIN/harness-index-status "$TEST_ROOT/index-importer-changed.env")"
+grep -Fqx $'status\tSTALE' <<< "$importer_stale_status"
+grep -Fqx $'reason\tscip-importer-changed' <<< "$importer_stale_status"
+
+second_output="$($HARNESS_BIN/harness-index-repository "$env_a")"
+grep -Fq "INDEX_REUSED generation=$generation_a" <<< "$second_output"
+
+"$HARNESS_BIN/harness-index-invalidate" "$env_a" --reason 'fixture invalidation' >/dev/null
+invalidated_status="$($HARNESS_BIN/harness-index-status "$env_a")"
+grep -Fqx $'status\tINVALIDATED' <<< "$invalidated_status"
+grep -Fqx $'reason\tfixture invalidation' <<< "$invalidated_status"
+revalidated_output="$($HARNESS_BIN/harness-index-repository "$env_a")"
+grep -Fq "INDEX_REUSED generation=$generation_a" <<< "$revalidated_output"
+grep -Fqx $'status\tREADY' < <("$HARNESS_BIN/harness-index-status" "$env_a")
+
+# A second harness project using the same repository and configuration reuses
+# the immutable generation.
+env_shared="$TEST_ROOT/index-shared.env"
+write_env indexshared "$TEST_ROOT/build-a/compile_commands.json" "$TEST_ROOT/bin/scip-clang" "$env_shared"
+"$HARNESS_BIN/harness-init" "$env_shared" >/dev/null
+shared_output="$($HARNESS_BIN/harness-index-repository "$env_shared")"
+grep -Fq "INDEX_REUSED generation=$generation_a" <<< "$shared_output"
+shared_pointer="$TEST_ROOT/state/projects/indexshared/control/repository-index.env"
+grep -Fqx "generation=$generation_a" "$shared_pointer"
+
+# A distinct compiler configuration creates a distinct generation even at the
+# same source revision.
+cmake -S "$TEST_ROOT/repo" -B "$TEST_ROOT/build-b" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+	-DCMAKE_C_FLAGS=-DINDEX_VARIANT=1 >/dev/null
+write_env indexa "$TEST_ROOT/build-b/compile_commands.json" "$TEST_ROOT/bin/scip-clang" "$env_a"
+variant_output="$($HARNESS_BIN/harness-index-repository "$env_a")"
+grep -Fq 'INDEX_READY generation=' <<< "$variant_output"
+generation_b="$(awk -F= '$1=="generation" {print $2}' "$pointer_a")"
+[[ "$generation_b" != "$generation_a" ]]
+
+# A failed new generation cannot replace the last valid project pointer.
+cp "$pointer_a" "$TEST_ROOT/pointer-before-failure"
+cmake -S "$TEST_ROOT/repo" -B "$TEST_ROOT/build-c" -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+	-DCMAKE_C_FLAGS=-DINDEX_VARIANT=2 >/dev/null
+write_env indexa "$TEST_ROOT/build-c/compile_commands.json" "$TEST_ROOT/bin/scip-clang-fail" "$env_a"
+if "$HARNESS_BIN/harness-index-repository" "$env_a" > "$TEST_ROOT/failure.out" 2>&1; then
+	printf 'failing scip-clang unexpectedly published an index\n' >&2
+	exit 1
+fi
+cmp -s "$pointer_a" "$TEST_ROOT/pointer-before-failure"
+
+# Historical context cost is summarized without replaying transcript contents.
+project_dir="$TEST_ROOT/state/projects/indexa"
+mkdir -p "$project_dir/control/context-capsules" "$project_dir/logs"
+printf 'bounded context\n' > "$project_dir/control/context-capsules/indexa-task-001.md"
+cat > "$project_dir/logs/complexity-observations.tsv" <<'TSV'
+recorded_at	project	plan_node	task_id	role	model	worker_route	complexity_score	predicted_actions	predicted_p95_tokens	processed_tokens	usage_source	items	commands	output_bytes	max_output_bytes	source_read_bytes	repeated_source_reads	changed_files	duration_seconds	classification	changed_lines	planner_model	planner_effort	leaf_type
+now	indexa	n1	001	worker_luna	gpt-5.6-luna	LUNA	10	6	100000	120000	actual	7	4	8000	4000	3000	2	1	20	success	4
+TSV
+cat > "$project_dir/logs/complexity-outcomes.tsv" <<'TSV'
+recorded_at	project	plan_node	task_id	outcome	root_replans	planner_model	planner_effort
+now	indexa	n1	001	ACCEPTED	0	gpt-5.6-sol	high
+TSV
+baseline="$($HARNESS_BIN/harness-context-baseline "$env_a")"
+grep -Fqx $'worker_episodes\t1' <<< "$baseline"
+grep -Fqx $'processed_tokens\t120000' <<< "$baseline"
+grep -Fqx $'repeated_source_reads\t2' <<< "$baseline"
+grep -Fqx $'accepted_outcomes\t1' <<< "$baseline"
+
+# Configuration validation prevents required closure from running without an
+# enabled repository index.
+sed -e 's/HARNESS_REPOSITORY_INDEX_MODE="advisory"/HARNESS_REPOSITORY_INDEX_MODE="off"/' \
+	-e 's/HARNESS_CONTEXT_CLOSURE_MODE="off"/HARNESS_CONTEXT_CLOSURE_MODE="required"/' \
+	"$env_a" > "$TEST_ROOT/invalid-mode.env"
+chmod 600 "$TEST_ROOT/invalid-mode.env"
+if "$HARNESS_BIN/harness-index-status" "$TEST_ROOT/invalid-mode.env" > "$TEST_ROOT/invalid-mode.out" 2>&1; then
+	printf 'required context closure accepted disabled repository index\n' >&2
+	exit 1
+fi
+grep -Fq 'HARNESS_CONTEXT_CLOSURE_MODE requires HARNESS_REPOSITORY_INDEX_MODE=advisory or required' \
+	"$TEST_ROOT/invalid-mode.out"
+
+printf 'repository index tests passed\n'
