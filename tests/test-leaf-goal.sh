@@ -760,19 +760,19 @@ grep -q '^manager_reviews=1$' "$repair_goal_state"
 grep -q '^thread_id=goal-thread-001$' "$repair_goal_state"
 grep -q '^thread_context=manager-rejected-resume$' "$repair_goal_state"
 [[ "$(wc -l < "$repair_project/control/goals/goalrepair-task-001-revision-01.iterations.tsv")" == 2 ]]
-# Upgrade recovery may encounter a retained goal thread created before the
-# publication-time FRESH contract existed. The execution assignment remains
-# authoritative and must clear that stale state at claim time.
-sed -i '/^Task-Root: 001$/a Worker-Context: FRESH' \
+# A verification-only revision is intrinsically fresh even when an older
+# publisher omitted Worker-Context and Supersedes-Task. It must never repay a
+# retained implementation transcript merely to run bounded evidence.
+sed -i '/^Task-Root: 001$/a Leaf-Type: VERIFICATION_ONLY' \
 	"$repair_project/tasks/goalrepair-task-001-revision-01.ready.md"
 repair_args_before="$(wc -l < "$ARGS_LOG")"
 "$HARNESS_BIN/worker-invoke-task" "$REPAIR_ROOT/harness.env" 001-revision-01 >/dev/null
 (( $(wc -l < "$ARGS_LOG") == repair_args_before + 1 ))
 if tail -n 1 "$ARGS_LOG" | grep -q 'resume goal-thread-001'; then
-	printf 'Worker-Context: FRESH was ignored by goal-mode execution.\n' >&2
+	printf 'VERIFICATION_ONLY resumed a retained goal-mode worker thread.\n' >&2
 	exit 1
 fi
-grep -q 'WORKER_CONTEXT_SELECTED task=001-revision-01.*mode=fresh.*reason=assignment_requested_fresh' \
+grep -q 'WORKER_CONTEXT_SELECTED task=001-revision-01.*mode=fresh.*reason=verification_only_fresh' \
 	"$repair_project/logs/events.log"
 
 # Goal-mode configuration changes are boundary-safe: neither enabling it over

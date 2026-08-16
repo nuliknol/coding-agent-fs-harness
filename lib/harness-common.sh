@@ -429,7 +429,7 @@ load_harness_env()
 	# Replanning is also a bounded planning transaction.  A failed assignment
 	# publication must not turn into an open-ended prompt-debugging session.
 	HARNESS_MAX_MANAGER_REPLAN_ITEMS_PER_INVOCATION="${HARNESS_MAX_MANAGER_REPLAN_ITEMS_PER_INVOCATION:-14}"
-	HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS="${HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS:-2}"
+	HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS="${HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS:-3}"
 	HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION="${HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION:-500000}"
 	# Model-reported input includes fixed system/tool framing that the semantic
 	# leaf p95 does not predict exactly. Permit a small bounded margin around the

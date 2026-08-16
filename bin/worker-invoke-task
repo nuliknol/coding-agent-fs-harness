@@ -182,12 +182,12 @@ if (( goal_mode == 1 )); then
 	# causing a small verification leaf to repay the whole predecessor context.
 	# Zero-write verification revisions are fresh by default for the same reason.
 	if [[ "$requested_worker_context" == FRESH ]] ||
-		{ [[ "$leaf_type" == VERIFICATION_ONLY ]] && [[ -n "$superseded_task" ]]; }; then
+		[[ "$leaf_type" == VERIFICATION_ONLY ]]; then
 		worker_resume_thread_id=""
 		if [[ "$requested_worker_context" == FRESH ]]; then
 			worker_context_reason="assignment_requested_fresh"
 		else
-			worker_context_reason="verification_revision_fresh"
+			worker_context_reason="verification_only_fresh"
 		fi
 		goal_state_set "$goal_state" thread_id ""
 		goal_state_set "$goal_state" thread_context "$worker_context_reason"
