@@ -1,16 +1,16 @@
 # Context Closure Implementation Status
 
-Last updated (UTC): 2026-08-16T21:09:47Z
+Last updated (UTC): 2026-08-16T21:10:22Z
 
-Overall status: `QUALIFIED_PENDING_DEPLOYMENT`
+Overall status: `COMPLETE`
 
-Active phase: `Phase 10 — production qualification and disabled-by-default rollout`
+Active phase: `COMPLETE — production qualification and disabled-by-default rollout`
 
-Active milestone: `Final regression rerun, commit, push, and production fast-forward`
+Active milestone: `None; operator may select advisory projects`
 
-Deployment state: `5.17.0 fast-forwarded; 5.17.1 importer-provenance release fix under qualification`
+Deployment state: `5.17.1 deployed to production; repository intelligence and Context Closure default off`
 
-Commit: `uncommitted`
+Commit: `bba8e609f575a159e254d50f7b308dce737e87ce` (implementation), followed by this status record
 
 ## Completed since previous update
 
@@ -254,8 +254,9 @@ distinct generation. An indexing failure preserves the prior pointer.
 
 ## Next concrete action
 
-Qualify and publish the importer version/provenance fix as 5.17.1, fast-forward
-production again, and verify the built production importer and active defaults.
+No implementation action remains. Select new projects for advisory mode,
+collect reviewed outcomes, and use the promotion report before enabling
+required or patch-only mode.
 
 ## Update history
 
@@ -275,3 +276,4 @@ production again, and verify the built production importer and active defaults.
 | 2026-08-16T21:00:44Z | Phases 7/8/9/10 | IN_PROGRESS | Added enforced/patch-only closure, learned admission, provider overlays, normative projection, scorecards, complete fixtures, and rollout documentation; final post-change regression remains. |
 | 2026-08-16T21:08:08Z | Phase 10 | QUALIFIED_PENDING_DEPLOYMENT | All Go and shell suites, real SCIP/Joern/HIP integration, focused Python tests, syntax checks, and diff checks passed; production is clean and active environments inherit disabled defaults. |
 | 2026-08-16T21:09:47Z | Phase 10 | QUALIFIED_PENDING_DEPLOYMENT | Initial fast-forward exposed missing importer `--version`; added stable schema-v5 provenance output and passed Go, real-tool, lifecycle, focused, and diff checks. |
+| 2026-08-16T21:10:22Z | Phase 10 | COMPLETE | Version 5.17.1 is synchronized across development, remote main, and production; importer provenance and all four active environments verified, modes remain off, and no active supervisor or DAG was restarted. |
