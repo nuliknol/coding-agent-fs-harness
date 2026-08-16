@@ -56,6 +56,7 @@ export HARNESS_JOERN_ENABLED="0"
 export HARNESS_JOERN_ANALYSIS_CLASSES="call,control-flow,data-flow,mutation"
 export HARNESS_JOERN_SOURCE_ROOT="."
 export HARNESS_JOERN_EXCLUDE_REGEX='(^|/)(\.git|build)($|/)'
+export HARNESS_JOERN_TIMEOUT_SECONDS="900"
 export HARNESS_RECOLL_BIN="recollq"
 export HARNESS_RECOLL_ENABLED="0"
 ```
