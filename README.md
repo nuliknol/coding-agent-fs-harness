@@ -1189,6 +1189,12 @@ next Terra remediation must name the smallest evidenced adjacent seam. This
 turns a truthful no-edit diagnostic into a scope transition instead of a
 same-file retry loop.
 
+If a monotonic architecture/liveness guard pauses the root while that typed
+transition is pending, the architecture marker preserves its trigger, source
+task, blocker class, and exhausted path set. Resolving the liveness epoch
+restores the specific exhausted-scope transition rather than replacing it with
+a generic architecture-resolution replan.
+
 With the default value `1`, one materially different automatic strategy is
 allowed from a given verified-item baseline. If it produces a new verified
 item, the budget immediately resets; if it produces no durable gain, the next

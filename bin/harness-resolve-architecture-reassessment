@@ -25,6 +25,10 @@ marker="$(task_root_architecture_reassessment_file "$root")"
 trigger_task="$(metadata_value "$marker" Triggered-By)"
 [[ -n "$trigger_task" ]] || trigger_task="$root"
 category="$(metadata_value "$marker" Category)"
+pending_replan_trigger="$(metadata_value "$marker" Pending-Replan-Trigger)"
+pending_replan_task="$(metadata_value "$marker" Pending-Replan-Triggered-By)"
+pending_replan_blocker_class="$(metadata_value "$marker" Pending-Replan-Blocker-Class)"
+pending_replan_remediation_scope="$(metadata_value "$marker" Pending-Replan-Remediation-Scope)"
 additional_scope="$(metadata_value "$note_file" Authorized-Additional-Scope)"
 resolution_action="$(metadata_value "$note_file" Resolution-Action)"
 if [[ -n "$resolution_action" ]]; then
@@ -108,7 +112,15 @@ plan_item="$(project_plan_item_for_root "$root")"
 replan_restored=0
 if [[ -n "$plan_item" && "$(project_plan_item_status "$plan_item")" == ACTIVE ]] &&
 	(( root_has_live_artifact == 0 )); then
-	if [[ "$category" == MANAGER_REMEDIATION_SCOPE_EXPANSION && -n "$additional_scope" ]]; then
+	if [[ "$pending_replan_trigger" == MANAGER_REMEDIATION_SCOPE_EXHAUSTED ]]; then
+		[[ -n "$pending_replan_remediation_scope" ]] ||
+			die 'preserved exhausted remediation transition is missing its path set'
+		mark_root_needs_replan "${pending_replan_task:-$trigger_task}" \
+			"architecture liveness reassessment was explicitly resolved; preserve the pending exhausted-scope transition and continue at the adjacent producer, representation, consumer, or validation seam" \
+			MANAGER_REMEDIATION_SCOPE_EXHAUSTED \
+			"${pending_replan_blocker_class:-LOCAL_SCOPE_PREREQUISITE}" \
+			"$pending_replan_remediation_scope" >/dev/null
+	elif [[ "$category" == MANAGER_REMEDIATION_SCOPE_EXPANSION && -n "$additional_scope" ]]; then
 		mark_root_needs_replan "$trigger_task" \
 			"architecture reassessment explicitly authorized one bounded local prerequisite; continue with manager remediation" \
 			MANAGER_REMEDIATION_CONTINUATION LOCAL_CODE_PREREQUISITE "$additional_scope" >/dev/null

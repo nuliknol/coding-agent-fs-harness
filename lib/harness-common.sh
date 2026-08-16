@@ -2715,9 +2715,21 @@ root_liveness_violation_reason()
 mark_root_architecture_reassessment()
 {
 	local task_id="$1" category="$2" reason="$3" evidence="${4:--}"
-	local root marker tmp alarm created=0
+	local root marker tmp alarm created=0 pending_replan pending_trigger pending_trigger_task
+	local pending_blocker_class pending_remediation_scope
 	root="$(task_root_id "$task_id")"
 	marker="$(task_root_architecture_reassessment_file "$root")"
+	pending_replan="$(task_root_replan_file "$root")"
+	pending_trigger=""
+	pending_trigger_task=""
+	pending_blocker_class=""
+	pending_remediation_scope=""
+	if [[ -f "$pending_replan" ]]; then
+		pending_trigger="$(metadata_value "$pending_replan" Trigger-Outcome)"
+		pending_trigger_task="$(metadata_value "$pending_replan" Triggered-By)"
+		pending_blocker_class="$(metadata_value "$pending_replan" Blocker-Class)"
+		pending_remediation_scope="$(metadata_value "$pending_replan" Remediation-Scope)"
+	fi
 	if [[ ! -f "$marker" ]]; then
 		tmp="$marker.tmp.$$"
 		{
@@ -2729,6 +2741,15 @@ mark_root_architecture_reassessment()
 			printf 'Paused-At: %s\n\n' "$(timestamp_utc)"
 			printf 'Reason: %s\n\n' "$reason"
 			printf 'Evidence: %s\n\n' "$evidence"
+			if [[ -n "$pending_trigger" ]]; then
+				printf 'Pending-Replan-Trigger: %s\n' "$pending_trigger"
+				printf 'Pending-Replan-Triggered-By: %s\n' "${pending_trigger_task:-$task_id}"
+				[[ -z "$pending_blocker_class" ]] ||
+					printf 'Pending-Replan-Blocker-Class: %s\n' "$pending_blocker_class"
+				[[ -z "$pending_remediation_scope" ]] ||
+					printf 'Pending-Replan-Remediation-Scope: %s\n' "$pending_remediation_scope"
+				printf '\n'
+			fi
 			printf 'Total-Root-Reviews: %s\n' "$(root_reviewed_attempt_count "$root")"
 			printf 'Reviews-Without-Criterion: %s\n' "$(root_reviews_without_criterion_completion "$root")"
 			printf 'Total-Root-Replans: %s\n' "$(root_total_replan_count "$root")"

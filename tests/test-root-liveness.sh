@@ -187,11 +187,25 @@ Task-ID: consumer-revision-02
 Task-Root: consumer
 MD
 
+# A generic monotonic liveness pause must not erase a more specific pending
+# exhausted-scope transition. Architecture resolution opens a fresh budget
+# epoch but still owes the adjacent-scope remediation.
+bash -c '
+	source "$1/lib/harness-common.sh"
+	load_harness_env "$2"
+	mark_root_needs_replan consumer-revision-02 \
+		"the declared remediation path contains no required consumer" \
+		MANAGER_REMEDIATION_SCOPE_EXHAUSTED LOCAL_CODE_PREREQUISITE \
+		src/exhausted-provider.c >/dev/null
+' _ "$HARNESS_HOME" "$TEST_ROOT/harness.env"
+
 audit_output="$("$HARNESS_BIN/harness-audit-root-liveness" "$TEST_ROOT/harness.env" consumer)"
 reassessment="$project/control/progress/livenessproj-task-consumer.architecture-reassessment-required.md"
 [[ "$audit_output" == "$reassessment" ]]
 grep -Fqx 'Category: TOTAL_ROOT_REVIEWS' "$reassessment"
 grep -Fqx 'Total-Root-Reviews: 2' "$reassessment"
+grep -Fqx 'Pending-Replan-Trigger: MANAGER_REMEDIATION_SCOPE_EXHAUSTED' "$reassessment"
+grep -Fqx 'Pending-Replan-Remediation-Scope: src/exhausted-provider.c' "$reassessment"
 grep -Fq 'Project status: ARCHITECTURE_REASSESSMENT_REQUIRED.' \
 	< <("$HARNESS_BIN/harness-status" --machine "$TEST_ROOT/harness.env")
 
@@ -202,6 +216,10 @@ MD
 	"$TEST_ROOT/harness.env" consumer "$TEST_ROOT/resolution.md" >/dev/null
 [[ ! -f "$reassessment" ]]
 [[ -f "$project/control/progress/livenessproj-task-consumer.needs-replan.md" ]]
+grep -Fqx 'Trigger-Outcome: MANAGER_REMEDIATION_SCOPE_EXHAUSTED' \
+	"$project/control/progress/livenessproj-task-consumer.needs-replan.md"
+grep -Fqx 'Remediation-Scope: src/exhausted-provider.c' \
+	"$project/control/progress/livenessproj-task-consumer.needs-replan.md"
 [[ -f "$project/control/progress/livenessproj-task-consumer.liveness-epoch.env" ]]
 (
 	source "$TEST_ROOT/harness.env"
