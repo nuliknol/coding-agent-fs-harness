@@ -101,10 +101,14 @@ plan_item="$(project_plan_item_for_root "$root")"
 replan_restored=0
 if [[ -n "$plan_item" && "$(project_plan_item_status "$plan_item")" == ACTIVE ]] &&
 	(( root_has_live_artifact == 0 )); then
-	if [[ "$category" == MANAGER_REMEDIATION_SCOPE_EXPANSION ]]; then
+	if [[ "$category" == MANAGER_REMEDIATION_SCOPE_EXPANSION && -n "$additional_scope" ]]; then
 		mark_root_needs_replan "$trigger_task" \
 			"architecture reassessment explicitly authorized one bounded local prerequisite; continue with manager remediation" \
-			MANAGER_REMEDIATION_CONTINUATION LOCAL_CODE_PREREQUISITE "${additional_scope:--}" >/dev/null
+			MANAGER_REMEDIATION_CONTINUATION LOCAL_CODE_PREREQUISITE "$additional_scope" >/dev/null
+	elif [[ "$category" == MANAGER_REMEDIATION_SCOPE_EXPANSION ]]; then
+		mark_root_needs_replan "$trigger_task" \
+			"architecture reassessment denied scope expansion; preserve immutable root scope and continue the focused first-unmet boundary" \
+			ARCHITECTURE_REASSESSMENT_RESOLVED >/dev/null
 	else
 		mark_root_needs_replan "$trigger_task" \
 			"architecture reassessment was explicitly resolved; continue the preserved first-unmet boundary" \

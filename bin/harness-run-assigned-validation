@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TASK_ID LABEL\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 3 ]] || usage
+load_harness_env "$1"
+task_id="$2"
+label="$3"
+ensure_project
+validate_task_id "$task_id"
+[[ "$label" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die "invalid validation label: $label"
+
+dir="$(project_dir)"
+base="$(task_base "$task_id")"
+assignment=""
+for candidate in \
+	"$dir/archive/$base.assignment.md" \
+	"$dir/tasks/$base.ready.md" \
+	"$dir/running/$base.running.md"; do
+	if [[ -f "$candidate" ]]; then
+		assignment="$candidate"
+		break
+	fi
+done
+[[ -n "$assignment" ]] || die "assignment is unavailable for task: $task_id"
+
+validation="$(metadata_value "$assignment" Focused-Validation)"
+[[ -n "$validation" && "$validation" != - ]] || die 'assignment has no focused validation command'
+case "$validation" in
+	FOCUSED:*|INCREMENTAL:*|CLEAN_GLOBAL:*)
+		die 'Focused-Validation is descriptive rather than executable; use harness-run-logged with one explicitly quoted shell command'
+		;;
+esac
+
+# Execute the complete machine-recorded expression inside the capture wrapper.
+# Shell operators therefore cannot escape logging through the caller's shell.
+exec "$HARNESS_BIN/harness-run-logged" "$HARNESS_ENV_FILE" "$task_id" "$label" -- \
+	/bin/bash -lc "$validation"

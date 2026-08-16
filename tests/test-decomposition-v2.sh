@@ -185,6 +185,19 @@ grep -Fq 'VALIDATION_LOG label=noisy-test exit=7 lines=2000' <<< "$logged_output
 logged_path="$(awk -F'log=' '/^VALIDATION_LOG / {print $2; exit}' <<< "$logged_output")"
 test "$(wc -l < "$logged_path")" -eq 2000
 
+# The assigned-validation runner owns the complete shell expression, so a
+# logical operator cannot escape output capture in the caller's shell.
+cat > "$project_dir/archive/decompv2-task-compound.assignment.md" <<'ASSIGNMENT'
+Task-ID: compound
+Focused-Validation: printf 'first\n' && for i in $(seq 1 2000); do printf 'second verbose line %s\n' "$i"; done
+ASSIGNMENT
+assigned_output="$("$HARNESS_BIN/harness-run-assigned-validation" \
+	"$TEST_ROOT/harness.env" compound assigned-compound)"
+grep -Fq 'VALIDATION_LOG label=assigned-compound exit=0 lines=2001' <<< "$assigned_output"
+(( ${#assigned_output} <= 40000 ))
+assigned_path="$(awk -F'log=' '/^VALIDATION_LOG / {print $2; exit}' <<< "$assigned_output")"
+test "$(wc -l < "$assigned_path")" -eq 2001
+
 # Outlier ranking distinguishes authoritative and estimated worker episodes and
 # exposes command-output amplification without replaying command contents.
 cat > "$project_dir/logs/worker-task-synthetic-20260814T000000Z-attempt-001.jsonl" <<'JSON'

@@ -1377,7 +1377,12 @@ harness-token-outliers --all --role worker --limit 10
 
 Build and test output from bounded workers is retained under the project log
 directory through `harness-run-logged`; only a size-limited diagnostic summary
-enters the model transcript.
+enters the model transcript. Executable validation already stored in a task can
+be run without shell-operator escape mistakes through:
+
+```bash
+harness-run-assigned-validation ENV_FILE TASK_ID LABEL
+```
 
 Chronological implementation history:
 
