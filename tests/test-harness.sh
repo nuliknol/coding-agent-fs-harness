@@ -1856,6 +1856,10 @@ grep -Fq 'Every data row in this transaction must name exactly' \
 	"$auto_project/control/autoreplanproj-task-001.auto-replan.prompt.md"
 grep -Fq 'do not include grandchildren' \
 	"$auto_project/control/autoreplanproj-task-001.auto-replan.prompt.md"
+grep -Fq 'TRIGGER_FOCUSED_VALIDATION=' \
+	"$auto_project/control/autoreplanproj-task-001.auto-replan.prompt.md"
+grep -Fq 'never replace it with an unqualified all-target build' \
+	"$auto_project/control/autoreplanproj-task-001.auto-replan.prompt.md"
 auto_remediation="$auto_project/tasks/autoreplanproj-task-001-revision-09.ready.md"
 auto_remediation_ledger="$auto_progress/autoreplanproj-task-001.manager-remediations.tsv"
 [[ -f "$auto_remediation" ]]
