@@ -28,6 +28,9 @@ dir="$(project_dir)"
 base="$(task_base "$task_id")"
 root="$(task_root_id "$task_id")"
 assignment_archive="$dir/archive/$base.assignment.md"
+result="$dir/results/$base.result.md"
+result_resource_guard="$(metadata_value "$result" Resource-Guard 2>/dev/null || true)"
+[[ -n "$result_resource_guard" ]] || result_resource_guard="-"
 initialize_task_progress "$task_id" "$assignment_archive"
 current_progress="$(task_progress_percent "$root")"
 improvement_percent="$(review_percent "$note_file" Improvement-Percent)"
@@ -50,6 +53,7 @@ validate_percent "$progress_percent" 'Progress-Percent'
 blocking_fingerprint="$(awk -F': ' '$1 == "Blocking-Fingerprint" {print $2; exit}' "$note_file")"
 circuit_breaker_recovery=0
 manager_remediation_circuit_breaker=0
+resource_decomposition_circuit_breaker=0
 if [[ "$improvement_percent" == 0 ]]; then
 	if [[ ! "$blocking_fingerprint" =~ ^sha256:[0-9a-fA-F]{64}$ ]]; then
 		# This is machine-owned convergence metadata. Derive it from the stable
@@ -91,7 +95,11 @@ if [[ "$improvement_percent" == 0 ]]; then
 			fi
 		fi
 	done
-	if assignment_is_manager_remediation "$assignment_archive" &&
+	if [[ "$result_resource_guard" != "-" ]] && (( HARNESS_MAX_IDENTICAL_BLOCKERS > 0 )) &&
+		(( matching_rejections + 1 >= HARNESS_MAX_IDENTICAL_BLOCKERS )); then
+		resource_decomposition_circuit_breaker=1
+		log_event "TASK_CIRCUIT_BREAKER_RESOURCE_DECOMPOSITION task=$task_id root=$root guard=$result_resource_guard fingerprint=$blocking_fingerprint prior_matches=$matching_rejections limit=$HARNESS_MAX_IDENTICAL_BLOCKERS"
+	elif assignment_is_manager_remediation "$assignment_archive" &&
 		(( matching_manager_remediations + 1 >= HARNESS_MAX_IDENTICAL_MANAGER_REMEDIATION_BLOCKERS )); then
 		manager_remediation_circuit_breaker=1
 		log_event "TASK_CIRCUIT_BREAKER_ARCHITECTURE_REASSESSMENT task=$task_id root=$root fingerprint=$blocking_fingerprint prior_matches=$matching_manager_remediations limit=$HARNESS_MAX_IDENTICAL_MANAGER_REMEDIATION_BLOCKERS"
@@ -100,7 +108,6 @@ if [[ "$improvement_percent" == 0 ]]; then
 		log_event "TASK_CIRCUIT_BREAKER_MANAGER_REMEDIATION task=$task_id root=$root fingerprint=$blocking_fingerprint prior_matches=$matching_rejections limit=$HARNESS_MAX_IDENTICAL_BLOCKERS"
 	fi
 fi
-result="$dir/results/$base.result.md"
 result_archive="$dir/archive/$base.rejected-result.md"
 rejected="$dir/archive/$base.rejected.md"
 stale_result_archive="$dir/archive/$base.rejected-stale-result.md"
@@ -121,6 +128,8 @@ archive_lingering_result()
 
 if [[ -f "$rejected" ]]; then
 	archive_lingering_result
+	result_resource_guard="$(metadata_value "$result_archive" Resource-Guard 2>/dev/null || true)"
+	[[ -n "$result_resource_guard" ]] || result_resource_guard="-"
 	goal_record_manager_decision "$task_id" REJECTED
 	retain_worker_thread_for_rejection "$task_id"
 	trace_event TASK_REJECT_IDEMPOTENT "task_id=$task_id" "rejected_file=$rejected"
@@ -128,9 +137,15 @@ if [[ -f "$rejected" ]]; then
 		printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
 	elif [[ -f "$result_archive" &&
 		"$(metadata_value "$result_archive" Goal-Outcome)" == NEEDS_DECOMPOSITION ]]; then
-		mark_root_needs_replan "$task_id" \
-			'worker leaf goal requested criterion decomposition or a materially different strategy' \
-			GOAL_NEEDS_DECOMPOSITION
+		if [[ "$result_resource_guard" != "-" ]]; then
+			mark_root_needs_replan "$task_id" \
+				"worker execution context reached the $result_resource_guard fuse; use its bounded evidence to decompose or restate the semantic episode" \
+				RESOURCE_NEEDS_DECOMPOSITION
+		else
+			mark_root_needs_replan "$task_id" \
+				'worker leaf goal requested criterion decomposition or a materially different strategy' \
+				GOAL_NEEDS_DECOMPOSITION
+		fi
 	else
 		printf '%s\n' "$rejected"
 	fi
@@ -166,15 +181,26 @@ elif (( manager_remediation_circuit_breaker == 1 )); then
 		"identical manager-remediation blocker $blocking_fingerprint reached the bounded limit ($HARNESS_MAX_IDENTICAL_MANAGER_REMEDIATION_BLOCKERS) without criterion gain" \
 		"assignment=$assignment_archive review=$rejected" >/dev/null
 	printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
+elif (( resource_decomposition_circuit_breaker == 1 )); then
+	mark_root_architecture_reassessment "$task_id" REPEATED_RESOURCE_DECOMPOSITION_FAILURE \
+		"the same $result_resource_guard-bounded execution context exhausted repeatedly without criterion gain" \
+		"assignment=$assignment_archive review=$rejected evidence=$dir/control/$base.worker-evidence-digest.md" >/dev/null
+	printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
 elif (( circuit_breaker_recovery == 1 )); then
 	replan_marker="$(mark_root_needs_replan "$task_id" \
 		"identical local blocker fingerprint $blocking_fingerprint reached limit $HARNESS_MAX_IDENTICAL_BLOCKERS; manager remediation is required" \
 		DETERMINISTIC_BLOCKER)"
 	printf '%s\n' "$replan_marker"
 elif [[ "$goal_outcome" == NEEDS_DECOMPOSITION ]]; then
-	replan_marker="$(mark_root_needs_replan "$task_id" \
-		'worker leaf goal requested criterion decomposition or a materially different strategy' \
-		GOAL_NEEDS_DECOMPOSITION)"
+	if [[ "$result_resource_guard" != "-" ]]; then
+		replan_marker="$(mark_root_needs_replan "$task_id" \
+			"worker execution context reached the $result_resource_guard fuse; use its bounded evidence to decompose or restate the semantic episode" \
+			RESOURCE_NEEDS_DECOMPOSITION)"
+	else
+		replan_marker="$(mark_root_needs_replan "$task_id" \
+			'worker leaf goal requested criterion decomposition or a materially different strategy' \
+			GOAL_NEEDS_DECOMPOSITION)"
+	fi
 	printf '%s\n' "$replan_marker"
 elif replan_marker="$(maybe_mark_root_needs_replan "$task_id" REJECT)"; then
 	printf '%s\n' "$replan_marker"

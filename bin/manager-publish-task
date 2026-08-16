@@ -1161,10 +1161,18 @@ if (( recovery_publish == 1 )); then
 	blocking_fingerprint="$(awk -F': ' '$1 == "Blocking-Fingerprint" {print $2; exit}' "$(task_root_replan_file "$root")")"
 	[[ -n "$blocking_fingerprint" ]] || blocking_fingerprint="-"
 	if (( manager_remediation == 0 )); then
+		replan_trigger_outcome="$(metadata_value "$(task_root_replan_file "$root")" Trigger-Outcome)"
+		fresh_resolution=0
+		[[ "$replan_trigger_outcome" != ARCHITECTURE_REASSESSMENT_RESOLVED ]] || fresh_resolution=1
+		resource_decomposition=0
+		[[ "$replan_trigger_outcome" != RESOURCE_NEEDS_DECOMPOSITION ]] || resource_decomposition=1
 		auto_replans="$(root_auto_replans_without_verified_gain "$root")"
-		(( auto_replans < HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN )) ||
-			die "automatic replan budget is exhausted without durable verified gain: $auto_replans/$HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN"
-		if root_same_blocker_without_verified_gain "$root" "$blocking_fingerprint"; then
+		if (( fresh_resolution == 0 && resource_decomposition == 0 )); then
+			(( auto_replans < HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN )) ||
+				die "automatic replan budget is exhausted without durable verified gain: $auto_replans/$HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN"
+		fi
+		if (( fresh_resolution == 0 && resource_decomposition == 0 )) &&
+			root_same_blocker_without_verified_gain "$root" "$blocking_fingerprint"; then
 			die "same blocking fingerprint survived the prior bounded replan without durable verified gain: $blocking_fingerprint"
 		fi
 	fi

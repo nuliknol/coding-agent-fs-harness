@@ -941,6 +941,31 @@ post_resolution_output="$("$HARNESS_BIN/manager-reject-task" "$CIRCUIT_ROOT/harn
 [[ ! -f "$remediation_reassessment" ]]
 rm -f "$CIRCUIT_ROOT/state/projects/circuitproj/control/progress/circuitproj-task-001.needs-replan.md"
 
+# A machine resource fuse is a decomposition/context failure, not evidence of
+# a repository-local prerequisite. Preserve that type in the durable marker so
+# automatic recovery cannot silently promote it to manager remediation.
+cat > "$CIRCUIT_ROOT/state/projects/circuitproj/archive/circuitproj-task-001-revision-06.assignment.md" <<'MD'
+Task-ID: 001-revision-06
+Task-Root: 001
+MD
+cat > "$CIRCUIT_ROOT/state/projects/circuitproj/results/circuitproj-task-001-revision-06.result.md" <<'RESULT'
+# Worker Task Result
+
+Goal-Outcome: NEEDS_DECOMPOSITION
+Resource-Guard: ITEM_LIMIT
+RESULT
+cat > "$CIRCUIT_ROOT/resource-review.md" <<'NOTE'
+Progress-Percent: 0%
+Improvement-Percent: 0%
+Blocking-Fingerprint: sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+NOTE
+resource_output="$("$HARNESS_BIN/manager-reject-task" "$CIRCUIT_ROOT/harness.env" \
+	001-revision-06 "$CIRCUIT_ROOT/resource-review.md")"
+[[ "$resource_output" == *.needs-replan.md ]]
+grep -Fqx 'Trigger-Outcome: RESOURCE_NEEDS_DECOMPOSITION' "$resource_output"
+grep -q 'ITEM_LIMIT fuse' "$resource_output"
+rm -f "$resource_output"
+
 # A verified leaf hard block caused by repository-local scope is archived as a
 # failed leaf attempt and routed to manager remediation. It must never create a
 # terminal root block merely because the worker's Allowed-Scope was too narrow.

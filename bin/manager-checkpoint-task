@@ -182,7 +182,15 @@ archive_lingering_result()
 
 mark_checkpoint_decomposition_replan()
 {
-	local blocker_class remediation_scope
+	local blocker_class remediation_scope result_guard
+	result_guard="$(metadata_value "$result_archive" Resource-Guard 2>/dev/null || true)"
+	[[ -n "$result_guard" ]] || result_guard="-"
+	if [[ "$result_guard" != "-" ]]; then
+		mark_root_needs_replan "$task_id" \
+			"checkpointed evidence from a worker context that reached the $result_guard fuse; decompose or restate the remaining semantic episode" \
+			RESOURCE_NEEDS_DECOMPOSITION
+		return 0
+	fi
 	if assignment_is_manager_remediation "$assignment_archive"; then
 		blocker_class="$(require_single_metadata_value "$assignment_archive" Blocker-Class \
 			'manager remediation assignment')"

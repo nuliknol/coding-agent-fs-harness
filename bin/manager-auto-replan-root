@@ -42,6 +42,8 @@ if [[ -f "$trigger_assignment" ]]; then
 	[[ -n "$trigger_focused_validation" ]] || trigger_focused_validation="-"
 fi
 trigger_outcome="$(awk -F': ' '$1 == "Trigger-Outcome" {print $2; exit}' "$replan_marker")"
+resource_decomposition=0
+[[ "$trigger_outcome" != RESOURCE_NEEDS_DECOMPOSITION ]] || resource_decomposition=1
 blocking_fingerprint="$(awk -F': ' '$1 == "Blocking-Fingerprint" {print $2; exit}' "$replan_marker")"
 [[ -n "$blocking_fingerprint" ]] || blocking_fingerprint="-"
 trigger_blocker_class="$(awk -F': ' '$1 == "Blocker-Class" {print $2; exit}' "$replan_marker")"
@@ -63,13 +65,14 @@ elif [[ "$trigger_outcome" == LEGACY_HARD_BLOCKED ]]; then
 # An explicit architecture resolution establishes a fresh operator-reviewed
 # authority boundary. Do not reinterpret the preserved historical fingerprint
 # as proof that manager remediation or scope expansion remains authorized.
-elif [[ "$trigger_outcome" != ARCHITECTURE_REASSESSMENT_RESOLVED ]] &&
+elif (( resource_decomposition == 0 )) &&
+	[[ "$trigger_outcome" != ARCHITECTURE_REASSESSMENT_RESOLVED ]] &&
 	root_same_blocker_without_verified_gain "$root" "$blocking_fingerprint"; then
 	recovery_mode="MANAGER_REMEDIATION"
 	recovery_reason="the same local blocker survived a bounded automatic replan without durable verified gain"
 fi
 auto_replans="$(root_auto_replans_without_verified_gain "$root")"
-if [[ "$recovery_mode" != MANAGER_REMEDIATION ]] &&
+if [[ "$recovery_mode" != MANAGER_REMEDIATION ]] && (( resource_decomposition == 0 )) &&
 	(( auto_replans >= HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN )); then
 	recovery_mode="MANAGER_REMEDIATION"
 	recovery_reason="the bounded worker strategy-change budget was exhausted without durable verified gain ($auto_replans/$HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN)"
@@ -123,6 +126,8 @@ plan_item_id="$(project_plan_item_for_root "$root")"
 [[ -n "$plan_item_id" ]] || die "active root is not bound to a project plan item: $root"
 replan_context_capsule="$project_path/control/$PROJECT-task-$root.auto-replan-context.md"
 write_plan_node_context_capsule "$replan_context_capsule" "$plan_item_id"
+trigger_evidence_digest="$project_path/control/$(task_base "$trigger_task").worker-evidence-digest.md"
+[[ -f "$trigger_evidence_digest" ]] || trigger_evidence_digest="-"
 
 criteria_instruction=""
 publish_flag="--auto-replan"
@@ -185,10 +190,11 @@ ARCHITECTURE_GUARDS=$HARNESS_ARCHITECTURE_GUARDS
 ARCHITECTURE_DIR=-
 PROJECT_DECOMPOSITION_FILE=-
 PLAN_NODE_CONTEXT_FILE=$replan_context_capsule
+TRIGGER_EVIDENCE_DIGEST=$trigger_evidence_digest
 LUNA_STRATEGY_FAILURES=$(root_luna_strategy_failure_count "$root")
 MAX_LUNA_STRATEGY_FAILURES=$HARNESS_MAX_LUNA_STRATEGY_FAILURES
 
-Read DEVELOPMENT_POLICY_FILE when present, PLAN_NODE_CONTEXT_FILE once, and the root/replan/criterion files above that exist. PLAN_NODE_CONTEXT_FILE is the complete plan, DAG, normalized-IR, and architecture authority for this turn. Do not open the generic manager protocol, human specification, global plan/DAG/IR/architecture files, repository inventory, prior agent logs, or unrelated progress files. Complete the transaction in at most six shell actions and reserve the final three actions for publication: (1) one bounded authority read, (2) at most one exact source/evidence inspection only when the capsule lacks one necessary local fact, (3) write TASK_OUTPUT and optional decomposition, (4) first publisher call, (5) one direct correction from the publisher diagnostic if rejected, and (6) final publisher call. Do not inspect output-target existence, reread TASK_OUTPUT or decomposition output, or perform another repository search after the first publisher call; its diagnostic is the complete correction authority. TRIGGER_FOCUSED_VALIDATION is machine-extracted from the triggering assignment. When it names an executable exact target or test selector and the same first-unmet boundary remains, preserve that exact target/selector or make it narrower; never replace it with an unqualified all-target build or unfiltered test suite. Every complete shell action has one aggregate transcript budget of $HARNESS_VALIDATION_OUTPUT_MAX_LINES lines and $HARNESS_VALIDATION_OUTPUT_MAX_BYTES bytes across its combined stdout and stderr. Every source search or diff command must end with both head -n $HARNESS_VALIDATION_OUTPUT_MAX_LINES and head -c $HARNESS_VALIDATION_OUTPUT_MAX_BYTES; a custom literal cap greater than either configured maximum is forbidden and will pause the project as TOKEN_USAGE_ANOMALY. Do not concatenate separately capped outputs in one action. Retain complete output in PROJECT_TMP_DIR and return only one bounded excerpt. Never combine an unrestricted diff with a contextual search in one command. Preserve every verified checkpoint.
+Read DEVELOPMENT_POLICY_FILE when present, PLAN_NODE_CONTEXT_FILE once, TRIGGER_EVIDENCE_DIGEST once when it is not '-', and the root/replan/criterion files above that exist. PLAN_NODE_CONTEXT_FILE is the complete plan, DAG, normalized-IR, and architecture authority for this turn. TRIGGER_EVIDENCE_DIGEST is bounded machine-generated continuity from the immediately preceding execution episode; use its command manifest to avoid repeating exploration, but do not open the raw JSONL or command outputs. Do not open the generic manager protocol, human specification, global plan/DAG/IR/architecture files, repository inventory, prior agent logs, or unrelated progress files. Complete the transaction in at most six shell actions and reserve the final three actions for publication: (1) one bounded authority read, (2) at most one exact source/evidence inspection only when the capsule lacks one necessary local fact, (3) write TASK_OUTPUT and optional decomposition, (4) first publisher call, (5) one direct correction from the publisher diagnostic if rejected, and (6) final publisher call. Do not inspect output-target existence, reread TASK_OUTPUT or decomposition output, or perform another repository search after the first publisher call; its diagnostic is the complete correction authority. TRIGGER_FOCUSED_VALIDATION is machine-extracted from the triggering assignment. When it names an executable exact target or test selector and the same first-unmet boundary remains, preserve that exact target/selector or make it narrower; never replace it with an unqualified all-target build or unfiltered test suite. Every complete shell action has one aggregate transcript budget of $HARNESS_VALIDATION_OUTPUT_MAX_LINES lines and $HARNESS_VALIDATION_OUTPUT_MAX_BYTES bytes across its combined stdout and stderr. Every source search or diff command must end with both head -n $HARNESS_VALIDATION_OUTPUT_MAX_LINES and head -c $HARNESS_VALIDATION_OUTPUT_MAX_BYTES; a custom literal cap greater than either configured maximum is forbidden and will pause the project as TOKEN_USAGE_ANOMALY. Do not concatenate separately capped outputs in one action. Retain complete output in PROJECT_TMP_DIR and return only one bounded excerpt. Never combine an unrestricted diff with a contextual search in one command. Preserve every verified checkpoint.
 
 $criteria_instruction
 

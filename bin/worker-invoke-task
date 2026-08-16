@@ -390,6 +390,10 @@ publish_goal_decomposition_handoff()
 		printf 'Status: COMPLETED\n'
 		printf 'Goal-ID: %s\n' "$goal_id"
 		printf 'Goal-Outcome: NEEDS_DECOMPOSITION\n'
+		# Preserve the machine reason for a synthetic handoff. Without this
+		# manager review cannot distinguish an exhausted execution context
+		# from a repository-local prerequisite.
+		printf 'Resource-Guard: %s\n' "${resource_guard:--}"
 		emit_synthetic_impact_manifest
 		printf '\n'
 		printf '## Summary\n\n%s\n\n' "$reason"
