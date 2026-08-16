@@ -73,6 +73,42 @@ Expected-Max-Implementation-Files: 2
 Expected-Max-Worker-Turns: 2
 MD
 
+# A verified parent increment plus a newly declared child criterion authorizes
+# a bounded LOW/LUNA implementation continuation even while the parent node's
+# final produced architecture decision remains proposed until root completion.
+cat > "$project/control/progress/livenessproj-task-bounded-child.criteria.tsv" <<'TSV'
+item_id	state	verified_by	evidence_sha256	updated_at
+bounded-child.contract	VERIFIED	bounded-child-revision-01	sha256:test	2026-01-01T00:00:00Z
+TSV
+cat > "$TEST_ROOT/bounded-child-assignment.md" <<'MD'
+Task-ID: bounded-child-revision-02
+Task-Root: bounded-child
+Target-Criterion: bounded-child.acceptance.implementation
+Architecture-Decisions: NONE
+MD
+cat > "$TEST_ROOT/bounded-child-decomposition.tsv" <<'TSV'
+parent_criterion	child_criterion	title	acceptance_evidence
+bounded-child.acceptance	bounded-child.acceptance.implementation	Implement bounded child	Focused validation passes
+bounded-child.acceptance	bounded-child.acceptance.validation	Validate bounded child	Independent validation passes
+TSV
+bash -c '
+	source "$1/lib/harness-common.sh"
+	load_harness_env "$2"
+	recovery_candidate_targets_verified_child bounded-child "$3" "$4"
+' _ "$HARNESS_HOME" "$TEST_ROOT/harness.env" "$TEST_ROOT/bounded-child-assignment.md" \
+	"$TEST_ROOT/bounded-child-decomposition.tsv"
+sed -i 's/^Architecture-Decisions: NONE$/Architecture-Decisions: ADR-unresolved/' \
+	"$TEST_ROOT/bounded-child-assignment.md"
+if bash -c '
+	source "$1/lib/harness-common.sh"
+	load_harness_env "$2"
+	recovery_candidate_targets_verified_child bounded-child "$3" "$4"
+' _ "$HARNESS_HOME" "$TEST_ROOT/harness.env" "$TEST_ROOT/bounded-child-assignment.md" \
+	"$TEST_ROOT/bounded-child-decomposition.tsv"; then
+	printf 'unresolved architecture-producing child was incorrectly Luna-authorized\n' >&2
+	exit 1
+fi
+
 # Stateful restarts preserve tracked implementation changes that fall within
 # the registered DAG, while retaining the strict untracked-file boundary used
 # for fresh starts and specification handoff.

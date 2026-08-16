@@ -182,7 +182,7 @@ normalize_measured_assignment_metadata()
 	local planned_effective_p95 planned_worker_route
 	local obligation_weight requested_route requested_class requested_leaf requested_architecture requested_validation requested_files requested_turns requested_exception luna_failures
 	local required_symbols symbol_count calibration_rate residual_p95 verified_items
-	local recovery_decisions_resolved decision requested_obligations obligation_count architecture_decisions
+	local recovery_decisions_resolved recovery_verified_child decision requested_obligations obligation_count architecture_decisions
 	# Every task bound to a measured plan node uses the installed deterministic
 	# vector.  Revisions and recovery tasks must not ask a planning agent to
 	# reproduce these machine-owned fields by hand.
@@ -222,17 +222,23 @@ normalize_measured_assignment_metadata()
 			"requested_validation=$requested_validation" "requested_files=$requested_files" \
 			"requested_turns=$requested_turns" "verified_items=$verified_items"
 		recovery_decisions_resolved=1
+		recovery_verified_child=0
 		if (( HARNESS_ARCHITECTURE_GUARDS == 1 )); then
 			for decision in $(architecture_node_value "$plan_item_id" produces_decisions | tr ',' ' '); do
 				[[ -n "$decision" && "$decision" != - ]] || continue
-				architecture_decision_accepted "$decision" || recovery_decisions_resolved=0
+			architecture_decision_accepted "$decision" || recovery_decisions_resolved=0
 			done
+		fi
+		if recovery_candidate_targets_verified_child "$root" "$task_file" "$decomposition_candidate"; then
+			recovery_verified_child=1
+			log_event "RECOVERY_VERIFIED_CHILD_ROUTE_AUTHORIZED root=$root task=$task_id target=$(printf '%q' "$(metadata_value "$task_file" Target-Criterion)")"
 		fi
 		# A verified decision or a decomposed implementation boundary can leave a
 		# much smaller child than the original measured plan node. Derive a fresh
 		# child vector from its executable scope instead of restoring the parent's
 		# HIGH/TERRA vector. Root semantic authority remains immutable.
-		if (( luna_failures < HARNESS_MAX_LUNA_STRATEGY_FAILURES && recovery_decisions_resolved == 1 )) &&
+		if (( luna_failures < HARNESS_MAX_LUNA_STRATEGY_FAILURES &&
+			(recovery_decisions_resolved == 1 || recovery_verified_child == 1) )) &&
 			[[ "$requested_leaf" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY)$ &&
 			"$requested_validation" =~ ^(FOCUSED|INCREMENTAL)$ &&
 			"$requested_files" =~ ^[0-9]+$ && "$requested_turns" =~ ^[1-3]$ ]] &&

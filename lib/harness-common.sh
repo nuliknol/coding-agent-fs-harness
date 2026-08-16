@@ -1513,6 +1513,22 @@ task_criterion_children()
 	awk -F '\t' -v parent="$criterion" 'NR > 1 && $1 == parent {print $2}' "$decomposition"
 }
 
+recovery_candidate_targets_verified_child()
+{
+	local root="$1" assignment="$2" candidate="${3:-}" target architecture file
+	[[ -f "$assignment" ]] || return 1
+	[[ "$(task_verified_item_count "$root")" =~ ^[1-9][0-9]*$ ]] || return 1
+	architecture="$(metadata_value "$assignment" Architecture-Decisions)"
+	[[ "$architecture" == NONE ]] || return 1
+	target="$(metadata_value "$assignment" Target-Criterion)"
+	[[ -n "$target" ]] || return 1
+	for file in "$candidate" "$(task_criterion_decomposition_file "$root")"; do
+		[[ -n "$file" && -f "$file" ]] || continue
+		awk -F '\t' -v target="$target" 'NR > 1 && $2 == target {found=1} END {exit found ? 0 : 1}' "$file" && return 0
+	done
+	return 1
+}
+
 task_emit_criterion_leaves()
 {
 	local root="$1" criterion="$2" ancestry="${3:-}" child

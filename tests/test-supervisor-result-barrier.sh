@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 
 set -Eeuo pipefail
+
+grep -Fq 'This planning role must not inspect repository source code' \
+	"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/bin/manager-plan-next-task"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HARNESS_HOME="$(cd "$SCRIPT_DIR/.." && pwd)"
 HARNESS_BIN="$HARNESS_HOME/bin"
