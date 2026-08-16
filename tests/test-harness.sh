@@ -1836,6 +1836,21 @@ fi
 grep -q 'manager recovery is not materially different from an earlier bounded strategy' \
 	"$AUTO_ROOT/materially-same.err"
 
+# A resource fuse is machine evidence that the current leaf is too broad. When
+# structural room remains, recovery cannot silently republish the same parent.
+sed -i 's/Trigger-Outcome: REJECT/Trigger-Outcome: RESOURCE_NEEDS_DECOMPOSITION/' \
+	"$auto_progress/autoreplanproj-task-001.needs-replan.md"
+if "$HARNESS_BIN/manager-publish-task" "$AUTO_ROOT/harness.env" 001-revision-09 \
+	"$AUTO_ROOT/materially-same.md" --auto-replan \
+	>"$AUTO_ROOT/resource-unsplit.out" 2>"$AUTO_ROOT/resource-unsplit.err"; then
+	printf 'Expected an unsplit resource-fused continuation to be rejected.\n' >&2
+	exit 1
+fi
+grep -q 'resource-fused continuation must append at least two bounded direct children' \
+	"$AUTO_ROOT/resource-unsplit.err"
+sed -i 's/Trigger-Outcome: RESOURCE_NEEDS_DECOMPOSITION/Trigger-Outcome: REJECT/' \
+	"$auto_progress/autoreplanproj-task-001.needs-replan.md"
+
 # One recovery invocation may correct one rejected publication, but a third
 # manager-publish-task call is refused before semantic validation can consume
 # another planning round.

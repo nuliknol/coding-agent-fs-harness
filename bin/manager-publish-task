@@ -594,6 +594,24 @@ if (( ${#declared_criteria[@]} > 0 )) && [[ "$task_id" != "$root" ]]; then
 		done
 	fi
 	[[ -n "$first_unmet" ]] || die 'all declared root criteria are already passed; accept the root instead of publishing a continuation'
+	resource_decomposition_required=0
+	if (( recovery_publish == 1 && manager_remediation == 0 )) &&
+		[[ "$(metadata_value "$(task_root_replan_file "$root")" Trigger-Outcome)" == RESOURCE_NEEDS_DECOMPOSITION ]]; then
+		first_unmet_depth=0
+		if [[ -f "$criterion_decomposition" ]]; then
+			first_unmet_depth="$(awk -F '\t' -v wanted="$first_unmet" '
+				NR > 1 {value=depth[$1]+1; if(value>depth[$2])depth[$2]=value}
+				END {print depth[wanted]+0}
+			' "$criterion_decomposition")"
+		fi
+		if (( first_unmet_depth < HARNESS_MAX_CRITERION_DEPTH &&
+			$(root_child_criterion_count "$root") < HARNESS_MAX_ROOT_CHILD_CRITERIA )); then
+			resource_decomposition_required=1
+		fi
+	fi
+	if (( resource_decomposition_required == 1 )) && [[ -z "$decomposition_candidate" ]]; then
+		die "resource-fused continuation must append at least two bounded direct children under the first unmet criterion: $first_unmet"
+	fi
 	if [[ -n "$decomposition_candidate" ]]; then
 		(( recovery_publish == 1 )) ||
 			die 'a child criterion decomposition may be installed only by a manager recovery task'

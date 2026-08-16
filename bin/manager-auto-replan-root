@@ -173,7 +173,11 @@ if task_root_uses_assignment_criteria "$root" || [[ -f "$criteria_definition" ]]
 		$(root_child_criterion_count "$root") >= HARNESS_MAX_ROOT_CHILD_CRITERIA )); then
 		criteria_instruction="Use the existing immutable criterion inventory. Its first unmet leaf is: $first_unmet. The structural decomposition budget is exhausted at depth $first_unmet_depth/$HARNESS_MAX_CRITERION_DEPTH and children $(root_child_criterion_count "$root")/$HARNESS_MAX_ROOT_CHILD_CRITERIA. Do not write or pass DECOMPOSITION_OUTPUT. Keep exactly this first-unmet criterion, add only the missing bounded context/contract evidence, and publish with $publish_flag only. Never rewrite or remove an existing criterion or decomposition row."
 	else
-		criteria_instruction="Use the existing immutable criterion inventory. Its first unmet leaf is: $first_unmet. Do not create or replace CRITERIA_OUTPUT. If repository evidence proves this leaf is unexpectedly broad, you may refine only $first_unmet into at least two ordered independently verifiable direct children by writing DECOMPOSITION_OUTPUT with the exact header parent_criterion<TAB>child_criterion<TAB>title<TAB>acceptance_evidence. Every data row in this transaction must name exactly $first_unmet as parent_criterion; do not include grandchildren or recursively split a newly introduced child in the same publication. In that case target the first new direct child and publish with $publish_flag - DECOMPOSITION_OUTPUT. A later replan may split that child if it remains too broad. Otherwise target $first_unmet and publish with $publish_flag only. Never rewrite or remove an existing criterion or decomposition row."
+		if (( resource_decomposition == 1 )) && [[ "$recovery_mode" != MANAGER_REMEDIATION ]]; then
+			criteria_instruction="Use the existing immutable criterion inventory. Its first unmet leaf is: $first_unmet. The resource guard proved this leaf is too broad, so decomposition is mandatory. Do not create or replace CRITERIA_OUTPUT. Refine exactly $first_unmet into at least two ordered, independently verifiable direct children by writing DECOMPOSITION_OUTPUT with the exact header parent_criterion<TAB>child_criterion<TAB>title<TAB>acceptance_evidence. Every data row must name exactly $first_unmet as parent_criterion; do not include grandchildren or recursively split a new child in this publication. Target the first new direct child and publish with $publish_flag - DECOMPOSITION_OUTPUT. Publishing the unchanged parent without DECOMPOSITION_OUTPUT is invalid. Never rewrite or remove an existing criterion or decomposition row."
+		else
+			criteria_instruction="Use the existing immutable criterion inventory. Its first unmet leaf is: $first_unmet. Do not create or replace CRITERIA_OUTPUT. If repository evidence proves this leaf is unexpectedly broad, you may refine only $first_unmet into at least two ordered independently verifiable direct children by writing DECOMPOSITION_OUTPUT with the exact header parent_criterion<TAB>child_criterion<TAB>title<TAB>acceptance_evidence. Every data row in this transaction must name exactly $first_unmet as parent_criterion; do not include grandchildren or recursively split a newly introduced child in the same publication. In that case target the first new direct child and publish with $publish_flag - DECOMPOSITION_OUTPUT. A later replan may split that child if it remains too broad. Otherwise target $first_unmet and publish with $publish_flag only. Never rewrite or remove an existing criterion or decomposition row."
+		fi
 	fi
 else
 	criteria_instruction="This is an oversized legacy root without an explicit criterion inventory. Create CRITERIA_OUTPUT as criterion_id<TAB>title<TAB>acceptance_evidence with the exact header and at least two ordered, independently verifiable remaining child milestones. The first row must be the bounded target. Do not include completed work as a remaining criterion. Pass CRITERIA_OUTPUT as the final manager-publish-task argument."
@@ -337,6 +341,19 @@ while true; do
 	fi
 	if (( status == 0 )); then
 		if (( attempt < HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS )); then
+			# The fresh correction process must own one publisher call. The first
+			# process may have consumed both in-turn attempts before falsely
+			# reporting success, so reserve exactly one extra durable slot rather
+			# than resetting its full budget.
+			used_publish_attempts="$(kv_file_value "$running_marker" publish_attempts 2>/dev/null || printf 0)"
+			max_publish_attempts="$(kv_file_value "$running_marker" max_publish_attempts 2>/dev/null || printf '%s' "$HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS")"
+			[[ "$used_publish_attempts" =~ ^[0-9]+$ ]] || used_publish_attempts=0
+			[[ "$max_publish_attempts" =~ ^[1-9][0-9]*$ ]] || max_publish_attempts="$HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS"
+			reserved_publish_limit=$((HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS + 1))
+			if (( used_publish_attempts >= max_publish_attempts && max_publish_attempts < reserved_publish_limit )); then
+				goal_state_set "$running_marker" max_publish_attempts "$reserved_publish_limit"
+				log_event "MANAGER_RECOVERY_FRESH_PUBLISH_SLOT_RESERVED root=$root trigger=$trigger_task attempts=$used_publish_attempts previous_limit=$max_publish_attempts new_limit=$reserved_publish_limit"
+			fi
 			log_event "MANAGER_RECOVERY_FALSE_PUBLICATION_RETRY root=$root trigger=$trigger_task attempt=$attempt classification=${classification:-unknown}"
 			printf '\nCorrection turn: the preceding agent exited successfully but no durable task was published. Treat every prior success claim as false. Recreate the expected assignment, call manager-publish-task without output redirection, inspect its exit status, and use the one permitted direct correction if rejected.\n' >> "$prompt_file"
 			attempt=$((attempt + 1))

@@ -600,6 +600,7 @@ cat > "$TEST_ROOT/revision.md" <<'TASK'
 
 Task-ID: 001-revision-01
 Task-Root: 001
+Worker-Context: FRESH
 Execution-Mode: LEAF_GOAL
 Goal-ID: goal.001.validation
 Target-Criterion: goal.validation
@@ -759,7 +760,20 @@ grep -q '^manager_reviews=1$' "$repair_goal_state"
 grep -q '^thread_id=goal-thread-001$' "$repair_goal_state"
 grep -q '^thread_context=manager-rejected-resume$' "$repair_goal_state"
 [[ "$(wc -l < "$repair_project/control/goals/goalrepair-task-001-revision-01.iterations.tsv")" == 2 ]]
-"$HARNESS_BIN/harness-abort-task" "$REPAIR_ROOT/harness.env" 001-revision-01 'test cleanup' >/dev/null
+# Upgrade recovery may encounter a retained goal thread created before the
+# publication-time FRESH contract existed. The execution assignment remains
+# authoritative and must clear that stale state at claim time.
+sed -i '/^Task-Root: 001$/a Worker-Context: FRESH' \
+	"$repair_project/tasks/goalrepair-task-001-revision-01.ready.md"
+repair_args_before="$(wc -l < "$ARGS_LOG")"
+"$HARNESS_BIN/worker-invoke-task" "$REPAIR_ROOT/harness.env" 001-revision-01 >/dev/null
+(( $(wc -l < "$ARGS_LOG") == repair_args_before + 1 ))
+if tail -n 1 "$ARGS_LOG" | grep -q 'resume goal-thread-001'; then
+	printf 'Worker-Context: FRESH was ignored by goal-mode execution.\n' >&2
+	exit 1
+fi
+grep -q 'WORKER_CONTEXT_SELECTED task=001-revision-01.*mode=fresh.*reason=assignment_requested_fresh' \
+	"$repair_project/logs/events.log"
 
 # Goal-mode configuration changes are boundary-safe: neither enabling it over
 # a ready legacy task nor disabling it over a ready goal task may claim/mutate

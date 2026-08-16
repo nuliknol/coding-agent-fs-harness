@@ -108,6 +108,8 @@ if (( manager_remediation == 1 )) && [[ -f "$REPOSITORY/design/development-polic
 fi
 context_capsule_file="$(task_context_capsule_file "$task_id")"
 superseded_task="$(metadata_value "$task_file" Supersedes-Task)"
+requested_worker_context="$(metadata_value "$task_file" Worker-Context)"
+leaf_type="$(metadata_value "$task_file" Leaf-Type)"
 prior_episode_digest=""
 if [[ "$superseded_task" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] &&
 	[[ "$(task_root_id "$superseded_task")" == "$task_root" ]]; then
@@ -175,19 +177,36 @@ worker_resume_thread_id=""
 worker_thread_rejections=0
 worker_last_outcome=""
 if (( goal_mode == 1 )); then
-	worker_resume_thread_id="$(kv_file_value "$goal_state" thread_id 2>/dev/null || true)"
-	if [[ "$worker_resume_thread_id" =~ ^[A-Za-z0-9-]+$ ]]; then
-		worker_context_mode="resumed"
-		worker_context_reason="same_leaf_goal"
-	else
+	# Recovery publications carry an explicit context contract. Goal mode used
+	# to override Worker-Context: FRESH and resume the rejected episode anyway,
+	# causing a small verification leaf to repay the whole predecessor context.
+	# Zero-write verification revisions are fresh by default for the same reason.
+	if [[ "$requested_worker_context" == FRESH ]] ||
+		{ [[ "$leaf_type" == VERIFICATION_ONLY ]] && [[ -n "$superseded_task" ]]; }; then
 		worker_resume_thread_id=""
-		worker_context_reason="$(kv_file_value "$goal_state" thread_context 2>/dev/null || printf goal_fresh)"
+		if [[ "$requested_worker_context" == FRESH ]]; then
+			worker_context_reason="assignment_requested_fresh"
+		else
+			worker_context_reason="verification_revision_fresh"
+		fi
+		goal_state_set "$goal_state" thread_id ""
+		goal_state_set "$goal_state" thread_context "$worker_context_reason"
+		goal_thread_store "$task_id" "" "$worker_context_reason"
+	else
+		worker_resume_thread_id="$(kv_file_value "$goal_state" thread_id 2>/dev/null || true)"
+		if [[ "$worker_resume_thread_id" =~ ^[A-Za-z0-9-]+$ ]]; then
+			worker_context_mode="resumed"
+			worker_context_reason="same_leaf_goal"
+		else
+			worker_resume_thread_id=""
+			worker_context_reason="$(kv_file_value "$goal_state" thread_context 2>/dev/null || printf goal_fresh)"
+		fi
 	fi
 elif (( HARNESS_REUSE_WORKER_THREADS == 0 )); then
 	worker_context_reason="reuse_disabled"
 elif [[ "$task_id" == "$task_root" ]]; then
 	worker_context_reason="new_root_task"
-elif grep -Eq '^Worker-Context:[[:space:]]*FRESH[[:space:]]*$' "$task_file"; then
+elif [[ "$requested_worker_context" == FRESH ]]; then
 	worker_context_reason="assignment_requested_fresh"
 elif [[ -f "$worker_thread_file" ]]; then
 	worker_resume_thread_id="$(kv_file_value "$worker_thread_file" thread_id 2>/dev/null || true)"
@@ -338,7 +357,7 @@ if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 	{
 		if [[ -n "$prior_episode_digest" ]]; then
 			printf '\n## Immediate predecessor evidence\n\n'
-			printf 'This bounded digest is execution continuity, not additional scope. Do not repeat its completed reads; begin with the next missing fact or implementation action. Exact repeated inspection commands are machine-detected and terminate this episode.\n\n'
+			printf 'This bounded digest is execution continuity, not additional scope. Begin with the next missing fact or implementation action. One redundant predecessor source-read is tolerated and logged; a second exact repeated inspection command terminates this episode as context amplification.\n\n'
 			cat "$prior_episode_digest"
 		fi
 		printf '\n## Embedded bounded assignment\n\n'
