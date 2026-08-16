@@ -1840,8 +1840,9 @@ require_clean_repository_start_state()
 
 repository_path_is_in_registered_plan_scope()
 {
-	local path="$1" scope entry
+	local path="$1" scope entry dir artifact assignment task_id
 	local -a entries=()
+	dir="$(project_dir)"
 	while IFS= read -r scope; do
 		scope="${scope//;/,}"
 		IFS=',' read -r -a entries <<< "$scope"
@@ -1861,8 +1862,25 @@ repository_path_is_in_registered_plan_scope()
 			' "$(project_decomposition_plan_file)"
 		fi
 		shopt -s nullglob
-		for assignment in "$(project_dir)/control/progress/$PROJECT-task-"*.root-assignment.md; do
+		for assignment in "$dir/control/progress/$PROJECT-task-"*.root-assignment.md; do
 			metadata_value "$assignment" Allowed-Scope
+		done
+		# A resumed project may contain repository changes from a published
+		# continuation whose bounded scope is narrower than (or is an audited
+		# remediation of) the original DAG node.  Only live task artifacts are
+		# authoritative here; scanning every archived assignment would make stale
+		# historical scope a permanent restart exemption.
+		for artifact in "$dir/tasks/$PROJECT-task-"*.ready.md \
+			"$dir/running/$PROJECT-task-"*.running.md; do
+			metadata_value "$artifact" Allowed-Scope
+			metadata_value "$artifact" Remediation-Scope
+		done
+		for artifact in "$dir/results/$PROJECT-task-"*.result.md; do
+			task_id="$(task_id_from_filename "$artifact")"
+			assignment="$dir/archive/$(task_base "$task_id").assignment.md"
+			[[ -f "$assignment" ]] || continue
+			metadata_value "$assignment" Allowed-Scope
+			metadata_value "$assignment" Remediation-Scope
 		done
 		shopt -u nullglob
 	)

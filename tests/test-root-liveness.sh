@@ -13,6 +13,7 @@ mkdir -p "$TEST_ROOT/repo" "$TEST_ROOT/manager-home" "$TEST_ROOT/worker-home"
 printf 'bounded root liveness test\n' > "$TEST_ROOT/repo/spec.md"
 mkdir -p "$TEST_ROOT/repo/src/consumer"
 printf 'int consumer_smoke(void) { return 0; }\n' > "$TEST_ROOT/repo/src/consumer/smoke.c"
+printf 'int remediation_fixture(void) { return 0; }\n' > "$TEST_ROOT/repo/remediation.c"
 cat > "$TEST_ROOT/repo/CMakeLists.txt" <<'CMAKE'
 cmake_minimum_required(VERSION 3.20)
 project(liveness C)
@@ -21,7 +22,7 @@ CMAKE
 git -C "$TEST_ROOT/repo" init -q
 git -C "$TEST_ROOT/repo" config user.name Harness-Test
 git -C "$TEST_ROOT/repo" config user.email harness@example.invalid
-git -C "$TEST_ROOT/repo" add spec.md CMakeLists.txt src/consumer/smoke.c
+git -C "$TEST_ROOT/repo" add spec.md CMakeLists.txt src/consumer/smoke.c remediation.c
 git -C "$TEST_ROOT/repo" commit -qm initial
 cat > "$TEST_ROOT/harness.env" <<ENV
 export PROJECT="livenessproj"
@@ -78,6 +79,31 @@ MD
 printf '/* preserved harness work */\n' >> "$TEST_ROOT/repo/src/consumer/smoke.c"
 bash -c 'source "$1/lib/harness-common.sh"; load_harness_env "$2"; require_resumable_repository_start_state' \
 	_ "$HARNESS_HOME" "$TEST_ROOT/harness.env"
+
+# A live manager-remediation result may authorize a bounded path outside the
+# original DAG node. Restart validation must preserve that work while still
+# refusing unrelated historical scope.
+printf '/* preserved audited remediation */\n' >> "$TEST_ROOT/repo/remediation.c"
+if bash -c 'source "$1/lib/harness-common.sh"; load_harness_env "$2"; require_resumable_repository_start_state' \
+	_ "$HARNESS_HOME" "$TEST_ROOT/harness.env" >"$TEST_ROOT/remediation-before.out" 2>"$TEST_ROOT/remediation-before.err"; then
+	printf 'stateful restart accepted remediation scope without a live artifact\n' >&2
+	exit 1
+fi
+mkdir -p "$project/results"
+cat > "$project/results/livenessproj-task-consumer-revision-00.result.md" <<'MD'
+Task-ID: consumer-revision-00
+Task-Root: consumer
+Goal-Outcome: COMPLETE
+MD
+cat > "$project/archive/livenessproj-task-consumer-revision-00.assignment.md" <<'MD'
+Task-ID: consumer-revision-00
+Task-Root: consumer
+Allowed-Scope: remediation.c
+Remediation-Scope: remediation.c
+MD
+bash -c 'source "$1/lib/harness-common.sh"; load_harness_env "$2"; require_resumable_repository_start_state' \
+	_ "$HARNESS_HOME" "$TEST_ROOT/harness.env"
+rm -f "$project/results/livenessproj-task-consumer-revision-00.result.md"
 printf 'not attributable to the DAG\n' > "$TEST_ROOT/repo/untracked-restart.txt"
 if bash -c 'source "$1/lib/harness-common.sh"; load_harness_env "$2"; require_resumable_repository_start_state' \
 	_ "$HARNESS_HOME" "$TEST_ROOT/harness.env" >"$TEST_ROOT/restart.out" 2>"$TEST_ROOT/restart.err"; then
