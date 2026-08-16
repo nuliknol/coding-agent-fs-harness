@@ -27,7 +27,8 @@ acquire_project_lock
 dir="$(project_dir)"
 base="$(task_base "$task_id")"
 root="$(task_root_id "$task_id")"
-initialize_task_progress "$task_id" "$dir/archive/$base.assignment.md"
+assignment_archive="$dir/archive/$base.assignment.md"
+initialize_task_progress "$task_id" "$assignment_archive"
 current_progress="$(task_progress_percent "$root")"
 improvement_percent="$(review_percent "$note_file" Improvement-Percent)"
 progress_percent="$(review_percent "$note_file" Progress-Percent)"
@@ -48,6 +49,7 @@ validate_percent "$progress_percent" 'Progress-Percent'
 # through normal bounded review.
 blocking_fingerprint="$(awk -F': ' '$1 == "Blocking-Fingerprint" {print $2; exit}' "$note_file")"
 circuit_breaker_recovery=0
+manager_remediation_circuit_breaker=0
 if [[ "$improvement_percent" == 0 ]]; then
 	if [[ ! "$blocking_fingerprint" =~ ^sha256:[0-9a-fA-F]{64}$ ]]; then
 		# This is machine-owned convergence metadata. Derive it from the stable
@@ -64,16 +66,32 @@ if [[ "$improvement_percent" == 0 ]]; then
 		log_event "TASK_BLOCKING_FINGERPRINT_DERIVED task=$task_id root=$root fingerprint=$blocking_fingerprint"
 	fi
 	matching_rejections=0
+	matching_manager_remediations=0
+	epoch_started=""
+	epoch_file="$(task_root_liveness_epoch_file "$root")"
+	[[ ! -f "$epoch_file" ]] || epoch_started="$(kv_file_value "$epoch_file" started_at 2>/dev/null || true)"
 	shopt -s nullglob
 	for prior_rejection in "$dir/archive/$PROJECT-task-$root.rejected.md" \
 		"$dir/archive/$PROJECT-task-$root-revision-"*.rejected.md; do
 		[[ -f "$prior_rejection" ]] || continue
+		prior_rejected_at="$(metadata_value "$prior_rejection" Rejected-At)"
+		if [[ -n "$epoch_started" && -n "$prior_rejected_at" && "$prior_rejected_at" < "$epoch_started" ]]; then
+			continue
+		fi
 		if grep -Fqx 'Improvement-Percent: 0%' "$prior_rejection" &&
 			grep -Fqx "Blocking-Fingerprint: $blocking_fingerprint" "$prior_rejection"; then
 			matching_rejections=$((matching_rejections + 1))
+			prior_assignment="${prior_rejection%.rejected.md}.assignment.md"
+			if [[ -f "$prior_assignment" ]] && assignment_is_manager_remediation "$prior_assignment"; then
+				matching_manager_remediations=$((matching_manager_remediations + 1))
+			fi
 		fi
 	done
-	if (( HARNESS_MAX_IDENTICAL_BLOCKERS > 0 && matching_rejections + 1 >= HARNESS_MAX_IDENTICAL_BLOCKERS )); then
+	if assignment_is_manager_remediation "$assignment_archive" &&
+		(( matching_manager_remediations + 1 >= HARNESS_MAX_IDENTICAL_MANAGER_REMEDIATION_BLOCKERS )); then
+		manager_remediation_circuit_breaker=1
+		log_event "TASK_CIRCUIT_BREAKER_ARCHITECTURE_REASSESSMENT task=$task_id root=$root fingerprint=$blocking_fingerprint prior_matches=$matching_manager_remediations limit=$HARNESS_MAX_IDENTICAL_MANAGER_REMEDIATION_BLOCKERS"
+	elif (( HARNESS_MAX_IDENTICAL_BLOCKERS > 0 && matching_rejections + 1 >= HARNESS_MAX_IDENTICAL_BLOCKERS )); then
 		circuit_breaker_recovery=1
 		log_event "TASK_CIRCUIT_BREAKER_MANAGER_REMEDIATION task=$task_id root=$root fingerprint=$blocking_fingerprint prior_matches=$matching_rejections limit=$HARNESS_MAX_IDENTICAL_BLOCKERS"
 	fi
@@ -138,6 +156,11 @@ retain_worker_thread_for_rejection "$task_id"
 log_event "TASK_REJECTED task=$task_id"
 trace_event TASK_REJECTED "task_id=$task_id" "rejected_file=$rejected" "result_archive=$result_archive" "note_file=$note_file"
 if ! enforce_root_liveness_or_reassess "$task_id"; then
+	printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
+elif (( manager_remediation_circuit_breaker == 1 )); then
+	mark_root_architecture_reassessment "$task_id" REPEATED_MANAGER_REMEDIATION_BLOCKER \
+		"identical manager-remediation blocker $blocking_fingerprint reached the bounded limit ($HARNESS_MAX_IDENTICAL_MANAGER_REMEDIATION_BLOCKERS) without criterion gain" \
+		"assignment=$assignment_archive review=$rejected" >/dev/null
 	printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
 elif (( circuit_breaker_recovery == 1 )); then
 	replan_marker="$(mark_root_needs_replan "$task_id" \

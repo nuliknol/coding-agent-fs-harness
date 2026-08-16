@@ -413,6 +413,16 @@ resource_anomaly="$resource_project/control/progress/goalresource-task-001.token
 [[ -f "$resource_anomaly" ]]
 grep -q 'worker task processed-token budget reached (110/50)' "$resource_anomaly"
 grep -q 'WORKER_TASK_TOKEN_BUDGET_PAUSED task=001.*processed_tokens=110 limit=50' "$resource_project/logs/events.log"
+# A killed provider stream may not emit final usage. The anomaly report must
+# use the live context-amplification estimate instead of misleading zeroes.
+estimated_anomaly="$resource_project/control/progress/goalresource-task-estimated.token-usage-anomaly.md"
+bash -c 'source "$1"; load_harness_env "$2"; mark_root_token_usage_anomaly estimated output-fuse "role=worker_luna estimated_processed_tokens=8212" >/dev/null' \
+	_ "$HARNESS_HOME/lib/harness-common.sh" "$RESOURCE_ROOT/harness.env"
+grep -Fqx 'Worker-Task-Processed-Tokens: 8212' "$estimated_anomaly"
+grep -Fqx 'Worker-Task-Token-Source: estimated-current-invocation' "$estimated_anomaly"
+grep -Fqx 'Root-Processed-Tokens: 8212' "$estimated_anomaly"
+grep -Fqx 'Root-Token-Source: provider-ledger-plus-current-estimate' "$estimated_anomaly"
+rm -f "$estimated_anomaly"
 printf '# Root Task Needs Replanning\n' > \
 	"$resource_project/control/progress/goalresource-task-001.needs-replan.md"
 bash -c 'source "$1"; load_harness_env "$2"; mark_root_token_usage_anomaly 001 repeated-test >/dev/null' \

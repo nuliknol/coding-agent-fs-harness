@@ -144,7 +144,7 @@ load_harness_env()
 	unset HARNESS_POLL_SECONDS HARNESS_WAIT_SECONDS HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY
 	unset HARNESS_RUNTIME_PATH_PREFIX
 	unset HARNESS_BOOT_RECOVERY
-	unset HARNESS_MAX_IDENTICAL_BLOCKERS
+	unset HARNESS_MAX_IDENTICAL_BLOCKERS HARNESS_MAX_IDENTICAL_MANAGER_REMEDIATION_BLOCKERS
 	unset HARNESS_MAX_ROOT_ATTEMPTS HARNESS_MAX_ZERO_GAIN_WINDOW
 	unset HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION
 	unset HARNESS_MAX_TOTAL_ROOT_REVIEWS HARNESS_MAX_TOTAL_ROOT_REPLANS
@@ -242,6 +242,11 @@ load_harness_env()
 	# Revisions remain automatic by default. Projects may explicitly opt into a
 	# deterministic zero-progress circuit breaker with a positive threshold.
 	HARNESS_MAX_IDENTICAL_BLOCKERS="${HARNESS_MAX_IDENTICAL_BLOCKERS:-0}"
+	# Manager remediation is already the escalation path for an ordinary local
+	# blocker. Repeating the same blocker inside that path must stop for an
+	# architecture reassessment instead of recursively launching more Terra
+	# remediation leaves.
+	HARNESS_MAX_IDENTICAL_MANAGER_REMEDIATION_BLOCKERS="${HARNESS_MAX_IDENTICAL_MANAGER_REMEDIATION_BLOCKERS:-3}"
 	# A changing failure fingerprint must not permit an oversized root to run
 	# forever. These convergence guards pause the root in NEEDS_REPLAN while
 	# preserving every verified checkpoint and the live workspace.
@@ -541,6 +546,7 @@ load_harness_env()
 	[[ "$HARNESS_USE_INOTIFY" =~ ^[01]$ ]] || die 'HARNESS_USE_INOTIFY must be 0 or 1'
 	[[ "$HARNESS_BOOT_RECOVERY" =~ ^[01]$ ]] || die 'HARNESS_BOOT_RECOVERY must be 0 or 1'
 	[[ "$HARNESS_MAX_IDENTICAL_BLOCKERS" =~ ^[0-9]+$ ]] || die 'HARNESS_MAX_IDENTICAL_BLOCKERS must be a nonnegative integer'
+	[[ "$HARNESS_MAX_IDENTICAL_MANAGER_REMEDIATION_BLOCKERS" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_IDENTICAL_MANAGER_REMEDIATION_BLOCKERS must be a positive integer'
 	[[ "$HARNESS_MAX_ROOT_ATTEMPTS" =~ ^[0-9]+$ ]] || die 'HARNESS_MAX_ROOT_ATTEMPTS must be a nonnegative integer'
 	[[ "$HARNESS_MAX_ZERO_GAIN_WINDOW" =~ ^[0-9]+$ ]] || die 'HARNESS_MAX_ZERO_GAIN_WINDOW must be a nonnegative integer'
 	[[ "$HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION" =~ ^[0-9]+$ ]] || die 'HARNESS_MAX_CHECKPOINTS_WITHOUT_CRITERION must be a nonnegative integer'
@@ -691,7 +697,7 @@ load_harness_env()
 	export HARNESS_ENV_FILE HARNESS_ENV_DIR HARNESS_MODE PROJECT REPOSITORY SPECIFICATION PROJECT_TMP_DIR
 	export HARNESS_HOME HARNESS_BIN HARNESS_ROOT HARNESS_POLL_SECONDS HARNESS_WAIT_SECONDS
 	export HARNESS_RUNTIME_PATH_PREFIX HARNESS_BOOT_RECOVERY
-	export HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY HARNESS_MAX_IDENTICAL_BLOCKERS HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
+	export HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY HARNESS_MAX_IDENTICAL_BLOCKERS HARNESS_MAX_IDENTICAL_MANAGER_REMEDIATION_BLOCKERS HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
 	export HARNESS_AGENT_MIN_INTERVAL_SECONDS
 	export HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION HARNESS_MAX_MANAGER_REVIEW_ITEMS_PER_INVOCATION
 	export HARNESS_MAX_MANAGER_REPLAN_ITEMS_PER_INVOCATION HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS
@@ -2654,6 +2660,8 @@ mark_root_token_usage_anomaly()
 {
 	local task_id="$1" reason="$2" evidence="${3:--}"
 	local root marker tmp alarm created=0 plan_node plan_status planner_model planner_effort
+	local observed_task_tokens observed_root_tokens estimated_tokens reported_task_tokens
+	local reported_root_tokens task_token_source root_token_source
 	root="$(task_root_id "$task_id")"
 	plan_node="$(project_plan_item_for_root "$root" 2>/dev/null || printf '-')"
 	plan_status=""
@@ -2669,6 +2677,22 @@ mark_root_token_usage_anomaly()
 	fi
 	planner_model="$(decomposition_provenance_value planner_model "$DECOMPOSITION_MODEL" 2>/dev/null || printf '%s' "$DECOMPOSITION_MODEL")"
 	planner_effort="$(decomposition_provenance_value planner_reasoning_effort "$DECOMPOSITION_REASONING_EFFORT" 2>/dev/null || printf '%s' "$DECOMPOSITION_REASONING_EFFORT")"
+	observed_task_tokens="$(worker_task_processed_token_count "$task_id")"
+	observed_root_tokens="$(root_processed_token_count "$root")"
+	estimated_tokens="$(grep -oE 'estimated_processed_tokens=[0-9]+' <<< "$evidence" | tail -n 1 | cut -d= -f2 || true)"
+	[[ "$observed_task_tokens" =~ ^[0-9]+$ ]] || observed_task_tokens=0
+	[[ "$observed_root_tokens" =~ ^[0-9]+$ ]] || observed_root_tokens=0
+	[[ "$estimated_tokens" =~ ^[0-9]+$ ]] || estimated_tokens=0
+	reported_task_tokens="$observed_task_tokens"
+	reported_root_tokens="$observed_root_tokens"
+	task_token_source=provider-ledger
+	root_token_source=provider-ledger
+	if (( reported_task_tokens == 0 && estimated_tokens > 0 )); then
+		reported_task_tokens="$estimated_tokens"
+		reported_root_tokens=$((reported_root_tokens + estimated_tokens))
+		task_token_source=estimated-current-invocation
+		root_token_source=provider-ledger-plus-current-estimate
+	fi
 	marker="$(task_root_token_usage_anomaly_file "$root")"
 	if [[ ! -f "$marker" ]]; then
 		tmp="$marker.tmp.$$"
@@ -2682,9 +2706,11 @@ mark_root_token_usage_anomaly()
 			printf 'Paused-At: %s\n\n' "$(timestamp_utc)"
 			printf 'Reason: %s\n\n' "$reason"
 			printf 'Evidence: %s\n\n' "$evidence"
-			printf 'Worker-Task-Processed-Tokens: %s\n' "$(worker_task_processed_token_count "$task_id")"
+			printf 'Worker-Task-Processed-Tokens: %s\n' "$reported_task_tokens"
+			printf 'Worker-Task-Token-Source: %s\n' "$task_token_source"
 			printf 'Worker-Task-Token-Limit: %s\n' "$HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS"
-			printf 'Root-Processed-Tokens: %s\n\n' "$(root_processed_token_count "$root")"
+			printf 'Root-Processed-Tokens: %s\n' "$reported_root_tokens"
+			printf 'Root-Token-Source: %s\n\n' "$root_token_source"
 			printf 'No further worker, manager-review, or automatic-replan task may launch for this root. Source changes, commits, receipts, JSONL, and verified checkpoints are preserved. Inspect the offending episode and record a corrective resolution with harness-resolve-token-usage-anomaly before restarting work.\n'
 		} > "$tmp"
 		chmod 600 "$tmp"
@@ -5332,6 +5358,7 @@ write_manager_snapshot()
 		printf 'max_manager_review_items_per_invocation=%s\n' "$HARNESS_MAX_MANAGER_REVIEW_ITEMS_PER_INVOCATION"
 		printf 'max_manager_replan_items_per_invocation=%s\n' "$HARNESS_MAX_MANAGER_REPLAN_ITEMS_PER_INVOCATION"
 		printf 'max_manager_replan_publish_attempts=%s\n' "$HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS"
+		printf 'max_identical_manager_remediation_blockers=%s\n' "$HARNESS_MAX_IDENTICAL_MANAGER_REMEDIATION_BLOCKERS"
 		printf 'max_agent_processed_tokens_per_invocation=%s\n' "$HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION"
 		printf 'max_agent_estimated_processed_tokens_per_invocation=%s\n' "$HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION"
 		printf 'max_worker_task_processed_tokens=%s\n' "$HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS"

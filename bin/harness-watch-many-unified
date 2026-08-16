@@ -271,7 +271,12 @@ while IFS= read -r -d '' env_file; do
 	else
 		total="$(full_plan_count "$plan")"; complete="$(full_plan_count "$plan" COMPLETE)"; percent=0
 	fi
-	if (( total > 0 )); then completion="${complete}/${total}"$'\n'"${percent}%"; else completion=$'pending\nplan'; fi
+	if (( total > 0 )); then
+		if (( complete > 0 && percent == 0 )); then percent_display='<1%'; else percent_display="${percent}%"; fi
+		completion="${complete}/${total}"$'\n'"$percent_display"
+	else
+		completion=$'pending\nplan'
+	fi
 	cycle="$(find "$dir/archive" -maxdepth 1 -type f \( -name '*.accepted.md' -o -name '*.checkpointed.md' -o -name '*.rejected.md' \) -printf '.\n' 2>/dev/null | wc -l | tr -d ' ')"
 	manager="$(awk -F': ' '$1=="Manager supervisor" {print $2; exit}' <<< "$status_output")"; worker="$(awk -F': ' '$1=="Worker supervisor" {print $2; exit}' <<< "$status_output")"
 	project_status="$(awk -F': ' '$1=="Project status" {print $2; exit}' <<< "$status_output")"

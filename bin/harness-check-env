@@ -92,6 +92,8 @@ if (( HARNESS_MAX_IDENTICAL_BLOCKERS == 0 )); then
 else
 	printf 'Deterministic blocker circuit breaker: %s identical zero-progress fingerprints\n' "$HARNESS_MAX_IDENTICAL_BLOCKERS"
 fi
+printf 'Manager-remediation blocker circuit breaker: %s identical zero-progress fingerprints\n' \
+	"$HARNESS_MAX_IDENTICAL_MANAGER_REMEDIATION_BLOCKERS"
 if (( HARNESS_MAX_ROOT_ATTEMPTS == 0 )); then
 	printf 'Root-attempt replanning guard: disabled\n'
 else

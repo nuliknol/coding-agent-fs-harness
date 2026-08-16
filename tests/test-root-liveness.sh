@@ -349,6 +349,16 @@ Run the generated validation target without broadening source authority.
 
 cmake --build build
 MD
+if "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" \
+	consumer-revision-05 "$TEST_ROOT/generated-validation-revision.md" \
+	>"$TEST_ROOT/global-focused.out" 2>"$TEST_ROOT/global-focused.err"; then
+	printf 'unqualified all-target build unexpectedly accepted as FOCUSED validation\n' >&2
+	exit 1
+fi
+grep -Fq 'FOCUSED validation cannot run an unqualified CMake all-target build' \
+	"$TEST_ROOT/global-focused.err"
+sed -i 's/cmake --build build/cmake --build build --target liveness_consumer_smoke/g' \
+	"$TEST_ROOT/generated-validation-revision.md"
 generated_output="$("$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" \
 	consumer-revision-05 "$TEST_ROOT/generated-validation-revision.md")"
 generated_ready="$project/tasks/livenessproj-task-consumer-revision-05.ready.md"
@@ -366,7 +376,7 @@ rm -f "$generated_ready"
 sed \
 	-e 's/consumer-revision-05/consumer-revision-06/g' \
 	-e 's/consumer.generated-validation/consumer.cmake-target-alias/' \
-	-e 's/cmake --build build/cmake --build build --target consumer_smoke/g' \
+	-e 's/liveness_consumer_smoke/consumer_smoke/g' \
 	"$TEST_ROOT/generated-validation-revision.md" > "$TEST_ROOT/cmake-target-alias-revision.md"
 target_alias_output="$("$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" \
 	consumer-revision-06 "$TEST_ROOT/cmake-target-alias-revision.md")"

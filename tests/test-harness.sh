@@ -520,6 +520,7 @@ checkpoint_criterion_template="$TEST_ROOT/state/projects/testproj/control/testpr
 grep -Fq "WORKER_EVIDENCE_DIGEST_FILE=$review_digest" "$review_prompt"
 grep -Fq "REVIEW_CONTEXT_CAPSULE_FILE=$review_context" "$review_prompt"
 grep -Fq 'The capsule is authoritative and complete for plan, DAG, IR, and architecture context' "$review_prompt"
+grep -Fq 'never omit a CMake --target, replace it with an all-target build' "$review_prompt"
 grep -Fq 'Do not open the global files from which it was derived.' "$review_context"
 grep -Fq 'Reviewers must not open the raw worker JSONL' "$review_digest"
 grep -Fq "ACCEPT_REVIEW_TEMPLATE_FILE=$accept_template" "$review_prompt"
@@ -892,6 +893,49 @@ grep -q '^Trigger-Outcome: DETERMINISTIC_BLOCKER$' \
 	"$CIRCUIT_ROOT/state/projects/circuitproj/control/progress/circuitproj-task-001.needs-replan.md"
 grep -q 'TASK_CIRCUIT_BREAKER_MANAGER_REMEDIATION task=001-revision-01' \
 	"$CIRCUIT_ROOT/state/projects/circuitproj/logs/events.log"
+
+# Once escalation is already using manager remediation, the same blocker may
+# not recursively generate unlimited Terra leaves. Three identical remediation
+# rejections require architecture reassessment, and an explicit resolution
+# starts a fresh blocker epoch.
+rm -f "$CIRCUIT_ROOT/state/projects/circuitproj/control/progress/circuitproj-task-001.needs-replan.md"
+for revision in 02 03 04; do
+	assignment="$CIRCUIT_ROOT/state/projects/circuitproj/archive/circuitproj-task-001-revision-$revision.assignment.md"
+	result="$CIRCUIT_ROOT/state/projects/circuitproj/results/circuitproj-task-001-revision-$revision.result.md"
+	cat > "$assignment" <<MD
+Task-ID: 001-revision-$revision
+Task-Root: 001
+Manager-Remediation: 1
+MD
+	printf 'worker result\n' > "$result"
+	remediation_output="$("$HARNESS_BIN/manager-reject-task" "$CIRCUIT_ROOT/harness.env" \
+		"001-revision-$revision" "$CIRCUIT_ROOT/review-001.md")"
+	if [[ "$revision" != 04 ]]; then
+		[[ "$remediation_output" != *.architecture-reassessment-required.md ]]
+		rm -f "$CIRCUIT_ROOT/state/projects/circuitproj/control/progress/circuitproj-task-001.needs-replan.md"
+	fi
+done
+remediation_reassessment="$CIRCUIT_ROOT/state/projects/circuitproj/control/progress/circuitproj-task-001.architecture-reassessment-required.md"
+[[ "$remediation_output" == "$remediation_reassessment" ]]
+grep -Fqx 'Category: REPEATED_MANAGER_REMEDIATION_BLOCKER' "$remediation_reassessment"
+grep -q 'TASK_CIRCUIT_BREAKER_ARCHITECTURE_REASSESSMENT task=001-revision-04' \
+	"$CIRCUIT_ROOT/state/projects/circuitproj/logs/events.log"
+printf 'The repeated blocker was inspected and the next strategy must use the corrected focused boundary.\n' \
+	> "$CIRCUIT_ROOT/remediation-resolution.md"
+"$HARNESS_BIN/harness-resolve-architecture-reassessment" "$CIRCUIT_ROOT/harness.env" 001 \
+	"$CIRCUIT_ROOT/remediation-resolution.md" >/dev/null
+cat > "$CIRCUIT_ROOT/state/projects/circuitproj/archive/circuitproj-task-001-revision-05.assignment.md" <<'MD'
+Task-ID: 001-revision-05
+Task-Root: 001
+Manager-Remediation: 1
+MD
+printf 'worker result\n' > \
+	"$CIRCUIT_ROOT/state/projects/circuitproj/results/circuitproj-task-001-revision-05.result.md"
+post_resolution_output="$("$HARNESS_BIN/manager-reject-task" "$CIRCUIT_ROOT/harness.env" \
+	001-revision-05 "$CIRCUIT_ROOT/review-001.md")"
+[[ "$post_resolution_output" != *.architecture-reassessment-required.md ]]
+[[ ! -f "$remediation_reassessment" ]]
+rm -f "$CIRCUIT_ROOT/state/projects/circuitproj/control/progress/circuitproj-task-001.needs-replan.md"
 
 # A verified leaf hard block caused by repository-local scope is archived as a
 # failed leaf attempt and routed to manager remediation. It must never create a
