@@ -2786,7 +2786,7 @@ mark_root_token_usage_anomaly()
 {
 	local task_id="$1" reason="$2" evidence="${3:--}"
 	local root marker tmp alarm created=0 plan_node plan_status planner_model planner_effort
-	local observed_task_tokens observed_root_tokens estimated_tokens reported_task_tokens
+	local observed_task_tokens observed_root_tokens invocation_tokens estimated_tokens reported_task_tokens
 	local reported_root_tokens task_token_source root_token_source
 	root="$(task_root_id "$task_id")"
 	plan_node="$(project_plan_item_for_root "$root" 2>/dev/null || printf '-')"
@@ -2806,14 +2806,21 @@ mark_root_token_usage_anomaly()
 	observed_task_tokens="$(worker_task_processed_token_count "$task_id")"
 	observed_root_tokens="$(root_processed_token_count "$root")"
 	estimated_tokens="$(grep -oE 'estimated_processed_tokens=[0-9]+' <<< "$evidence" | tail -n 1 | cut -d= -f2 || true)"
+	invocation_tokens="$(grep -oE 'invocation_processed_delta=[0-9]+' <<< "$evidence" | tail -n 1 | cut -d= -f2 || true)"
 	[[ "$observed_task_tokens" =~ ^[0-9]+$ ]] || observed_task_tokens=0
 	[[ "$observed_root_tokens" =~ ^[0-9]+$ ]] || observed_root_tokens=0
 	[[ "$estimated_tokens" =~ ^[0-9]+$ ]] || estimated_tokens=0
+	[[ "$invocation_tokens" =~ ^[0-9]+$ ]] || invocation_tokens=0
 	reported_task_tokens="$observed_task_tokens"
 	reported_root_tokens="$observed_root_tokens"
 	task_token_source=provider-ledger
 	root_token_source=provider-ledger
-	if (( reported_task_tokens == 0 && estimated_tokens > 0 )); then
+	if (( reported_task_tokens == 0 && invocation_tokens > 0 )); then
+		reported_task_tokens="$invocation_tokens"
+		reported_root_tokens=$((reported_root_tokens + invocation_tokens))
+		task_token_source=provider-current-invocation
+		root_token_source=provider-ledger-plus-current-invocation
+	elif (( reported_task_tokens == 0 && estimated_tokens > 0 )); then
 		reported_task_tokens="$estimated_tokens"
 		reported_root_tokens=$((reported_root_tokens + estimated_tokens))
 		task_token_source=estimated-current-invocation

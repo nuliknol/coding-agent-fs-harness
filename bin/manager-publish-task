@@ -207,6 +207,13 @@ normalize_measured_assignment_metadata()
 	requested_files="$(metadata_value "$task_file" Expected-Max-Implementation-Files)"
 	requested_turns="$(metadata_value "$task_file" Expected-Max-Worker-Turns)"
 	architecture_decisions="$requested_architecture"
+	if (( recovery_publish == 1 && manager_remediation == 0 )) &&
+		[[ "$(metadata_value "$(task_root_replan_file "$root")" Trigger-Outcome)" == RESOURCE_PROGRESS_NEEDS_VERIFICATION &&
+		"$requested_leaf" == VERIFICATION_ONLY ]]; then
+		requested_files=0
+		implementation_files=0
+		log_event "RESOURCE_PROGRESS_VERIFICATION_VECTOR_NORMALIZED root=$root task=$task_id expected_files=0"
+	fi
 	if (( manager_remediation == 1 )); then
 		worker_route=TERRA
 		# Remediation is execution authority granted by the recovery protocol,
@@ -252,9 +259,10 @@ normalize_measured_assignment_metadata()
 		# much smaller child than the original measured plan node. Derive a fresh
 		# child vector from its executable scope instead of restoring the parent's
 		# HIGH/TERRA vector. Root semantic authority remains immutable.
-		if (( luna_failures < HARNESS_MAX_LUNA_STRATEGY_FAILURES &&
-			(recovery_decisions_resolved == 1 || recovery_verified_child == 1 ||
-			resource_local_authority == 1) )) &&
+		if { (( luna_failures < HARNESS_MAX_LUNA_STRATEGY_FAILURES )) ||
+			[[ "$requested_leaf" == VERIFICATION_ONLY ]]; } &&
+			(( recovery_decisions_resolved == 1 || recovery_verified_child == 1 ||
+			resource_local_authority == 1 )) &&
 			[[ "$requested_leaf" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY)$ &&
 			"$requested_validation" =~ ^(FOCUSED|INCREMENTAL)$ &&
 			"$requested_files" =~ ^[0-9]+$ && "$requested_turns" =~ ^[1-3]$ ]] &&
@@ -900,6 +908,7 @@ normalize_revision_execution_metadata()
 {
 	local root_scope root_max_files root_max_turns requested_scope requested_files requested_turns
 	local normalized_scope normalized_files normalized_turns tmp changed=0 scope_override additional_scope additional_entry
+	local replan_trigger_outcome requested_leaf
 	local additional_file_allowance=0
 	local -a additional_entries=()
 	[[ "$task_id" != "$root" && -f "$root_assignment" ]] || return 0
@@ -925,6 +934,23 @@ normalize_revision_execution_metadata()
 	normalized_scope="$requested_scope"
 	normalized_files="$requested_files"
 	normalized_turns="$requested_turns"
+	replan_trigger_outcome=""
+	requested_leaf="$(metadata_value "$task_file" Leaf-Type)"
+	if (( recovery_publish == 1 && manager_remediation == 0 )); then
+		replan_trigger_outcome="$(metadata_value "$(task_root_replan_file "$root")" Trigger-Outcome)"
+	fi
+
+	# A resource-fused episode that changed the workspace must be followed by a
+	# zero-write verification transaction.  The implementation-file count is
+	# execution metadata, not inherited semantic authority.  Normalize it before
+	# measured-vector and leaf validation so a correct VERIFICATION_ONLY recovery
+	# cannot spend every publisher retry correcting a stale parent count.
+	if [[ "$replan_trigger_outcome" == RESOURCE_PROGRESS_NEEDS_VERIFICATION &&
+		"$requested_leaf" == VERIFICATION_ONLY && "$requested_files" != 0 ]]; then
+		normalized_files=0
+		changed=1
+		log_event "RESOURCE_PROGRESS_VERIFICATION_METADATA_NORMALIZED root=$root task=$task_id requested_files=${requested_files:--} expected_files=0"
+	fi
 
 	# Generated build trees are validation workspaces, never source mutation
 	# authority. Keep them in Context-Paths and validation commands while
@@ -937,8 +963,8 @@ normalize_revision_execution_metadata()
 	# File and process-turn counts are execution budgets, not architecture
 	# authority. A revision may narrow them but cannot raise the immutable root
 	# ceiling merely by restating metadata.
-	if [[ "$root_max_files" =~ ^[0-9]+$ && "$requested_files" =~ ^[0-9]+$ ]] &&
-		(( requested_files > root_max_files )); then
+	if [[ "$root_max_files" =~ ^[0-9]+$ && "$normalized_files" =~ ^[0-9]+$ ]] &&
+		(( normalized_files > root_max_files )); then
 		normalized_files="$root_max_files"
 		changed=1
 	fi
@@ -1375,6 +1401,8 @@ trigger_task=""
 blocking_fingerprint="-"
 remediation_blocker_class=""
 remediation_scope=""
+declare -a remediation_scope_entries=()
+remediation_scope_entry=""
 if (( recovery_publish == 1 )); then
 	[[ -n "$target_criterion" ]] || die 'manager recovery requires an explicit criterion inventory and target'
 	[[ "$(single_metadata_value "$task_file" Task-ID)" == "$task_id" ]] ||
@@ -1398,6 +1426,19 @@ if (( recovery_publish == 1 )); then
 		remediation_scope="$(single_metadata_value "$task_file" Remediation-Scope)"
 		[[ "$remediation_scope" != *$'\t'* ]] ||
 			die 'manager remediation Remediation-Scope must not contain a tab'
+		if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
+			IFS=',' read -r -a remediation_scope_entries <<< "$(canonical_scope_path_set "$remediation_scope")"
+			for remediation_scope_entry in "${remediation_scope_entries[@]}"; do
+				remediation_scope_entry="$(trim_surrounding_whitespace "$remediation_scope_entry")"
+				[[ -n "$remediation_scope_entry" && "$remediation_scope_entry" != - ]] ||
+					die 'manager remediation Remediation-Scope must name at least one exact repository path'
+				[[ "$remediation_scope_entry" != /* && "$remediation_scope_entry" != ../* &&
+					"$remediation_scope_entry" != */../* ]] ||
+					die "manager remediation Remediation-Scope is not repository-relative: $remediation_scope_entry"
+				[[ -e "$REPOSITORY/$remediation_scope_entry" ]] ||
+					die "manager remediation Remediation-Scope path does not exist; resolve the exact repository producer/consumer path first: $remediation_scope_entry"
+			done
+		fi
 		replan_trigger_outcome="$(metadata_value "$(task_root_replan_file "$root")" Trigger-Outcome)"
 		if [[ "$replan_trigger_outcome" == MANAGER_REMEDIATION_SCOPE_EXHAUSTED ]]; then
 			exhausted_remediation_scope="$(metadata_value "$(task_root_replan_file "$root")" Remediation-Scope)"
@@ -1582,8 +1623,14 @@ if (( goal_mode == 1 )); then
 				goal_cumulative_input="$(kv_file_value "$prior_goal_state" cumulative_input_tokens 2>/dev/null || printf 0)"
 				goal_cumulative_output="$(kv_file_value "$prior_goal_state" cumulative_output_tokens 2>/dev/null || printf 0)"
 				goal_manager_reviews="$(kv_file_value "$prior_goal_state" manager_reviews 2>/dev/null || printf 0)"
-				goal_thread_id="$(kv_file_value "$prior_goal_state" thread_id 2>/dev/null || true)"
-				goal_thread_context=manager-rejected-resume
+				# A manager rejection creates a new semantic execution episode even
+				# when the Goal-ID is retained.  Preserve its bounded ledger and token
+				# totals, but never repay the rejected transcript in the replacement
+				# worker. Same-task CONTINUE iterations may still resume normally.
+				[[ "$goal_context_generation" =~ ^[0-9]+$ ]] || goal_context_generation=0
+				goal_thread_id=""
+				goal_context_generation=$((goal_context_generation + 1))
+				goal_thread_context=manager-rejected-fresh
 			fi
 		done
 	fi

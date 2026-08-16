@@ -315,6 +315,47 @@ grep -Fq 'source commit would exceed Expected-Max-Implementation-Files (1/0)' \
 	"$TEST_ROOT/read-only-commit.out"
 git -C "$TEST_ROOT/repo" restore --worktree -- src/a.c
 
+# A resource fuse that observes durable source progress must schedule a
+# read-only verification transaction. Recovery planners sometimes copy the
+# parent's implementation-file count into that transaction; publication must
+# normalize the execution vector to zero rather than burning every correction
+# attempt on stale, non-semantic metadata.
+sed \
+	-e 's/export PROJECT="decompv2"/export PROJECT="decompv2verification"/' \
+	-e "s|export HARNESS_ROOT=\"$TEST_ROOT/state\"|export HARNESS_ROOT=\"$TEST_ROOT/verification-state\"|" \
+	"$TEST_ROOT/harness.env" > "$TEST_ROOT/verification-harness.env"
+chmod 600 "$TEST_ROOT/verification-harness.env"
+"$HARNESS_BIN/harness-init" "$TEST_ROOT/verification-harness.env" >/dev/null
+"$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/verification-harness.env" \
+	"$TEST_ROOT/plan.tsv" >/dev/null
+"$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/verification-harness.env" 001 \
+	"$TEST_ROOT/task.md" n1 >/dev/null
+verification_project="$TEST_ROOT/verification-state/projects/decompv2verification"
+mv "$verification_project/tasks/decompv2verification-task-001.ready.md" \
+	"$verification_project/archive/decompv2verification-task-001.checkpointed.md"
+cat > "$verification_project/control/progress/decompv2verification-task-001.needs-replan.md" <<'MARKER'
+# Root Task Needs Replanning
+
+Task-Root: 001
+Triggered-By: 001
+Trigger-Outcome: RESOURCE_PROGRESS_NEEDS_VERIFICATION
+Blocking-Fingerprint: sha256:verification
+MARKER
+sed \
+	-e 's/^Task-ID: 001$/Task-ID: 001-revision-01/' \
+	-e 's/^Goal-ID: n1.goal$/Goal-ID: n1.verify/' \
+	-e 's/^Leaf-Type: LOCAL_IMPLEMENTATION$/Leaf-Type: VERIFICATION_ONLY/' \
+	-e 's/^Expected-Max-Implementation-Files: 1$/Expected-Max-Implementation-Files: 2/' \
+	-e '/^Root-Criterion: n1.done$/a Replan-Strategy-ID: verify.progress\nStrategy-Change: NEW_EVIDENCE\nSupersedes-Task: 001' \
+	"$TEST_ROOT/task.md" > "$TEST_ROOT/verification-recovery-task.md"
+"$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/verification-harness.env" \
+	001-revision-01 "$TEST_ROOT/verification-recovery-task.md" --auto-replan >/dev/null
+verification_ready="$verification_project/tasks/decompv2verification-task-001-revision-01.ready.md"
+grep -Fqx 'Leaf-Type: VERIFICATION_ONLY' "$verification_ready"
+grep -Fqx 'Expected-Max-Implementation-Files: 0' "$verification_ready"
+grep -Fq 'RESOURCE_PROGRESS_VERIFICATION_VECTOR_NORMALIZED root=001 task=001-revision-01 expected_files=0' \
+	"$verification_project/logs/events.log"
+
 # Decomposition TSV fields are canonicalized at registration. In particular,
 # generated validation commands may contain harmless surrounding whitespace,
 # while assignment metadata is necessarily parsed without it. Both forms must

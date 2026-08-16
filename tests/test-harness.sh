@@ -1114,6 +1114,12 @@ rm -f "$CIRCUIT_ROOT/state/projects/circuitproj/control/progress/circuitproj-tas
 HARD_ROOT="$TEST_ROOT/local-hard-block"
 mkdir -p "$HARD_ROOT/repo" "$HARD_ROOT/manager-home" "$HARD_ROOT/worker-home"
 printf 'test specification\n' > "$HARD_ROOT/repo/spec.md"
+mkdir -p "$HARD_ROOT/repo/src" "$HARD_ROOT/repo/tests"
+printf 'int mock_blocking_prerequisite;\n' > "$HARD_ROOT/repo/src/mock-blocking-prerequisite.c"
+printf 'int adjacent_consumer;\n' > "$HARD_ROOT/repo/src/adjacent-consumer.c"
+printf '#define MISSING_CONTEXT_CONTRACT 1\n' > "$HARD_ROOT/repo/src/missing-context-contract.h"
+printf 'int private_provider;\n' > "$HARD_ROOT/repo/src/private-provider.c"
+printf 'int focused_provider_smoke;\n' > "$HARD_ROOT/repo/tests/focused-provider-smoke.c"
 cat > "$HARD_ROOT/harness.env" <<ENV
 export PROJECT="hardblockproj"
 export REPOSITORY="$HARD_ROOT/repo"

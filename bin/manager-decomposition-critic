@@ -109,6 +109,8 @@ Treat validation cost as part of decomposition. Distinguish FOCUSED validation o
 
 For each node, perform an authority-closure check: ask whether a plausible failure of its acceptance evidence or focused validation could require a production correction outside allowed_paths while still remaining inside the governing specification. If so, the node is not authority-closed. Split it before registration—for example, a public-header contract node may own compile/layout evidence, while a dependent implementation or integration node owns the source paths and executable runtime smoke. Do not give a header-only or test-only node an acceptance boundary whose ordinary repair authority belongs to another node. Validation may read or execute outside allowed_paths, but every ordinary implementation area that the node could legitimately need to correct must either be in its allowed_paths or belong to an explicit prerequisite/dependent node with its own acceptance boundary.
 
+Resolve every proposed allowed_paths entry against REPOSITORY before staging. Existing implementation repair paths must name the exact existing repository file or directory; never invent a plausible pseudo-directory. For every required symbol classified as an OBSERVED PRODUCER in repository facts, inspect its exact evidence path and either place that producer implementation in the node's mutation authority or bind the node to a prerequisite that owns it. A test or smoke node may keep a producer read-only only when its acceptance boundary is explicitly verification-only and cannot require that producer to change.
+
 Also produce SPECIFICATION_COVERAGE_FILE with exactly this tab-separated header:
 
 obligation_id<TAB>node_ids<TAB>evidence_plan

@@ -278,7 +278,7 @@ record_resource_guard()
 		[[ -n "$anomaly_task" && "$(task_root_id "$anomaly_task")" == "$(task_root_id "$resource_task_root")" ]] ||
 			anomaly_task="$resource_task_root"
 		marker="$(mark_root_token_usage_anomaly "$anomaly_task" "$resource_guard_reason" \
-			"role=$role model=$model jsonl=$json_log estimated_processed_tokens=$agent_estimated_processed_tokens")"
+			"role=$role model=$model jsonl=$json_log invocation_processed_delta=${invocation_processed_delta:-0} estimated_processed_tokens=$agent_estimated_processed_tokens")"
 	# A non-token leaf-goal fuse closes only the current implementation episode.
 	# worker-invoke-task converts it into a preserved NEEDS_DECOMPOSITION handoff,
 	# so it is not a genuine human authority/secret/external-state dependency.

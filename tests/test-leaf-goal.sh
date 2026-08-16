@@ -423,6 +423,13 @@ grep -Fqx 'Worker-Task-Token-Source: estimated-current-invocation' "$estimated_a
 grep -Fqx 'Root-Processed-Tokens: 8212' "$estimated_anomaly"
 grep -Fqx 'Root-Token-Source: provider-ledger-plus-current-estimate' "$estimated_anomaly"
 rm -f "$estimated_anomaly"
+actual_anomaly="$resource_project/control/progress/goalresource-task-actual.token-usage-anomaly.md"
+bash -c 'source "$1"; load_harness_env "$2"; mark_root_token_usage_anomaly actual output-fuse "role=worker_luna invocation_processed_delta=430563 estimated_processed_tokens=125864" >/dev/null' \
+	_ "$HARNESS_HOME/lib/harness-common.sh" "$RESOURCE_ROOT/harness.env"
+grep -Fqx 'Worker-Task-Processed-Tokens: 430563' "$actual_anomaly"
+grep -Fqx 'Worker-Task-Token-Source: provider-current-invocation' "$actual_anomaly"
+grep -Fqx 'Root-Token-Source: provider-ledger-plus-current-invocation' "$actual_anomaly"
+rm -f "$actual_anomaly"
 printf '# Root Task Needs Replanning\n' > \
 	"$resource_project/control/progress/goalresource-task-001.needs-replan.md"
 bash -c 'source "$1"; load_harness_env "$2"; mark_root_token_usage_anomaly 001 repeated-test >/dev/null' \
@@ -757,8 +764,9 @@ repair_goal_state="$repair_project/control/goals/goalrepair-task-001-revision-01
 grep -q '^resumed_from_task=001$' "$repair_goal_state"
 grep -q '^iteration_count=1$' "$repair_goal_state"
 grep -q '^manager_reviews=1$' "$repair_goal_state"
-grep -q '^thread_id=goal-thread-001$' "$repair_goal_state"
-grep -q '^thread_context=manager-rejected-resume$' "$repair_goal_state"
+grep -q '^thread_id=$' "$repair_goal_state"
+grep -q '^thread_context=manager-rejected-fresh$' "$repair_goal_state"
+grep -Eq '^context_generation=[1-9][0-9]*$' "$repair_goal_state"
 [[ "$(wc -l < "$repair_project/control/goals/goalrepair-task-001-revision-01.iterations.tsv")" == 2 ]]
 # A verification-only revision is intrinsically fresh even when an older
 # publisher omitted Worker-Context and Supersedes-Task. It must never repay a
