@@ -2118,6 +2118,15 @@ write_worker_episode_evidence_digest()
 					| ($item.aggregated_output // $item.output // "" | tostring | length) as $bytes
 					| "- command[\(.key + 1)] exit=\($item.exit_code // $item.status // "unknown") output_bytes=\($bytes): \($command)"
 				' "$json_log" 2>/dev/null || true
+				printf '\n## Terminal command evidence (bounded)\n\n'
+				jq -sr '
+					[.[] | select(.type == "item.completed" and .item.type == "command_execution")][-2:]
+					| to_entries[]?
+					| .value.item as $item
+					| ($item.command // "" | gsub("[\\r\\n\\t]+"; " ") | .[0:360]) as $command
+					| ($item.aggregated_output // $item.output // "" | tostring | .[0:4096]) as $output
+					| "### terminal-command[\(.key + 1)]\n\($command)\n\n```text\n\($output)\n```\n"
+				' "$json_log" 2>/dev/null || true
 				printf '\n## Agent messages\n\n'
 				jq -sr '
 					[.[] | select(.type == "item.completed" and .item.type == "agent_message") | (.item.text // "")]
@@ -2133,7 +2142,7 @@ write_worker_episode_evidence_digest()
 			fi
 		fi
 		printf '\n## Review boundary\n\n'
-		printf 'This digest was generated locally. Reviewers must not open the raw worker JSONL, stderr, or raw command/build logs. Inspect current bounded repository evidence and run focused validation through harness-run-logged instead.\n'
+		printf 'This digest was generated locally. Reviewers and immediate successor workers must not open the raw worker JSONL, stderr, or raw command/build logs. Reuse the bounded terminal evidence above instead of repeating those reads, inspect only the next missing exact fact, and run focused validation through harness-run-logged.\n'
 	} > "$tmp"
 	# A malformed or unexpectedly verbose provider record must never turn the
 	# deterministic digest itself into another context-amplification source.

@@ -107,6 +107,13 @@ if (( manager_remediation == 1 )) && [[ -f "$REPOSITORY/design/development-polic
 	development_policy_file="$REPOSITORY/design/development-policy.txt"
 fi
 context_capsule_file="$(task_context_capsule_file "$task_id")"
+superseded_task="$(metadata_value "$task_file" Supersedes-Task)"
+prior_episode_digest=""
+if [[ "$superseded_task" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] &&
+	[[ "$(task_root_id "$superseded_task")" == "$task_root" ]]; then
+	prior_episode_digest="$dir/control/$(task_base "$superseded_task").worker-evidence-digest.md"
+	[[ -f "$prior_episode_digest" ]] || prior_episode_digest=""
+fi
 validation_class="$(metadata_value "$task_file" Validation-Class)"
 [[ -n "$validation_class" ]] || validation_class=FOCUSED
 expected_agent_actions="$(metadata_value "$task_file" Expected-Max-Agent-Actions)"
@@ -329,6 +336,11 @@ PROMPT
 fi
 if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 	{
+		if [[ -n "$prior_episode_digest" ]]; then
+			printf '\n## Immediate predecessor evidence\n\n'
+			printf 'This bounded digest is execution continuity, not additional scope. Do not repeat its completed reads; begin with the next missing fact or implementation action.\n\n'
+			cat "$prior_episode_digest"
+		fi
 		printf '\n## Embedded bounded assignment\n\n'
 		cat "$task_file"
 		printf '\n## Embedded bounded context capsule\n\n'
