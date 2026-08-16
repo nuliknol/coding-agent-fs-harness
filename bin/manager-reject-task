@@ -156,8 +156,14 @@ if [[ -f "$rejected" ]]; then
 	result_resource_guard="$(metadata_value "$result_archive" Resource-Guard 2>/dev/null || true)"
 	[[ -n "$result_resource_guard" ]] || result_resource_guard="-"
 	goal_outcome="$(metadata_value "$result_archive" Goal-Outcome 2>/dev/null || true)"
+	manager_remediation_decomposition=0
+	if [[ "$goal_outcome" == NEEDS_DECOMPOSITION ]] &&
+		assignment_is_manager_remediation "$assignment_archive"; then
+		manager_remediation_decomposition=1
+	fi
 	goal_record_manager_decision "$task_id" REJECTED
-	if [[ "$result_resource_guard" != "-" || "$goal_outcome" == HARD_BLOCKED ]]; then
+	if [[ "$result_resource_guard" != "-" || "$goal_outcome" == HARD_BLOCKED ||
+		"$manager_remediation_decomposition" == 1 ]]; then
 		clear_worker_thread_for_root "$task_id" rejected-boundary-requires-fresh-context
 		clear_worker_goal_thread_for_task "$task_id" rejected-boundary-requires-fresh-context
 	else
@@ -169,6 +175,13 @@ if [[ -f "$rejected" ]]; then
 			'a worker-reported hard boundary was not accepted; inspect the smallest adjacent repository-local declaration, producer, consumer, or validation prerequisite with fresh manager context before another implementation attempt' \
 			HARD_BLOCK_SCOPE_DIAGNOSTIC LOCAL_SCOPE_PREREQUISITE \
 			"adjacent contract or implementation authority outside $(metadata_value "$assignment_archive" Allowed-Scope)"
+	elif [[ "$goal_outcome" == NEEDS_DECOMPOSITION ]] &&
+		assignment_is_manager_remediation "$assignment_archive"; then
+		mark_root_needs_replan "$task_id" \
+			'a fresh manager remediation proved its declared mutation scope insufficient; the next remediation must name the exact adjacent producer, representation, consumer, or validation seam and must not republish the exhausted scope unchanged' \
+			MANAGER_REMEDIATION_SCOPE_EXHAUSTED \
+			"$(require_single_metadata_value "$assignment_archive" Blocker-Class 'manager remediation assignment')" \
+			"$(require_single_metadata_value "$assignment_archive" Remediation-Scope 'manager remediation assignment')"
 	elif ! enforce_root_liveness_or_reassess "$task_id"; then
 		printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
 	elif [[ -f "$result_archive" &&
@@ -207,7 +220,9 @@ chmod 600 "$tmp"
 mv "$tmp" "$rejected"
 update_task_progress "$task_id" "$progress_percent" "$improvement_percent" REJECT "$note_file"
 goal_record_manager_decision "$task_id" REJECTED
-if [[ "$result_resource_guard" != "-" || "$goal_outcome" == HARD_BLOCKED ]]; then
+if [[ "$result_resource_guard" != "-" || "$goal_outcome" == HARD_BLOCKED ]] ||
+	{ [[ "$goal_outcome" == NEEDS_DECOMPOSITION ]] &&
+		assignment_is_manager_remediation "$assignment_archive"; }; then
 	clear_worker_thread_for_root "$task_id" rejected-boundary-requires-fresh-context
 	clear_worker_goal_thread_for_task "$task_id" rejected-boundary-requires-fresh-context
 else
@@ -220,6 +235,14 @@ if [[ "$goal_outcome" == HARD_BLOCKED ]]; then
 		'a worker-reported hard boundary was not accepted; inspect the smallest adjacent repository-local declaration, producer, consumer, or validation prerequisite with fresh manager context before another implementation attempt' \
 		HARD_BLOCK_SCOPE_DIAGNOSTIC LOCAL_SCOPE_PREREQUISITE \
 		"adjacent contract or implementation authority outside $(metadata_value "$assignment_archive" Allowed-Scope)")"
+	printf '%s\n' "$replan_marker"
+elif [[ "$goal_outcome" == NEEDS_DECOMPOSITION ]] &&
+	assignment_is_manager_remediation "$assignment_archive"; then
+	replan_marker="$(mark_root_needs_replan "$task_id" \
+		'a fresh manager remediation proved its declared mutation scope insufficient; the next remediation must name the exact adjacent producer, representation, consumer, or validation seam and must not republish the exhausted scope unchanged' \
+		MANAGER_REMEDIATION_SCOPE_EXHAUSTED \
+		"$(require_single_metadata_value "$assignment_archive" Blocker-Class 'manager remediation assignment')" \
+		"$(require_single_metadata_value "$assignment_archive" Remediation-Scope 'manager remediation assignment')")"
 	printf '%s\n' "$replan_marker"
 elif ! enforce_root_liveness_or_reassess "$task_id"; then
 	printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"

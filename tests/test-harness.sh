@@ -173,7 +173,13 @@ elif [[ "$kind" == replan ]]; then
 		publish_flag="--manager-remediation"
 		strategy_change="REPAIR_PREREQUISITE"
 		strategy_id="mock.manager-remediation.$count"
-		remediation_metadata=$'Manager-Remediation: 1\nBlocker-Class: LOCAL_CODE_PREREQUISITE\nRemediation-Scope: src/mock-blocking-prerequisite.c'
+		remediation_scope="src/mock-blocking-prerequisite.c"
+		exercise_exhausted_scope_retry=0
+		if printf '%s\n' "$prompt" | grep -Fq 'machine-recorded as exhausted'; then
+			printf '%s\n' "$prompt" | grep -Fq 'publisher rejects an unchanged remediation path set'
+			exercise_exhausted_scope_retry=1
+		fi
+		remediation_metadata="$(printf 'Manager-Remediation: 1\nBlocker-Class: LOCAL_CODE_PREREQUISITE\nRemediation-Scope: %s' "$remediation_scope")"
 	fi
 	cat > "$TASK_OUTPUT" <<TASK
 # Task Assignment
@@ -199,6 +205,18 @@ Isolate only $target with a new focused evidence boundary.
 
 mock-focused-$count
 TASK
+	if [[ "${exercise_exhausted_scope_retry:-0}" == 1 ]]; then
+		if "$HARNESS_BIN/manager-publish-task" "$ENV_FILE" "$TASK_ID" "$TASK_OUTPUT" \
+			"$publish_flag" "${criteria_arg[@]}" >"$TASK_OUTPUT.same-scope.out" \
+			2>"$TASK_OUTPUT.same-scope.err"; then
+			printf 'exhausted manager-remediation scope was unexpectedly republished\n' >&2
+			exit 1
+		fi
+		grep -Fq 'manager remediation scope is exhausted for this criterion' \
+			"$TASK_OUTPUT.same-scope.err"
+		sed -i 's#^Remediation-Scope: src/mock-blocking-prerequisite.c$#Remediation-Scope: src/adjacent-consumer.c#' \
+			"$TASK_OUTPUT"
+	fi
 	"$HARNESS_BIN/manager-publish-task" "$ENV_FILE" "$TASK_ID" "$TASK_OUTPUT" \
 		"$publish_flag" "${criteria_arg[@]}" >/dev/null
 elif [[ "$kind" == review ]]; then
@@ -1257,6 +1275,65 @@ hard_remediation_continuation="$hard_project/tasks/hardblockproj-task-001-revisi
 grep -q '^Manager-Remediation: 1$' "$hard_remediation_continuation"
 grep -q '^Strategy-Change: REPAIR_PREREQUISITE$' "$hard_remediation_continuation"
 grep -q '^Supersedes-Task: 001-revision-01$' "$hard_remediation_continuation"
+
+# A manager remediation that truthfully proves its own mutation scope is
+# insufficient must rotate both execution context and path authority. The
+# same path set cannot be republished for the unchanged criterion.
+mv "$hard_remediation_continuation" \
+	"$hard_project/archive/hardblockproj-task-001-revision-02.assignment.md"
+cat > "$hard_project/results/hardblockproj-task-001-revision-02.result.md" <<'RESULT'
+# Task Result
+
+Task-ID: 001-revision-02
+Status: COMPLETED
+Goal-Outcome: NEEDS_DECOMPOSITION
+
+## Summary
+
+The declared remediation file has no representation consumed by the failing boundary.
+
+## Modified files
+
+None.
+
+## Implemented behavior
+
+None.
+
+## Validation performed
+
+The focused failure was reproduced.
+
+## Deviations from assignment
+
+No nonfunctional edit was made.
+
+## Remaining concerns
+
+The adjacent consumer declaration is required.
+
+## Worker assessment
+
+The declared mutation scope is exhausted.
+RESULT
+cat > "$HARD_ROOT/remediation-scope-exhausted-review.md" <<'NOTE'
+Progress-Percent: 0%
+Improvement-Percent: 0%
+NOTE
+scope_exhausted_output="$("$HARNESS_BIN/manager-reject-task" \
+	"$HARD_ROOT/harness.env" 001-revision-02 \
+	"$HARD_ROOT/remediation-scope-exhausted-review.md")"
+[[ "$scope_exhausted_output" == *.needs-replan.md ]]
+grep -Fqx 'Trigger-Outcome: MANAGER_REMEDIATION_SCOPE_EXHAUSTED' \
+	"$hard_progress/hardblockproj-task-001.needs-replan.md"
+grep -Fqx 'Remediation-Scope: src/mock-blocking-prerequisite.c' \
+	"$hard_progress/hardblockproj-task-001.needs-replan.md"
+"$HARNESS_BIN/manager-auto-replan-root" "$HARD_ROOT/harness.env" 001 >/dev/null
+adjacent_remediation="$hard_project/tasks/hardblockproj-task-001-revision-03.ready.md"
+[[ -f "$adjacent_remediation" ]]
+grep -Fqx 'Remediation-Scope: src/adjacent-consumer.c' "$adjacent_remediation"
+grep -Fqx 'Worker-Context: FRESH' "$adjacent_remediation"
+grep -Fqx 'Supersedes-Task: 001-revision-02' "$adjacent_remediation"
 
 # A terminal pause requires an enumerated human dependency and concrete
 # evidence; it uses NEEDS_HUMAN rather than the legacy root-block marker.

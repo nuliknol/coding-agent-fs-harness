@@ -1179,6 +1179,16 @@ integration prerequisites even when an earlier worker leaf excluded them; it
 is not authority to weaken acceptance, change unrelated behavior, or modify
 external systems.
 
+If a fresh manager-remediation turn returns `NEEDS_DECOMPOSITION` because its
+declared mutation scope contains no usable producer, representation, consumer,
+or validation seam, rejection records
+`MANAGER_REMEDIATION_SCOPE_EXHAUSTED`. The worker and goal threads are cleared,
+the exhausted path set is preserved in the recovery marker, and the publisher
+refuses to authorize the same path set again for the unchanged criterion. The
+next Terra remediation must name the smallest evidenced adjacent seam. This
+turns a truthful no-edit diagnostic into a scope transition instead of a
+same-file retry loop.
+
 With the default value `1`, one materially different automatic strategy is
 allowed from a given verified-item baseline. If it produces a new verified
 item, the budget immediately resets; if it produces no durable gain, the next

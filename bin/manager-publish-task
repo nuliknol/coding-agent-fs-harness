@@ -669,6 +669,12 @@ scope_metadata_is_path_list()
 	return 0
 }
 
+canonical_scope_path_set()
+{
+	local scope="$1"
+	printf '%s\n' "$scope" | tr ',;[:space:]' '\n' | sed '/^$/d' | sort -u | paste -sd, -
+}
+
 scope_authorizes_governing_specification()
 {
 	local scope="$1" specification_relative entry
@@ -1392,6 +1398,15 @@ if (( recovery_publish == 1 )); then
 		remediation_scope="$(single_metadata_value "$task_file" Remediation-Scope)"
 		[[ "$remediation_scope" != *$'\t'* ]] ||
 			die 'manager remediation Remediation-Scope must not contain a tab'
+		replan_trigger_outcome="$(metadata_value "$(task_root_replan_file "$root")" Trigger-Outcome)"
+		if [[ "$replan_trigger_outcome" == MANAGER_REMEDIATION_SCOPE_EXHAUSTED ]]; then
+			exhausted_remediation_scope="$(metadata_value "$(task_root_replan_file "$root")" Remediation-Scope)"
+			[[ -n "$exhausted_remediation_scope" ]] ||
+				die 'exhausted manager remediation marker is missing Remediation-Scope'
+			[[ "$(canonical_scope_path_set "$remediation_scope")" != \
+				"$(canonical_scope_path_set "$exhausted_remediation_scope")" ]] ||
+				die "manager remediation scope is exhausted for this criterion; name the exact adjacent producer, representation, consumer, or validation seam instead of republishing: $exhausted_remediation_scope"
+		fi
 	else
 		[[ -z "$(metadata_value "$task_file" Manager-Remediation)" ]] ||
 			die 'ordinary automatic replans must not set Manager-Remediation'
