@@ -109,6 +109,14 @@ if [[ -n "$plan_item" && "$(project_plan_item_status "$plan_item")" == ACTIVE ]]
 		mark_root_needs_replan "$trigger_task" \
 			"architecture reassessment denied scope expansion; preserve immutable root scope and continue the focused first-unmet boundary" \
 			ARCHITECTURE_REASSESSMENT_RESOLVED >/dev/null
+	elif [[ "$category" == REPEATED_RESOURCE_DECOMPOSITION_FAILURE ]]; then
+		# Operator review authorizes continuation, but it does not invalidate the
+		# measured fact that the current executable leaf exceeded its resource
+		# envelope. Preserve that typed trigger so recovery must split the leaf
+		# whenever append-only depth/child capacity remains.
+		mark_root_needs_replan "$trigger_task" \
+			"resource decomposition failure was explicitly reviewed; preserve work and split the first-unmet leaf when structural capacity remains" \
+			RESOURCE_NEEDS_DECOMPOSITION >/dev/null
 	else
 		mark_root_needs_replan "$trigger_task" \
 			"architecture reassessment was explicitly resolved; continue the preserved first-unmet boundary" \

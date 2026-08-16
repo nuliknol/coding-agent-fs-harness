@@ -968,6 +968,21 @@ resource_output="$("$HARNESS_BIN/manager-reject-task" "$CIRCUIT_ROOT/harness.env
 grep -Fqx 'Trigger-Outcome: RESOURCE_NEEDS_DECOMPOSITION' "$resource_output"
 grep -q 'ITEM_LIMIT fuse' "$resource_output"
 rm -f "$resource_output"
+cat > "$CIRCUIT_ROOT/state/projects/circuitproj/control/progress/circuitproj-task-001.architecture-reassessment-required.md" <<'MARKER'
+# Architecture Reassessment Required
+
+Project: circuitproj
+Task-Root: 001
+Triggered-By: 001-revision-06
+Category: REPEATED_RESOURCE_DECOMPOSITION_FAILURE
+MARKER
+printf 'The resource failure was inspected; preserve work and split the executable leaf.\n' \
+	> "$CIRCUIT_ROOT/resource-resolution.md"
+"$HARNESS_BIN/harness-resolve-architecture-reassessment" "$CIRCUIT_ROOT/harness.env" 001 \
+	"$CIRCUIT_ROOT/resource-resolution.md" >/dev/null
+grep -Fqx 'Trigger-Outcome: RESOURCE_NEEDS_DECOMPOSITION' \
+	"$CIRCUIT_ROOT/state/projects/circuitproj/control/progress/circuitproj-task-001.needs-replan.md"
+rm -f "$CIRCUIT_ROOT/state/projects/circuitproj/control/progress/circuitproj-task-001.needs-replan.md"
 
 # A verified leaf hard block caused by repository-local scope is archived as a
 # failed leaf attempt and routed to manager remediation. It must never create a
