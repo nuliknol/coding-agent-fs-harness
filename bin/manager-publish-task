@@ -799,7 +799,8 @@ enforce_revision_authority()
 	elif [[ "$root_architecture" == NONE && "$leaf_architecture_decisions" != NONE ]]; then
 		reason="revision introduces architecture decisions although the immutable root declares Architecture-Decisions: NONE"
 	elif [[ -n "$root_architecture" && "$root_architecture" != NONE &&
-		"$leaf_architecture_decisions" != NONE && "$leaf_architecture_decisions" != "$root_architecture" ]]; then
+		"$leaf_architecture_decisions" != NONE ]] &&
+		! metadata_identifier_list_is_subset "$leaf_architecture_decisions" "$root_architecture"; then
 		reason="revision introduces architecture authority not granted by the root: root=[$root_architecture] revision=[$leaf_architecture_decisions]"
 	fi
 	if [[ -n "$reason" ]]; then

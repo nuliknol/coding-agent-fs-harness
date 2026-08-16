@@ -4,6 +4,14 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HARNESS_HOME="$(cd "$SCRIPT_DIR/.." && pwd)"
 HARNESS_BIN="$HARNESS_HOME/bin"
+
+bash -c 'set -Eeuo pipefail; source "$1/lib/harness-common.sh"; metadata_identifier_list_is_subset "DECISION-C,DECISION-A" "DECISION-A,DECISION-B,DECISION-C"' \
+	_ "$HARNESS_HOME"
+if bash -c 'set -Eeuo pipefail; source "$1/lib/harness-common.sh"; metadata_identifier_list_is_subset "DECISION-A,DECISION-X" "DECISION-A,DECISION-B,DECISION-C"' \
+	_ "$HARNESS_HOME"; then
+	printf 'architecture identifier subset helper accepted unauthorized authority\n' >&2
+	exit 1
+fi
 TEST_ROOT="$(mktemp -d /tmp/harness-architecture-guards.XXXXXX)"
 if [[ "${HARNESS_TEST_KEEP_TMP:-0}" == 1 ]]; then
 	trap 'printf "Preserved test root: %s\n" "$TEST_ROOT" >&2' EXIT

@@ -909,6 +909,32 @@ trim_surrounding_whitespace()
 	printf '%s\n' "$value"
 }
 
+metadata_identifier_list_is_subset()
+{
+	local candidate="$1" authority="$2" entry allowed authority_entry
+	local -a candidate_entries=() authority_entries=()
+	[[ -n "$candidate" && "$candidate" != - && "${candidate^^}" != NONE ]] || return 0
+	[[ -n "$authority" && "$authority" != - && "${authority^^}" != NONE ]] || return 1
+	candidate="${candidate//;/,}"
+	authority="${authority//;/,}"
+	IFS=',' read -r -a candidate_entries <<< "$candidate"
+	IFS=',' read -r -a authority_entries <<< "$authority"
+	for entry in "${candidate_entries[@]}"; do
+		entry="$(trim_surrounding_whitespace "$entry")"
+		[[ -n "$entry" ]] || continue
+		allowed=0
+		for authority_entry in "${authority_entries[@]}"; do
+			authority_entry="$(trim_surrounding_whitespace "$authority_entry")"
+			if [[ -n "$authority_entry" && "$entry" == "$authority_entry" ]]; then
+				allowed=1
+				break
+			fi
+		done
+		(( allowed == 1 )) || return 1
+	done
+	return 0
+}
+
 require_single_metadata_value()
 {
 	local file="$1" field="$2" context="${3:-document}" count value
