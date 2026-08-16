@@ -76,6 +76,10 @@ set -e
 ! grep -Fq 'command not found' "$TEST_ROOT/critic-prompt.err"
 grep -Fq 'regex that requires a trailing newline character' \
 	"$TEST_ROOT/state/projects/decompv2/control/manager-decomposition-critic.prompt.md"
+grep -Fq 'Preserve specification-declared component ownership and principal source paths.' \
+	"$TEST_ROOT/state/projects/decompv2/control/manager-decomposition-critic.prompt.md"
+grep -Fq 'Never convert argument arity into record count' \
+	"$TEST_ROOT/state/projects/decompv2/control/manager-decomposition-critic.prompt.md"
 grep -R -Fqx 'role=decomposition' "$TEST_ROOT/state/projects/decompv2/logs"/*.classification
 grep -R -Fqx 'model=gpt-5.6-sol' "$TEST_ROOT/state/projects/decompv2/logs"/*.classification
 

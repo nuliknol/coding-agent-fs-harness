@@ -43,6 +43,8 @@ ARCHITECTURE_GUARDS=$HARNESS_ARCHITECTURE_GUARDS
 
 The architecture-fit decision and DAG/coverage are durable and authoritative. Read those bounded files. Do not change DAG_FILE or SPECIFICATION_COVERAGE_FILE. Do not inspect the complete repository inventory, development policy, harness source, unrelated Git history, prior agent logs, or broad source trees. Search only exact repository paths or symbols already named by the DAG when a validation binding requires confirmation. Retain verbose output in files and return bounded excerpts.
 
+Audit component ownership before binding the fixed DAG. For each contract, architecture, producer, adopter, or delivery node, use its covered obligation source locations to check any specification-declared component owner and principal source path. A node bound to a downstream facade, compiler, transport, or presentation file cannot stand in for a separately named producer/adopter component. If the fixed DAG contradicts that governing ownership, do not manufacture architecture bindings that make it appear consistent; terminate with a concise diagnostic so the DAG is repaired before submission.
+
 If ARCHITECTURE_GUARDS=1 and the DAG is exactly one dependency-free LOW/LUNA TEST_IMPLEMENTATION or VERIFICATION_ONLY node, submit it with '-' as ARCH_DIR. Otherwise create ARCH_DIR under PROJECT_TMP_DIR containing six exact tab-separated files.
 
 invariants.tsv:
