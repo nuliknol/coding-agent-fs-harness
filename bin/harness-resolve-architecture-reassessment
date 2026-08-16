@@ -26,6 +26,13 @@ trigger_task="$(metadata_value "$marker" Triggered-By)"
 [[ -n "$trigger_task" ]] || trigger_task="$root"
 category="$(metadata_value "$marker" Category)"
 additional_scope="$(metadata_value "$note_file" Authorized-Additional-Scope)"
+resolution_action="$(metadata_value "$note_file" Resolution-Action)"
+if [[ -n "$resolution_action" ]]; then
+	[[ "$resolution_action" == VERIFY_PRESERVED_WORKSPACE ]] ||
+		die "unsupported architecture Resolution-Action: $resolution_action"
+	[[ "$category" == REPEATED_RESOURCE_DECOMPOSITION_FAILURE ]] ||
+		die 'VERIFY_PRESERVED_WORKSPACE is valid only for repeated resource-decomposition reassessment'
+fi
 if [[ -n "$additional_scope" ]]; then
 	[[ "$category" == MANAGER_REMEDIATION_SCOPE_EXPANSION ]] ||
 		die 'Authorized-Additional-Scope is valid only for a manager-remediation scope reassessment'
@@ -110,13 +117,19 @@ if [[ -n "$plan_item" && "$(project_plan_item_status "$plan_item")" == ACTIVE ]]
 			"architecture reassessment denied scope expansion; preserve immutable root scope and continue the focused first-unmet boundary" \
 			ARCHITECTURE_REASSESSMENT_RESOLVED >/dev/null
 	elif [[ "$category" == REPEATED_RESOURCE_DECOMPOSITION_FAILURE ]]; then
-		# Operator review authorizes continuation, but it does not invalidate the
-		# measured fact that the current executable leaf exceeded its resource
-		# envelope. Preserve that typed trigger so recovery must split the leaf
-		# whenever append-only depth/child capacity remains.
-		mark_root_needs_replan "$trigger_task" \
-			"resource decomposition failure was explicitly reviewed; preserve work and split the first-unmet leaf when structural capacity remains" \
-			RESOURCE_NEEDS_DECOMPOSITION >/dev/null
+		if [[ "$resolution_action" == VERIFY_PRESERVED_WORKSPACE ]]; then
+			mark_root_needs_replan "$trigger_task" \
+				"operator inspection confirmed preserved workspace movement before the resource fuse; verify that exact change before authorizing more implementation" \
+				RESOURCE_PROGRESS_NEEDS_VERIFICATION >/dev/null
+		else
+			# Operator review authorizes continuation, but it does not invalidate the
+			# measured fact that the current executable leaf exceeded its resource
+			# envelope. Preserve that typed trigger so recovery must split the leaf
+			# whenever append-only depth/child capacity remains.
+			mark_root_needs_replan "$trigger_task" \
+				"resource decomposition failure was explicitly reviewed; preserve work and split the first-unmet leaf when structural capacity remains" \
+				RESOURCE_NEEDS_DECOMPOSITION >/dev/null
+		fi
 	else
 		mark_root_needs_replan "$trigger_task" \
 			"architecture reassessment was explicitly resolved; continue the preserved first-unmet boundary" \

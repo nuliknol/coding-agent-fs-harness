@@ -1020,6 +1020,27 @@ grep -Fqx 'Trigger-Outcome: RESOURCE_NEEDS_DECOMPOSITION' \
 	"$CIRCUIT_ROOT/state/projects/circuitproj/control/progress/circuitproj-task-001.needs-replan.md"
 rm -f "$CIRCUIT_ROOT/state/projects/circuitproj/control/progress/circuitproj-task-001.needs-replan.md"
 
+# An operator who independently confirms preserved source movement may request
+# verification rather than another implementation/decomposition episode.
+cat > "$CIRCUIT_ROOT/state/projects/circuitproj/control/progress/circuitproj-task-001.architecture-reassessment-required.md" <<'MARKER'
+# Architecture Reassessment Required
+
+Project: circuitproj
+Task-Root: 001
+Triggered-By: 001-revision-09
+Category: REPEATED_RESOURCE_DECOMPOSITION_FAILURE
+MARKER
+cat > "$CIRCUIT_ROOT/resource-progress-resolution.md" <<'RESOLUTION'
+Resolution-Action: VERIFY_PRESERVED_WORKSPACE
+
+The preserved bounded diff was independently inspected and must be verified before further edits.
+RESOLUTION
+"$HARNESS_BIN/harness-resolve-architecture-reassessment" "$CIRCUIT_ROOT/harness.env" 001 \
+	"$CIRCUIT_ROOT/resource-progress-resolution.md" >/dev/null
+grep -Fqx 'Trigger-Outcome: RESOURCE_PROGRESS_NEEDS_VERIFICATION' \
+	"$CIRCUIT_ROOT/state/projects/circuitproj/control/progress/circuitproj-task-001.needs-replan.md"
+rm -f "$CIRCUIT_ROOT/state/projects/circuitproj/control/progress/circuitproj-task-001.needs-replan.md"
+
 # A verified leaf hard block caused by repository-local scope is archived as a
 # failed leaf attempt and routed to manager remediation. It must never create a
 # terminal root block merely because the worker's Allowed-Scope was too narrow.
