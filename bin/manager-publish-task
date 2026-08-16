@@ -182,7 +182,7 @@ normalize_measured_assignment_metadata()
 	local planned_effective_p95 planned_worker_route
 	local obligation_weight requested_route requested_class requested_leaf requested_architecture requested_validation requested_files requested_turns requested_exception luna_failures
 	local required_symbols symbol_count calibration_rate residual_p95 verified_items
-	local recovery_decisions_resolved recovery_verified_child decision requested_obligations obligation_count architecture_decisions
+	local recovery_decisions_resolved recovery_verified_child resource_recovery resource_local_authority decision requested_obligations obligation_count architecture_decisions
 	# Every task bound to a measured plan node uses the installed deterministic
 	# vector.  Revisions and recovery tasks must not ask a planning agent to
 	# reproduce these machine-owned fields by hand.
@@ -214,6 +214,10 @@ normalize_measured_assignment_metadata()
 		# exception into the bounded repair leaf.
 		terra_exception=-
 	elif (( recovery_publish == 1 )); then
+		resource_recovery=0
+		[[ "$(metadata_value "$(task_root_replan_file "$root")" Trigger-Outcome)" != RESOURCE_NEEDS_DECOMPOSITION ]] || resource_recovery=1
+		resource_local_authority=0
+		(( resource_recovery == 0 )) || [[ "$requested_architecture" != NONE ]] || resource_local_authority=1
 		luna_failures="$(root_luna_strategy_failure_count "$root")"
 		verified_items="$(task_verified_item_count "$root")"
 		trace_event RECOVERY_MEASURED_ROUTE_REQUEST "root=$root" "task_id=$task_id" \
@@ -238,7 +242,8 @@ normalize_measured_assignment_metadata()
 		# child vector from its executable scope instead of restoring the parent's
 		# HIGH/TERRA vector. Root semantic authority remains immutable.
 		if (( luna_failures < HARNESS_MAX_LUNA_STRATEGY_FAILURES &&
-			(recovery_decisions_resolved == 1 || recovery_verified_child == 1) )) &&
+			(recovery_decisions_resolved == 1 || recovery_verified_child == 1 ||
+			resource_local_authority == 1) )) &&
 			[[ "$requested_leaf" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY)$ &&
 			"$requested_validation" =~ ^(FOCUSED|INCREMENTAL)$ &&
 			"$requested_files" =~ ^[0-9]+$ && "$requested_turns" =~ ^[1-3]$ ]] &&
