@@ -50,11 +50,13 @@ class ContextClosureToolsTest(unittest.TestCase):
 
     def closure(self, extra: str = "", omissions: Path | None = None,
                 overlay: Path | None = None, max_bytes: int = 32768,
-                luna_only: bool = False) -> tuple[str, Path]:
+                luna_only: bool = False, context_paths: str = "calc.c",
+                required_symbols: str = "add") -> tuple[str, Path]:
         assignment = self.root / "assignment.md"
         assignment.write_text(
             "Task-ID: t1\nPlan-Node: n1\nWorker-Route: LUNA\nAllowed-Scope: calc.c\n"
-            "Context-Paths: calc.c\nRequired-Symbols: add\n" + extra, encoding="utf-8")
+            f"Context-Paths: {context_paths}\nRequired-Symbols: {required_symbols}\n" + extra,
+            encoding="utf-8")
         output = self.root / ("closure-" + str(len(list(self.root.glob("closure-*")))))
         arguments = SimpleNamespace(
             assignment=str(assignment), database=str(self.database), repository=str(self.repository),
@@ -79,6 +81,45 @@ class ContextClosureToolsTest(unittest.TestCase):
         children = (output / "repair-children.tsv").read_text()
         self.assertIn("CCR-", children)
         self.assertIn("\tcalc.c\tadd\t", children)
+
+    def test_missing_evidence_with_multiple_over_budget_seams_prefers_graph_cut(self):
+        connection = sqlite3.connect(self.database)
+        connection.execute("INSERT INTO files VALUES(2,'g','src/other.c','c',NULL,1,0)")
+        connection.execute(
+            "INSERT INTO source_regions VALUES(2,2,'symbol_definition','other',1,0,1,40,NULL,'scip-clang')")
+        connection.execute(
+            "INSERT INTO symbols VALUES('other-sym','g','other','Function','c','-','scip-clang')")
+        connection.execute(
+            "INSERT INTO symbol_definitions VALUES('other-sym',2,'definition','scip-clang')")
+        connection.commit()
+        connection.close()
+
+        status, output = self.closure(
+            max_bytes=32, luna_only=True,
+            context_paths="calc.c,src/other.c",
+            required_symbols="add,other,missing")
+
+        self.assertEqual("INCOMPLETE", status)
+        manifest = (output / "manifest.env").read_text()
+        self.assertIn("reasons=unresolved-required-evidence,context-byte-budget-exceeded", manifest)
+        self.assertIn("condition=CLOSURE_BUDGET_EXCEEDED", manifest)
+        self.assertIn("repair_action=GRAFT_GRAPH_CUTS", manifest)
+        self.assertIn("repair_provider=decomposition-compiler", manifest)
+        self.assertIn("semantic_split_required=1", manifest)
+        self.assertIn("repair_candidate_children=2", manifest)
+        children = (output / "repair-children.tsv").read_text()
+        self.assertIn("\tcalc.c\tadd\t", children)
+        self.assertIn("\tsrc/other.c\tother\t", children)
+
+    def test_pure_missing_evidence_still_requests_provider_refresh(self):
+        status, output = self.closure(required_symbols="missing")
+
+        self.assertEqual("INCOMPLETE", status)
+        manifest = (output / "manifest.env").read_text()
+        self.assertIn("condition=INDEX_EVIDENCE_MISSING", manifest)
+        self.assertIn("repair_action=REFRESH_INDEX_OR_OVERLAY", manifest)
+        self.assertIn("repair_provider=scip", manifest)
+        self.assertIn("semantic_split_required=0", manifest)
 
     def test_tracked_worktree_overlay_relocates_live_symbol_evidence(self):
         live_source = "\n".join(["/* inserted */"] * 24 +

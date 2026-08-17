@@ -1061,6 +1061,16 @@ def build_closure(args: argparse.Namespace) -> str:
         "SYSTEMATIC_CONTEXT_OMISSION": "repository-index",
         "WORKTREE_OVERLAY": "worktree-overlay",
     }
+    # Missing evidence and an oversized evidence set are independent closure
+    # defects.  Prefer a deterministic graph-cut graft when the compiler has
+    # at least two indexed seams: refreshing an already-current provider cannot
+    # make an oversized assignment Luna-sized, and used to cause identical
+    # manager-replan loops.  A pure evidence miss (or a single unsplittable
+    # seam) still routes to the exact provider and remains fail-closed.
+    decomposition_reasons = [
+        reason for reason in reasons if reason != "unresolved-required-evidence"
+    ]
+    has_deterministic_graft = len(suggested_cuts) >= 2
     if status == "READY":
         condition = "READY"
         repair_action = "LAUNCH_LUNA"
@@ -1071,6 +1081,11 @@ def build_closure(args: argparse.Namespace) -> str:
         repair_action = "REPAIR_AUTHORITY_BINDING"
         repair_provider = "architecture-registry"
         semantic_split_required = 0
+    elif unresolved and decomposition_reasons and has_deterministic_graft:
+        condition = "CLOSURE_BUDGET_EXCEEDED"
+        repair_action = "GRAFT_GRAPH_CUTS"
+        repair_provider = "decomposition-compiler"
+        semantic_split_required = 1
     elif unresolved:
         condition = "INDEX_EVIDENCE_MISSING"
         repair_action = "REFRESH_INDEX_OR_OVERLAY"

@@ -1,6 +1,6 @@
 # Luna-Only Convergence Implementation Status
 
-Last updated (UTC): 2026-08-17T17:42:00Z
+Last updated (UTC): 2026-08-17T16:12:50Z
 
 Overall status: `IN_PROGRESS`
 
@@ -334,6 +334,23 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   This consumes no Luna/Sol/Terra turn and does not launch SCIP, Joern, Java, or
   SQLite repeatedly.
 
+### 2026-08-17 — mixed closure defects route to compiled decomposition
+
+- Production evidence showed that compmod-wc-3 and dplm had respectively four
+  and three deterministic indexed graph cuts, while their mixed
+  unresolved-evidence plus byte/test/module/build budget failures emitted zero
+  repair children. The unresolved-evidence branch incorrectly took precedence
+  and sent both roots through an index refresh/manager-replan path.
+- The five affected production process groups were stopped at preserved repair
+  boundaries before another planning revision could be consumed.
+- The closure compiler now prefers `GRAFT_GRAPH_CUTS` for a mixed evidence and
+  resource failure only when at least two deterministic indexed seams exist.
+  Pure missing evidence and single unsplittable seams remain fail-closed on
+  `REFRESH_INDEX_OR_OVERLAY`; authority failures retain their dedicated repair.
+- This classification keeps unresolved facts visible in `repair.tsv`, while
+  compiling Luna-sized child candidates from evidence already present instead
+  of asking a model to rediscover the decomposition.
+
 ## Validation journal
 
 - `tests/test-codex-exec-jsonl.sh` — PASS. Includes Luna-only normalization,
@@ -374,6 +391,10 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   `tests/test-decomposition-v2.sh`, and
   `tests/test-luna-only-convergence.sh` — PASS.
 - Combined Python suite — PASS, 24 tests.
+- Context Closure tool suite — PASS, 18 tests after adding mixed-defect graph
+  cut and pure-evidence-refresh coverage.
+- Post-classifier regression: Luna-only convergence, SCIP importer,
+  repository-index, and the complete v4.4 harness suite — PASS.
 - `git diff --check` and Bash syntax validation — PASS.
 
 ## Next actions
