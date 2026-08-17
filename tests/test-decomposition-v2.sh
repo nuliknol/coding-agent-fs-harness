@@ -426,10 +426,16 @@ sed \
 printf '%s\n' 'export HARNESS_MODEL_POLICY="luna_only"' >> "$TEST_ROOT/normalize-harness.env"
 chmod 600 "$TEST_ROOT/normalize-harness.env"
 "$HARNESS_BIN/harness-init" "$TEST_ROOT/normalize-harness.env" >/dev/null
+awk -F '\t' 'BEGIN {OFS=FS} NR > 1 {$7="src"} {print}' \
+	"$TEST_ROOT/verification-plan.tsv" > "$TEST_ROOT/normalize-plan.tsv"
 "$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/normalize-harness.env" \
-	"$TEST_ROOT/verification-plan.tsv" >/dev/null
+	"$TEST_ROOT/normalize-plan.tsv" >/dev/null
+sed \
+	-e 's#^Allowed-Scope: src/a.c$#Allowed-Scope: src#' \
+	-e 's#^Context-Paths: src/a.c$#Context-Paths: include/a.h,src#' \
+	"$TEST_ROOT/task.md" > "$TEST_ROOT/normalize-root-task.md"
 "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/normalize-harness.env" 001 \
-	"$TEST_ROOT/task.md" n1 >/dev/null
+	"$TEST_ROOT/normalize-root-task.md" n1 >/dev/null
 normalize_project="$TEST_ROOT/normalize-state/projects/decompnormalize"
 mv "$normalize_project/tasks/decompnormalize-task-001.ready.md" \
 	"$normalize_project/archive/decompnormalize-task-001.checkpointed.md"
@@ -443,9 +449,8 @@ MARKER
 sed \
 	-e 's/^Task-ID: 001$/Task-ID: 001-revision-01/' \
 	-e 's/^Goal-ID: n1.goal$/Goal-ID: n1.normalize/' \
-	-e 's#^Context-Paths: src/a.c$#Context-Paths: include/a.h,src#' \
 	-e '/^Root-Criterion: n1.done$/a Replan-Strategy-ID: normalize.context.1\nStrategy-Change: NARROW_SCOPE\nSupersedes-Task: 001' \
-	"$TEST_ROOT/task.md" > "$TEST_ROOT/normalize-recovery-task.md"
+	"$TEST_ROOT/normalize-root-task.md" > "$TEST_ROOT/normalize-recovery-task.md"
 "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/normalize-harness.env" \
 	001-revision-01 "$TEST_ROOT/normalize-recovery-task.md" --auto-replan >/dev/null
 normalize_ready="$normalize_project/tasks/decompnormalize-task-001-revision-01.ready.md"

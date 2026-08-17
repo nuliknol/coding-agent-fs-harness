@@ -1,6 +1,6 @@
 # Luna-Only Convergence Implementation Status
 
-Last updated (UTC): 2026-08-17T22:00:12Z
+Last updated (UTC): 2026-08-17T22:11:38Z
 
 Overall status: `IN_PROGRESS`
 
@@ -1022,3 +1022,12 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   Context Closure tool, and validation-diagnostics suites pass. All token,
   action, depth, child-count, review, replan, lifetime, and Context Closure size
   fuses remain unchanged.
+- Production canary publication exposed the remaining directory-boundary
+  mismatch: DPLM's recovery planner could omit `dplm/src/core` from exact
+  Context-Paths while retaining it as broad Allowed-Scope, after which capsule
+  coverage correctly refused to authorize unseen editable files. Luna-only
+  recovery now treats allowed directories as bounded deterministic search roots,
+  resolves their unique tracked header/source seam, and narrows both
+  Allowed-Scope and Remediation-Scope to the selected exact evidence files. It
+  never restores a directory dump. The decomposition and root-liveness suites
+  pass with an exact-file directory-scope regression.
