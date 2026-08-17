@@ -274,9 +274,10 @@ normalize_measured_assignment_metadata()
 		# much smaller child than the original measured plan node. Derive a fresh
 		# child vector from its executable scope instead of restoring the parent's
 		# HIGH/TERRA vector. Root semantic authority remains immutable.
-		if (( luna_failures < HARNESS_MAX_LUNA_STRATEGY_FAILURES &&
-			(recovery_decisions_resolved == 1 || recovery_verified_child == 1 ||
-			resource_local_authority == 1) )) &&
+		if { [[ "$HARNESS_MODEL_POLICY" == luna_only ]] ||
+			(( luna_failures < HARNESS_MAX_LUNA_STRATEGY_FAILURES )); } &&
+			(( recovery_decisions_resolved == 1 || recovery_verified_child == 1 ||
+			resource_local_authority == 1 )) &&
 			[[ "$requested_leaf" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY)$ &&
 			"$requested_validation" =~ ^(FOCUSED|INCREMENTAL)$ &&
 			"$requested_files" =~ ^[0-9]+$ && "$requested_turns" =~ ^[1-3]$ ]] &&
@@ -1159,6 +1160,11 @@ normalize_exhausted_luna_recovery_route()
 {
 	local requested_route requested_leaf luna_failures requested_exception tmp
 	(( recovery_publish == 1 && manager_remediation == 0 )) || return 0
+	# Exhausting a Luna strategy budget is evidence that the boundary needs a
+	# smaller decomposition. It is model-escalation authority only under the
+	# explicit legacy policy; luna_only must never rewrite the next child to
+	# Terra, regardless of historical failure count.
+	[[ "$HARNESS_MODEL_POLICY" != luna_only && "$HARNESS_ESCALATION_POLICY" == legacy ]] || return 0
 	requested_route="$(metadata_value "$task_file" Worker-Route)"
 	requested_leaf="$(metadata_value "$task_file" Leaf-Type)"
 	[[ "$requested_route" == LUNA ]] || return 0
@@ -1612,12 +1618,16 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 			operator_route_override=1
 			preferred_route_override=1
 		fi
-		if (( manager_remediation == 0 && operator_route_override == 0 && architecture_recovery_authority == 0 )) && [[ "$HARNESS_PREFERRED_WORKER_ROUTE" == LUNA && "$leaf_worker_route" == TERRA &&
+		if (( manager_remediation == 0 && operator_route_override == 0 && architecture_recovery_authority == 0 )) && [[ "$HARNESS_MODEL_POLICY" == luna_only && "$leaf_worker_route" == TERRA &&
+			"$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY)$ ]]; then
+			die "$leaf_type is executable work and HARNESS_MODEL_POLICY=luna_only requires a LOW/LUNA child; decompose it further"
+		fi
+		if (( manager_remediation == 0 && operator_route_override == 0 && architecture_recovery_authority == 0 )) && [[ "$HARNESS_MODEL_POLICY" != luna_only && "$HARNESS_PREFERRED_WORKER_ROUTE" == LUNA && "$leaf_worker_route" == TERRA &&
 			"$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY)$ ]] &&
 			(( luna_failures < HARNESS_MAX_LUNA_STRATEGY_FAILURES )); then
 			die "$leaf_type is coding work and must be decomposed to a LOW/LUNA leaf while HARNESS_PREFERRED_WORKER_ROUTE=LUNA; Terra is allowed after $HARNESS_MAX_LUNA_STRATEGY_FAILURES failed Luna strategies"
 		fi
-		if [[ "$leaf_worker_route" == LUNA ]] && (( luna_failures >= HARNESS_MAX_LUNA_STRATEGY_FAILURES )); then
+		if [[ "$HARNESS_MODEL_POLICY" != luna_only && "$leaf_worker_route" == LUNA ]] && (( luna_failures >= HARNESS_MAX_LUNA_STRATEGY_FAILURES )); then
 			die "root $root has $luna_failures failed Luna strategies; publish a fresh Terra leaf or decompose it further"
 		fi
 	fi

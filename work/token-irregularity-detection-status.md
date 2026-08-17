@@ -46,6 +46,10 @@ Updated: 2026-08-17
   worker launched. The final publisher boundary now rejects every non-LOW/LUNA
   executable draft in `luna_only` mode, allowing the same bounded planning turn
   to correct it instead of installing another policy-violating task.
+- Live verification exposed and corrected a downstream legacy recovery
+  normalizer that rewrote a valid Luna draft to Terra after three historical
+  Luna strategy failures. Under `luna_only`, exhaustion now requires a smaller
+  Luna decomposition and can never grant stronger-model authority.
 - `compmod-wc-4`, `dplm-final-v2`, and `dpvis-w2-a2` remain stopped at their
   durable `ARCHITECTURE_REASSESSMENT_REQUIRED` boundaries; their evidence and
   counters were not reset.
