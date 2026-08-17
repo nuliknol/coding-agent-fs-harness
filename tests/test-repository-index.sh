@@ -81,9 +81,13 @@ probe_started="$(date +%s)"
 source "$HARNESS_HOME/lib/harness-repository-index.sh"
 probe_fingerprint="$(repository_index_tool_fingerprint "$TEST_ROOT/bin/hanging-version-tool")"
 probe_fingerprint_repeat="$(repository_index_tool_fingerprint "$TEST_ROOT/bin/hanging-version-tool")"
+joern_fingerprint="$(repository_index_joern_fingerprint 1 "$TEST_ROOT/bin/hanging-version-tool")"
+joern_fingerprint_repeat="$(repository_index_joern_fingerprint 1 "$TEST_ROOT/bin/hanging-version-tool")"
 probe_elapsed="$(( $(date +%s) - probe_started ))"
 [[ "$probe_fingerprint" =~ ^[0-9a-f]{64}$ ]]
 [[ "$probe_fingerprint_repeat" == "$probe_fingerprint" ]]
+[[ "$joern_fingerprint" == "$probe_fingerprint" ]]
+[[ "$joern_fingerprint_repeat" == "$joern_fingerprint" ]]
 (( probe_elapsed < 15 ))
 
 write_env()

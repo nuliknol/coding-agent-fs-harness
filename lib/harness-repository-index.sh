@@ -127,6 +127,24 @@ repository_index_tool_fingerprint()
 	printf '%s\n%s\n%s\n' "$executable" "$content_hash" "$version" | sha256sum | awk '{print $1}'
 }
 
+repository_index_joern_fingerprint()
+{
+	local enabled="$1" command_name="$2" executable content_hash
+	if [[ "$enabled" != 1 ]]; then
+		printf 'disabled'
+		return 0
+	fi
+	executable="$(repository_index_command_path "$command_name")"
+	content_hash="$(sha256sum "$executable" | awk '{print $1}')"
+	# Joern's launcher does not implement a non-interactive --version action;
+	# it enters the REPL and emits timestamped JLine diagnostics instead.  Do
+	# not launch a JVM from status/freshness checks.  Keep the stable capability
+	# sentinel used by successful unsupported-option probes so existing
+	# immutable generations retain the same identity.
+	printf '%s\n%s\n%s\n' "$executable" "$content_hash" version-probe-unsupported |
+		sha256sum | awk '{print $1}'
+}
+
 repository_index_tool_version()
 {
 	local executable="$1" output status=0
@@ -181,7 +199,7 @@ repository_index_prepare_identity()
 	REPOSITORY_INDEX_SCIP_CLANG_FINGERPRINT="$(repository_index_tool_fingerprint "$REPOSITORY_INDEX_SCIP_CLANG_PATH")"
 	REPOSITORY_INDEX_SCIP_FINGERPRINT="$(repository_index_tool_fingerprint "$REPOSITORY_INDEX_SCIP_PATH")"
 	REPOSITORY_INDEX_IMPORTER_FINGERPRINT="$(repository_index_tool_fingerprint "$REPOSITORY_INDEX_IMPORTER_PATH")"
-	REPOSITORY_INDEX_JOERN_FINGERPRINT="$(repository_index_optional_fingerprint "$HARNESS_JOERN_ENABLED" "$HARNESS_JOERN_BIN")"
+	REPOSITORY_INDEX_JOERN_FINGERPRINT="$(repository_index_joern_fingerprint "$HARNESS_JOERN_ENABLED" "$HARNESS_JOERN_BIN")"
 	REPOSITORY_INDEX_RECOLL_FINGERPRINT="$(repository_index_optional_fingerprint "$HARNESS_RECOLL_ENABLED" "$HARNESS_RECOLL_BIN")"
 	build_importer_file="$(repository_index_build_importer_file)"
 	[[ -f "$build_importer_file" ]] || die "build-target importer is missing: $build_importer_file"
@@ -379,7 +397,7 @@ repository_index_project_pointer_is_current()
 	fi
 	current_build_importer="$({ sha256sum "$current_build_importer_path" "$current_build_scanner_path"; } | sha256sum | awk '{print $1}')"
 	current_schema="$(sha256sum "$(repository_index_schema_file)" | awk '{print $1}')"
-	current_joern="$(repository_index_optional_fingerprint "$HARNESS_JOERN_ENABLED" "$HARNESS_JOERN_BIN")"
+	current_joern="$(repository_index_joern_fingerprint "$HARNESS_JOERN_ENABLED" "$HARNESS_JOERN_BIN")"
 	current_recoll="$(repository_index_optional_fingerprint "$HARNESS_RECOLL_ENABLED" "$HARNESS_RECOLL_BIN")"
 	current_providers="$({ sha256sum "$HARNESS_HOME/tools/import_joern_graphml.py" "$HARNESS_HOME/tools/import_recoll_candidates.py" "$HARNESS_HOME/tools/import_index_diagnostics.py" "$HARNESS_HOME/tools/normalize_repository_architecture.py"; } | sha256sum | awk '{print $1}')"
 	if [[ "$current_scip_clang" != "$(kv_file_value "$manifest" scip_clang_fingerprint 2>/dev/null || true)" ]]; then
