@@ -198,6 +198,19 @@ while ! project_plan_exists; do
 			[[ "$(decomposition_candidate_state_value status)" == REJECTED ]]; then
 			full_rejection_log="$(decomposition_candidate_state_value rejection_log "$(decomposition_candidate_state_value directory)/rejection.log")"
 			if [[ -f "$full_rejection_log" ]] &&
+				grep -q 'status=INVALID_TERRA_EXCEPTION' "$full_rejection_log"; then
+				printf 'Normalizing irreducible Terra integration exception enums without an agent turn.\n'
+				if "$HARNESS_BIN/manager-repair-decomposition-terra-exceptions" "$HARNESS_ENV_FILE"; then
+					continue
+				fi
+			fi
+			if [[ -f "$full_rejection_log" ]] &&
+				grep -Eq 'LUNA_COMPLEXITY_OVER_BUDGET .*status=OVER_BUDGET' "$full_rejection_log"; then
+				printf 'Routing over-budget bound candidate back to recursive DAG decomposition.\n'
+				"$HARNESS_BIN/manager-route-decomposition-complexity-repair" "$HARNESS_ENV_FILE"
+				continue
+			fi
+			if [[ -f "$full_rejection_log" ]] &&
 				grep -Eq 'invalid invariant severity|invariant .* has empty required fields|invalid invariant validation_kind' "$full_rejection_log"; then
 				printf 'Normalizing mechanical architecture severity aliases without an agent turn.\n'
 				if "$HARNESS_BIN/manager-repair-decomposition-schema" "$HARNESS_ENV_FILE"; then
@@ -250,7 +263,7 @@ while ! project_plan_exists; do
 			# A changed candidate hash is not progress when the deterministic
 			# validator reports the same defect again. Stop before another Sol
 			# turn after two consecutive identical diagnostic fingerprints.
-			diagnostic_fingerprint="$(grep '^ERROR:' "$full_rejection_log" | sha256sum | awk '{print $1}')"
+			diagnostic_fingerprint="$(decomposition_repair_diagnostic_fingerprint "$full_rejection_log")"
 			diagnostic_state="$dir/control/decomposition-repair-diagnostic.env"
 			previous_fingerprint=""
 			previous_count=0

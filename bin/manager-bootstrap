@@ -96,6 +96,7 @@ ready_concurrency_boundaries='-'
 ready_validation_surfaces='-'
 ready_implementation_files='-'
 ready_terra_exception='-'
+plan_context_capsule='-'
 if project_plan_exists; then
 	ready_plan_node="$(project_plan_first_ready_item 2>/dev/null || true)"
 	if (( HARNESS_DECOMPOSITION_V2 == 1 )) && [[ -n "$ready_plan_node" ]] && specification_ir_available; then
@@ -112,7 +113,11 @@ if project_plan_exists; then
 		)
 		ready_terra_exception="$(awk -F '\t' -v node="$ready_plan_node" 'NR > 1 && $1 == node {print $20; exit}' "$decomposition_file")"
 	fi
-	plan_instruction="The decomposition plan is already registered. Do not initialize or replace it. Read only READY_PLAN_NODE's row from PROJECT_PLAN_FILE and PROJECT_DECOMPOSITION_FILE, its coverage row, ALLOCATED_SPECIFICATION_OBLIGATIONS rows, relations touching those IDs, and architecture rows referenced by that node. Publish the initial root for READY_PLAN_NODE."
+	if [[ -n "$ready_plan_node" ]]; then
+		plan_context_capsule="$project_path/control/manager-bootstrap.context.md"
+		write_plan_node_context_capsule "$plan_context_capsule" "$ready_plan_node"
+	fi
+	plan_instruction="The decomposition plan is already registered. Do not initialize or replace it. Read PLAN_NODE_CONTEXT_FILE once as the complete authority for READY_PLAN_NODE and publish that initial root."
 elif (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 	plan_instruction="Create and critic-check a topologically ordered v2 decomposition DAG using the exact schema required by manager-init-project-plan. When SPECIFICATION_OBLIGATIONS_FILE is present, also create complete obligation-to-node coverage and pass it as the third argument to manager-init-project-plan. Register both, then publish the first dependency-ready node."
 else
@@ -151,8 +156,11 @@ READY_CONCURRENCY_BOUNDARIES=$ready_concurrency_boundaries
 READY_VALIDATION_SURFACES=$ready_validation_surfaces
 READY_IMPLEMENTATION_FILES=$ready_implementation_files
 READY_TERRA_EXCEPTION=$ready_terra_exception
+PLAN_NODE_CONTEXT_FILE=$plan_context_capsule
 
 This is the bootstrap turn. Read DEVELOPMENT_POLICY_FILE when present. When DECOMPOSITION_V2=0, inspect the complete specification. When DECOMPOSITION_V2=1 and READY_PLAN_NODE is nonempty, the accepted specification review, normalized IR, Sol decomposition, and architecture binding are authoritative: do not read the human specification, complete normalized IR, complete plan/DAG, repository inventory, complete architecture registries, harness source, harness prompts, harness templates, command implementations, or unrelated environment/configuration files. The commands and exact durable inputs named in this prompt are the complete harness interface for this turn; do not investigate how they are implemented. $plan_instruction Inspect only repository paths named by that bounded node context, write one bounded initial assignment under PROJECT_TMP_DIR with stable Root-Criterion lines for every independently verifiable acceptance criterion, and publish it with manager-publish-task including the corresponding PROJECT_PLAN_ITEM_ID. Each Root-Criterion line contains only its identifier; put prose on separate Criterion-Definition lines. For a measured node, copy every READY_* complexity value above exactly into its corresponding assignment field; these values are deterministic and must never be guessed or recomputed. Make at most two manager-publish-task calls: after one rejection correct the complete diagnostic set, and after a second rejection terminate with the exact blocker. Bound every shell output to at most $HARNESS_VALIDATION_OUTPUT_MAX_LINES lines and $HARNESS_VALIDATION_OUTPUT_MAX_BYTES bytes. Terminate after exactly one task is published. Every harness command must receive ENV_FILE as its first argument. Do not wait for the worker and do not run any polling command.
+
+When PLAN_NODE_CONTEXT_FILE is not -, its Deterministic build-system boundaries section is the sole build-root/target authority. Commands start at REPOSITORY: never use cmake -S . unless . is listed as a CMake source root. Configure a fresh build directory under PROJECT_TMP_DIR and build the exact named target in the same shell command; never guess or reuse a static build directory.
 PROMPT
 if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT

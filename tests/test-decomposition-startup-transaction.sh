@@ -13,11 +13,12 @@ fi
 
 repo="$TEST_ROOT/repo"
 state="$TEST_ROOT/state"
-mkdir -p "$repo/src" "$repo/spec-review" "$TEST_ROOT/configs" "$TEST_ROOT/manager-home" "$TEST_ROOT/worker-home"
+mkdir -p "$repo/src" "$repo/dplm" "$repo/spec-review" "$TEST_ROOT/configs" "$TEST_ROOT/manager-home" "$TEST_ROOT/worker-home"
 printf 'REQ-ONE: implement one bounded behavior.\n' > "$repo/spec.md"
 printf 'int target(void) { return 0; }\n' > "$repo/src/a.c"
+printf 'add_library(target STATIC ../src/a.c)\n' > "$repo/dplm/CMakeLists.txt"
 git -C "$repo" init -q
-git -C "$repo" add spec.md src/a.c
+git -C "$repo" add spec.md src/a.c dplm/CMakeLists.txt
 git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm seed
 
 env_file="$TEST_ROOT/configs/startup.env"
@@ -366,6 +367,27 @@ grep -Fq 'leaf_type INTEGRATION, complexity_class HIGH, worker_route TERRA, and 
 grep -Fq 'NR>1 && $19=="OVER_BUDGET"' "$HARNESS_BIN/manager-decomposition-dag-repair"
 grep -Fq '"$complexity_report"' "$HARNESS_BIN/manager-decomposition-dag-repair"
 ! grep -Fq '"$allowed"' "$HARNESS_BIN/manager-decomposition-dag-repair"
+grep -Fq 'manager-repair-decomposition-terra-exceptions' "$HARNESS_BIN/harness-start"
+grep -Fq 'manager-route-decomposition-complexity-repair' "$HARNESS_BIN/harness-start"
+# Candidate directory names, transient PIDs, and invalid free-form exception
+# prose do not make an unchanged deterministic rejection a new defect.
+cat > "$TEST_ROOT/diagnostic-a.log" <<'EOF'
+ERROR: candidate /tmp/decomposition-candidates/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/dag.tsv.tmp.123 failed
+LUNA_COMPLEXITY_INVALID node=n01 status=INVALID_TERRA_EXCEPTION terra_exception=IRREDUCIBLE_TERRA_BOUNDARY: first prose
+EOF
+cat > "$TEST_ROOT/diagnostic-b.log" <<'EOF'
+ERROR: candidate /tmp/decomposition-candidates/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/dag.tsv.tmp.987 failed
+LUNA_COMPLEXITY_INVALID node=n01 status=INVALID_TERRA_EXCEPTION terra_exception=irreducible integration: different prose
+EOF
+diagnostic_fingerprint_a="$(bash -c 'source "$1"; decomposition_repair_diagnostic_fingerprint "$2"' _ \
+	"$HARNESS_HOME/lib/harness-common.sh" "$TEST_ROOT/diagnostic-a.log")"
+diagnostic_fingerprint_b="$(bash -c 'source "$1"; decomposition_repair_diagnostic_fingerprint "$2"' _ \
+	"$HARNESS_HOME/lib/harness-common.sh" "$TEST_ROOT/diagnostic-b.log")"
+[[ "$diagnostic_fingerprint_a" == "$diagnostic_fingerprint_b" ]]
+sed 's/node=n01/node=n02/' "$TEST_ROOT/diagnostic-b.log" > "$TEST_ROOT/diagnostic-c.log"
+diagnostic_fingerprint_c="$(bash -c 'source "$1"; decomposition_repair_diagnostic_fingerprint "$2"' _ \
+	"$HARNESS_HOME/lib/harness-common.sh" "$TEST_ROOT/diagnostic-c.log")"
+[[ "$diagnostic_fingerprint_a" != "$diagnostic_fingerprint_c" ]]
 # A failed/recoverable schema-repair turn must not advance the deterministic
 # no-progress counter. Its state commit follows the agent invocation.
 repair_call_line="$(grep -n '\"\$HARNESS_BIN/manager-decomposition-repair\"' "$HARNESS_BIN/harness-start" | head -n1 | cut -d: -f1)"
@@ -729,6 +751,48 @@ grep -Fq 'refusing to replay the unchanged failed input' "$TEST_ROOT/repair-guar
 grep -Fqx '1' "$repair_guard_count"
 rm -f "$recovery_marker"
 
+# Invalid free-form Terra exception prose is normalized locally and the
+# corrected candidate installs without another agent turn.
+awk -F '\t' 'BEGIN {OFS=FS} $1=="n01" {$9="INTEGRATION"; $10="HIGH"; $11="TERRA"; $20="IRREDUCIBLE_TERRA_BOUNDARY: prose"} {print}' \
+	"$TEST_ROOT/dag.tsv" > "$TEST_ROOT/terra-alias-dag.tsv"
+set +e
+"$HARNESS_BIN/manager-submit-decomposition" "$env_file" \
+	"$TEST_ROOT/terra-alias-dag.tsv" "$TEST_ROOT/coverage.tsv" - >/dev/null 2>&1
+terra_alias_status=$?
+set -e
+(( terra_alias_status != 0 ))
+terra_alias_rejection="$(awk -F= '$1=="rejection_log" {print $2}' "$project_dir/control/decomposition-candidate.env" | tail -1)"
+grep -Fq 'status=INVALID_TERRA_EXCEPTION' "$terra_alias_rejection"
+"$HARNESS_BIN/manager-repair-decomposition-terra-exceptions" "$env_file" >/dev/null
+terra_repaired_candidate="$(awk -F= '$1=="directory" {print $2}' "$project_dir/control/decomposition-candidate.env" | tail -1)"
+awk -F '\t' '$1=="n01" && $9=="INTEGRATION" && $10=="HIGH" && $11=="TERRA" && $20=="IRREDUCIBLE_CROSS_BOUNDARY" {found=1} END {exit !found}' \
+	"$terra_repaired_candidate/dag.tsv"
+grep -Fqx 'status=INSTALLED' "$project_dir/control/decomposition-candidate.env"
+# Return the synthetic project to its pre-install boundary for the following
+# independent recovery transaction tests.
+rm -f -- \
+	"$project_dir/control/project-plan.tsv" \
+	"$project_dir/control/project-plan-state.tsv" \
+	"$project_dir/control/project-decomposition-v2.tsv" \
+	"$project_dir/control/specification-coverage.tsv" \
+	"$project_dir/control/decomposition-complexity.tsv" \
+	"$project_dir/control/decomposition-provenance.env"
+
+# A full bound-candidate complexity rejection is converted back into the
+# rejected pre-binding checkpoint consumed by recursive DAG repair.
+set +e
+"$HARNESS_BIN/manager-submit-decomposition" "$env_file" \
+	"$TEST_ROOT/over-budget-dag.tsv" "$TEST_ROOT/over-budget-coverage.tsv" - >/dev/null 2>&1
+full_complexity_status=$?
+set -e
+(( full_complexity_status != 0 ))
+full_complexity_rejection="$(awk -F= '$1=="rejection_log" {print $2}' "$project_dir/control/decomposition-candidate.env" | tail -1)"
+grep -Eq 'LUNA_COMPLEXITY_OVER_BUDGET .*status=OVER_BUDGET' "$full_complexity_rejection"
+"$HARNESS_BIN/manager-route-decomposition-complexity-repair" "$env_file" >/dev/null 2>&1
+grep -Fqx 'status=REPAIR_ROUTED' "$project_dir/control/decomposition-candidate.env"
+grep -Fqx 'repair_route=recursive_decomposition' "$project_dir/control/decomposition-candidate.env"
+grep -Fqx 'status=REJECTED' "$project_dir/control/decomposition-dag-candidate.env"
+
 # A killed submission may leave a complete staged candidate before plan
 # installation. Startup must report the failure, then recover it without a new
 # model invocation.
@@ -768,6 +832,13 @@ grep -Fq $'n01\tPENDING\t-' "$project_dir/control/project-plan-state.tsv"
 complexity_output="$($HARNESS_BIN/harness-complexity "$env_file")"
 grep -Fq 'n01' <<< "$complexity_output"
 grep -Fq 'READY' <<< "$complexity_output"
+plan_context="$project_dir/control/test-plan-node.context.md"
+bash -c 'source "$1"; load_harness_env "$2"; write_plan_node_context_capsule "$3" n01' _ \
+	"$HARNESS_HOME/lib/harness-common.sh" "$env_file" "$plan_context"
+grep -Fqx '## Deterministic build-system boundaries' "$plan_context"
+grep -Fqx 'dplm' "$plan_context"
+grep -Fqx $'target\tdplm' "$plan_context"
+(( $(stat -c %s "$plan_context") <= 65536 ))
 # A broad parent obligation may span ownership, error, and telemetry domains.
 # Its focused child does not inherit those words for risk-domain scoring; full
 # obligation coverage remains mandatory through the separate coverage table.

@@ -1201,6 +1201,44 @@ bounded_context_emit_tsv_rows_for_ids()
 	' "$file"
 }
 
+# Compile deterministic build roots and target locations without asking a
+# planning agent to inspect repository source or guess its working directory.
+emit_plan_node_build_context()
+{
+	local node_contract="$1" cmake_file root target found=0
+	printf '\n## Deterministic build-system boundaries\n\n'
+	printf 'Shell commands execute from the repository root unless they begin with an explicit `cd`. A CMake source path of `.` is valid only when `.` is listed below. Configure every new static build directory in the same validation command before building it.\n\n'
+	printf '### CMake source roots\n\n```text\n'
+	while IFS= read -r cmake_file; do
+		[[ -n "$cmake_file" ]] || continue
+		root="${cmake_file%/CMakeLists.txt}"
+		[[ "$root" != "$cmake_file" ]] || root='.'
+		printf '%s\n' "$root"
+	done < <(git -C "$REPOSITORY" ls-files -- 'CMakeLists.txt' ':(glob)**/CMakeLists.txt' | sort -u | head -n 64)
+	printf '```\n\n### Validation targets named by this node\n\n```tsv\n'
+	printf 'target\tcmake_source_root\n'
+	while IFS=$'\t' read -r target cmake_file; do
+		[[ -n "$target" && "$node_contract" == *"$target"* ]] || continue
+		root="${cmake_file%/CMakeLists.txt}"
+		[[ "$root" != "$cmake_file" ]] || root='.'
+		printf '%s\t%s\n' "$target" "$root"
+		found=1
+	done < <(
+		while IFS= read -r cmake_file; do
+			[[ -f "$REPOSITORY/$cmake_file" ]] || continue
+			awk -v file="$cmake_file" '
+				match($0, /add_(executable|library|custom_target)[[:space:]]*\([[:space:]]*[A-Za-z0-9_.:+-]+/) {
+					value=substr($0,RSTART,RLENGTH)
+					sub(/^.*\([[:space:]]*/,"",value)
+					printf "%s\t%s\n",value,file
+				}
+			' "$REPOSITORY/$cmake_file"
+		done < <(git -C "$REPOSITORY" ls-files -- 'CMakeLists.txt' ':(glob)**/CMakeLists.txt' | sort -u)
+	)
+	(( found == 1 )) || printf '%s\t%s\n' '<none-detected>' '-'
+	printf '```\n'
+}
+
 # Compile global plan, normalized-IR, and architecture authority into the
 # complete semantic context for one node.  Agent prompts receive this artifact
 # instead of global registry paths, so each subsequent tool round cannot repay
@@ -1211,7 +1249,7 @@ write_plan_node_context_capsule()
 	local obligations_file relations_file coverage_file allocated='-'
 	local binding_file binding_row binding_invariants binding_consumes
 	local binding_produces binding_edges binding_gates binding_decisions bytes _
-	local active_root root_assignment mandatory_git_refs='-'
+	local active_root root_assignment mandatory_git_refs='-' node_contract=''
 	[[ -n "$node_id" && "$node_id" != - ]] || die 'bounded context capsule requires a plan node'
 	plan_file="$(project_plan_definition_file)"
 	state_file="$(project_plan_state_file)"
@@ -1232,11 +1270,13 @@ write_plan_node_context_capsule()
 		awk -F '\t' -v id="$node_id" 'NR == 1 || $1 == id' "$state_file"
 		printf '```\n\n## Decomposition node\n\n```tsv\n'
 		if [[ -f "$decomposition_file" ]]; then
+			node_contract="$(awk -F '\t' -v id="$node_id" '$1 == id {print; exit}' "$decomposition_file")"
 			awk -F '\t' -v id="$node_id" 'NR == 1 || $1 == id' "$decomposition_file"
 		else
 			printf 'legacy_plan_item\n%s\n' "$node_id"
 		fi
 		printf '```\n'
+		emit_plan_node_build_context "$node_contract"
 		if [[ "$allocated" != - ]]; then
 			printf '\n## Allocated obligations\n\n```tsv\n'
 			bounded_context_emit_tsv_rows_for_ids "$obligations_file" "$allocated"
@@ -4334,6 +4374,18 @@ decomposition_candidate_matches_current_inputs()
 	[[ "$(decomposition_candidate_state_value domain_profiles_sha256 none)" == "$(domain_profiles_sha256)" ]] || return 1
 	[[ -z "$(decomposition_candidate_state_value complexity_contract_sha256)" ||
 		"$(decomposition_candidate_state_value complexity_contract_sha256)" == "$(complexity_contract_sha256)" ]]
+}
+
+decomposition_repair_diagnostic_fingerprint()
+{
+	local diagnostic="$1"
+	[[ -f "$diagnostic" ]] || return 1
+	grep -E '^(ERROR:|LUNA_COMPLEXITY_|CONTEXT_CLOSURE_)' "$diagnostic" |
+		sed -E \
+			-e 's#\.tmp\.[0-9]+#.tmp.PID#g' \
+			-e 's#/decomposition-candidates/[0-9a-f]{64}/#/decomposition-candidates/CANDIDATE/#g' \
+			-e 's#(terra_exception=)[^;]*(;|$)#\1<VALUE>\2#g' |
+		sha256sum | awk '{print $1}'
 }
 
 decomposition_dag_candidate_state_value()

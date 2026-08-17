@@ -581,6 +581,8 @@ grep -Fq 'The section named "Mandatory cross-harness Git refs"' "$plan_prompt"
 grep -Fq 'Never infer a Git ref from Depends-On values' "$plan_prompt"
 grep -Fqx '## Mandatory cross-harness Git refs' "$plan_context"
 grep -A3 -F '## Mandatory cross-harness Git refs' "$plan_context" | grep -Fqx 'NONE'
+grep -Fqx '## Deterministic build-system boundaries' "$plan_context"
+grep -Fq 'A CMake source path of `.` is valid only when `.` is listed below.' "$plan_context"
 [[ -f "$TEST_ROOT/state/projects/testproj/archive/testproj-task-001.assignment.md" ]]
 [[ -f "$TEST_ROOT/state/projects/testproj/archive/testproj-task-002.assignment.md" ]]
 normalized_result="$TEST_ROOT/state/projects/testproj/archive/testproj-task-002.result.md"
@@ -2527,7 +2529,8 @@ grep -q 'project state already exists at' "$INACTIVE_ROOT/reinit.err"
 grep -q 'rm -rf' "$INACTIVE_ROOT/reinit.err"
 
 # An unchanged manager planning gap may consume at most one model invocation.
-# Changing durable planning state clears the circuit and permits one new try.
+# Changing either the planning implementation or durable planning state clears
+# the circuit and permits one new try.
 PLAN_GAP_ROOT="$TEST_ROOT/planning-gap"
 mkdir -p "$PLAN_GAP_ROOT/repo" "$PLAN_GAP_ROOT/manager-home" "$PLAN_GAP_ROOT/worker-home"
 printf 'test specification\n' > "$PLAN_GAP_ROOT/repo/spec.md"
@@ -2574,7 +2577,7 @@ plan_gap_project="$PLAN_GAP_ROOT/state/projects/planninggapproj"
 grep -q '^State-Fingerprint: sha256:' "$plan_gap_project/control/manager-plan-stalled.md"
 "$HARNESS_BIN/harness-status" --full "$PLAN_GAP_ROOT/harness.env" > "$PLAN_GAP_ROOT/status.out"
 grep -Fq 'Project status: PLANNING_STALLED.' "$PLAN_GAP_ROOT/status.out"
-printf '# operator repaired planning metadata\n' >> "$plan_gap_project/control/project-plan.tsv"
+printf '# repaired planning implementation\n' >> "$PLAN_GAP_ROOT/pending-manager"
 "$HARNESS_BIN/harness-supervisor-start" "$PLAN_GAP_ROOT/harness.env" >/dev/null
 for _ in $(seq 1 50); do
 	[[ "$(cat "$PLAN_GAP_ROOT/state/manager-plan-count")" == 2 ]] && break
@@ -2583,6 +2586,15 @@ done
 sleep 2
 "$HARNESS_BIN/harness-supervisor-stop" "$PLAN_GAP_ROOT/harness.env" >/dev/null
 [[ "$(cat "$PLAN_GAP_ROOT/state/manager-plan-count")" == 2 ]]
+printf '# operator repaired planning metadata\n' >> "$plan_gap_project/control/project-plan.tsv"
+"$HARNESS_BIN/harness-supervisor-start" "$PLAN_GAP_ROOT/harness.env" >/dev/null
+for _ in $(seq 1 50); do
+	[[ "$(cat "$PLAN_GAP_ROOT/state/manager-plan-count")" == 3 ]] && break
+	sleep 0.1
+done
+sleep 2
+"$HARNESS_BIN/harness-supervisor-stop" "$PLAN_GAP_ROOT/harness.env" >/dev/null
+[[ "$(cat "$PLAN_GAP_ROOT/state/manager-plan-count")" == 3 ]]
 
 ORACLE_ROOT="$TEST_ROOT/oracle"
 mkdir -p "$ORACLE_ROOT/repo" "$ORACLE_ROOT/manager-home" "$ORACLE_ROOT/worker-home"

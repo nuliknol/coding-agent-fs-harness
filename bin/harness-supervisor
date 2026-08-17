@@ -131,7 +131,10 @@ planning_gap_state_fingerprint()
 		"$(project_plan_definition_file)" \
 		"$(project_plan_state_file)" \
 		"$(project_decomposition_plan_file)" \
-		"$(architecture_node_bindings_file)"; do
+		"$(architecture_node_bindings_file)" \
+		"$manager_plan_invoker" \
+		"$HARNESS_BIN/manager-publish-planned-task" \
+		"$HARNESS_BIN/manager-publish-task"; do
 		if [[ -f "$file" ]]; then
 			sha256sum "$file"
 		else
