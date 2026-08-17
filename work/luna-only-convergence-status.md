@@ -1,6 +1,6 @@
 # Luna-Only Convergence Implementation Status
 
-Last updated (UTC): 2026-08-17T22:14:27Z
+Last updated (UTC): 2026-08-17T22:16:34Z
 
 Overall status: `IN_PROGRESS`
 
@@ -1039,3 +1039,9 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   validating them. This preserves the structural fuses and removes model-driven
   transcription retries; the regression deliberately submits stale fields and
   verifies the exact compiled task.
+- The COMP4 canary found that the initial build-only predicate was greedy and
+  also matched a valid `cmake --build ... && ./fixture` command. It now inspects
+  only the suffix after the final CMake build and flags the assignment when no
+  post-build command separator exists. Build-only runtime contracts remain
+  rejected, while exact build-and-execute validation passes the existing
+  root-liveness and decomposition regression suites.

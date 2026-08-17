@@ -1004,7 +1004,7 @@ normalize_unique_cmake_target_aliases()
 
 validate_focused_validation_boundary()
 {
-	local validation="$1" success_evidence="${2:-}" lower success_lower
+	local validation="$1" success_evidence="${2:-}" lower success_lower after_build
 	lower="${validation,,}"
 	success_lower="${success_evidence,,}"
 	[[ -n "$validation" ]] || die 'FOCUSED validation requires a nonempty bounded command or evidence boundary'
@@ -1031,8 +1031,10 @@ validate_focused_validation_boundary()
 			'focused leaf requested a repository-wide test-build target' "validation=$validation"
 		die 'FOCUSED validation cannot use a repository-wide test-build target; name the exact executable/test target or use CLEAN_GLOBAL validation'
 	fi
-	if [[ "$success_lower" =~ (execut|runtime|observation|observes|reports|output|status[[:space:]]+row|fixture) ]] &&
-		grep -Eq 'cmake[[:space:]].*--build([[:space:]]|=).*(--target([=[:space:]])[^[:space:];&|]+)?[[:space:]]*$' <<< "$validation"; then
+	after_build="${lower##*cmake --build}"
+	if [[ "$success_lower" =~ (execut|runtime|observation|observes|reports|output|status[[:space:]]+row|fixture) &&
+		"$lower" == *"cmake --build"* && "$after_build" != *"&&"* &&
+		"$after_build" != *";"* && "$after_build" != *"||"* && "$after_build" != *"|"* ]]; then
 		mark_efficiency_warning VALIDATION_CONTRACT_INCOMPLETE "${task_id:--}" \
 			'focused success evidence requires runtime observation but the command ends after compilation' \
 			"success_evidence=$success_evidence validation=$validation"
