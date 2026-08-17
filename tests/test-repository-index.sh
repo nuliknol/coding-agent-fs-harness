@@ -233,4 +233,45 @@ fi
 grep -Fq 'HARNESS_CONTEXT_CLOSURE_MODE requires HARNESS_REPOSITORY_INDEX_MODE=advisory or required' \
 	"$TEST_ROOT/invalid-mode.out"
 
+# Safe-boundary refresh is supervisor-owned. A manager terminal command only
+# records the durable request; the persistent supervisor rebuilds and publishes
+# the new required generation before any later planning turn.
+env_refresh_advisory="$TEST_ROOT/index-refresh-advisory.env"
+env_refresh="$TEST_ROOT/index-refresh.env"
+write_env indexrefresh "$TEST_ROOT/build-a/compile_commands.json" "$TEST_ROOT/bin/scip-clang" \
+	"$env_refresh_advisory"
+sed -e 's/HARNESS_REPOSITORY_INDEX_MODE="advisory"/HARNESS_REPOSITORY_INDEX_MODE="required"/' \
+	-e 's/HARNESS_CONTEXT_CLOSURE_MODE="off"/HARNESS_CONTEXT_CLOSURE_MODE="patch_only"/' \
+	"$env_refresh_advisory" > "$env_refresh"
+printf 'export HARNESS_POLL_SECONDS="1"\nexport HARNESS_USE_INOTIFY="0"\n' >> "$env_refresh"
+chmod 600 "$env_refresh"
+"$HARNESS_BIN/harness-init" "$env_refresh" >/dev/null
+"$HARNESS_BIN/harness-index-repository" "$env_refresh" >/dev/null
+printf '\n/* supervisor refresh boundary */\n' >> "$TEST_ROOT/repo/src/calc.c"
+git -C "$TEST_ROOT/repo" add src/calc.c
+git -C "$TEST_ROOT/repo" -c user.name=test -c user.email=test@example.invalid \
+	commit -qm 'advance refresh fixture'
+(
+	source "$env_refresh"
+	source "$HARNESS_HOME/lib/harness-common.sh"
+	source "$HARNESS_HOME/lib/harness-repository-index.sh"
+	export HARNESS_ENV_FILE="$env_refresh"
+	repository_index_refresh_at_safe_boundary fixture-task ACCEPTED
+)
+refresh_project="$TEST_ROOT/state/projects/indexrefresh"
+test -f "$refresh_project/control/repository-index-refresh.pending.env"
+grep -q 'REPOSITORY_INDEX_REFRESH_SCHEDULED task=fixture-task outcome=ACCEPTED' \
+	"$refresh_project/logs/events.log"
+"$HARNESS_BIN/harness-supervisor-start" "$env_refresh" >/dev/null
+for _ in $(seq 1 200); do
+	grep -Fqx $'status\tREADY' < <("$HARNESS_BIN/harness-index-status" "$env_refresh") &&
+		[[ ! -f "$refresh_project/control/repository-index-refresh.pending.env" ]] && break
+	sleep 0.05
+done
+"$HARNESS_BIN/harness-supervisor-stop" "$env_refresh" >/dev/null
+grep -Fqx $'status\tREADY' < <("$HARNESS_BIN/harness-index-status" "$env_refresh")
+test ! -f "$refresh_project/control/repository-index-refresh.pending.env"
+grep -q 'REPOSITORY_INDEX_REFRESHED task=fixture-task outcome=ACCEPTED.*owner=supervisor' \
+	"$refresh_project/logs/events.log"
+
 printf 'repository index tests passed\n'

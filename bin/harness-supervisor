@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/harness-mode.sh"
 harness_dispatch_mode "$SCRIPT_DIR/.." "${0##*/}" "$@"
 source "$SCRIPT_DIR/../lib/harness-common.sh"
+source "$SCRIPT_DIR/../lib/harness-repository-index.sh"
 
 usage()
 {
@@ -42,6 +43,7 @@ watch_pid=""
 supervisor_exit_status=0
 current_command=""
 oracle_failed_fingerprint=""
+repository_index_failed_fingerprint=""
 declare -A replan_failed_fingerprint=()
 
 log_supervisor_failure()
@@ -73,6 +75,60 @@ fingerprint()
 {
 	local file="$1"
 	stat -c '%i:%s:%Y' "$file"
+}
+
+process_repository_index_refresh()
+{
+	local pending failed task_id outcome reason current status log tmp
+	pending="$dir/control/repository-index-refresh.pending.env"
+	failed="$dir/control/repository-index-refresh.failed.md"
+	[[ -f "$pending" ]] || return 0
+	if repository_index_project_pointer_is_current; then
+		rm -f "$pending" "$failed"
+		repository_index_failed_fingerprint=""
+		return 0
+	fi
+	# A worker or manager-remediation turn may have a preserved tracked diff.
+	# Keep the request durable and allow its review transaction to finish; Luna
+	# remains protected independently by the required closure launch gate.
+	if ! git -C "$REPOSITORY" diff --quiet --ignore-submodules -- ||
+		! git -C "$REPOSITORY" diff --cached --quiet --ignore-submodules --; then
+		return 0
+	fi
+	current="$({ sha256sum "$pending" "$HARNESS_ENV_FILE" "$HARNESS_HOME/VERSION"; git -C "$REPOSITORY" rev-parse HEAD; } | sha256sum | awk '{print "sha256:" $1}')"
+	[[ "$current" != "$repository_index_failed_fingerprint" ]] || return 1
+	task_id="$(kv_file_value "$pending" task_id 2>/dev/null || printf supervisor)"
+	outcome="$(kv_file_value "$pending" outcome 2>/dev/null || printf SAFE_BOUNDARY)"
+	reason="$(kv_file_value "$pending" reason 2>/dev/null || printf stale)"
+	log="$dir/logs/repository-index-refresh-$task_id-$(timestamp_compact_utc).log"
+	log_event "SUPERVISOR_REPOSITORY_INDEX_REFRESH_STARTED task=$task_id outcome=$outcome reason=$reason log=$log"
+	if "$HARNESS_BIN/harness-index-repository" "$HARNESS_ENV_FILE" > "$log" 2>&1; then
+		rm -f "$pending" "$failed"
+		repository_index_failed_fingerprint=""
+		log_event "REPOSITORY_INDEX_REFRESHED task=$task_id outcome=$outcome log=$log owner=supervisor"
+		"$HARNESS_BIN/harness-architecture-scorecard" "$HARNESS_ENV_FILE" \
+			> "$dir/logs/architecture-scorecard-$task_id-$(timestamp_compact_utc).log" 2>&1 ||
+			log_event "ARCHITECTURE_SCORECARD_FAILED task=$task_id outcome=$outcome"
+		return 0
+	else
+		status=$?
+	fi
+	repository_index_failed_fingerprint="$current"
+	tmp="$failed.tmp.$$"
+	{
+		printf '# Repository Index Refresh Failed\n\n'
+		printf 'Project: %s\n\n' "$PROJECT"
+		printf 'Task-ID: %s\n\n' "$task_id"
+		printf 'Outcome: %s\n\n' "$outcome"
+		printf 'State-Fingerprint: %s\n\n' "$current"
+		printf 'Exit-Status: %s\n\n' "$status"
+		printf 'Log: %s\n\n' "$log"
+		printf 'The required index remains fail-closed. Correct the provider failure or restart the supervisor to retry this unchanged request.\n'
+	} > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$failed"
+	log_event "REPOSITORY_INDEX_REFRESH_FAILED task=$task_id outcome=$outcome status=$status log=$log owner=supervisor"
+	return 1
 }
 
 review_state_fingerprint()
@@ -582,6 +638,10 @@ printf 'Supervisor started for %s with PID %s. No LLM is running while idle.\n' 
 
 while true; do
 	process_dependency_requests
+	if ! process_repository_index_refresh; then
+		sleep "$HARNESS_POLL_SECONDS"
+		continue
+	fi
 	if handle_project_completion; then
 		break
 	fi

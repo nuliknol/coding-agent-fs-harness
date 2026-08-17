@@ -275,9 +275,11 @@ repository_index_apply_retention()
 
 repository_index_refresh_at_safe_boundary()
 {
-	local task_id="$1" outcome="$2" accepted_count status=0 log
+	local task_id="$1" outcome="$2" accepted_count pending tmp
 	[[ "$HARNESS_REPOSITORY_INDEX_MODE" != off ]] || return 0
 	if repository_index_project_pointer_is_current; then
+		rm -f "$(project_dir)/control/repository-index-refresh.pending.env" \
+			"$(project_dir)/control/repository-index-refresh.failed.md"
 		return 0
 	fi
 	accepted_count="$(project_plan_complete_count 2>/dev/null || printf 0)"
@@ -287,19 +289,22 @@ repository_index_refresh_at_safe_boundary()
 		log_event "REPOSITORY_INDEX_REFRESH_DEFERRED task=$task_id outcome=$outcome reason=${REPOSITORY_INDEX_POINTER_REASON:-stale} accepted=$accepted_count"
 		return 0
 	fi
-	log="$(project_dir)/logs/repository-index-refresh-$task_id-$(timestamp_compact_utc).log"
-	set +e
-	"$HARNESS_BIN/harness-index-repository" "$HARNESS_ENV_FILE" > "$log" 2>&1
-	status=$?
-	set -e
-	if (( status == 0 )); then
-		log_event "REPOSITORY_INDEX_REFRESHED task=$task_id outcome=$outcome log=$log"
-		"$HARNESS_BIN/harness-architecture-scorecard" "$HARNESS_ENV_FILE" \
-			> "$(project_dir)/logs/architecture-scorecard-$task_id-$(timestamp_compact_utc).log" 2>&1 ||
-			log_event "ARCHITECTURE_SCORECARD_FAILED task=$task_id outcome=$outcome"
-	else
-		log_event "REPOSITORY_INDEX_REFRESH_FAILED task=$task_id outcome=$outcome status=$status log=$log"
-	fi
+	# Manager terminal commands run inside a bounded agent tool action. SCIP and
+	# Joern may legitimately outlive that action, so rebuilding here can be
+	# terminated after the accepted/checkpoint transaction has committed but
+	# before the new generation is published. Hand the durable request to the
+	# persistent supervisor, which serializes it before any new planning turn.
+	pending="$(project_dir)/control/repository-index-refresh.pending.env"
+	tmp="$pending.tmp.$$"
+	{
+		printf 'task_id=%s\n' "$task_id"
+		printf 'outcome=%s\n' "$outcome"
+		printf 'reason=%s\n' "${REPOSITORY_INDEX_POINTER_REASON:-stale}"
+		printf 'requested_at=%s\n' "$(timestamp_utc)"
+	} > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$pending"
+	log_event "REPOSITORY_INDEX_REFRESH_SCHEDULED task=$task_id outcome=$outcome reason=${REPOSITORY_INDEX_POINTER_REASON:-stale} marker=$pending"
 	return 0
 }
 

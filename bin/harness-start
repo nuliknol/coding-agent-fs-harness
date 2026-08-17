@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/harness-mode.sh"
 harness_dispatch_mode "$SCRIPT_DIR/.." "${0##*/}" "$@"
 source "$SCRIPT_DIR/../lib/harness-common.sh"
+source "$SCRIPT_DIR/../lib/harness-repository-index.sh"
 
 usage()
 {
@@ -156,6 +157,26 @@ if ! project_plan_exists && [[ "$HARNESS_REPOSITORY_INDEX_MODE" != off ]]; then
 		die "required repository indexing failed; inspect $index_log"
 	else
 		printf 'Advisory repository indexing unavailable; continuing without Context Closure evidence. Inspect %s\n' "$index_log" >&2
+	fi
+fi
+
+# Existing projects can cross a committed source boundary while an index
+# refresh is pending. On an explicit restart, repair a clean required index
+# before supervisors can plan or publish another Luna leaf. Dirty tracked
+# workspaces are preserved for manager review/remediation and remain protected
+# by the fail-closed worker launch gate.
+if project_plan_exists && [[ "$HARNESS_REPOSITORY_INDEX_MODE" == required ]] &&
+	! repository_index_project_pointer_is_current; then
+	if git -C "$REPOSITORY" diff --quiet --ignore-submodules -- &&
+		git -C "$REPOSITORY" diff --cached --quiet --ignore-submodules --; then
+		index_log="$dir/logs/repository-index-restart-$(timestamp_compact_utc).log"
+		"$HARNESS_BIN/harness-index-repository" "$HARNESS_ENV_FILE" > >(tee "$index_log") 2>&1 ||
+			die "required repository index restart repair failed; inspect $index_log"
+		rm -f "$dir/control/repository-index-refresh.pending.env" \
+			"$dir/control/repository-index-refresh.failed.md"
+		log_event "REPOSITORY_INDEX_RESTART_REPAIRED reason=${REPOSITORY_INDEX_POINTER_REASON:-stale} log=$index_log"
+	else
+		log_event "REPOSITORY_INDEX_RESTART_DEFERRED reason=tracked-worktree-changed enforcement=fail-closed"
 	fi
 fi
 
