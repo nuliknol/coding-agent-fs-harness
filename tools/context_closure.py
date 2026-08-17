@@ -255,6 +255,7 @@ def build_closure(args: argparse.Namespace) -> str:
     bounded_test_candidates_omitted = 0
     expanded_seed_ids: set[str] = set()
     selected_call_edges: set[tuple[str, str, str, str]] = set()
+    selected_reference_boundaries: set[tuple[str, str]] = set()
     required_build_target_names: set[str] = set()
     remaining_calls = args.max_direct_relationships
     requested_classes = dependency_classes(values)
@@ -430,7 +431,24 @@ def build_closure(args: argparse.Namespace) -> str:
                 scoped_symbol_ids = {row["symbol_id"] for row in scoped_references}
                 rows = [row for row in rows if row["symbol_id"] in scoped_symbol_ids]
                 definitions = []
+                # A required symbol may occur many times inside one bounded
+                # implementation file (status constants are the common case).
+                # Every occurrence is equivalent evidence that the requested
+                # symbol is present in the declared boundary. Embedding a
+                # +/-16-line window for every occurrence duplicates heavily
+                # overlapping source, can turn a small leaf into an oversized
+                # capsule, and produces a non-shrinking graph-cut child with
+                # the same path and symbols as its parent. Keep one stable
+                # occurrence per indexed symbol identity; exact definitions,
+                # when present in the boundary, are handled above instead.
+                bounded_scoped_references: list[sqlite3.Row] = []
+                seen_scoped_symbol_ids: set[str] = set()
                 for reference in scoped_references:
+                    if reference["symbol_id"] in seen_scoped_symbol_ids:
+                        continue
+                    seen_scoped_symbol_ids.add(reference["symbol_id"])
+                    bounded_scoped_references.append(reference)
+                for reference in bounded_scoped_references:
                     add_item(items, kind="SCOPED_DECLARATION",
                              path=reference["repository_path"],
                              start=max(1, reference["start_line"] - 16),
@@ -474,6 +492,17 @@ def build_closure(args: argparse.Namespace) -> str:
                     if (is_test and "B" not in requested_classes) or (
                             not is_test and "I" not in requested_classes):
                         continue
+                    # References are supporting navigation evidence. Repeating
+                    # every use of the same symbol inside one interface/test
+                    # file adds no new boundary information and can refill the
+                    # capsule immediately after required evidence was bounded.
+                    reference_boundary = (
+                        "TEST_REFERENCE" if is_test else "INTERFACE_REFERENCE",
+                        reference["repository_path"],
+                    )
+                    if reference_boundary in selected_reference_boundaries:
+                        continue
+                    selected_reference_boundaries.add(reference_boundary)
                     add_item(items, kind="TEST_REFERENCE" if is_test else "INTERFACE_REFERENCE",
                              path=reference["repository_path"], start=reference["start_line"],
                              end=reference["end_line"], symbol=row["display_name"],
@@ -822,7 +851,13 @@ def build_closure(args: argparse.Namespace) -> str:
     # into a deterministic fraction of the complete capsule budget. A worker
     # can request one typed extension later if an omitted direct neighbor is
     # decisive; it must not receive every discoverable neighbor up front.
-    supporting_evidence_budget = max(4096, args.max_bytes // 2)
+    # Reserve most of the complete capsule for required source, normative
+    # authority, build provenance, and the assignment contract. Supporting
+    # navigation is optional and expandable; allowing it to consume half of
+    # max_bytes before those fixed sections are rendered routinely pushes an
+    # otherwise closed leaf just over the final limit. One quarter keeps a
+    # useful bounded neighborhood without manufacturing a decomposition need.
+    supporting_evidence_budget = max(4096, args.max_bytes // 4)
     required_items = [row for row in ordered_items if row["required"] == "REQUIRED"]
     supporting_items = [row for row in ordered_items if row["required"] != "REQUIRED"]
     packed_items = list(required_items)

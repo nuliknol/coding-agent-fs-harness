@@ -217,6 +217,7 @@ class ContextClosureToolsTest(unittest.TestCase):
         connection.close()
 
         status, output = self.closure(
+            extra="Required-Dependency-Classes: D,I,V\n",
             context_paths="calc.h", allowed_scope="calc.h")
 
         self.assertEqual("READY", status)
@@ -226,6 +227,39 @@ class ContextClosureToolsTest(unittest.TestCase):
         self.assertIn("modules\t1\n", (output / "quality.tsv").read_text())
         self.assertIn("preserves the public addition contract",
                       (output / "context.md").read_text())
+
+    def test_scoped_symbol_references_embed_one_stable_occurrence(self):
+        self.repository.joinpath("include").mkdir()
+        self.repository.joinpath("include", "calc.h").write_text(
+            "int first(void) { return add(1, 2); }\n"
+            "int second(void) { return add(3, 4); }\n"
+            "int third(void) { return add(5, 6); }\n",
+            encoding="utf-8")
+        connection = sqlite3.connect(self.database)
+        connection.execute("INSERT INTO files VALUES(2,'g','include/calc.h','c',NULL,1,0)")
+        for region_id, line in enumerate((1, 2, 3), start=2):
+            connection.execute(
+                "INSERT INTO source_regions VALUES(?,?, 'reference','add',?,0,?,40,NULL,'scip-clang')",
+                (region_id, 2, line, line))
+            connection.execute(
+                "INSERT INTO symbol_references VALUES('sym',?,'reference','scip-clang')",
+                (region_id,))
+        connection.commit()
+        connection.close()
+
+        status, output = self.closure(
+            extra="Required-Dependency-Classes: D,I,V\n",
+            context_paths="include/calc.h", allowed_scope="include/calc.h")
+
+        self.assertEqual("READY", status)
+        closure_rows = (output / "closure.tsv").read_text().splitlines()
+        scoped_rows = [row for row in closure_rows if "\tSCOPED_DECLARATION\tinclude/calc.h\t" in row]
+        self.assertEqual(1, len(scoped_rows))
+        interface_rows = [row for row in closure_rows if "\tINTERFACE_REFERENCE\tinclude/calc.h\t" in row]
+        self.assertEqual(1, len(interface_rows))
+        context = (output / "context.md").read_text()
+        self.assertEqual(1, context.count("### SCOPED_DECLARATION:"))
+        self.assertEqual(1, context.count("### INTERFACE_REFERENCE:"))
 
     def test_pure_missing_evidence_still_requests_provider_refresh(self):
         status, output = self.closure(required_symbols="missing")
