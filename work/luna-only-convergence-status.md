@@ -1,6 +1,6 @@
 # Luna-Only Convergence Implementation Status
 
-Last updated (UTC): 2026-08-17T16:32:00Z
+Last updated (UTC): 2026-08-17T16:48:00Z
 
 Overall status: `IN_PROGRESS`
 
@@ -299,6 +299,13 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   remain durable, but they cannot veto the first explicitly authorized
   `LUNA_ONLY_POLICY_MIGRATION` or `CONTEXT_CLOSURE_REPAIR` publication. Normal
   continuations still enforce both budgets unchanged.
+- Crash recovery now recognizes both terminal repair markers and the typed
+  durable evidence written by older deployments. It backfills a permanent
+  `recovery-retired` marker for Context Closure repairs and Luna-only policy
+  migrations before generic orphan recovery runs. This prevents an archived
+  internal transition from being recreated as a ready task after its root has
+  already advanced, and therefore prevents concurrent worker/replanner state
+  on the same root.
 
 ## Validation journal
 

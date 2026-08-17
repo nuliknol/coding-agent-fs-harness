@@ -110,10 +110,38 @@ if [[ "$mode" == --reset-orphaned ]]; then
 			-f "$dir/archive/$base.blocked.md" ||
 			-f "$dir/archive/$base.superseded.md" ||
 			-f "$dir/archive/$base.aborted.assignment.md" ||
-			-f "$dir/control/$base.policy-migrated" ]]; then
+			-f "$dir/control/$base.policy-migrated" ||
+			-f "$dir/control/$base.recovery-retired" ]]; then
 			continue
 		fi
 		root="$(task_root_id "$task_id")"
+		# Internal repair/migration transitions intentionally archive an
+		# assignment without producing a worker result. Older deployments did
+		# not write the terminal marker, so derive and persist it from their
+		# typed durable evidence before generic crash recovery can resurrect the
+		# retired assignment.
+		typed_internal_transition=0
+		if [[ -f "$dir/control/$base.context-closure-repair.env" ]]; then
+			typed_internal_transition=1
+		else
+			replan_file="$(task_root_replan_file "$root")"
+			if [[ -f "$replan_file" ]] &&
+				[[ "$(metadata_value "$replan_file" Triggered-By)" == "$task_id" ]]; then
+				replan_outcome="$(metadata_value "$replan_file" Trigger-Outcome)"
+				case "$replan_outcome" in
+					LUNA_ONLY_POLICY_MIGRATION|CONTEXT_CLOSURE_REPAIR)
+						typed_internal_transition=1
+						;;
+				esac
+			fi
+		fi
+		if (( typed_internal_transition == 1 )); then
+			: > "$dir/control/$base.recovery-retired"
+			chmod 600 "$dir/control/$base.recovery-retired"
+			printf 'TYPED_INTERNAL_ASSIGNMENT_RETIRED task=%s\n' "$task_id"
+			recovered=$((recovered + 1))
+			continue
+		fi
 		item="$(project_plan_item_for_root "$root")"
 		[[ -n "$item" && "$(project_plan_item_status "$item")" == ACTIVE ]] || continue
 		printf 'ORPHAN_ARCHIVED_ASSIGNMENT task=%s reason=incomplete-completion-transaction\n' "$task_id"

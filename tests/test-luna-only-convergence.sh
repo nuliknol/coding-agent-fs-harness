@@ -151,13 +151,24 @@ grep -Fqx 'migrated_liveness_roots=1' "$project/control/luna-only-migration.env"
 test ! -e "$project/results/lunaconvergence-task-004.result.md"
 test -f "$project/archive/lunaconvergence-task-004.policy-migration-result.md"
 test -f "$project/control/lunaconvergence-task-004.policy-migrated"
+test -f "$project/control/lunaconvergence-task-004.recovery-retired"
 grep -Fqx 'Trigger-Outcome: LUNA_ONLY_POLICY_MIGRATION' \
 	"$project/control/progress/lunaconvergence-task-004.needs-replan.md"
 test -f "$project/control/lunaconvergence-task-002.policy-migrated"
+test -f "$project/control/lunaconvergence-task-002.recovery-retired"
 
 # Crash recovery must not reinterpret an intentionally archived migration
-# assignment as an interrupted worker completion and recreate the old task.
-"$ROOT/bin/harness-recover" "$TMP/harness.env" >/dev/null
+# or Context Closure repair assignment as an interrupted worker completion and
+# recreate the old task. Also cover an archive produced by the older deployment
+# before terminal transaction markers existed.
+rm -f "$project/control/lunaconvergence-task-002.policy-migrated" \
+	"$project/control/lunaconvergence-task-002.recovery-retired"
+recovery_output="$("$ROOT/bin/harness-recover" "$TMP/harness.env" --reset-orphaned)"
+grep -Fq 'TYPED_INTERNAL_ASSIGNMENT_RETIRED task=002' <<< "$recovery_output"
+grep -Fq 'TYPED_INTERNAL_ASSIGNMENT_RETIRED task=001' <<< "$recovery_output"
+test -f "$project/control/lunaconvergence-task-001.recovery-retired"
+test -f "$project/control/lunaconvergence-task-002.recovery-retired"
+test ! -e "$project/tasks/lunaconvergence-task-001.ready.md"
 test ! -e "$project/tasks/lunaconvergence-task-002.ready.md"
 test ! -e "$project/tasks/lunaconvergence-task-004.ready.md"
 test ! -e "$project/control/progress/lunaconvergence-task-003.architecture-reassessment-required.md"

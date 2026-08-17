@@ -47,6 +47,8 @@ if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
 		chmod 600 "$archive"
 		: > "$dir/control/$base.policy-migrated"
 		chmod 600 "$dir/control/$base.policy-migrated"
+		: > "$dir/control/$base.recovery-retired"
+		chmod 600 "$dir/control/$base.recovery-retired"
 		mark_root_needs_replan "$task_id" \
 			"The unreviewed result came from a pre-policy manager-remediation assignment. Retain its workspace delta only as unaccepted tracked-overlay evidence, then verify it through closed Luna-sized child criteria." \
 			LUNA_ONLY_POLICY_MIGRATION >/dev/null
@@ -74,6 +76,8 @@ if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
 		chmod 600 "$archive"
 		: > "$dir/control/$(task_base "$task_id").policy-migrated"
 		chmod 600 "$dir/control/$(task_base "$task_id").policy-migrated"
+		: > "$dir/control/$(task_base "$task_id").recovery-retired"
+		chmod 600 "$dir/control/$(task_base "$task_id").recovery-retired"
 		mark_root_needs_replan "$task_id" \
 			"The installed assignment used a pre-policy Terra/manager route. Preserve its root authority and verified checkpoints, then split the first unmet criterion into Luna-sized children." \
 			LUNA_ONLY_POLICY_MIGRATION >/dev/null
