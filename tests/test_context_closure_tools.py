@@ -341,6 +341,19 @@ class ContextClosureToolsTest(unittest.TestCase):
         self.assertIn("semantic_gpu_architecture = \"matched\"",
                       (output / "context.md").read_text())
 
+    def test_unused_context_directory_is_a_boundary_not_missing_evidence(self):
+        self.repository.joinpath("tests").mkdir()
+        self.repository.joinpath("tests", "unrelated.c").write_text(
+            "int unrelated(void) { return 0; }\n", encoding="utf-8")
+
+        status, output = self.closure(
+            context_paths="calc.c,tests", allowed_scope="calc.c",
+            required_symbols="add")
+
+        self.assertEqual("READY", status)
+        self.assertNotIn("CONTEXT_PATH\ttests", (output / "unresolved.tsv").read_text())
+        self.assertNotIn("tests/unrelated.c", (output / "closure.tsv").read_text())
+
     def test_required_symbol_build_target_alias_uses_indexed_validation_boundary(self):
         connection = sqlite3.connect(self.database)
         connection.execute(

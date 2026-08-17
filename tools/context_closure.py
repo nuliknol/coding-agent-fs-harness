@@ -781,11 +781,22 @@ def build_closure(args: argparse.Namespace) -> str:
         repository_path = safe_repository_path(repository, normalized)
         if repository_path is not None and repository_path.is_dir():
             # A directory is an evidence boundary, not an instruction to dump
-            # every descendant file. Exact symbol/file seeds must select the
-            # structural regions inside it.
+            # every descendant file. Exact symbol/file/build/test seeds select
+            # structural regions inside it when the assignment actually needs
+            # them. A directory that contains mutable Allowed-Scope still must
+            # have an exact structural seed. An otherwise unused read-only
+            # directory is a zero-evidence boundary, not missing required
+            # evidence: rejecting it makes the recovery loop ask Luna to invent
+            # an unrelated descendant path even when every Required-Symbol is
+            # already closed elsewhere.
             prefix = normalized + "/"
-            if not any(item["path"] == normalized or item["path"].startswith(prefix)
-                       for item in items.values()):
+            has_selected_evidence = any(
+                item["path"] == normalized or item["path"].startswith(prefix)
+                for item in items.values())
+            contains_mutation_scope = any(
+                scope.rstrip("/") == normalized or scope.startswith(prefix)
+                for scope in allowed_scopes)
+            if contains_mutation_scope and not has_selected_evidence:
                 unresolved.append(("CONTEXT_PATH", normalized,
                                    "directory path has no exact required symbol or file evidence seed"))
             continue

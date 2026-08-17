@@ -853,3 +853,17 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   terminated. The two anomaly-paused supervisors were stopped before deploy so
   they cannot perform background maintenance until their incident records are
   explicitly resolved.
+- Commit `9813147` was deployed through the required dev-push/production-pull
+  path. Both anomaly records were resolved with `PRESERVE`, their amplified
+  goal threads were rotated, and COMP3/DPVIS restarted from the existing
+  `NEEDS_REPLAN` boundaries. Both supervisors launched fresh Luna manager
+  remediation rather than replaying a review or remaining paused.
+- The first new DPVIS publication exposed a separate deterministic closure
+  admission defect. Revision 57 had exact indexed/overlay definitions for both
+  `dpv_render_compile` and `validate_payload`; its only unresolved row was the
+  extra read-only `tests/render_compile` directory, because no descendant was
+  selected. Context Closure now distinguishes a directory that contains
+  mutable `Allowed-Scope` (which still requires an exact structural seed) from
+  an otherwise unused read-only evidence boundary (which contributes zero
+  evidence and is not missing evidence). The 30-test closure suite covers both
+  cases and passes.
