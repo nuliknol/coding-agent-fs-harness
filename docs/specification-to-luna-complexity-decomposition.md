@@ -2,9 +2,9 @@
 
 Status: as-built architecture and improvement guide
 
-Repository baseline reviewed: `36e0338` (`main`)
+Repository baseline reviewed: `bbe211d` (`main`, 2026-08-17)
 
-Primary scope: Full mode with decomposition v2, leaf-goal execution, Luna-first routing, and architecture guards
+Primary scope: Full mode with decomposition v2, leaf-goal execution, Luna-first and Luna-only operation, Context Closure, and architecture guards
 Audience: software architects, technical program managers, agent-platform engineers, reliability engineers, and maintainers of the coding harness
 
 ## Executive summary
@@ -19,11 +19,11 @@ human product authority
   -> normalized obligations and typed relations
   -> architecture-fit decision
   -> immutable executable DAG and obligation coverage
-  -> measured complexity and Luna/Terra routing
+  -> measured complexity and policy-valid worker routing
   -> architecture bindings and cumulative health gates
   -> one dependency-ready root assignment
   -> one first-unmet leaf goal and bounded context capsule
-  -> bounded worker episodes
+  -> bounded Luna worker episodes, or a closed patch transaction
   -> independent manager verification and durable evidence
   -> complete obligation coverage
   -> optional independent Oracle audit
@@ -35,20 +35,24 @@ The architecture's strongest properties are:
 
 - specification authority is separated from repository observations and planning hints;
 - every installed DAG node must be executable, topologically valid, covered by at least one normalized obligation, and independently acceptance-complete;
-- routine coding is forced toward `LOW`/`LUNA`, while unresolved decisions and irreducible boundaries use explicit Terra exception classes;
+- routine coding is forced toward `LOW`/`LUNA`; in `luna_only` mode every
+  executable boundary, including planning, review, remediation, and final
+  audit, is executed by the configured Luna model;
 - Luna admission uses a multidimensional resource contract rather than a subjective `small` label;
 - assignments copy immutable DAG fields and architecture bindings, so a manager cannot silently broaden a leaf;
 - worker progress, checkpoints, reviews, commits, architecture impacts, and recovery transitions are durably recorded;
+- non-ready Context Closure admission is a typed internal recovery transaction,
+  not a synthetic worker result or a paid manager-review turn;
 - only a terminal worker result wakes the manager; ordinary waiting is performed by token-free Bash supervisors;
 - coverage, architecture health, debt, and optionally every normalized obligation are independently checked at completion.
 
 The most important opportunities for improvement are:
 
 1. Replace the long Luna protocol with a generated, leaf-type-specific execution contract and move more transaction mechanics out of the model.
-2. Make semantic atomicity, repair-authority closure, and validation locality machine-checkable instead of relying substantially on planner instructions.
+2. Make semantic atomicity, repair-authority closure, and validation locality machine-checkable instead of relying substantially on planner instructions. The current closure-graft compiler is an important first implementation of this rule.
 3. Consolidate Markdown, TSV, and key/value schemas into one versioned typed schema and compiler library.
 4. Treat decomposition quality as an empirically evaluated product with current-v5 benchmarks, replayable planner evals, and outcome-stratified calibration.
-5. Promote repository Context Closure from optional evidence to an earned, benchmark-gated Luna admission control.
+5. Promote repository Context Closure from optional evidence to an earned, benchmark-gated Luna admission control; use `patch_only` only after its closed-context cohort has earned that authority.
 6. Generate node-local criteria and worker packages directly from the accepted DAG to remove a late manager-authored interpretation layer.
 7. Introduce parallel DAG waves only after isolated worktrees, merge ownership, and cross-leaf validation semantics exist; the current implementation is deliberately serial.
 
@@ -86,7 +90,7 @@ The harness decomposes four different kinds of complexity:
 | Complexity | Source | Reduction mechanism | Luna-visible result |
 |---|---|---|---|
 | Product complexity | Normative requirements, compatibility promises, completion rules | Atomic obligations and typed semantic relations | Only obligations allocated to the leaf |
-| Architecture complexity | Ownership, public contracts, representations, decisions, concurrency, integration | Terra decision nodes, architecture registry, edge contracts, health gates | Resolved decisions and exact affected contracts |
+| Architecture complexity | Ownership, public contracts, representations, decisions, concurrency, integration | Accepted decision/evidence stages, architecture registry, edge contracts, health gates | Resolved decisions and exact affected contracts |
 | Repository complexity | Paths, symbols, producers, consumers, build targets, tests | Repository facts, index, symbol locations, Context Closure | Bounded paths, symbols, definitions, tests, and build targets |
 | Execution complexity | Number of concerns, failures, actions, files, validations, tokens | Measured complexity vector, routing rules, process and goal fuses | A bounded action and turn budget |
 
@@ -115,13 +119,66 @@ An architect should judge the decomposition architecture by the following outcom
 
 Route share alone is not a success metric. Forcing 95% of leaves onto Luna while increasing retries, manager reviews, or escaped defects would be a regression.
 
+### 1.5 Operating profiles: compatibility versus Luna-only convergence
+
+The harness supports two deliberately different model policies. They share the
+same specification authority, decomposition artifacts, validation, and durable
+state. They differ only in whether stronger-model escalation is permitted.
+
+| Policy | Purpose | Routing rule when a boundary is difficult | Process-launch rule |
+|---|---|---|---|
+| `legacy` | Preserve compatibility with existing Full-v2 projects while the Luna-only system is promoted | A measured, explicitly justified Terra exception may execute a decision or irreducible integration boundary | Roles use their configured Luna, Terra, Sol, or Oracle models |
+| `luna_only` | The target complexity-decomposition product: make a small model sufficient through better compilation and recovery | Recursively decompose, compile a closure repair, add a local remediation stage, or request genuine human product authority; never escalate the coding problem to Terra/Sol | Every inference role is normalized to `LUNA_WORKER_MODEL`; the launcher rejects a non-Luna model, `worker_terra`, or a non-Luna DAG route |
+
+`HARNESS_MODEL_POLICY=luna_only` requires
+`HARNESS_ESCALATION_POLICY=decompose`. This is not a claim that every
+repository problem is locally solvable. It preserves the narrow real-human
+boundaries—missing authorization or secret, external manual state, and two
+incompatible observable outcomes not resolved by the specification. Everything
+else is engineering evidence that must improve the decomposition, context,
+scope, validation prerequisite, or repair path.
+
+This distinction is central. A Luna-only project does not relabel a hard task
+as easy; it makes the hard boundary explicit, preserves it as durable
+authority, and emits the next smallest independently verifiable Luna stage.
+Historical Terra rows may remain immutable evidence in a migrated project, but
+activation decomposes their first unmet acceptance boundary into ordered
+Luna-sized criteria rather than executing the old route.
+
+The Luna-only implementation is functional but its production-convergence
+promotion remains in progress. Its status document is deliberately linked in
+the source map: use benchmarked completion, false-block, and defect-escape
+evidence—not the existence of the switch—as the authority to make it the
+default for a repository cohort.
+
+### 1.6 What makes this viable above one million lines of code
+
+At this scale, a model cannot safely compensate for weak decomposition by
+searching more of the repository. The system must reduce both *semantic* and
+*navigation* complexity before a worker starts:
+
+| Project-scale problem | Required compiled boundary | What Luna receives instead |
+|---|---|---|
+| Millions of source lines and generated/external trees | Immutable repository index, bounded architecture slice, and exact source/symbol windows | Only the definition, direct contract, producer/consumer evidence, test, and build target needed for the leaf |
+| Hundreds of requirements and cross-cutting invariants | Normalized obligations, typed relations, coverage, architecture bindings, and conserved child facets | Only the allocated obligations and applicable invariant/edge/decision facts |
+| Large and changing workspace | Baseline digest plus tracked-worktree overlay with provenance | Live locations for the declared seam, not an assumption that a stale global index is correct |
+| Broad failure output and hidden build topology | One assigned validation plus normalized diagnostic ledger and authorized build-owner context | One causal failure boundary, not megabytes of logs or a global build investigation |
+| A failure that crosses the leaf boundary | Typed closure repair, graph-cut graft, or bounded local remediation | A smaller child seam or one exact new fact—not unrestricted discovery |
+
+The intended scaling law is therefore *constant-size worker context with
+project-proportional compiler/index work and durable evidence*. The exact
+capsule budgets are policy choices, but the architectural invariant is not:
+the worker's context, mutation authority, validation surface, and recovery
+authority must remain bounded even as repository size grows. If they grow with
+the codebase, the project has not been decomposed for Luna.
+
 ## 2. Architectural principles
 
 The as-built system embodies the following principles.
 
 ### 2.1 Authority must become narrower, never looser
 
-The human specification is product authority. Repository facts can explain how the current system works, but cannot invent product behavior. The Sol planner can choose implementation boundaries, but cannot change observable outcomes. The manager can choose the next node-local criterion and recovery strategy, but cannot expand the immutable node contract. Luna can edit only its allowed scope and cannot amend the accepted specification.
+The human specification is product authority. Repository facts can explain how the current system works, but cannot invent product behavior. The decomposition planner can choose implementation boundaries, but cannot change observable outcomes. The manager can choose the next node-local criterion and recovery strategy, but cannot expand the immutable node contract. Luna can edit only its allowed scope and cannot amend the accepted specification.
 
 The intended monotonic authority chain is:
 
@@ -136,9 +193,20 @@ specification authority
 
 Each `>=` means “contains at least the semantic authority of,” not “is textually larger than.” A downstream artifact may add repository coordinates and execution detail, but must not add a product requirement.
 
-### 2.2 Separate decisions from coding
+### 2.2 Separate decisions from routine coding, then compile both into Luna-sized proof stages
 
-Public contract design, cross-component architecture, concurrency protocols, unresolved ambiguity, and unexplained integration are Terra work. Once those decisions are accepted, their routine implementation descendants should normally become Luna work.
+In the compatibility profile, public contract design, cross-component
+architecture, concurrency protocols, unresolved ambiguity, and unexplained
+integration may use explicit Terra exception nodes. Once those decisions are
+accepted, their routine implementation descendants normally become Luna work.
+
+In `luna_only`, those same concerns cannot become a stronger-model escape
+hatch. The planner expresses them as ordered evidence, compatibility,
+producer/consumer, migration, or focused verification stages, each with one
+Luna-sized acceptance boundary. If governing product authority does not choose
+between incompatible observable outcomes, it requests clarification instead of
+guessing. If a local prerequisite is missing, the manager creates a bounded
+Luna remediation stage instead of declaring a human or model-capability block.
 
 This prevents a broad project from being routed wholesale to Terra merely because one decision is difficult.
 
@@ -152,7 +220,13 @@ The measured v2 schema rejects planner/grouping-only rows. `parent_id` can expre
 
 ### 2.5 One terminal verifier owns acceptance
 
-The worker's `COMPLETE` outcome is an assessment, not acceptance. A Terra manager independently inspects the bounded diff and evidence and runs focused validation before checkpointing or accepting. An optional fresh Oracle independently rechecks final traceability and evidence.
+The worker's `COMPLETE` outcome is an assessment, not acceptance. An independent
+manager review inspects the bounded diff and evidence and runs focused
+validation before checkpointing or accepting. An optional fresh Oracle
+independently rechecks final traceability and evidence. The reviewer is Terra
+in the compatibility profile and the same configured Luna model under
+`luna_only`; independence comes from a fresh bounded role and durable evidence,
+not necessarily a larger model.
 
 ### 2.6 Durable filesystem state outranks conversational memory
 
@@ -166,21 +240,21 @@ flowchart TD
     B --> C[Specification reviewer]
     C -->|clarification| C1[Structured human clarification request]
     C -->|accept| D[Specification IR: obligations, relations, facts]
-    D --> E[Sol architecture-fit critic]
+    D --> E[Architecture-fit critic]
     E -->|IR defect| C
     E -->|product ambiguity| C1
     E -->|foundational conflict| E1[Architecture redesign request or audited force waiver]
-    E -->|fit accepted| F[Sol DAG construction]
+    E -->|fit accepted| F[DAG construction]
     F --> G[Staged DAG and coverage]
     G --> H[Deterministic schema, coverage, relation, complexity, and context checks]
     H -->|repairable defect| F1[Bounded repair or deterministic normalization]
-    H -->|valid| I[Fresh Sol architecture binding]
+    H -->|valid| I[Fresh architecture binding]
     I --> J[Atomic plan, coverage, complexity, and architecture installation]
-    J --> K[Terra manager publishes first dependency-ready node]
+    J --> K[Manager publishes first dependency-ready node]
     K --> L[Immutable root assignment and bounded worker capsule]
     L --> M{Worker route}
     M -->|LOW routine coding| N[Luna leaf-goal worker]
-    M -->|Irreducible decision/integration| O[Terra leaf worker]
+    M -->|Legacy explicit exception only| O[Terra leaf worker]
     N --> P{Worker goal outcome}
     O --> P
     P -->|CONTINUE| Q[Durable iteration receipt and optional semantic continuation review]
@@ -200,7 +274,7 @@ flowchart TD
     W -->|FAIL true external authority| Y[Human approval required]
 ```
 
-The token-consuming roles and their current default models are:
+The compatibility-profile defaults are:
 
 | Role | Default model | Main responsibility | Repository mutation |
 |---|---|---|---|
@@ -213,6 +287,12 @@ The token-consuming roles and their current default models are:
 | Decision/integration worker | `TERRA_WORKER_MODEL`, default manager model | Resolve irreducible boundaries | Only assignment scope |
 | Final Oracle | `ORACLE_MODEL`, default `gpt-5.6-sol` when enabled | Independent requirement and architecture audit | No direct source mutation |
 | Manager and worker supervisors | Bash | Watch atomic filesystem transitions and launch bounded turns | Harness state only |
+
+Under `luna_only`, the model column above is intentionally overridden: every
+token-consuming role uses `LUNA_WORKER_MODEL`, and any attempt to launch a
+different model or a `worker_terra` role is rejected by the process launcher.
+The named roles remain useful because they retain distinct authority, prompt,
+and artifact boundaries.
 
 ## 4. The end-to-end decomposition pipeline
 
@@ -284,7 +364,8 @@ Implementation references: [specification writing directions](../harness-spefica
 
 ### Stage 2: review, ground, and normalize the specification
 
-Actor: specification reviewer, normally Terra.
+Actor: specification reviewer; normally Terra in the compatibility profile and
+the configured Luna model in `luna_only`.
 
 Inputs:
 
@@ -374,7 +455,8 @@ Implementation references: [manager-review-specification](../bin/manager-review-
 
 ### Stage 3: challenge architecture fit before planning leaves
 
-Actor: fresh Sol architecture-fit critic.
+Actor: fresh architecture-fit critic; normally Sol in the compatibility profile
+and the configured Luna model in `luna_only`.
 
 Inputs:
 
@@ -398,7 +480,13 @@ The critic has four permitted outcomes:
 
 Foundational redesign classes are limited to ownership, transaction, migration, dependency direction, foundational contract authority, observability seam, critical invariant, and resource model conflicts. Ordinary missing implementation, ugly code, local refactoring, or architecture changes already authorized by the feature are not redesign blockers.
 
-An operator can use `--force-decomposition`, but the finding is retained. The resulting DAG must include prerequisite Terra architecture nodes, critical debt records, focused critical health gates, and dependencies that prevent affected Luna leaves from starting early.
+An operator can use `--force-decomposition`, but the finding is retained. In
+the compatibility profile, the resulting DAG must include prerequisite Terra
+architecture nodes, critical debt records, focused critical health gates, and
+dependencies that prevent affected Luna leaves from starting early. In
+`luna_only`, the waiver must instead be represented by ordered, bounded
+Luna-executable remediation/evidence stages; the debt and health-gate controls
+remain unchanged.
 
 Architectural purpose:
 
@@ -408,7 +496,8 @@ Implementation references: [manager-architecture-fit-critic](../bin/manager-arch
 
 ### Stage 4: construct the immutable executable DAG
 
-Actor: fresh Sol DAG constructor.
+Actor: fresh DAG constructor; normally Sol in the compatibility profile and the
+configured Luna model in `luna_only`.
 
 Inputs:
 
@@ -442,7 +531,7 @@ The measured DAG has exactly twenty fields:
 | 8 | `required_symbols` | Named semantic entry points |
 | 9 | `leaf_type` | Execution category |
 | 10 | `complexity_class` | `LOW`, `MEDIUM`, or `HIGH` |
-| 11 | `worker_route` | `LUNA` or `TERRA` |
+| 11 | `worker_route` | `LUNA` or `TERRA`; `luna_only` accepts only `LUNA` |
 | 12 | `behavioral_concerns` | Independent observable behaviors |
 | 13 | `failure_paths` | Independently injectable/typed failures |
 | 14 | `ownership_transitions` | Ownership or lifetime transfers |
@@ -451,7 +540,7 @@ The measured DAG has exactly twenty fields:
 | 17 | `implementation_files` | Expected changed implementation files |
 | 18 | `predicted_worker_actions` | Conservative agent-action upper bound |
 | 19 | `predicted_p95_tokens` | Conservative fresh-worker processed-token p95 |
-| 20 | `terra_exception` | Explicit irreducible Terra boundary or `-` |
+| 20 | `terra_exception` | Explicit legacy Terra boundary or `-`; always `-` in `luna_only` |
 
 All rows execute. A conceptual group with children is invalid if it is not itself an acceptance-complete executable leaf.
 
@@ -478,7 +567,7 @@ This is the central decomposition pass: it converts the global proof graph into 
 
 Implementation references: [manager-decomposition-critic](../bin/manager-decomposition-critic), [manager-stage-decomposition-dag](../bin/manager-stage-decomposition-dag), the [DAG template](../templates/project-plan-template.tsv), and the [coverage template](../templates/specification-coverage-template.tsv).
 
-### Stage 5: measure complexity and select Luna or Terra
+### Stage 5: measure complexity and choose decomposition before escalation
 
 The planner declares a complexity vector, but the harness recomputes deterministic floors from coverage, obligation types, paths, symbols, and semantic keywords. A subjective `LOW` label cannot override an over-budget dimension.
 
@@ -550,7 +639,7 @@ Allowed Luna leaf types:
 - `DOCUMENTATION`
 - `VERIFICATION_ONLY`
 
-Terra-only leaf types:
+In the compatibility profile, these leaf types are Terra-only:
 
 - `CONTRACT_DESIGN`
 - `CROSS_COMPONENT_ARCHITECTURE`
@@ -558,7 +647,7 @@ Terra-only leaf types:
 - `AMBIGUOUS_SPECIFICATION`
 - `INTEGRATION`
 
-Every measured Terra leaf requires exactly one exception:
+Every measured compatibility-profile Terra leaf requires exactly one exception:
 
 - `CONTRACT_DECISION`
 - `ARCHITECTURE_DECISION`
@@ -567,17 +656,31 @@ Every measured Terra leaf requires exactly one exception:
 - `UNEXPLAINED_INTEGRATION`
 - `IRREDUCIBLE_CROSS_BOUNDARY`
 
-New typed plans must route at least 80% of coding-eligible nodes to Luna by default. Terra-only decision, verification-only, and integration nodes do not dilute this denominator.
+New typed plans must route at least 80% of coding-eligible nodes to Luna by
+default. Terra-only decision, verification-only, and integration nodes do not
+dilute this denominator.
+
+In `luna_only`, the route share target becomes a hard route invariant: every
+new executable node must be `LOW`/`LUNA` with `terra_exception=-`. A broad
+legacy decision or integration node is retained only as immutable semantic
+authority during migration; at activation its first unmet criterion is split
+into at least two ordered, independently verifiable children. The child
+assignment is measured independently and must stay within the Luna file, turn,
+action, score, token, scope, symbol, and focused/incremental-validation limits.
 
 Architectural purpose:
 
-Complexity becomes a rejection contract, not an adjective. Over-budget routine coding must be split; it cannot be hidden by routing it to Terra.
+Complexity becomes a rejection contract, not an adjective. Over-budget routine
+coding must be split; it cannot be hidden by routing it to Terra. In
+`luna_only`, the same rule applies to every boundary: lack of model capacity is
+decomposition feedback, never a reason to reintroduce a stronger model.
 
 Implementation reference: `write_decomposition_complexity_report` and `initialize_project_plan_v2` in [harness-common.sh](../lib/harness-common.sh).
 
 ### Stage 6: bind the fixed DAG to architecture controls
 
-Actor: a second fresh Sol architecture-binding planner.
+Actor: a second fresh architecture-binding planner; normally Sol in the
+compatibility profile and the configured Luna model in `luna_only`.
 
 The DAG and coverage are fixed before this stage. The binder is not allowed to redesign or re-decompose them.
 
@@ -596,7 +699,9 @@ Important rules:
 
 - every DAG node has exactly one binding;
 - only `SPECIFIED` and necessary `DERIVED` invariants constrain work;
-- Terra decision nodes produce decisions; dependent Luna nodes consume accepted decisions;
+- compatibility-profile Terra decision nodes produce decisions; dependent Luna
+  nodes consume accepted decisions. In `luna_only`, an equivalent ordered
+  Luna evidence/remediation stage produces the decision record;
 - architecture edges represent semantic contracts, not every scheduling dependency;
 - a consumer cannot start before its decision and edge producers are accepted;
 - executable validations must be real commands or explicit `FOCUSED:`, `INCREMENTAL:`, or `CLEAN_GLOBAL:` review descriptors;
@@ -634,7 +739,11 @@ Only after all checks pass are these authoritative files installed:
 - decomposition provenance;
 - architecture registry and ledgers.
 
-Rejected candidates remain durable with a complete rejection log. `harness-start` routes known mechanical defects through deterministic repair commands and uses bounded Sol repair turns for semantic or ambiguous defects. Repeated identical deterministic diagnostics stop further paid repair turns.
+Rejected candidates remain durable with a complete rejection log. `harness-start`
+routes known mechanical defects through deterministic repair commands and uses
+bounded repair turns for semantic or ambiguous defects. The compatibility
+profile normally uses Sol for this role; `luna_only` uses Luna and preserves
+the same bounded, no-identical-diagnostic guard.
 
 Architectural purpose:
 
@@ -644,7 +753,8 @@ Implementation reference: [manager-submit-decomposition](../bin/manager-submit-d
 
 ### Stage 8: publish exactly one dependency-ready root assignment
 
-Actor: Terra manager bootstrap or planning turn.
+Actor: manager bootstrap or planning turn; normally Terra in the compatibility
+profile and the configured Luna model in `luna_only`.
 
 The project plan has states `PENDING`, `ACTIVE`, and `COMPLETE`. Dependencies must be complete before a node becomes ready. Only one plan item may be active.
 
@@ -686,7 +796,13 @@ The publisher generates a task-specific capsule containing:
 
 For measured Luna leaves, the capsule must be no larger than 32 KiB by default.
 
-When repository intelligence is enabled, an additional compiled Context Closure may include exact definitions, interfaces, tests, ownership evidence, build targets, and normative authority. Context Closure states are:
+When repository intelligence is enabled, an additional compiled Context Closure
+may include exact definitions, interfaces, tests, ownership evidence, build
+targets, and normative authority. It is provenance-bound to the immutable
+index, the assignment, and—when enabled—a digest of the live tracked-worktree
+overlay. The overlay can relocate stale source coordinates within declared
+paths and supply a newly introduced required symbol without pretending that an
+old global index is current. Context Closure states are:
 
 | State | Meaning |
 |---|---|
@@ -694,7 +810,35 @@ When repository intelligence is enabled, an additional compiled Context Closure 
 | `INCOMPLETE` | Required authority, symbol, configuration, or provider evidence is missing |
 | `NEEDS_FURTHER_DECOMPOSITION` | Graph or context budgets require cohesive cuts |
 
-Modes are `off`, `advisory`, `required`, and `patch_only`. Required mode rejects a non-ready Luna leaf before launching Luna. Promotion should occur only after local benchmarks satisfy sample, recall, Luna-completion, and false-block thresholds.
+Modes are `off`, `advisory`, `required`, and `patch_only`.
+
+- `off` leaves repository intelligence out of admission.
+- `advisory` compiles and measures a closure while the normal worker retains
+  bounded repository access.
+- `required` admits only a `READY` closure.
+- `patch_only` is `required` plus a tool-less Luna invocation that can return
+  one standard Git patch for trusted application and validation.
+
+In a compatibility project, a non-ready required leaf is returned to the
+normal decomposition/review path. In a Luna-only project it takes an internal,
+idempotent `CLOSURE_REPAIR` transition: the claimed assignment is archived,
+its lease is released, and the active root/progress remain intact. The repair
+ledger records an exact `condition`, `repair_action`, and `repair_provider`.
+It therefore does not manufacture a worker result or spend a manager-review
+inference merely to restate deterministic closure evidence.
+
+`GRAFT_GRAPH_CUTS` compiles two or more indexed child seams into an ordered,
+append-only criterion graft. The graft carries separate mutation and context
+paths plus machine-owned facets for obligations, invariants, decisions, edges,
+and health gates. Publication recompiles and byte-compares it before accepting
+the first child assignment, so a microplanner cannot broaden its scope or lose
+semantic authority. Pure missing index/overlay evidence takes the distinct
+refresh repair path; a mixed resource/evidence failure prefers usable graph
+cuts over an unnecessary rediscovery loop.
+
+Promotion to `required` or `patch_only` should occur only after local
+benchmarks satisfy the configured sample, recall, Luna-completion, and
+false-block thresholds.
 
 Current Context Closure defaults are:
 
@@ -715,7 +859,14 @@ Current Context Closure defaults are:
 
 These are as-built defaults in `harness-common.sh`; individual project environments can override them. Promotion is cohort-specific evidence, not a global claim that every repository index is complete.
 
-The worker prompt embeds both assignment and capsule. It instructs Luna not to reopen global specification, plan, progress, architecture, or harness-control files. Source inspection is limited to context and allowed paths, one bounded source window per action, with line, byte, and column limits.
+The normal worker prompt embeds both assignment and capsule. It instructs Luna
+not to reopen global specification, plan, progress, architecture, or
+harness-control files. Source inspection is limited to context and allowed
+paths, one bounded source window per action, with line, byte, and column
+limits. The `patch_only` prompt is intentionally smaller: it carries the
+trusted assignment and closure, forbids shell/filesystem/search tools, and
+requires a single fenced Git diff plus structured terminal metadata. This is a
+reasoning firewall, not merely a shorter prompt.
 
 Architectural purpose:
 
@@ -725,7 +876,11 @@ Implementation references: the capsule generator in [manager-publish-task](../bi
 
 ### Stage 10: execute one logical leaf goal through bounded worker episodes
 
-The worker supervisor watches for a ready assignment, claims it atomically, creates a session and lease, starts an automatic heartbeat, chooses Luna or Terra from `Worker-Route`, and launches a non-interactive Codex process.
+The worker supervisor watches for a ready assignment, claims it atomically,
+creates a session and lease, starts an automatic heartbeat, chooses the
+policy-valid route, and launches a non-interactive Codex process. In
+`luna_only`, the launcher independently rejects any non-Luna role or model even
+if a stale assignment or caller escaped an earlier validator.
 
 One logical leaf can span several bounded processes:
 
@@ -759,6 +914,22 @@ Terminal outcomes are:
 The worker result also contains a structured architecture impact manifest: public symbols, representations, ownership, serialization, dependencies, affected invariants, and affected edges.
 
 Source changes must be committed through the harness's controlled, path-bounded Git transaction. Direct Git history mutation, generated output, binaries, ignored paths, undeclared paths, and unrelated changes are rejected.
+
+For `patch_only`, the trusted runner owns the edit transaction as well as the
+validation transaction. It parses one patch, validates its baseline and scope,
+applies it, runs the assigned focused validation, and rolls the patch back
+before a retry if that validation fails. Validation output is normalized into a
+compact ledger (compiler, linker, CTest, sanitizer, assertion, generic, or
+opaque failure), retaining the full raw log on disk. Luna may receive only the
+typed diagnostic delta on the same thread for at most
+`HARNESS_PATCH_ONLY_MAX_VALIDATION_ROUNDS` total attempts (default three).
+An unchanged consecutive semantic diagnostic set terminates immediately into
+deterministic decomposition; occurrence counts and raw-log digests are not
+false progress. Patch-only Luna may request only five trusted context
+extensions—type definition, direct caller contract, failing assertion, build
+owner, or representation writer—each authorized from assignment seeds or a
+direct graph neighbor and bounded by byte and per-leaf limits. It never earns
+general repository search or a stronger-model fallback.
 
 Architectural purpose:
 
@@ -820,7 +991,14 @@ When ordinary convergence fails, the manager must use one materially different s
 
 The strategy must change machine-checkable scope, evidence, or criterion structure. Renaming the task is not a replan.
 
-If bounded Luna strategies fail, a fresh Terra recovery may execute a measured exception. If a repository-local prerequisite lies outside ordinary worker authority, the manager publishes a bounded manager-remediation leaf and acts as integration owner. Those paths are attributed separately from feature-worker changes.
+In the compatibility profile, bounded Luna strategy failure may route through a
+fresh Terra recovery only when the immutable plan has a measured explicit
+exception. In `luna_only`, it instead triggers recursive criteria/graft
+decomposition, a typed context repair, or a bounded Luna remediation stage.
+If a repository-local prerequisite lies outside ordinary worker authority, the
+manager publishes that remediation leaf and acts as integration owner; in
+Luna-only operation it uses the Luna runtime. Those paths are attributed
+separately from feature-worker changes.
 
 The taxonomy is intentionally strict:
 
@@ -840,7 +1018,9 @@ No checkpoint, criterion record, attempt, or live workspace change is deleted du
 
 Architectural purpose:
 
-Small-model failure becomes evidence for improving the leaf boundary. It does not automatically become a human block or an unbounded retry loop.
+Small-model failure becomes evidence for improving the leaf boundary. It does
+not automatically become a human block, a stronger-model escalation, or an
+unbounded retry loop.
 
 Implementation references: [manager-auto-replan-root](../bin/manager-auto-replan-root), [manager-publish-task](../bin/manager-publish-task), [manager-reject-task](../bin/manager-reject-task), and root-limit defaults in [harness-common.sh](../lib/harness-common.sh).
 
@@ -890,12 +1070,12 @@ Goal
 | Source requirement | Human specification | Stable ID; controlled semantic revision | One normative statement passes |
 | Normalized obligation | Specification-review transaction | Immutable for the accepted input digest | One independently testable proof obligation has evidence |
 | Typed relation | Specification-review transaction | Immutable for accepted input digest | Semantic dependency or artifact relationship is respected |
-| DAG node | Sol decomposition plus deterministic installation | Immutable except controlled active-node revision or Oracle append | One independently useful deliverable is accepted |
-| Root assignment | Terra manager constrained by DAG | Immutable for a root | Node-local criteria and authority are fixed |
+| DAG node | Decomposition role plus deterministic installation | Immutable except controlled active-node revision or Oracle append | One independently useful deliverable is accepted |
+| Root assignment | Manager constrained by DAG | Immutable for a root | Node-local criteria and authority are fixed |
 | Root criterion | Manager at root publication | Existing rows immutable; children can be appended | One ordered acceptance slice is passed |
 | Child criterion | Automatic replan transaction | Append-only | A broad criterion's smaller slice is passed |
 | Logical goal | Task publisher | Preserved across process turns and some repairs | Current first-unmet leaf reaches a terminal worker outcome |
-| Worker iteration | Luna/Terra launcher and receipt | Append-only ledger | One bounded execution episode moved the boundary or terminated |
+| Worker iteration | Policy-valid launcher and receipt | Append-only ledger | One bounded execution episode moved the boundary or terminated |
 | Verified increment | Manager review | Append-only | Stable evidence or code movement is worth preserving |
 | Accepted task | Manager acceptance transaction | Terminal | DAG node and plan item are `COMPLETE` |
 
@@ -1064,6 +1244,12 @@ Example boundaries:
 
 The decision node does not absorb routine coding. The implementation nodes do not choose architecture. Tests that do not alter production contracts use `TEST_IMPLEMENTATION`. Final integration owns cross-component rollback rather than forcing local decoders to reason about the whole migration.
 
+This table illustrates the compatibility profile. In `luna_only`, preserve the
+same semantic order and coverage, but replace each Terra row with ordered
+Luna-sized compatibility, producer/consumer, migration, and focused-proof
+criteria. The crucial rule is not the historical model label: no Luna child
+may be asked to rediscover the decision or reason about the entire migration.
+
 ### 7.3 Coverage example
 
 Suppose the normalized obligations are:
@@ -1176,6 +1362,7 @@ stateDiagram-v2
 stateDiagram-v2
     [*] --> READY: manager publishes
     READY --> RUNNING: worker claims and creates lease
+    RUNNING --> CLOSURE_REPAIR: non-ready required/patch-only closure
     RUNNING --> RESULT: terminal completion transaction
     RUNNING --> READY: stale/orphan recovery
     RESULT --> CHECKPOINTED: correct partial increment
@@ -1185,6 +1372,7 @@ stateDiagram-v2
     CHECKPOINTED --> READY: continuation
     REJECTED --> READY: repair or recovery
     BLOCKED --> READY: local manager remediation or explicit unblock
+    CLOSURE_REPAIR --> READY: typed refresh, graft, or decomposition recovery
     ACCEPTED --> [*]
 ```
 
@@ -1200,6 +1388,14 @@ stateDiagram-v2
 - provider failures retry while preserving ownership and thread state;
 - stale running assignments can be requeued without discarding workspace or goal ledgers;
 - staged decomposition candidates permit startup to continue at the last safe compiler boundary.
+- typed Context Closure repair and Luna-only migration archive the retired
+  assignment and write terminal retirement markers, so crash recovery cannot
+  resurrect it as an interrupted worker completion or create two live
+  transitions for the same root;
+- a stopped Luna-only migration preserves existing roots, criteria, checkpoints,
+  commits, and historical counters while replacing only the current broad
+  acceptance boundary with append-only child criteria. A narrowly scoped
+  liveness epoch is permitted only for that migrated child boundary.
 
 ### 9.5 Architectural risk in the state model
 
@@ -1244,7 +1440,7 @@ Leaf and root convergence controls:
 
 | Control | Default |
 |---|---:|
-| Distinct Luna strategies before Terra recovery becomes eligible | 3 |
+| Distinct Luna strategies before compatibility-profile Terra recovery may be considered | 3 |
 | Root attempts | 12 |
 | Consecutive zero-gain reviews | 3 |
 | Checkpoints without criterion completion | 4 |
@@ -1327,6 +1523,13 @@ The metrics implementation already exposes:
 - architecture impact manifests;
 - total, open, critical, and expired debt.
 
+Related Luna-only state and Context Closure ledgers additionally record route
+policy rejections, child-boundary migrations, repair
+conditions/actions/providers, graft outcomes, patch-only validation rounds,
+repeated semantic-diagnostic stops, typed context extensions, and rollbacks.
+They should be promoted into the common decomposition report rather than
+remaining distributed operational evidence.
+
 ### 11.3 Recommended architecture scorecard
 
 The following should be reviewed per project cohort and per leaf type, not only globally.
@@ -1340,7 +1543,7 @@ The following should be reviewed per project cohort and per leaf type, not only 
 | Route quality | Luna success by leaf type and complexity-score bucket | Up |
 | Prediction quality | p50/p90/p95 actual-to-effective token and action ratio | Center near 1 with controlled tail |
 | Review economy | Manager reviews per accepted node and per verified criterion | Down without defect escapes |
-| Planning economy | Sol/manager scaffolding tokens per accepted Luna token | Down |
+| Planning economy | Planner/manager scaffolding tokens per accepted Luna token | Down |
 | Flow | Lead time, active time, wait time, rework time per node | Down |
 | Correctness | Oracle/external-grader findings per accepted obligation | Down |
 | Architecture | Gate failures, edge failures, debt age, reassessment rate | Down |
@@ -1388,9 +1591,15 @@ Facts carry `OBSERVED`, `INFERRED`, or `PLANNING_HINT` authority, while obligati
 
 The implementation correctly recognizes that context size, semantic fan-in, concurrency, ownership, validation, files, actions, and tokens are different constraints. A single scalar estimate is not allowed to hide a hard dimension.
 
-### 12.4 Expensive reasoning is concentrated upstream
+### 12.4 Expensive reasoning is concentrated upstream—or eliminated by compilation
 
-Sol handles global normalization challenges, architecture fit, DAG construction, and architecture binding. Terra handles node publication, review, and irreducible boundaries. Luna receives routine bounded implementation. This is the right general allocation for a Luna-first system.
+In the compatibility profile, Sol handles global normalization challenges,
+architecture fit, DAG construction, and architecture binding; Terra handles
+node publication, review, and explicit irreducible boundaries; Luna receives
+routine bounded implementation. In `luna_only`, those same roles use Luna, so
+their effectiveness depends on the compiled IR, bounded capsules, typed repair
+artifacts, and deterministic validators rather than hidden strong-model
+reasoning. This is the actual test of the decomposition architecture.
 
 ### 12.5 Durable and inspectable transactions
 
@@ -1398,7 +1607,11 @@ Human operators can inspect nearly every assignment, result, review, checkpoint,
 
 ### 12.6 Failure is converted into typed planning evidence
 
-`NEEDS_DECOMPOSITION`, context/scope/validation reasons, manager remediation, architecture reassessment, and genuine human dependencies are separated. Ordinary engineering difficulty is not allowed to become a discretionary human stop.
+`NEEDS_DECOMPOSITION`, Context Closure condition/action/provider records,
+graph-cut grafts, context/scope/validation reasons, manager remediation,
+architecture reassessment, and genuine human dependencies are separated.
+Ordinary engineering difficulty is not allowed to become a discretionary human
+stop or an untyped model escalation.
 
 ### 12.7 Independent acceptance
 
@@ -1412,7 +1625,7 @@ The primary decomposition, startup transaction, specification review, architectu
 
 This section distinguishes an implemented deterministic guarantee from a prompt-enforced policy. Prompt rules remain useful, but a small model is most reliable when correctness is encoded in the generated package and tools rather than remembered from prose.
 
-### 13.1 P0: Luna's protocol surface is too large
+### 13.1 P0: Normal interactive Luna protocol remains too large
 
 Evidence:
 
@@ -1425,7 +1638,14 @@ Risk to the project goal:
 
 Protocol compliance consumes the same action and attention budget intended for implementation. The leaf can be semantically small while the operational prompt remains globally complex.
 
-Recommendation:
+Implemented progress:
+
+`patch_only` now uses a compact, tool-less contract and moves patch
+application, validation, rollback, diagnostic extraction, and result-envelope
+enforcement into the trusted runner. Typed context follow-ups resume with only
+the compiled extension instead of replaying the full prompt.
+
+Remaining recommendation:
 
 - generate a minimal protocol per leaf type and route;
 - move claim, heartbeat, validation capture, workspace fingerprinting, commit, and result-envelope creation into a worker runner;
@@ -1439,12 +1659,16 @@ Reduce fixed prompt tokens and protocol failures without increasing unauthorized
 
 ### 13.2 P0: semantic atomicity is not fully machine-checkable
 
-Evidence:
+Evidence and implemented progress:
 
 - obligation count is bounded, but one normalized obligation can itself be broad;
 - behavioral, failure, ownership, concurrency, and validation counts are planner declarations with keyword-derived floors;
 - cohesion and “one concern” remain planner instructions;
-- risk-domain detection uses regexes over node text rather than repository graph or typed requirement fields.
+- risk-domain detection uses regexes over node text rather than repository graph or typed requirement fields;
+- deterministic closure-graft facets already conserve obligations, invariants,
+  decisions, edges, health gates, and indexed implementation seams across a
+  graph-cut split, but ordinary planner-authored splits do not yet have this
+  equivalent proof.
 
 Risk:
 
@@ -1462,7 +1686,13 @@ Recommendation:
 
 Evidence:
 
-The DAG prompt explicitly asks whether a plausible validation failure could require a correction outside `allowed_paths`. The publisher checks that context covers allowed scope and that assignments match the DAG, but it cannot generally prove that the DAG's allowed scope contains the actual repair seam.
+The DAG prompt explicitly asks whether a plausible validation failure could
+require a correction outside `allowed_paths`. The publisher checks that context
+covers allowed scope and that assignments match the DAG, but it cannot
+generally prove that the DAG's allowed scope contains the actual repair seam.
+Tracked overlays, typed context expansion, and closure-graft publication now
+provide important bounded cases of repair closure; general semantic repair
+closure is still not proven.
 
 Risk:
 
@@ -1483,7 +1713,8 @@ Recommendation:
 
 - build a versioned benchmark matrix for current v5 stages;
 - include small, medium, and large specifications; greenfield and existing repositories; several languages; contract, implementation, test, bug, concurrency, and integration leaves;
-- compare single Terra, current Full, reduced-protocol Full, and context-required Full;
+- compare single Terra, current Full, Luna-only Full, patch-only Full, and
+  context-required Full where the comparison is policy-appropriate;
 - grade functional correctness, maintainability, defect escapes, cost, latency, and human interventions;
 - retain planner inputs and deterministic artifacts so candidate planners can be replayed without re-running workers.
 
@@ -1501,7 +1732,7 @@ Risk:
 
 Schema drift creates repair turns and increases the chance that one path validates a weaker contract than another.
 
-Recommendation:
+Implemented progress and remaining recommendation:
 
 - define one versioned canonical schema, preferably JSON Schema plus generated TSV/Markdown adapters where human readability matters;
 - generate parsers, serializers, templates, and validation diagnostics;
@@ -1511,7 +1742,10 @@ Recommendation:
 
 ### 13.6 P1: root criteria add a late model-authored decomposition layer
 
-The Sol DAG already defines one deliverable, evidence, validation, and scope. The manager then creates node-local root criteria. This supports incremental completion, but also permits interpretation drift and creates additional IDs and validators.
+The decomposition DAG already defines one deliverable, evidence, validation,
+and scope. The manager then creates node-local root criteria. This supports
+incremental completion, but also permits interpretation drift and creates
+additional IDs and validators.
 
 Recommendation:
 
@@ -1522,7 +1756,12 @@ Recommendation:
 
 ### 13.7 P1: repository Context Closure is optional by default
 
-When it is off, Luna receives bounded declared paths and symbols but may still encounter missing structural context. When advisory, the system learns but does not prevent a poor launch. Required mode is available but should be earned through benchmarks.
+When it is off, Luna receives bounded declared paths and symbols but may still
+encounter missing structural context. When advisory, the system learns but does
+not prevent a poor launch. Required and patch-only modes are implemented, with
+typed admission repair, tracked-worktree overlays, bounded Joern use, and
+context expansion; their enforcement authority still must be earned through
+benchmarks.
 
 Recommendation:
 
@@ -1586,11 +1825,19 @@ Recommendation:
 - cache bounded semantic inputs by digest;
 - avoid asking models to transcribe fields that validators can generate;
 - measure scaffolding cost per accepted Luna line, criterion, and obligation;
-- use a cheaper deterministic or Luna-grade verifier for purely mechanical review steps while retaining Terra for semantic acceptance.
+- use deterministic or Luna-grade verification for purely mechanical review
+  steps; in Luna-only policy, retain independent fresh-role review rather than
+  a stronger semantic-acceptance model.
 
 ## 14. Recommended target architecture
 
-The target should preserve durable filesystem transparency while making the pipeline more compiler-like and Luna's runtime smaller.
+The target should preserve durable filesystem transparency while making the
+pipeline more compiler-like and Luna's runtime smaller. Several parts are
+already implemented in the Luna-only path: typed closure repair, graph-cut
+grafts with conserved facets, live tracked-worktree overlays, compact
+patch-only execution, typed diagnostic deltas, and bounded typed context
+extensions. The remaining work is to make those guarantees universal rather
+than mode- or repair-specific.
 
 ```mermaid
 flowchart TD
@@ -1682,11 +1929,19 @@ Luna should primarily:
 4. interpret bounded diagnostics;
 5. return complete, continue, or a typed boundary defect.
 
-The runtime should own leases, heartbeats, output capture, fingerprints, commits, architecture field copying, and envelope publication.
+The runtime should own leases, heartbeats, output capture, fingerprints,
+commits, architecture field copying, and envelope publication. The current
+`patch_only` runner already owns patch application, scope/baseline checks,
+focused validation, rollback, diagnostic compilation, and bounded same-thread
+repair; the normal interactive runtime remains the main reduction target.
 
 ### 14.6 Independent semantic verifier
 
-Keep acceptance separate from generation. The verifier should receive typed evidence, actual diff, focused validation, architecture impacts, and prior verified state. Mechanical checks should run before Terra sees the review capsule.
+Keep acceptance separate from generation. The verifier should receive typed
+evidence, actual diff, focused validation, architecture impacts, and prior
+verified state. Mechanical checks should run before the independent reviewer
+sees the review capsule. In `luna_only`, a fresh Luna review role replaces
+Terra; the durable verification boundary remains mandatory.
 
 ### 14.7 Adaptive decomposition controller
 
@@ -1696,7 +1951,8 @@ The controller should learn from typed outcomes:
 - `CONTEXT_INCOMPLETE` suggests context/index repair without authority expansion;
 - `SCOPE_INCOMPLETE` suggests repair-closure or ownership correction;
 - `VALIDATION_PREREQUISITE` suggests an explicit producer/build/test node;
-- `RESOURCE_LIMIT` suggests context/action/token split or route reassessment;
+- `RESOURCE_LIMIT` suggests context/action/token split; in `luna_only` it
+  cannot suggest a stronger-model route;
 - repeated accepted leaves tighten empirical budgets;
 - Oracle escapes update planner and verifier eval sets.
 
@@ -1819,12 +2075,12 @@ Exit criteria:
 | Product behavior and acceptance | Specification owner | Master specification and controlled revision |
 | Requirement normalization | Architecture/product review | Specification reviewer plus deterministic recorder |
 | Foundational architecture compatibility | System architect | Architecture-fit critic and redesign/waiver transaction |
-| Global decomposition shape | Decomposition architect | Sol planner plus deterministic DAG analyzer |
-| Luna/Terra admission policy | Agent-platform architect | Versioned complexity and context policy |
+| Global decomposition shape | Decomposition architect | Policy-valid planner plus deterministic DAG analyzer |
+| Luna/legacy-route admission policy | Agent-platform architect | Versioned complexity, context, and model policy |
 | Node architecture bindings | System architect | Binding planner plus registry validators |
-| Node publication and recovery strategy | Project manager agent | Terra manager within immutable DAG authority |
-| Implementation | Assigned worker route | Luna or Terra leaf worker |
-| Increment acceptance | Independent reviewer | Terra manager plus deterministic gates |
+| Node publication and recovery strategy | Project manager agent | Policy-valid manager within immutable DAG authority |
+| Implementation | Assigned worker route | Luna-only worker, or Luna/Terra compatibility worker |
+| Increment acceptance | Independent reviewer | Fresh policy-valid reviewer plus deterministic gates |
 | Final compliance | Product/quality authority | Oracle when required by assurance profile |
 | Human exception/waiver | Named operator or product owner | Audited command and durable evidence |
 
@@ -1912,7 +2168,7 @@ Maintain frozen input sets for:
 - ambiguous versus discoverable specification questions;
 - atomic versus bundled requirements;
 - contract/implementation/test/integration splits;
-- Luna versus Terra routing;
+- legacy Luna-versus-Terra routing and Luna-only route rejection/decomposition;
 - authority-closed versus scope-incomplete leaves;
 - focused versus broad validation;
 - context-ready versus context-incomplete leaves;
@@ -2012,6 +2268,9 @@ The harness bounds startup agent calls, actions/items, processed tokens, wall ti
 - [ ] Routine coding is recursively split until Luna-ready.
 - [ ] Integration nodes own real producer/consumer closure.
 - [ ] No governing specification path is writable.
+- [ ] Under `luna_only`, every new executable route is `LUNA` and every
+  `terra_exception` is `-`; historical Terra authority is activated only
+  through measured child criteria.
 
 ### Luna readiness
 
@@ -2022,6 +2281,8 @@ The harness bounds startup agent calls, actions/items, processed tokens, wall ti
 - [ ] Authority-closed ordinary repair surface.
 - [ ] All complexity and context ceilings pass.
 - [ ] Result, commit, and validation transactions can be handled without new discovery.
+- [ ] For `required`/`patch_only`, the closure is `READY`; a non-ready closure
+  has an exact typed repair path rather than a worker launch.
 
 ### Architecture readiness
 
@@ -2066,12 +2327,16 @@ The harness bounds startup agent calls, actions/items, processed tokens, wall ti
 | Architecture binding | [manager-architecture-binding-critic](../bin/manager-architecture-binding-critic), [harness-architecture.sh](../lib/harness-architecture.sh) |
 | Candidate installation | [manager-submit-decomposition](../bin/manager-submit-decomposition) |
 | Root publication and capsule | [manager-publish-task](../bin/manager-publish-task) |
+| Luna-only policy and state migration | [harness-migrate-state](../bin/harness-migrate-state), [harness-recover](../bin/harness-recover), [harness-common.sh](../lib/harness-common.sh) |
 | Manager protocol | [manager-agent-event-driven.md](../prompts/manager-agent-event-driven.md) |
 | Worker launch and prompt | [worker-invoke-task](../bin/worker-invoke-task) |
+| Typed Context Closure recovery | [worker-return-context-repair](../bin/worker-return-context-repair), [manager-auto-replan-root](../bin/manager-auto-replan-root) |
+| Deterministic closure grafts and context expansion | [compile_closure_graft.py](../tools/compile_closure_graft.py), [resolve_context_request.py](../tools/resolve_context_request.py) |
 | Worker protocol | [worker-agent-event-driven.md](../prompts/worker-agent-event-driven.md) |
 | Event-driven scheduling | [manager-supervisor](../bin/manager-supervisor), [worker-supervisor](../bin/worker-supervisor) |
 | Checkpoint/reject/accept | [manager-checkpoint-task](../bin/manager-checkpoint-task), [manager-reject-task](../bin/manager-reject-task), [manager-accept-task](../bin/manager-accept-task) |
 | Context Closure | [context-closure.md](context-closure.md), [repository-index-contract.md](../formats/repository-index-contract.md) |
+| Luna-only implementation status | [luna-only-convergence-status.md](../work/luna-only-convergence-status.md) |
 | Final audit | [oracle-invoke-final-audit](../bin/oracle-invoke-final-audit), [oracle-complete-audit](../bin/oracle-complete-audit) |
 | Architecture improvement framework | [architecture-rebuild-protocol.md](../formats/architecture-rebuild-protocol.md) |
 | Decomposition tests | [test-decomposition-v2.sh](../tests/test-decomposition-v2.sh), [test-decomposition-startup-transaction.sh](../tests/test-decomposition-startup-transaction.sh) |
@@ -2081,10 +2346,29 @@ The harness bounds startup agent calls, actions/items, processed tokens, wall ti
 
 ## 21. Final architectural position
 
-The harness already has the correct macro-architecture for Luna-first coding: expensive models resolve global semantics and architecture; deterministic transactions narrow and validate authority; Luna implements bounded routine leaves; independent review controls acceptance; durable state makes the process recoverable.
+The harness's central product is not task splitting. It is a compiler and
+recovery system that makes a small coding model sufficient for a project whose
+global codebase and specification are far beyond that model's comfortable
+working set. For a repository with more than one million lines, success means
+Luna receives neither a million-line browsing problem nor an unresolved design
+problem: it receives a closed, measurable, reversible proof-producing change.
 
-The next gains will not come primarily from adding more instructions to the planner or worker. They will come from compiling more semantics into typed artifacts, deriving more readiness properties deterministically, reducing Luna's protocol surface, and measuring decomposition quality against real downstream outcomes.
+The compatibility profile retains explicit strong-model exceptions while the
+system is adopted. The `luna_only` profile is the decisive architecture test:
+global reasoning, planning, review, remediation, and optional audit use Luna
+as well, while deterministic artifacts and bounded recovery replace escalation.
+When a boundary is still too complex, the harness must expose a smaller
+semantic seam, compile missing trusted context, or request genuine human
+product authority—not hide the failure behind a larger model.
+
+The next gains will not come primarily from adding more instructions to the
+planner or worker. They will come from compiling more semantics into typed
+artifacts, deriving more readiness properties deterministically, reducing
+Luna's protocol surface, and measuring decomposition quality against real
+downstream outcomes.
 
 The guiding design rule should be:
 
-> Spend strong-model reasoning once to eliminate a class of uncertainty, encode the result as durable machine-checked authority, and never ask a Luna worker to rediscover it.
+> Eliminate uncertainty in durable, machine-checked artifacts; then give Luna
+> one small, closed, verifiable change and never ask it to rediscover the
+> project-sized problem.
