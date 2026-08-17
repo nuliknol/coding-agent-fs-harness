@@ -827,6 +827,7 @@ while true; do
 	if (( status == 0 && luna_bounded_execution == 1 )) &&
 		[[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only ]]; then
 		context_request_status=1
+		zero_file_verification_handled=0
 		# Call in a conditional so every nonzero typed-resolver outcome is data
 		# for the patch-only state machine, never an errexit from the worker
 		# transaction. Rejected extensions must synthesize a durable
@@ -854,6 +855,51 @@ while true; do
 			:
 		elif (( context_request_status == 2 )); then
 			patch_apply_status=3
+		elif [[ "$leaf_type" == VERIFICATION_ONLY && "$expected_implementation_files" == 0 ]] &&
+			! grep -Eq '^@@[[:space:]]' "$last_message"; then
+			# A zero-file verification leaf proves an already-present increment. Luna
+			# may emit no diff (or an empty diff header); requiring a synthetic source
+			# mutation turns successful verification into an endless decomposition
+			# loop. The trusted harness, not Luna's prose, decides the outcome by
+			# checking the unchanged baseline and running the focused validator.
+			zero_file_validation_capture="$dir/logs/patch-only-validation-$task_id-$stamp.log"
+			zero_file_workspace="$($HARNESS_BIN/harness-workspace-fingerprint "$HARNESS_ENV_FILE")"
+			zero_file_validation_status=1
+			if [[ "$zero_file_workspace" == "$patch_only_baseline" ]]; then
+				set +e
+				"$HARNESS_BIN/harness-run-assigned-validation" "$HARNESS_ENV_FILE" "$task_id" patch-only-verification > "$zero_file_validation_capture" 2>&1
+				zero_file_validation_status=$?
+				set -e
+			fi
+			if (( zero_file_validation_status == 0 )); then
+				{
+					printf '# Worker Task Result\n\nTask-ID: %s\nStatus: COMPLETED\n' "$task_id"
+					if (( goal_mode == 1 )); then printf 'Goal-ID: %s\nGoal-Outcome: COMPLETE\n' "$goal_id"; fi
+					emit_synthetic_impact_manifest
+					printf '\n## Summary\n\nThe trusted focused validator passed for the zero-file verification leaf.\n'
+					printf '\n## Modified files\n\nNone; this leaf verifies an already-preserved increment.\n'
+					printf '\n## Implemented behavior\n\nThe assigned existing behavior is verified without a new source mutation.\n'
+					printf '\n## Validation performed\n\nTrusted validation passed; complete output is retained at `%s`.\n' "$zero_file_validation_capture"
+					printf '\n## Deviations from assignment\n\nNone.\n\n## Remaining concerns\n\nNone for this bounded verification criterion.\n'
+					printf '\n## Worker assessment\n\nCOMPLETE based on trusted harness validation, not model assertion.\n'
+				} > "$last_message"
+				log_event "PATCH_ONLY_ZERO_FILE_VERIFICATION_PASSED task=$task_id validation=$zero_file_validation_capture"
+			else
+				{
+					printf '# Worker Task Result\n\nTask-ID: %s\nStatus: COMPLETED\n' "$task_id"
+					if (( goal_mode == 1 )); then printf 'Goal-ID: %s\nGoal-Outcome: NEEDS_DECOMPOSITION\nDecomposition-Reason: VALIDATION_PREREQUISITE\n' "$goal_id"; fi
+					emit_synthetic_impact_manifest
+					printf '\n## Summary\n\nThe trusted focused validator did not confirm the zero-file verification leaf.\n'
+					printf '\n## Modified files\n\nNone.\n\n## Implemented behavior\n\nNo new implementation was authorized.\n'
+					printf '\n## Validation performed\n\nSee `%s`.\n' "$zero_file_validation_capture"
+					printf '\n## Deviations from assignment\n\nThe preserved behavior did not satisfy focused validation.\n'
+					printf '\n## Remaining concerns\n\nDecompose at the exact failing validation boundary.\n'
+					printf '\n## Worker assessment\n\nNEEDS_DECOMPOSITION without an invented patch.\n'
+				} > "$last_message"
+				log_event "PATCH_ONLY_ZERO_FILE_VERIFICATION_FAILED task=$task_id validation=$zero_file_validation_capture baseline_match=$([[ "$zero_file_workspace" == "$patch_only_baseline" ]] && printf 1 || printf 0)"
+			fi
+			zero_file_verification_handled=1
+			patch_apply_status=0
 		elif ! grep -Eq '^```(diff|patch)[[:space:]]*$' "$last_message"; then
 			patch_apply_status=3
 			patch_apply_output='patch-only response omitted the required single fenced Git diff'
@@ -863,7 +909,9 @@ while true; do
 		patch_apply_status=$?
 		set -e
 		fi
-		if (( context_expansion_pending == 1 )); then
+		if (( zero_file_verification_handled == 1 )); then
+			:
+		elif (( context_expansion_pending == 1 )); then
 			:
 		elif (( patch_apply_status == 0 )); then
 			patch_file="$(sed -n 's/^PATCH=//p' <<< "$patch_apply_output" | tail -n 1)"

@@ -495,6 +495,20 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
 - Luna-only convergence and the full v4.4 harness suite pass with the unified
   attempt ceiling.
 
+### Checkpoint — 2026-08-17T17:09:15Z
+
+- compmod-wc-4 revision 17 exposed a zero-file verification defect. Luna's
+  closed evidence correctly concluded that no new mutation was required and
+  emitted an empty diff header, but the generic patch parser converted that
+  into `CONTEXT_INCOMPLETE` before running the declared focused validation.
+- Patch-only `VERIFICATION_ONLY` leaves with
+  `Expected-Max-Implementation-Files: 0` now take a trusted zero-file path. The
+  harness requires the workspace fingerprint to equal the admitted baseline,
+  runs focused validation itself, and synthesizes COMPLETE only on validator
+  success. Failure becomes `VALIDATION_PREREQUISITE`; an actual patch is still
+  rejected by the normal zero-file scope contract.
+- The full v4.4 suite and Luna-only convergence tests pass after this change.
+
 ## Validation journal
 
 - `tests/test-codex-exec-jsonl.sh` — PASS. Includes Luna-only normalization,

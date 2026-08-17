@@ -17,6 +17,8 @@ grep -Fq 'if prepare_typed_context_expansion "$last_message"; then' \
 grep -Fq 'PATCH_ONLY_FORMAT_REPAIR_READY' "$ROOT/bin/worker-invoke-task"
 grep -Fq 'attempt < patch_only_attempt_limit' "$ROOT/bin/worker-invoke-task"
 grep -Fq 'attempt >= patch_only_attempt_limit' "$ROOT/bin/worker-invoke-task"
+grep -Fq 'PATCH_ONLY_ZERO_FILE_VERIFICATION_PASSED' "$ROOT/bin/worker-invoke-task"
+grep -Fq 'PATCH_ONLY_ZERO_FILE_VERIFICATION_FAILED' "$ROOT/bin/worker-invoke-task"
 grep -Fq 'WORKER_PATCH_FORMAT_REPAIR_RESUMING' "$ROOT/bin/worker-invoke-task"
 
 mkdir -p "$TMP/repo" "$TMP/codex-home"
