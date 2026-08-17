@@ -1107,6 +1107,15 @@ def build_closure(args: argparse.Namespace) -> str:
     context_bytes = len(context_text.encode("utf-8"))
     estimated_tokens = math.ceil(context_bytes / 4)
 
+    # The direct call neighborhood is supporting evidence: the closure already
+    # embeds a deterministic bounded prefix and Luna can request one exact
+    # omitted neighbor through typed expansion.  Its truncation is useful
+    # provenance, but it is not evidence that the implementation seam itself
+    # must be split.  Structural/type fixed-point and source-size cuts remain
+    # blocking because they truncate required implementation evidence.
+    blocking_graph_cuts = [cut for cut in graph_cuts if cut[1] != "call-fanout"]
+    informational_graph_cuts = [cut for cut in graph_cuts if cut[1] == "call-fanout"]
+
     reasons: list[str] = []
     if unresolved:
         reasons.append("unresolved-required-evidence")
@@ -1126,7 +1135,7 @@ def build_closure(args: argparse.Namespace) -> str:
         reasons.append("context-byte-budget-exceeded")
     if estimated_tokens > args.max_tokens:
         reasons.append("estimated-token-budget-exceeded")
-    if graph_cuts:
+    if blocking_graph_cuts:
         reasons.append("structural-graph-cut")
     if unresolved:
         status = "INCOMPLETE"
@@ -1268,6 +1277,8 @@ def build_closure(args: argparse.Namespace) -> str:
         stream.write(f"build_inputs\t{len(build_inputs)}\n")
         stream.write(f"unresolved\t{len(unresolved)}\n")
         stream.write(f"graph_cuts\t{len(set(graph_cuts))}\n")
+        stream.write(f"blocking_graph_cuts\t{len(set(blocking_graph_cuts))}\n")
+        stream.write(f"informational_graph_cuts\t{len(set(informational_graph_cuts))}\n")
         stream.write(f"authority_records\t{len(authority_records)}\n")
         stream.write(f"systematic_omissions\t{len(systematic_omissions)}\n")
         stream.write(f"context_bytes\t{context_bytes}\n")

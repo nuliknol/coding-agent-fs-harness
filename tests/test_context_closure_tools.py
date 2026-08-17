@@ -153,6 +153,32 @@ class ContextClosureToolsTest(unittest.TestCase):
         self.assertNotIn("test-4", context)
         self.assertNotIn("test-budget-exceeded", (output / "manifest.env").read_text())
 
+    def test_bounded_supporting_call_fanout_does_not_force_decomposition(self):
+        connection = sqlite3.connect(self.database)
+        for index in range(9):
+            symbol_id = f"callee-{index}"
+            connection.execute(
+                "INSERT INTO symbols VALUES(?, 'g', ?, 'Function', 'c', '-', 'scip-clang')",
+                (symbol_id, symbol_id))
+            connection.execute(
+                "INSERT INTO symbol_definitions VALUES(?, 1, 'definition', 'scip-clang')",
+                (symbol_id,))
+            connection.execute(
+                "INSERT INTO call_edges VALUES('sym', ?, 1, 'scip-clang', 'AUTHORITATIVE')",
+                (symbol_id,))
+        connection.commit()
+        connection.close()
+
+        status, output = self.closure()
+
+        self.assertEqual("READY", status)
+        self.assertIn("\tcall-fanout\t", (output / "graph-cut.tsv").read_text())
+        quality = (output / "quality.tsv").read_text()
+        self.assertIn("graph_cuts\t1\n", quality)
+        self.assertIn("blocking_graph_cuts\t0\n", quality)
+        self.assertIn("informational_graph_cuts\t1\n", quality)
+        self.assertNotIn("structural-graph-cut", (output / "manifest.env").read_text())
+
     def test_ambiguous_display_name_prefers_definition_inside_declared_boundary(self):
         connection = sqlite3.connect(self.database)
         connection.execute("INSERT INTO files VALUES(2,'g','src/other.c','c',NULL,1,0)")

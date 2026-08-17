@@ -365,6 +365,18 @@ printf '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}\n
 MOCK
 chmod +x "$TEST_ROOT/mock-codex"
 
+# Every Luna inference path, including manager remediation, must use the same
+# fail-closed compiled-context and patch-only state machine. Guard against
+# accidentally keying those gates only to the assignment's Worker-Route.
+grep -Fq 'if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then' \
+	"$HARNESS_BIN/worker-invoke-task"
+grep -Fq 'luna_bounded_execution=1' "$HARNESS_BIN/worker-invoke-task"
+if grep -Eq '\$worker_route[^\n]*==[[:space:]]*LUNA|\$worker_route[^\n]*LUNA' \
+	"$HARNESS_BIN/worker-invoke-task"; then
+	printf 'Luna closure admission is still keyed to Worker-Route instead of execution policy\n' >&2
+	exit 1
+fi
+
 cat > "$TEST_ROOT/harness.env" <<ENV
 export PROJECT="testproj"
 export REPOSITORY="$TEST_ROOT/repo"

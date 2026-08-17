@@ -423,11 +423,38 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   source reread, scope expansion, general context request, or manager model is
   authorized. Repeated malformed output still closes deterministically.
 
+### Checkpoint — 2026-08-17T16:54:00Z
+
+- Production inspection found a policy/route mismatch in manager-remediation
+  leaves: the selected model was Luna, but `Worker-Route` remained
+  `MANAGER_REMEDIATION`. Closure admission, compact no-tools prompting, patch
+  validation, typed expansion, and format repair were keyed only to the route
+  label, so an incomplete remediation capsule could still launch Luna with the
+  legacy explorer prompt.
+- `worker-invoke-task` now derives one `luna_bounded_execution` decision from
+  the actual execution policy. Luna-only manager remediation and ordinary Luna
+  leaves use the identical fail-closed Context Closure and patch-only state
+  machine. Non-Luna manager remediation retains its existing behavior.
+- Caller/callee fanout is now an informational cut after the compiler embeds
+  its deterministic bounded prefix. It no longer forces a graph-cut replan by
+  itself when all required evidence is resolved and the compiled capsule fits
+  byte/token budgets. Required type/interface fanout, symbol overflow, and
+  oversized build inputs remain blocking cuts.
+- This directly addresses `compmod-wc-2` revision 29, whose complete capsule
+  was only 29,626 bytes and whose sole rejection was one supplemental
+  `call-fanout` cut. The cut remains visible in `graph-cut.tsv` and quality
+  telemetry, but does not misclassify an implementation-ready leaf.
+- Current process sampling found zero Java, Joern, or SQLite processes. Active
+  inference/replanning processes all used `gpt-5.6-luna` and consumed roughly
+  0.1–0.2% CPU each. `compmod-wc-3` and `dpvis-w2-a2` had live Luna turns;
+  `compmod-wc-2` and dplm had live Luna planning/remediation turns; compmod-wc-4
+  had just completed review/checkpoint work.
+
 ## Validation journal
 
 - `tests/test-codex-exec-jsonl.sh` — PASS. Includes Luna-only normalization,
   direct Sol rejection, Terra-role rejection, and invalid policy pairing.
-- `python3 -m unittest tests.test_context_closure_tools` — PASS, 14 tests.
+- `python3 -m unittest tests.test_context_closure_tools` — PASS, 23 tests.
   Includes typed build-index, Joern, and context-path repair classification.
 - `tests/test-decomposition-v2.sh` — PASS.
 - `tests/test-leaf-goal.sh` — PASS, including provider retry, continuation,
@@ -484,9 +511,10 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
 3. Extend compact prompt generation to planning, review, and final audit roles;
    patch-only workers are compact, but legacy-compatible manager prompts still
    carry superseded prose before their Luna-only override.
-4. Run stopped production projects through the safe migration boundary, enable
-   `luna_only`, `decompose`, required Context Closure, tracked overlay, and
-   on-demand Joern, then collect per-obligation token and convergence telemetry.
+4. Continue collecting per-obligation token and convergence telemetry from the
+   five migrated production projects; all are already on `luna_only`,
+   `decompose`, patch-only required closure, tracked overlay, and on-demand
+   Joern.
 5. Promote only after production evidence meets the completion criteria in the
    implementation plan; the code path is implemented, but token/divergence
    improvement has not yet been empirically demonstrated on completed projects.

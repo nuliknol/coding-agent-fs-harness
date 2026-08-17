@@ -32,6 +32,7 @@ execution_model="$WORKER_MODEL"
 execution_fallback_model="$WORKER_FALLBACK_MODEL"
 execution_mode=WORKER
 worker_route=LEGACY
+luna_bounded_execution=0
 leaf_expected_turns=0
 if assignment_is_manager_remediation "$ready"; then
 	manager_remediation=1
@@ -45,6 +46,7 @@ if assignment_is_manager_remediation "$ready"; then
 		[[ "$leaf_expected_turns" =~ ^[1-9][0-9]*$ ]] || die 'invalid v2 Expected-Max-Worker-Turns'
 	fi
 	if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
+		luna_bounded_execution=1
 		require_worker_codex
 		write_worker_snapshot
 	else
@@ -58,6 +60,7 @@ else
 		[[ "$leaf_expected_turns" =~ ^[1-9][0-9]*$ ]] || die 'invalid v2 Expected-Max-Worker-Turns'
 		case "$worker_route" in
 			LUNA)
+				luna_bounded_execution=1
 				execution_role=worker_luna
 				execution_model="$LUNA_WORKER_MODEL"
 				if [[ "$HARNESS_ESCALATION_POLICY" == decompose ]]; then
@@ -303,7 +306,8 @@ trace_event WORKER_CONTEXT_SELECTED "task_id=$task_id" "task_root=$task_root" "m
 
 prompt_file="$dir/control/$base.worker.prompt.md"
 patch_only_compact=0
-if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only && "$worker_route" == LUNA ]]; then
+if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only ]] &&
+	(( luna_bounded_execution == 1 )); then
 	patch_only_compact=1
 	cat > "$prompt_file.tmp.$$" <<PROMPT
 You are the bounded Luna patch compiler for one authorized local repository task.
@@ -395,7 +399,8 @@ $HARNESS_BIN/harness-run-assigned-validation "$HARNESS_ENV_FILE" "$task_id" LABE
 Use that command when Focused-Validation is executable. When it is descriptive, run a concrete validation through harness-run-logged. A compound command must be passed as one quoted /bin/bash -lc argument; placing a logical operator after the harness-run-logged invocation is forbidden because the following command escapes capture. Never invoke a potentially verbose build/test command directly. Validation-Class CLEAN_GLOBAL authorizes observation only in a Terra integration leaf; it never broadens implementation scope. Commit every task-owned source/source-related change with harness-commit-source before a terminal result. Use harness-publish-branch when Publish-Branch is declared. Never run direct Git index/history mutations. Generated output, object files, binaries, ignored files, and paths outside Allowed-Scope must remain uncommitted. Write scratch files and the result report under PROJECT_TMP_DIR, publish the result with worker-complete-task, and terminate. If an exact mandatory cross-harness Git ref is absent, use worker-wait-dependency with a precise requirements TSV and supplier note instead of repeating absence audits or claiming gain. Do not wait for another task.
 PROMPT
 fi
-if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only && "$worker_route" == LUNA ]]; then
+if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only ]] &&
+	(( luna_bounded_execution == 1 )); then
 	cat >> "$prompt_file.tmp.$$" <<'PROMPT'
 
 Patch-only Context Closure execution is active. The compiled closure below is the complete implementation context. Do not use shell, filesystem, web, search, or repository tools. Do not attempt to call harness commands. Reason only from the embedded task and closure. Your final response must contain exactly one fenced `diff` block containing a standard `diff --git` patch, followed by the normal worker-result metadata and headings. The trusted harness will validate scope, baseline, patch syntax, apply it, run Focused-Validation, and commit accepted source changes. If the closed evidence is insufficient, emit no patch and report Goal-Outcome: NEEDS_DECOMPOSITION with Decomposition-Reason: CONTEXT_INCOMPLETE.
@@ -523,7 +528,8 @@ patch_validation_round=0
 patch_format_round=0
 patch_last_diagnostic_fingerprint=""
 patch_repair_ledger="$dir/control/progress/$base.patch-only-repairs.tsv"
-if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only && "$worker_route" == LUNA ]]; then
+if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only ]] &&
+	(( luna_bounded_execution == 1 )); then
 	patch_only_baseline="$($HARNESS_BIN/harness-workspace-fingerprint "$HARNESS_ENV_FILE")"
 fi
 heartbeat_pid=""
@@ -555,7 +561,8 @@ emit_synthetic_impact_manifest()
 # decomposition handoff so the manager can repair the index/capsule or split
 # the node; never spend a worker invocation and never turn an index deficiency
 # into NEEDS_HUMAN.
-if [[ "$worker_route" == LUNA && "$HARNESS_CONTEXT_CLOSURE_MODE" =~ ^(required|patch_only)$ &&
+if (( luna_bounded_execution == 1 )) &&
+	[[ "$HARNESS_CONTEXT_CLOSURE_MODE" =~ ^(required|patch_only)$ &&
 	"$context_closure_status" != READY ]]; then
 	if [[ "$HARNESS_ESCALATION_POLICY" == decompose ]]; then
 		"$HARNESS_BIN/worker-return-context-repair" "$HARNESS_ENV_FILE" "$task_id" "$session" \
@@ -813,7 +820,8 @@ while true; do
 	status=$?
 	set -e
 	observed_thread_id="$(codex_thread_id_from_jsonl "$json_log" 2>/dev/null || true)"
-	if (( status == 0 )) && [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only && "$worker_route" == LUNA ]]; then
+	if (( status == 0 && luna_bounded_execution == 1 )) &&
+		[[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only ]]; then
 		context_request_status=1
 		# Call in a conditional so every nonzero typed-resolver outcome is data
 		# for the patch-only state machine, never an errexit from the worker
