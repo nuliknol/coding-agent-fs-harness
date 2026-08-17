@@ -323,6 +323,24 @@ class ContextClosureToolsTest(unittest.TestCase):
         self.assertIn("repair_provider=scip", manifest)
         self.assertIn("semantic_split_required=0", manifest)
 
+    def test_declared_context_path_supplies_symbol_scip_omitted(self):
+        self.repository.joinpath("fixture.c").write_text(
+            "static const char *semantic_gpu_architecture = \"matched\";\n",
+            encoding="utf-8")
+
+        status, output = self.closure(
+            context_paths="fixture.c", allowed_scope="fixture.c",
+            required_symbols="semantic_gpu_architecture")
+
+        self.assertEqual("READY", status)
+        self.assertNotIn("REQUIRED_SYMBOL\tsemantic_gpu_architecture",
+                         (output / "unresolved.tsv").read_text())
+        closure = (output / "closure.tsv").read_text()
+        self.assertIn("\tBOUNDED_SOURCE_EVIDENCE\tfixture.c\t", closure)
+        self.assertIn("\tdeclared-context-path\n", closure)
+        self.assertIn("semantic_gpu_architecture = \"matched\"",
+                      (output / "context.md").read_text())
+
     def test_required_symbol_build_target_alias_uses_indexed_validation_boundary(self):
         connection = sqlite3.connect(self.database)
         connection.execute(

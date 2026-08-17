@@ -24,6 +24,8 @@ grep -Fq '"$(metadata_value "$trigger_assignment" Manager-Remediation)" == 1' \
 	"$ROOT/bin/manager-auto-replan-root"
 grep -Fq 'typed Context Closure repair must retain the triggering manager-remediation prerequisite authority' \
 	"$ROOT/bin/manager-auto-replan-root"
+grep -Fq 'normalize_recovery_context_paths' "$ROOT/bin/manager-publish-task"
+grep -Fq 'LUNA_CONTEXT_PATHS_NORMALIZED' "$ROOT/bin/manager-publish-task"
 
 mkdir -p "$TMP/repo" "$TMP/codex-home"
 printf 'test specification\n' > "$TMP/repo/spec.md"

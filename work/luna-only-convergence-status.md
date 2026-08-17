@@ -770,3 +770,33 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   COMP4, DPLM, and DPVIS are in active manager/worker transactions; completed
   projects remain untouched. No harness-owned Java, Joern, or SQLite CPU load
   was present during verification.
+
+### 2026-08-17 20:19 UTC — compiled publication and SCIP fallback repair
+
+- COMP4 subsequently tripped its eight-item manager-replan investigation fuse
+  at item 9/8. The fuse is valid and remains unchanged. The bounded episode had
+  already found the right local runtime seam, but spent two extra actions on
+  deterministic publisher diagnostics: removing a project `/tmp` build entry
+  from `Context-Paths`, then adding the exact tracked file containing
+  `semantic_gpu_architecture`.
+- Recovery publication now compiles those corrections locally. For Luna-only
+  recovery tasks the publisher removes only project-owned temporary validation
+  paths and fills a missing required-symbol context path from one stable,
+  tracked repository match, without widening mutation authority. This avoids
+  spending model actions on metadata that the harness can derive exactly.
+- Context Closure now uses one exact bounded excerpt from an explicitly
+  declared `Context-Paths` file when SCIP omits a file-local variable, macro,
+  generated declaration, or unsupported language construct. SCIP remains the
+  structural relationship authority; the fallback supplies only the decisive
+  source window and never triggers repository exploration by Luna.
+- Recompiling the preserved COMP4 revision-33 assignment against the unchanged
+  index and tracked worktree overlay changed it from
+  `INDEX_EVIDENCE_MISSING` to `READY`: 23,614 bytes, 5,904 estimated tokens,
+  with `semantic_gpu_architecture` supplied by an 18-line declared-path
+  excerpt. No specification, source checkpoint, or task history was reset.
+- Focused verification passes: 29 Context Closure unit tests, Luna-only
+  convergence, SCIP importer, irregularity detection, Codex JSONL policy and
+  fuse tests, Bash syntax, Python compilation, and `git diff --check`. The
+  authoritative-per-invocation, live-estimated-per-invocation, and cumulative
+  worker-task limits remain exactly 500,000 tokens; the manager replan ceiling
+  remains eight item starts.

@@ -1156,6 +1156,92 @@ normalize_revision_execution_metadata()
 
 normalize_revision_execution_metadata
 
+normalize_recovery_context_paths()
+{
+	local requested required allowed validation normalized entry symbol candidate tmp changed=0
+	local found duplicate
+	local -a entries=() kept=() symbols=() candidates=()
+	(( recovery_publish == 1 )) || return 0
+	[[ "$HARNESS_MODEL_POLICY" == luna_only ]] || return 0
+	requested="$(metadata_value "$task_file" Context-Paths)"
+	required="$(metadata_value "$task_file" Required-Symbols)"
+	allowed="$(metadata_value "$task_file" Allowed-Scope)"
+	validation="$(metadata_value "$task_file" Focused-Validation)"
+	[[ -n "$requested" && "$requested" != - ]] || return 0
+
+	# Generated validation workspaces are not repository evidence.  A manager
+	# commonly copies the configured /tmp build directory into Context-Paths;
+	# remove only this project-owned temporary prefix and keep every source or
+	# symbolic entry unchanged.
+	IFS=',' read -r -a entries <<< "$requested"
+	for entry in "${entries[@]}"; do
+		entry="$(trim_surrounding_whitespace "$entry")"
+		[[ -n "$entry" ]] || continue
+		if [[ "$entry" == "$PROJECT_TMP_DIR" || "$entry" == "$PROJECT_TMP_DIR/"* ]]; then
+			[[ "$validation" == *"$entry"* || "$entry" == *build* ]] || {
+				kept+=("$entry")
+				continue
+			}
+			changed=1
+			continue
+		fi
+		kept+=("$entry")
+	done
+
+	# Required-Symbols and explicit Context-Paths form one compiled closure
+	# contract.  If none of the declared repository files contains a required
+	# token, add one deterministic tracked definition/usage path.  This is the
+	# same bounded candidate the old diagnostic returned to Luna, now performed
+	# without spending another model action.
+	IFS=',' read -r -a symbols <<< "$required"
+	for symbol in "${symbols[@]}"; do
+		symbol="$(trim_surrounding_whitespace "$symbol")"
+		[[ -n "$symbol" && "$symbol" != - && "$symbol" != NONE ]] || continue
+		found=0
+		for entry in "${kept[@]}"; do
+			[[ "$entry" != /* && -e "$REPOSITORY/$entry" ]] || continue
+			if (cd "$REPOSITORY" && rg -q --fixed-strings -- "$symbol" "$entry" 2>/dev/null < /dev/null); then
+				found=1
+				break
+			fi
+		done
+		(( found == 0 )) || continue
+		mapfile -t candidates < <(git -C "$REPOSITORY" grep -l -F -- "$symbol" -- . 2>/dev/null |
+			LC_ALL=C sort -u)
+		candidate=""
+		for entry in "${candidates[@]}"; do
+			if scope_is_within_root_authority "$entry" "$allowed"; then
+				candidate="$entry"
+				break
+			fi
+		done
+		[[ -n "$candidate" || ${#candidates[@]} -eq 0 ]] || candidate="${candidates[0]}"
+		[[ -n "$candidate" ]] || continue
+		duplicate=0
+		for entry in "${kept[@]}"; do
+			[[ "$entry" != "$candidate" ]] || duplicate=1
+		done
+		(( duplicate == 1 )) || {
+			kept+=("$candidate")
+			changed=1
+		}
+	done
+	(( changed == 1 )) || return 0
+	(( ${#kept[@]} > 0 && ${#kept[@]} <= 8 )) ||
+		die 'normalized Luna Context-Paths cannot fit the bounded eight-entry capsule'
+	normalized="$(IFS=,; printf '%s' "${kept[*]}")"
+	tmp="$task_file.context-paths.$$"
+	HARNESS_NORMALIZED_CONTEXT_PATHS="$normalized" awk -F': ' '
+		$1 == "Context-Paths" {print "Context-Paths: " ENVIRON["HARNESS_NORMALIZED_CONTEXT_PATHS"]; next}
+		{print}
+	' "$task_file" > "$tmp"
+	chmod --reference="$task_file" "$tmp"
+	mv "$tmp" "$task_file"
+	log_event "LUNA_CONTEXT_PATHS_NORMALIZED root=$root task=$task_id requested=$(printf '%q' "$requested") normalized=$(printf '%q' "$normalized")"
+}
+
+normalize_recovery_context_paths
+
 normalize_exhausted_luna_recovery_route()
 {
 	local requested_route requested_leaf luna_failures requested_exception tmp

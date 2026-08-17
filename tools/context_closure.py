@@ -357,7 +357,7 @@ def build_closure(args: argparse.Namespace) -> str:
     for requested, seed_reason in sorted(symbol_seeds.items()):
         rows = exact_symbol_rows(connection, requested)
         if not rows:
-            overlay_match = False
+            live_source_match = False
             for overlay_path, overlay_record in sorted(overlay.items()):
                 if overlay_record.get("status") == "DELETED":
                     continue
@@ -374,8 +374,27 @@ def build_closure(args: argparse.Namespace) -> str:
                          start=window[0], end=window[1], symbol=requested,
                          why=f"{seed_reason}: live worktree definition for {requested}",
                          required=True, provider="worktree-overlay")
-                overlay_match = True
-            if not overlay_match:
+                live_source_match = True
+            # SCIP is deliberately authoritative for indexed structural
+            # relationships, but it does not emit every file-local variable,
+            # macro, generated declaration, or language construct.  An exact
+            # assignment Context-Paths entry is already bounded read
+            # authority.  When SCIP has no row, admit one deterministic source
+            # window from those declared files instead of repeatedly rebuilding
+            # the provider or asking Luna to rediscover the same excerpt.
+            if not live_source_match:
+                for declared_path in sorted(path_seeds):
+                    source = safe_source_path(repository, declared_path)
+                    window = live_symbol_window(source, requested) if source else None
+                    if not window:
+                        continue
+                    add_item(items, kind="BOUNDED_SOURCE_EVIDENCE", path=declared_path,
+                             start=window[0], end=window[1], symbol=requested,
+                             why=f"{seed_reason}: exact bounded source fallback for {requested}",
+                             required=True, provider="declared-context-path")
+                    live_source_match = True
+                    break
+            if not live_source_match:
                 target_rows = connection.execute(
                     "SELECT name FROM build_targets WHERE name=? COLLATE NOCASE ORDER BY name",
                     (requested,)).fetchall()

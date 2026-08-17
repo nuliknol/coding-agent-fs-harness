@@ -23,7 +23,10 @@ if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
 		mark_project_integrity_anomaly MODEL_POLICY_VIOLATION - \
 			'Luna-only execution policy was bypassed at the final provider boundary' \
 			"role=$role requested_model=$model required_model=$LUNA_WORKER_MODEL prompt=$prompt" >/dev/null
-		die "Luna-only policy rejected model/role $model/$role; expected $LUNA_WORKER_MODEL without worker_terra"
+		if [[ "$model" != "$LUNA_WORKER_MODEL" ]]; then
+			die "Luna-only policy rejected model $model; expected $LUNA_WORKER_MODEL"
+		fi
+		die 'Luna-only policy rejected the worker_terra execution role'
 	fi
 	case "$role" in
 		manager_bootstrap|manager_review|manager_plan|manager_replan|manager_remediation|decomposition|worker|worker_luna|oracle)
