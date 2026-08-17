@@ -199,7 +199,9 @@ while ! project_plan_exists; do
 			full_rejection_log="$(decomposition_candidate_state_value rejection_log "$(decomposition_candidate_state_value directory)/rejection.log")"
 			if [[ ! -s "$full_rejection_log" ]]; then
 				printf 'Recovering an interrupted decomposition submission with no completed rejection diagnostic.\n'
-				"$HARNESS_BIN/manager-submit-decomposition" --recover "$HARNESS_ENV_FILE"
+				if "$HARNESS_BIN/manager-submit-decomposition" --recover "$HARNESS_ENV_FILE"; then
+					continue
+				fi
 				continue
 			fi
 			if [[ -f "$full_rejection_log" ]] &&
@@ -223,7 +225,7 @@ while ! project_plan_exists; do
 				fi
 			fi
 			if [[ -f "$full_rejection_log" ]] &&
-				grep -Eq 'accepted decision .* lacks repository evidence|accepted decision .* evidence is not committed at HEAD' "$full_rejection_log"; then
+				grep -Eq 'accepted decision .* lacks repository evidence|accepted decision .* evidence is not committed at HEAD|decision .* evidence path is outside producer .* allowed_paths' "$full_rejection_log"; then
 				printf 'Normalizing mechanical architecture decision evidence without an agent turn.\n'
 				if "$HARNESS_BIN/manager-repair-decomposition-decision-evidence" "$HARNESS_ENV_FILE"; then
 					continue

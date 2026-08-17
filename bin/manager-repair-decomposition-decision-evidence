@@ -18,13 +18,13 @@ architecture_source="$(decomposition_candidate_state_value architecture_director
 rejection_log="$(decomposition_candidate_state_value rejection_log "$candidate_dir/rejection.log")"
 [[ "$architecture_source" != - && -d "$architecture_source" ]] ||
 	die 'decision-evidence repair requires an architecture registry'
-grep -Eq 'accepted decision .* lacks repository evidence|accepted decision .* evidence is not committed at HEAD' "$rejection_log" ||
+grep -Eq 'accepted decision .* lacks repository evidence|accepted decision .* evidence is not committed at HEAD|decision .* evidence path is outside producer .* allowed_paths' "$rejection_log" ||
 	die 'candidate rejection is not a mechanically repairable decision-evidence defect'
 
 repair_dir="$PROJECT_TMP_DIR/decomposition-decision-evidence-repair-${candidate_dir##*/}"
 rm -rf -- "$repair_dir"
 mkdir -p "$repair_dir/architecture"
-install -m 600 "$candidate_dir/dag.tsv" "$repair_dir/dag.tsv"
+install -m 600 "$candidate_dir/dag.tsv" "$repair_dir/dag.original.tsv"
 install -m 600 "$candidate_dir/coverage.tsv" "$repair_dir/coverage.tsv"
 for name in invariants edges node-bindings health-gates debt; do
 	install -m 600 "$architecture_source/$name.tsv" "$repair_dir/architecture/$name.tsv"
@@ -83,6 +83,34 @@ while IFS=$'\t' read -r id status producer problem contract interfaces supersede
 		"$id" "$status" "$producer" "$problem" "$contract" "$interfaces" "$supersedes" "$evidence" >> "$decisions_out"
 done < "$architecture_source/decisions.tsv"
 chmod 600 "$decisions_out"
+
+# A committed decision anchor outside its producer's declared context is a
+# mechanical scope omission. Add only that exact evidence path to the named
+# producer row; do not rewrite the accepted decision or broaden another node.
+scope_additions="$repair_dir/decision-evidence-scope-additions.tsv"
+printf 'producer_node\tevidence\n' > "$scope_additions"
+while IFS= read -r diagnostic; do
+	if [[ "$diagnostic" =~ ^ERROR:\ decision\ ([^[:space:]]+)\ evidence\ path\ is\ outside\ producer\ ([^[:space:]]+)\ allowed_paths: ]]; then
+		decision_id="${BASH_REMATCH[1]}"
+		producer_node="${BASH_REMATCH[2]}"
+		evidence_path="$(awk -F '\t' -v id="$decision_id" '$1==id {print $8; exit}' "$decisions_out")"
+		is_committed_repository_path "$evidence_path" ||
+			die "decision $decision_id outside producer scope has no committed evidence path"
+		printf '%s\t%s\n' "$producer_node" "$evidence_path" >> "$scope_additions"
+	fi
+done < "$rejection_log"
+awk -F '\t' -v OFS='\t' '
+	NR==FNR {if(NR>1) add[$1]=$2; next}
+	FNR==1 {print; next}
+	$1 in add {
+		n=split($7, paths, ",")
+		found=0
+		for(i=1;i<=n;i++) if(paths[i]==add[$1]) found=1
+		if(!found) $7=($7=="-" || $7=="" ? add[$1] : $7 "," add[$1])
+	}
+	{print}
+' "$scope_additions" "$repair_dir/dag.original.tsv" > "$repair_dir/dag.tsv"
+chmod 600 "$scope_additions" "$repair_dir/dag.tsv"
 
 set +e
 "$HARNESS_BIN/manager-submit-decomposition" "$HARNESS_ENV_FILE" \

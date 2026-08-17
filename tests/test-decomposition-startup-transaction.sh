@@ -372,6 +372,8 @@ grep -Fq 'manager-repair-decomposition-terra-exceptions' "$HARNESS_BIN/harness-s
 grep -Fq 'manager-route-decomposition-complexity-repair' "$HARNESS_BIN/harness-start"
 grep -Fq 'Recovering an interrupted decomposition submission with no completed rejection diagnostic.' \
 	"$HARNESS_BIN/harness-start"
+grep -Fq 'decision .* evidence path is outside producer .* allowed_paths' \
+	"$HARNESS_BIN/manager-repair-decomposition-decision-evidence"
 # Candidate directory names, transient PIDs, and invalid free-form exception
 # prose do not make an unchanged deterministic rejection a new defect.
 cat > "$TEST_ROOT/diagnostic-a.log" <<'EOF'
