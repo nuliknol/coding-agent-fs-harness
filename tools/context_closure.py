@@ -26,6 +26,32 @@ def split_list(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip() not in ("", "-", "NONE")]
 
 
+def dependency_classes(values: dict[str, str]) -> set[str]:
+    """Return the evidence classes that this leaf actually requires.
+
+    Older DAGs predate Required-Dependency-Classes.  Derive a conservative
+    class set from their typed leaf boundary instead of treating every leaf as
+    behavioral implementation work.  An explicit declaration remains
+    authoritative.
+    """
+    declared = set(split_list(values.get("Required-Dependency-Classes", "")))
+    if declared:
+        return declared
+    leaf_type = values.get("Leaf-Type", "").strip()
+    if leaf_type == "DOCUMENTATION":
+        return {"D", "I", "V"}
+    if leaf_type == "VERIFICATION_ONLY":
+        return {"D", "B", "V"}
+    if leaf_type == "TEST_IMPLEMENTATION":
+        return {"D", "B", "V"}
+    if leaf_type in {"CONTRACT_DESIGN", "CROSS_COMPONENT_ARCHITECTURE"}:
+        return {"D", "T", "I", "C", "V"}
+    if leaf_type in {"CONCURRENCY_PROTOCOL", "INTEGRATION"}:
+        return {"D", "T", "I", "B", "C", "F", "V"}
+    # Legacy/untyped assignments retain the original behavior.
+    return {"D", "T", "I", "B", "C", "V"}
+
+
 def tsv_records(path: str | None) -> tuple[list[str], dict[str, dict[str, str]]]:
     if not path:
         return [], {}
@@ -127,8 +153,8 @@ def build_closure(args: argparse.Namespace) -> str:
     values = metadata(assignment)
     task_id = values.get("Task-ID", assignment.stem)
     plan_node = values.get("Plan-Node", values.get("Project-Plan-Item-ID", "-"))
-    symbol_seeds = {symbol: "assignment required symbol"
-                    for symbol in split_list(values.get("Required-Symbols", ""))}
+    assigned_symbols = split_list(values.get("Required-Symbols", ""))
+    symbol_seeds = {symbol: "assignment required symbol" for symbol in assigned_symbols}
     path_seeds = {path: "manager-declared context path"
                   for path in split_list(values.get("Context-Paths", values.get("Allowed-Scope", "")))}
 
@@ -139,10 +165,18 @@ def build_closure(args: argparse.Namespace) -> str:
     unresolved: list[tuple[str, str, str]] = []
     graph_cuts: list[tuple[str, str, str]] = []
     selected_symbol_ids: set[str] = set()
+    seed_symbol_ids: set[str] = set()
     authority_records: list[tuple[str, str, str, dict[str, str]]] = []
     ownership_boundaries: set[tuple[str, str, str, str]] = set()
     selected_tests: set[str] = set()
-    requested_classes = set(split_list(values.get("Required-Dependency-Classes", "D,T,I,B,C,V")))
+    expanded_seed_ids: set[str] = set()
+    selected_call_edges: set[tuple[str, str, str, str]] = set()
+    remaining_calls = args.max_direct_relationships
+    requested_classes = dependency_classes(values)
+    invalid_classes = requested_classes.difference({"D", "T", "I", "B", "C", "F", "V"})
+    if invalid_classes:
+        raise ValueError(
+            "unknown Required-Dependency-Classes: " + ",".join(sorted(invalid_classes)))
 
     configuration_rows = connection.execute(
         "SELECT configuration_id FROM build_configurations WHERE generation_id=? ORDER BY configuration_id",
@@ -205,8 +239,12 @@ def build_closure(args: argparse.Namespace) -> str:
                     if safe_repository_path(repository, path) is not None:
                         path_seeds.setdefault(path, f"scope of invariant {identifier}")
             elif authority_kind == "ARCHITECTURE_DECISION":
-                for symbol in split_list(record.get("affected_interfaces", "")):
-                    symbol_seeds.setdefault(symbol, f"interface governed by decision {identifier}")
+                # The complete decision remains allocated below as normative
+                # authority.  Its complete interface inventory must not widen
+                # a leaf that already declares exact Required-Symbols.
+                if "I" in requested_classes and not assigned_symbols:
+                    for symbol in split_list(record.get("affected_interfaces", "")):
+                        symbol_seeds.setdefault(symbol, f"interface governed by decision {identifier}")
                 evidence = record.get("evidence", "")
                 if evidence and evidence not in ("-", "NONE"):
                     evidence = evidence.removeprefix("operator-worktree:")
@@ -217,8 +255,9 @@ def build_closure(args: argparse.Namespace) -> str:
                 consumer = record.get("consumer_node", "-") or "-"
                 ownership = record.get("ownership_model", "-") or "-"
                 ownership_boundaries.add((identifier, producer, consumer, ownership))
-                for symbol in split_list(record.get("public_symbols", "")):
-                    symbol_seeds.setdefault(symbol, f"public symbol of edge contract {identifier}")
+                if "I" in requested_classes and not assigned_symbols:
+                    for symbol in split_list(record.get("public_symbols", "")):
+                        symbol_seeds.setdefault(symbol, f"public symbol of edge contract {identifier}")
                 for artifact in split_list(record.get("contract_artifact", "")):
                     if not artifact.startswith("decision:"):
                         path_seeds.setdefault(artifact, f"artifact of edge contract {identifier}")
@@ -236,55 +275,66 @@ def build_closure(args: argparse.Namespace) -> str:
             unresolved.append(("REQUIRED_SYMBOL", requested, "no exact SCIP symbol or definition"))
             continue
         definitions = [row for row in rows if row["repository_path"] is not None]
-        if not definitions:
+        if "D" in requested_classes and not definitions:
             unresolved.append(("REQUIRED_DEFINITION", requested, "symbol exists but has no indexed definition"))
-        for row in definitions:
-            selected_symbol_ids.add(row["symbol_id"])
-            add_item(items, kind="DEFINITION", path=row["repository_path"],
-                     start=row["start_line"], end=row["end_line"],
-                     symbol=row["display_name"], why=f"{seed_reason}: {requested}",
-                     required=True, provider="scip-clang")
+        if "D" in requested_classes:
+            for row in definitions:
+                selected_symbol_ids.add(row["symbol_id"])
+                add_item(items, kind="DEFINITION", path=row["repository_path"],
+                         start=row["start_line"], end=row["end_line"],
+                         symbol=row["display_name"], why=f"{seed_reason}: {requested}",
+                         required=True, provider="scip-clang")
 
         for row in rows:
             selected_symbol_ids.add(row["symbol_id"])
-            reference_rows = connection.execute(
-                """
-                SELECT DISTINCT f.repository_path, r.start_line, r.end_line, x.reference_kind
-                FROM symbol_references x
-                JOIN source_regions r ON r.region_id=x.region_id
-                JOIN files f ON f.file_id=r.file_id
-                WHERE x.symbol_id=? AND
-                      (f.repository_path LIKE '%/include/%' OR
-                       f.repository_path LIKE 'include/%' OR
-                       f.repository_path LIKE '%/tests/%' OR
-                       f.repository_path LIKE 'tests/%')
-                ORDER BY f.repository_path, r.start_line LIMIT 12
-                """, (row["symbol_id"],)).fetchall()
-            for reference in reference_rows:
-                is_test = "/tests/" in f"/{reference['repository_path']}" or reference["repository_path"].startswith("tests/")
-                add_item(items, kind="TEST_REFERENCE" if is_test else "INTERFACE_REFERENCE",
-                         path=reference["repository_path"], start=reference["start_line"],
-                         end=reference["end_line"], symbol=row["display_name"],
-                         why=f"indexed {'test' if is_test else 'interface'} reference for {requested}",
-                         required=False, provider="scip-clang")
+            seed_symbol_ids.add(row["symbol_id"])
+            if row["symbol_id"] in expanded_seed_ids:
+                continue
+            expanded_seed_ids.add(row["symbol_id"])
+            if requested_classes.intersection({"I", "B"}):
+                reference_rows = connection.execute(
+                    """
+                    SELECT DISTINCT f.repository_path, r.start_line, r.end_line, x.reference_kind
+                    FROM symbol_references x
+                    JOIN source_regions r ON r.region_id=x.region_id
+                    JOIN files f ON f.file_id=r.file_id
+                    WHERE x.symbol_id=? AND
+                          (f.repository_path LIKE '%/include/%' OR
+                           f.repository_path LIKE 'include/%' OR
+                           f.repository_path LIKE '%/tests/%' OR
+                           f.repository_path LIKE 'tests/%')
+                    ORDER BY f.repository_path, r.start_line LIMIT 12
+                    """, (row["symbol_id"],)).fetchall()
+                for reference in reference_rows:
+                    is_test = ("/tests/" in f"/{reference['repository_path']}" or
+                               reference["repository_path"].startswith("tests/"))
+                    if (is_test and "B" not in requested_classes) or (
+                            not is_test and "I" not in requested_classes):
+                        continue
+                    add_item(items, kind="TEST_REFERENCE" if is_test else "INTERFACE_REFERENCE",
+                             path=reference["repository_path"], start=reference["start_line"],
+                             end=reference["end_line"], symbol=row["display_name"],
+                             why=f"indexed {'test' if is_test else 'interface'} reference for {requested}",
+                             required=False, provider="scip-clang")
 
-            test_rows = connection.execute(
-                """
-                SELECT DISTINCT t.name, f.repository_path, r.start_line, r.end_line,
-                                x.edge_kind, t.selector, t.build_target
-                FROM test_symbol_edges x
-                JOIN tests t ON t.test_id=x.test_id
-                JOIN source_regions r ON r.region_id=t.region_id
-                JOIN files f ON f.file_id=t.file_id
-                WHERE x.symbol_id=?
-                ORDER BY f.repository_path, r.start_line LIMIT 8
-                """, (row["symbol_id"],)).fetchall()
-            for test in test_rows:
-                selected_tests.add(test["name"])
-                add_item(items, kind="FOCUSED_TEST", path=test["repository_path"],
-                         start=test["start_line"], end=test["end_line"],
-                         symbol=test["name"], why=f"indexed test covering {requested}",
-                         required=True, provider="scip-clang")
+            if "B" in requested_classes:
+                test_rows = connection.execute(
+                    """
+                    SELECT DISTINCT t.name, f.repository_path, r.start_line, r.end_line,
+                                    x.edge_kind, t.selector, t.build_target
+                    FROM test_symbol_edges x
+                    JOIN tests t ON t.test_id=x.test_id
+                    JOIN source_regions r ON r.region_id=t.region_id
+                    JOIN files f ON f.file_id=t.file_id
+                    WHERE x.symbol_id=?
+                    ORDER BY f.repository_path, r.start_line LIMIT 8
+                    """, (row["symbol_id"],)).fetchall()
+                for test in test_rows:
+                    selected_tests.add(test["name"])
+                    add_item(items, kind="FOCUSED_TEST", path=test["repository_path"],
+                             start=test["start_line"], end=test["end_line"],
+                             symbol=test["name"], why=f"indexed test covering {requested}",
+                             required=True, provider="scip-clang")
 
             relation_rows = connection.execute(
                 """
@@ -297,7 +347,7 @@ def build_closure(args: argparse.Namespace) -> str:
                 LEFT JOIN files f ON f.file_id=r.file_id
                 WHERE e.source_symbol_id=? AND e.edge_kind != 'REFERENCES'
                 ORDER BY e.edge_kind, f.repository_path, r.start_line LIMIT 17
-                """, (row["symbol_id"],)).fetchall()
+                """, (row["symbol_id"],)).fetchall() if "T" in requested_classes else []
             if len(relation_rows) > 16:
                 graph_cuts.append((row["symbol_id"], "direct-edge-fanout",
                                    "more than 16 direct structural dependencies"))
@@ -312,7 +362,7 @@ def build_closure(args: argparse.Namespace) -> str:
                              required=True, provider="scip-clang")
 
             call_rows = []
-            if "C" in requested_classes:
+            if "C" in requested_classes and remaining_calls > 0:
                 call_rows = connection.execute(
                 """SELECT 'CALLEE' direction,t.symbol_id,t.display_name,f.repository_path,r.start_line,r.end_line,c.provider
                    FROM call_edges c JOIN symbols t ON t.symbol_id=c.callee_symbol_id
@@ -325,29 +375,122 @@ def build_closure(args: argparse.Namespace) -> str:
                    LEFT JOIN symbol_definitions d ON d.symbol_id=s.symbol_id
                    LEFT JOIN source_regions r ON r.region_id=d.region_id LEFT JOIN files f ON f.file_id=r.file_id
                    WHERE c.callee_symbol_id=? ORDER BY direction,repository_path,start_line LIMIT ?""",
-                    (row["symbol_id"], row["symbol_id"], args.max_direct_relationships + 1)).fetchall()
-            if len(call_rows) > args.max_direct_relationships:
+                    (row["symbol_id"], row["symbol_id"], remaining_calls + 1)).fetchall()
+            if len(call_rows) > remaining_calls:
                 graph_cuts.append((row["symbol_id"], "call-fanout",
-                                   "caller/callee evidence exceeds the direct relationship budget"))
-            for call in call_rows[:args.max_direct_relationships]:
-                edges.append((row["symbol_id"], call["symbol_id"], call["direction"], call["provider"]))
+                                   "aggregate caller/callee evidence exceeds the direct relationship budget"))
+            for call in call_rows[:remaining_calls]:
+                call_edge = (row["symbol_id"], call["symbol_id"], call["direction"], call["provider"])
+                edges.append(call_edge)
+                selected_call_edges.add(call_edge)
                 if call["repository_path"] is not None:
                     add_item(items, kind=call["direction"], path=call["repository_path"],
                              start=call["start_line"], end=call["end_line"],
                              symbol=call["display_name"], why=f"direct {call['direction'].lower()} of {requested}",
                              required=False, provider=call["provider"])
+            remaining_calls = args.max_direct_relationships - len(selected_call_edges)
+            if "C" in requested_classes and remaining_calls <= 0:
+                remaining_calls = 0
 
+    joern_ready = False
+    joern_flow_relationships = 0
+    joern_mutations = 0
     if "F" in requested_classes:
         provider = connection.execute(
             "SELECT status FROM provider_runs WHERE generation_id=? AND provider='joern'",
             (args.generation,)).fetchone()
         if not provider or provider[0] != "READY":
             unresolved.append(("FLOW_EVIDENCE", "F", "Joern flow evidence was requested but is unavailable"))
+        else:
+            joern_ready = True
+
+    # Joern flow is supplemental evidence for exact assignment seeds.  Keep a
+    # deterministic bounded sample of the direct control/data-flow and
+    # mutation seam; never recursively copy a complete CPG into a worker
+    # capsule.
+    if joern_ready:
+        remaining_flow = args.max_direct_relationships
+        definitions = connection.execute(
+            """
+            SELECT DISTINCT d.symbol_id,f.repository_path,r.start_line,r.end_line
+            FROM symbol_definitions d
+            JOIN source_regions r ON r.region_id=d.region_id
+            JOIN files f ON f.file_id=r.file_id
+            WHERE d.symbol_id IN ({})
+            ORDER BY d.symbol_id,f.repository_path,r.start_line
+            """.format(",".join("?" for _ in seed_symbol_ids)),
+            tuple(sorted(seed_symbol_ids))).fetchall() if seed_symbol_ids else []
+        for definition in definitions:
+            if remaining_flow <= 0:
+                break
+            for table, value_column, kind in (
+                    ("control_flow_edges", "e.edge_kind", "CONTROL_FLOW"),
+                    ("data_flow_edges", "COALESCE(e.value_name,e.edge_kind)", "DATA_FLOW")):
+                if remaining_flow <= 0:
+                    break
+                class_limit = (max(1, remaining_flow // 2)
+                               if kind == "CONTROL_FLOW" else remaining_flow)
+                rows = connection.execute(
+                    f"""
+                    SELECT e.source_region_id,e.target_region_id,{value_column} AS detail,
+                           sf.repository_path AS source_path,sr.start_line AS source_line,
+                           tf.repository_path AS target_path,tr.start_line AS target_line
+                    FROM {table} e
+                    JOIN source_regions sr ON sr.region_id=e.source_region_id
+                    JOIN files sf ON sf.file_id=sr.file_id
+                    JOIN source_regions tr ON tr.region_id=e.target_region_id
+                    JOIN files tf ON tf.file_id=tr.file_id
+                    WHERE e.provider='joern' AND sf.repository_path=?
+                      AND sr.start_line BETWEEN ? AND ?
+                    ORDER BY e.source_region_id,e.target_region_id,e.edge_kind
+                    LIMIT ?
+                    """, (definition["repository_path"], definition["start_line"],
+                           definition["end_line"], class_limit)).fetchall()
+                for flow in rows:
+                    flow_id = f"joern-region:{flow['source_region_id']}"
+                    target_id = f"joern-region:{flow['target_region_id']}"
+                    edges.append((flow_id, target_id, kind, "joern"))
+                    add_item(items, kind=kind, path=flow["source_path"],
+                             start=flow["source_line"], end=flow["source_line"],
+                             symbol=definition["symbol_id"],
+                             why=f"direct Joern {kind.lower().replace('_', '-')} evidence: {flow['detail']}",
+                             required=False, provider="joern")
+                    if (flow["target_path"], flow["target_line"]) != (
+                            flow["source_path"], flow["source_line"]):
+                        add_item(items, kind=kind, path=flow["target_path"],
+                                 start=flow["target_line"], end=flow["target_line"],
+                                 symbol=definition["symbol_id"],
+                                 why=f"target of direct Joern {kind.lower().replace('_', '-')}",
+                                 required=False, provider="joern")
+                    remaining_flow -= 1
+                    joern_flow_relationships += 1
+        remaining_mutations = args.max_direct_relationships
+        if seed_symbol_ids:
+            mutation_rows = connection.execute(
+                """
+                SELECT m.source_symbol_id,m.target_value,f.repository_path,r.start_line
+                FROM mutation_edges m
+                LEFT JOIN source_regions r ON r.region_id=m.evidence_region_id
+                LEFT JOIN files f ON f.file_id=r.file_id
+                WHERE m.provider='joern' AND m.source_symbol_id IN ({})
+                ORDER BY m.source_symbol_id,f.repository_path,r.start_line,m.target_value
+                LIMIT ?
+                """.format(",".join("?" for _ in seed_symbol_ids)),
+                (*sorted(seed_symbol_ids), remaining_mutations)).fetchall()
+            for mutation in mutation_rows:
+                if mutation["repository_path"] is None or mutation["start_line"] is None:
+                    continue
+                add_item(items, kind="MUTATION", path=mutation["repository_path"],
+                         start=mutation["start_line"], end=mutation["start_line"],
+                         symbol=mutation["source_symbol_id"],
+                         why=f"direct Joern mutation evidence: {mutation['target_value']}",
+                         required=False, provider="joern")
+                joern_mutations += 1
 
     # Definitions, type relationships, and interface relationships form the
     # required structural closure. Direct REFERENCES edges above are bounded
     # behavioral neighbors; they are deliberately not expanded transitively.
-    fixed_point_queue = sorted(selected_symbol_ids)
+    fixed_point_queue = sorted(selected_symbol_ids) if "T" in requested_classes else []
     fixed_point_expanded: set[str] = set()
     missing_dependency_definitions: set[str] = set()
     while fixed_point_queue:
@@ -398,7 +541,11 @@ def build_closure(args: argparse.Namespace) -> str:
                                "fixed-point expansion exceeded the configured symbol budget"))
             break
 
-    for requested_test in sorted(split_list(values.get("Named-Tests", ""))):
+    named_tests = sorted(split_list(values.get("Named-Tests", "")))
+    if named_tests and "B" not in requested_classes:
+        unresolved.append(("DEPENDENCY_CLASS", "B",
+                           "Named-Tests requires behavioral evidence class B"))
+    for requested_test in named_tests if "B" in requested_classes else []:
         test_rows = connection.execute(
             """
             SELECT DISTINCT t.test_id, t.name, t.selector, t.build_target,
@@ -447,7 +594,8 @@ def build_closure(args: argparse.Namespace) -> str:
             if source is None:
                 unresolved.append(("CONTEXT_PATH", normalized, "path is absent from index and repository"))
                 continue
-            line_count = sum(1 for _ in source.open(encoding="utf-8", errors="replace"))
+            with source.open(encoding="utf-8", errors="replace") as stream:
+                line_count = sum(1 for _ in stream)
             add_item(items, kind="DECLARED_CONTEXT", path=normalized, start=1,
                      end=max(line_count, 1), symbol="-", why=seed_reason,
                      required=True, provider="assignment")
@@ -459,7 +607,8 @@ def build_closure(args: argparse.Namespace) -> str:
             source = safe_source_path(repository, path)
             if source is None:
                 continue
-            line_count = sum(1 for _ in source.open(encoding="utf-8", errors="replace"))
+            with source.open(encoding="utf-8", errors="replace") as stream:
+                line_count = sum(1 for _ in stream)
             add_item(items, kind="DECLARED_CONTEXT", path=path, start=1,
                      end=max(line_count, 1), symbol="-", why=seed_reason,
                      required=True, provider="assignment")
@@ -485,7 +634,7 @@ def build_closure(args: argparse.Namespace) -> str:
     selected_paths = sorted({row["path"] for row in ordered_items})
     build_targets: dict[str, dict[str, str]] = {}
     build_targets_by_path: dict[str, set[str]] = {}
-    for path in selected_paths:
+    for path in selected_paths if "V" in requested_classes else []:
         rows = connection.execute(
             """
             SELECT bt.target_id, bt.name, bt.target_kind, bt.definition_path,
@@ -500,7 +649,11 @@ def build_closure(args: argparse.Namespace) -> str:
             build_targets[row["target_id"]] = {key: str(row[key] or "-") for key in row.keys()}
             build_targets_by_path.setdefault(path, set()).add(row["name"])
 
-    for requested_target in sorted(split_list(values.get("Build-Targets", ""))):
+    requested_targets = sorted(split_list(values.get("Build-Targets", "")))
+    if requested_targets and "V" not in requested_classes:
+        unresolved.append(("DEPENDENCY_CLASS", "V",
+                           "Build-Targets requires validation prerequisite class V"))
+    for requested_target in requested_targets if "V" in requested_classes else []:
         rows = connection.execute(
             """
             SELECT target_id, name, target_kind, definition_path,
@@ -557,7 +710,7 @@ def build_closure(args: argparse.Namespace) -> str:
             root = row["path"].split("/", 1)[0] if "/" in row["path"] else "."
             modules.add(f"path:{root}")
 
-    direct_relationships = len(set(edges))
+    direct_relationships = len({edge for edge in edges if edge[2] in {"CALLER", "CALLEE"}})
     suggested_cuts: list[dict[str, str]] = []
     cohesive_groups: dict[str, list[dict]] = {}
     for row in ordered_items:
@@ -657,6 +810,7 @@ def build_closure(args: argparse.Namespace) -> str:
         f"Focused-Validation: {values.get('Focused-Validation', '-')}",
         f"Allowed-Scope: {values.get('Allowed-Scope', '-')}",
         f"Required-Symbols: {values.get('Required-Symbols', '-')}", "",
+        f"Required-Dependency-Classes: {','.join(sorted(requested_classes))}", "",
         "## Architecture and behavior contract", "",
         f"Architecture-Decisions: {values.get('Architecture-Decisions', 'NONE')}",
         f"Affected-Invariants: {values.get('Affected-Invariants', '-')}",
@@ -787,6 +941,8 @@ def build_closure(args: argparse.Namespace) -> str:
         stream.write(f"modules\t{len(modules)}\n")
         stream.write(f"ownership_boundaries\t{len(ownership_boundaries)}\n")
         stream.write(f"direct_relationships\t{direct_relationships}\n")
+        stream.write(f"joern_flow_relationships\t{joern_flow_relationships}\n")
+        stream.write(f"joern_mutations\t{joern_mutations}\n")
         stream.write(f"tests\t{len(selected_tests)}\n")
         stream.write(f"build_targets\t{len(build_targets)}\n")
         stream.write(f"build_inputs\t{len(build_inputs)}\n")

@@ -76,6 +76,66 @@ class ContextClosureToolsTest(unittest.TestCase):
         self.assertEqual("INCOMPLETE", status)
         self.assertIn("Joern flow evidence was requested", (output / "unresolved.tsv").read_text())
 
+    def test_requested_flow_embeds_bounded_joern_evidence(self):
+        connection = sqlite3.connect(self.database)
+        connection.execute("UPDATE provider_runs SET status='READY' WHERE provider='joern'")
+        connection.execute("INSERT INTO source_regions VALUES(2,1,'joern_node','RETURN',1,0,1,1,NULL,'joern')")
+        connection.execute("INSERT INTO source_regions VALUES(3,1,'joern_node','CALL',1,2,1,3,NULL,'joern')")
+        connection.execute("INSERT INTO control_flow_edges VALUES(2,3,'CFG','joern')")
+        connection.execute("INSERT INTO data_flow_edges VALUES(2,3,'a','REACHING_DEF','joern')")
+        connection.execute("INSERT INTO mutation_edges VALUES('sym','sym','a + b',2,'joern','DERIVED')")
+        connection.commit()
+        connection.close()
+        status, output = self.closure("Required-Dependency-Classes: D,F\n")
+        self.assertEqual("READY", status)
+        closure = (output / "closure.tsv").read_text()
+        self.assertIn("CONTROL_FLOW\tcalc.c", closure)
+        self.assertIn("DATA_FLOW\tcalc.c", closure)
+        self.assertIn("MUTATION\tcalc.c", closure)
+        quality = (output / "quality.tsv").read_text()
+        self.assertIn("joern_flow_relationships\t2", quality)
+        self.assertIn("joern_mutations\t1", quality)
+
+    def test_documentation_leaf_does_not_expand_behavior_or_decision_inventory(self):
+        connection = sqlite3.connect(self.database)
+        connection.execute("INSERT INTO files VALUES(2,'g','calc.h','c',NULL,1,0)")
+        connection.execute("INSERT INTO source_regions VALUES(2,2,'reference','add',1,0,1,20,NULL,'scip-clang')")
+        connection.execute("INSERT INTO symbol_references VALUES('sym',2,'reference','scip-clang')")
+        connection.execute("INSERT INTO symbols VALUES('other-sym','g','other','Function','c','-','scip-clang')")
+        connection.execute("INSERT INTO files VALUES(3,'g','src/other.c','c',NULL,1,0)")
+        connection.execute("INSERT INTO source_regions VALUES(3,3,'symbol_definition','other',1,0,1,40,NULL,'scip-clang')")
+        connection.execute("INSERT INTO symbol_definitions VALUES('other-sym',3,'definition','scip-clang')")
+        connection.execute("INSERT INTO call_edges VALUES('sym','other-sym',1,'scip-clang','AUTHORITATIVE')")
+        connection.commit()
+        connection.close()
+        registry = self.root / "registry-docs"
+        registry.mkdir()
+        decisions = registry / "decisions.tsv"
+        decisions.write_text(
+            "decision_id\tstatus\tproducer_node\tproblem\tchosen_contract\taffected_interfaces\tsupersedes\tevidence\n"
+            "ADR-add\tACCEPTED\tn1\tAPI\tKeep add public.\tadd,other\t-\tcalc.h\n",
+            encoding="utf-8")
+        assignment = self.root / "assignment-docs.md"
+        assignment.write_text(
+            "Task-ID: t-docs\nPlan-Node: n1\nWorker-Route: LUNA\nLeaf-Type: DOCUMENTATION\n"
+            "Allowed-Scope: calc.h\nContext-Paths: calc.h\nRequired-Symbols: add\n"
+            "Consumed-Decisions: ADR-add\n", encoding="utf-8")
+        output = self.root / "closure-docs"
+        arguments = SimpleNamespace(
+            assignment=str(assignment), database=str(self.database), repository=str(self.repository),
+            generation="g", output=str(output), max_bytes=32768, max_symbols=32, max_modules=4,
+            max_ownership_boundaries=2, max_direct_relationships=8, max_tests=4,
+            max_build_targets=4, max_tokens=10000, obligations_file=None, relations_file=None,
+            invariants_file=None, decisions_file=str(decisions), edges_file=None,
+            health_gates_file=None, node_bindings_file=None, omissions_file=None)
+        self.assertEqual("READY", build_closure(arguments))
+        closure = (output / "closure.tsv").read_text()
+        self.assertIn("DEFINITION\tcalc.c", closure)
+        self.assertIn("DECLARED_CONTEXT\tcalc.h", closure)
+        self.assertNotIn("CALLEE", closure)
+        self.assertNotIn("\tother\t", closure)
+        self.assertIn("Required-Dependency-Classes: D,I,V", (output / "context.md").read_text())
+
     def test_descriptive_architecture_scope_is_not_a_missing_path(self):
         registry = self.root / "registry-descriptive"
         registry.mkdir()
