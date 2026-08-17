@@ -1,6 +1,6 @@
 # Luna-Only Convergence Implementation Status
 
-Last updated (UTC): 2026-08-17T15:27:00Z
+Last updated (UTC): 2026-08-17T15:32:00Z
 
 Overall status: `IN_PROGRESS`
 
@@ -250,6 +250,24 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   unchanged consecutive semantic failure set trips the no-progress circuit
   breaker immediately and returns the leaf to deterministic child-DAG
   decomposition without a stronger model.
+
+### 2026-08-17 — exhausted-root child-boundary migration
+
+- Production inspection showed five preserved liveness pauses created by the
+  legacy same-boundary loop (8–29 reviews/replans), not specification or
+  architecture contradictions.
+- Luna-only migration now archives those reassessment markers and replaces
+  them with `LUNA_ONLY_POLICY_MIGRATION`, which makes child-criterion
+  decomposition mandatory before another worker can launch.
+- Historical review, replan, lifetime, and token totals remain durable. A
+  policy-specific liveness epoch subtracts them only for the new append-only
+  child acceptance boundary; ordinary restart, incident resolution, context
+  rotation, or active-node revision still cannot reset liveness.
+- The migration rejects a paused root that still has a ready, running, or
+  pending-result artifact, so it cannot create two live state transitions.
+- Added regression coverage for archival, typed recovery, retained historical
+  counters, post-migration delta accounting, and absence of an immediate
+  liveness re-pause.
 
 ## Validation journal
 

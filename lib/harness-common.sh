@@ -3054,14 +3054,24 @@ record_context_closure_outcome()
 
 root_liveness_epoch_delta()
 {
-	local root="$1" key="$2" current="$3"
-	# Compatibility name retained for external integrations. Liveness is now
-	# scoped to the lifetime of the original root acceptance boundary. Context
-	# rotation, active-node repair, and incident resolution must not subtract
-	# historical work while that boundary remains unchanged.
-	: "$root" "$key"
+	local root="$1" key="$2" current="$3" epoch baseline
 	[[ "$current" =~ ^[0-9]+$ ]] || current=0
-	printf '%s\n' "$current"
+	epoch="$(task_root_liveness_epoch_file "$root")"
+	# Ordinary context rotation, incident resolution, or active-node repair must
+	# never erase history. The sole reset authority is the recorded Luna-only
+	# migration from an exhausted broad boundary to mandatory append-only child
+	# criteria. The old totals remain in the epoch for audit and status output.
+	if [[ -f "$epoch" ]] &&
+		[[ "$(kv_file_value "$epoch" authorized_reset 2>/dev/null || true)" == 1 ]] &&
+		[[ "$(kv_file_value "$epoch" budget_scope 2>/dev/null || true)" == luna-only-migrated-child-boundary ]] &&
+		[[ "$(kv_file_value "$epoch" source 2>/dev/null || true)" == luna-only-policy-migration ]]; then
+		baseline="$(kv_file_value "$epoch" "$key" 2>/dev/null || printf 0)"
+		[[ "$baseline" =~ ^[0-9]+$ ]] || baseline=0
+		(( current >= baseline )) || baseline="$current"
+		printf '%s\n' "$((current - baseline))"
+	else
+		printf '%s\n' "$current"
+	fi
 }
 
 record_root_liveness_epoch()
@@ -3070,8 +3080,15 @@ record_root_liveness_epoch()
 	epoch="$(task_root_liveness_epoch_file "$root")"
 	tmp="$epoch.tmp.$$"
 	{
-		printf 'snapshot_only=1\n'
-		printf 'budget_scope=lifetime-root-acceptance-boundary\n'
+		if [[ "$source" == luna-only-policy-migration ]]; then
+			printf 'snapshot_only=0\n'
+			printf 'authorized_reset=1\n'
+			printf 'budget_scope=luna-only-migrated-child-boundary\n'
+		else
+			printf 'snapshot_only=1\n'
+			printf 'authorized_reset=0\n'
+			printf 'budget_scope=lifetime-root-acceptance-boundary\n'
+		fi
 		printf 'reviewed_attempts=%s\n' "$(root_reviewed_attempt_count "$root")"
 		printf 'criterionless_reviews=%s\n' "$(root_reviews_without_criterion_completion "$root")"
 		printf 'total_replans=%s\n' "$(root_total_replan_count "$root")"
@@ -3087,11 +3104,11 @@ record_root_liveness_epoch()
 root_liveness_violation_reason()
 {
 	local root="$1" reviews criterionless_reviews replans lifetime tokens
-	reviews="$(root_reviewed_attempt_count "$root")"
-	criterionless_reviews="$(root_reviews_without_criterion_completion "$root")"
-	replans="$(root_total_replan_count "$root")"
-	lifetime="$(root_lifetime_seconds "$root")"
-	tokens="$(root_processed_token_count "$root")"
+	reviews="$(root_liveness_epoch_delta "$root" reviewed_attempts "$(root_reviewed_attempt_count "$root")")"
+	criterionless_reviews="$(root_liveness_epoch_delta "$root" criterionless_reviews "$(root_reviews_without_criterion_completion "$root")")"
+	replans="$(root_liveness_epoch_delta "$root" total_replans "$(root_total_replan_count "$root")")"
+	lifetime="$(root_liveness_epoch_delta "$root" lifetime_seconds "$(root_lifetime_seconds "$root")")"
+	tokens="$(root_liveness_epoch_delta "$root" processed_tokens "$(root_processed_token_count "$root")")"
 	if (( criterionless_reviews >= HARNESS_MAX_ROOT_REVIEWS_WITHOUT_CRITERION )); then
 		printf 'NO_CRITERION_PROGRESS: reviews without a completed root criterion reached the monotonic limit (%s/%s)' "$criterionless_reviews" "$HARNESS_MAX_ROOT_REVIEWS_WITHOUT_CRITERION"
 	elif (( reviews >= HARNESS_MAX_TOTAL_ROOT_REVIEWS )); then

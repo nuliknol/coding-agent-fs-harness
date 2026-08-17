@@ -51,6 +51,54 @@ if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
 		migrated_ready=$((migrated_ready + 1))
 	done
 	shopt -u nullglob
+	migrated_liveness=0
+	# Pre-policy supervisors may have exhausted a broad root by repeatedly
+	# replanning the same acceptance boundary. Luna-only migration changes that
+	# boundary only through mandatory append-only child criteria. Preserve the
+	# historical marker and counters, then authorize one child-boundary liveness
+	# epoch so the new compiler can make progress without raising global limits.
+	shopt -s nullglob
+	for reassessment in "$dir/control/progress/$PROJECT-task-"*.architecture-reassessment-required.md; do
+		[[ -f "$reassessment" ]] || continue
+		category="$(metadata_value "$reassessment" Category)"
+		case "$category" in
+			NO_CRITERION_PROGRESS|TOTAL_ROOT_REVIEWS|TOTAL_ROOT_REPLANS|ROOT_LIFETIME|ROOT_TOKENS) ;;
+			*) continue ;;
+		esac
+		root="$(metadata_value "$reassessment" Task-Root)"
+		trigger="$(metadata_value "$reassessment" Triggered-By)"
+		validate_task_id "$root"
+		[[ "$(task_root_id "$root")" == "$root" ]] ||
+			die "invalid root in Luna-only liveness migration marker: $reassessment"
+		[[ -n "$trigger" ]] || trigger="$root"
+		live_root_artifact=0
+		for artifact in "$dir/tasks/$PROJECT-task-"*.ready.md \
+			"$dir/running/$PROJECT-task-"*.running.md \
+			"$dir/results/$PROJECT-task-"*.result.md; do
+			[[ -f "$artifact" ]] || continue
+			artifact_task="$(task_id_from_filename "$artifact")"
+			if [[ "$(task_root_id "$artifact_task")" == "$root" ]]; then
+				live_root_artifact=1
+				break
+			fi
+		done
+		(( live_root_artifact == 0 )) ||
+			die "Luna-only liveness migration found a live task/result for paused root $root"
+		record_root_liveness_epoch "$root" luna-only-policy-migration
+		mark_root_needs_replan "$trigger" \
+			"The legacy broad acceptance boundary exhausted its monotonic liveness budget. Preserve all evidence and replace only the first unmet boundary with at least two ordered Luna-sized child criteria." \
+			LUNA_ONLY_POLICY_MIGRATION >/dev/null
+		clear_worker_thread_for_root "$root" luna-only-liveness-migration
+		archive_dir="$dir/archive/luna-only-migrations"
+		mkdir -p "$archive_dir"
+		chmod 700 "$archive_dir"
+		archive="$archive_dir/${reassessment##*/}.$(timestamp_compact_utc).migrated"
+		mv "$reassessment" "$archive"
+		chmod 600 "$archive"
+		log_event "LUNA_ONLY_LIVENESS_BOUNDARY_MIGRATED root=$root trigger=$trigger category=$category archive=$archive epoch=$(task_root_liveness_epoch_file "$root")"
+		migrated_liveness=$((migrated_liveness + 1))
+	done
+	shopt -u nullglob
 	pending_terra=0
 	if project_plan_uses_dag; then
 		pending_terra="$(awk -F '\t' 'NR>1 && $11=="TERRA" {count++} END {print count+0}' "$(project_decomposition_plan_file)")"
@@ -59,6 +107,7 @@ if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
 	{
 		printf 'status=READY\n'
 		printf 'migrated_ready_tasks=%s\n' "$migrated_ready"
+		printf 'migrated_liveness_roots=%s\n' "$migrated_liveness"
 		printf 'installed_terra_nodes=%s\n' "$pending_terra"
 		printf 'pending_node_policy=recursive_root_criteria\n'
 		printf 'migrated_at=%s\n' "$(timestamp_utc)"
@@ -66,6 +115,6 @@ if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
 	chmod 600 "$migration_state.tmp.$$"
 	mv "$migration_state.tmp.$$" "$migration_state"
 	log_event "LUNA_ONLY_STATE_MIGRATION_READY migrated_ready=$migrated_ready installed_terra_nodes=$pending_terra state=$migration_state"
-	printf 'Luna-only state migration: ready-tasks=%s installed-Terra-nodes=%s (decomposed in place at activation)\n' \
-		"$migrated_ready" "$pending_terra"
+	printf 'Luna-only state migration: ready-tasks=%s liveness-roots=%s installed-Terra-nodes=%s (decomposed in place at activation)\n' \
+		"$migrated_ready" "$migrated_liveness" "$pending_terra"
 fi

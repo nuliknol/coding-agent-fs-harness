@@ -86,12 +86,53 @@ TASK
 chmod 600 "$legacy_ready"
 bash -c 'source "$1/lib/harness-common.sh"; load_harness_env "$2"; initialize_task_progress 002 "$3"' \
 	_ "$ROOT" "$TMP/harness.env" "$legacy_ready"
-"$ROOT/bin/harness-migrate-state" "$TMP/harness.env" >/dev/null
+
+# A pre-policy broad root that exhausted monotonic liveness may migrate only to
+# mandatory child-criterion decomposition. Historical counts remain archived,
+# while the new child boundary receives its own measured budget.
+printf 'accepted evidence\n' > "$project/archive/lunaconvergence-task-003.accepted.md"
+printf 'rejected evidence\n' > "$project/archive/lunaconvergence-task-003-revision-01.rejected.md"
+cat > "$project/control/progress/lunaconvergence-task-003.replans.tsv" <<'TSV'
+replanned_at	task_id	trigger	strategy_id	strategy_change	blocking_fingerprint	progress_percent	context_mode	assignment	verified_items	completed_criteria
+2026-08-17T00:00:00Z	003-revision-01	TEST	legacy	legacy	-	0	fresh	-	0	0
+TSV
+cat > "$project/control/progress/lunaconvergence-task-003.architecture-reassessment-required.md" <<'MARKER'
+# Architecture Reassessment Required
+
+Project: lunaconvergence
+
+Task-Root: 003
+
+Triggered-By: 003-revision-01
+
+Category: TOTAL_ROOT_REPLANS
+
+Reason: legacy broad boundary exhausted
+MARKER
+migration_output="$("$ROOT/bin/harness-migrate-state" "$TMP/harness.env")"
+grep -Fq 'liveness-roots=1' <<< "$migration_output"
 test ! -e "$legacy_ready"
 test -f "$project/archive/lunaconvergence-task-002.assignment.md"
 migration_marker="$project/control/progress/lunaconvergence-task-002.needs-replan.md"
 grep -Fqx 'Trigger-Outcome: LUNA_ONLY_POLICY_MIGRATION' "$migration_marker"
 grep -Fqx 'status=READY' "$project/control/luna-only-migration.env"
 grep -Fqx 'migrated_ready_tasks=1' "$project/control/luna-only-migration.env"
+grep -Fqx 'migrated_liveness_roots=1' "$project/control/luna-only-migration.env"
+test ! -e "$project/control/progress/lunaconvergence-task-003.architecture-reassessment-required.md"
+test "$(find "$project/archive/luna-only-migrations" -type f -name '*task-003*.migrated' | wc -l)" -eq 1
+grep -Fqx 'Trigger-Outcome: LUNA_ONLY_POLICY_MIGRATION' \
+	"$project/control/progress/lunaconvergence-task-003.needs-replan.md"
+epoch="$project/control/progress/lunaconvergence-task-003.liveness-epoch.env"
+grep -Fqx 'authorized_reset=1' "$epoch"
+grep -Fqx 'budget_scope=luna-only-migrated-child-boundary' "$epoch"
+grep -Fqx 'reviewed_attempts=2' "$epoch"
+printf 'new child rejection\n' > "$project/archive/lunaconvergence-task-003-revision-02.rejected.md"
+cat >> "$project/control/progress/lunaconvergence-task-003.replans.tsv" <<'TSV'
+2026-08-17T00:01:00Z	003-revision-02	TEST	child	decompose	-	0	fresh	-	0	0
+TSV
+bash -c 'source "$1/lib/harness-common.sh"; load_harness_env "$2"; \
+  test "$(root_liveness_epoch_delta 003 reviewed_attempts "$(root_reviewed_attempt_count 003)")" = 1; \
+  test "$(root_liveness_epoch_delta 003 total_replans "$(root_total_replan_count 003)")" = 1; \
+  ! root_liveness_violation_reason 003' _ "$ROOT" "$TMP/harness.env"
 
 printf 'Luna-only convergence tests passed.\n'
