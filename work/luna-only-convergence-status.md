@@ -1,6 +1,6 @@
 # Luna-Only Convergence Implementation Status
 
-Last updated (UTC): 2026-08-17T17:18:00Z
+Last updated (UTC): 2026-08-17T17:28:00Z
 
 Overall status: `IN_PROGRESS`
 
@@ -319,6 +319,11 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
 - Recovery also backfills `MIGRATED` onto active goal records created by an
   older deployment whenever their assignment already has durable repair or
   retirement evidence, removing the last false-positive orphan-goal reports.
+- Planning-gap dispatch now requires the same inactive plan fingerprint to
+  survive a one-second settle window and rechecks all active artifacts before
+  invoking Luna. This closes the millisecond race between Context Closure
+  assignment retirement and typed replan-marker publication without adding a
+  blocking sleep or delaying event processing.
 
 ## Validation journal
 

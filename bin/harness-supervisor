@@ -529,11 +529,44 @@ process_auto_replans()
 
 process_planning_gap()
 {
-	local status alert stalled tmp current previous marker
+	local status alert stalled tmp current previous marker candidate candidate_fingerprint
+	local observed_at now
 	project_plan_exists || return 0
 	project_plan_all_complete && return 0
-	project_has_active_task && return 0
+	candidate="$dir/control/planning-gap-candidate.env"
+	if project_has_active_task; then
+		rm -f "$candidate"
+		return 0
+	fi
 	current="$(planning_gap_state_fingerprint)"
+	# Worker admission can atomically retire a ready assignment into a typed
+	# Context Closure repair. During the few milliseconds between its archive
+	# move and replan-marker publication, a manager poll observes a false
+	# planning gap. Require the same inactive fingerprint to survive one full
+	# second, then check activity once more before spending a planning turn.
+	candidate_fingerprint=""
+	observed_at=""
+	if [[ -f "$candidate" ]]; then
+		candidate_fingerprint="$(kv_file_value "$candidate" fingerprint)"
+		observed_at="$(kv_file_value "$candidate" observed_at_epoch)"
+	fi
+	now="$(epoch_now)"
+	if [[ "$candidate_fingerprint" != "$current" || ! "$observed_at" =~ ^[0-9]+$ ]]; then
+		{
+			printf 'fingerprint=%s\n' "$current"
+			printf 'observed_at_epoch=%s\n' "$now"
+		} > "$candidate.tmp.$$"
+		chmod 600 "$candidate.tmp.$$"
+		mv "$candidate.tmp.$$" "$candidate"
+		log_event "SUPERVISOR_PLANNING_GAP_DEFERRED fingerprint=$current settle_seconds=1"
+		return 0
+	fi
+	(( now - observed_at >= 1 )) || return 0
+	if project_has_active_task; then
+		rm -f "$candidate"
+		return 0
+	fi
+	rm -f "$candidate"
 	stalled="$dir/control/manager-plan-stalled.md"
 	alert="$dir/control/manager-plan-failed.md"
 	for marker in "$stalled" "$alert"; do
