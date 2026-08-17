@@ -1,6 +1,6 @@
 # Luna-Only Convergence Implementation Status
 
-Last updated (UTC): 2026-08-17T19:56:00Z
+Last updated (UTC): 2026-08-17T22:00:12Z
 
 Overall status: `IN_PROGRESS`
 
@@ -990,3 +990,35 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   staged DAG and are restored/validated by the publisher rather than repaid in
   Sol context. The exact Story candidate now compiles successfully under the
   same 98,304-byte hard cap, and the startup transaction regression passes.
+- COMP2 exposed a typed closure-repair loop at the structural criterion fuse.
+  Revision 72 already contained two compiled `GRAFT_GRAPH_CUTS` children, but
+  manager-remediation recovery excluded the deterministic graft branch. Closure
+  grafting now retains manager-remediation authority whenever structural
+  capacity remains. At an exhausted depth/child fuse, the first compiled cut is
+  instead bound as a byte-validated same-criterion `Context-Closure-Cut`; this
+  narrows execution evidence without adding a ninth criterion level or resetting
+  any structural limit.
+- COMP3 revisions 50-54 repeatedly hid a missing include-path compiler error
+  behind assignment-local output redirection. Focused validations may no longer
+  redirect stdout/stderr outside `harness-run-assigned-validation`, and a command
+  ending at `cmake --build` is rejected when Goal-Success-Evidence requires
+  fixture/runtime observation. The corrected COMP3 status probe compiles and
+  exits zero with `-I. -Iresys/include`.
+- DPLM revision 72 demonstrated that recovery Context-Paths normalization did
+  not implement its documented directory-seed correction. Recovery publication
+  now removes repository directories from exact evidence seeds and resolves a
+  unique conventional header/source basename seam, such as
+  `dplm/include/dplm_semantic_service.h` to
+  `dplm/src/core/dplm_semantic_service.c`. Ambiguous directories remain absent
+  rather than expanding the capsule.
+- Regression coverage now rejects suppressed validation evidence, rejects
+  build-only runtime contracts, proves deterministic exact-file directory
+  normalization, and publishes a saturated-criterion compiled closure cut. The
+  staged-DAG path now also makes a nonzero complexity report authoritative; it
+  can no longer log `LUNA_COMPLEXITY_OVER_BUDGET` and accidentally continue to
+  `STAGED`. Measured plans without Specification IR now use explicit empty
+  evidence inputs instead of issuing noisy invalid AWK reads. The existing
+  startup-transaction, Luna-only convergence, decomposition-v2, closure-graft,
+  Context Closure tool, and validation-diagnostics suites pass. All token,
+  action, depth, child-count, review, replan, lifetime, and Context Closure size
+  fuses remain unchanged.

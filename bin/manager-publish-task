@@ -723,6 +723,64 @@ validate_deterministic_closure_graft()
 	log_event "DETERMINISTIC_CLOSURE_GRAFT_VALIDATED root=$root task=$task_id parent=$parent children=$(( $(wc -l < "$candidate") - 1 )) facets=$candidate.facets.tsv"
 }
 
+validate_deterministic_closure_cut()
+{
+	local parent="$1" marker action trigger repair declared row child_id _parent_task _sequence
+	local allowed_paths context_paths required_symbols acceptance focused_validation
+	local _source_cut _seam_kind _estimated _status target parent_depth child_count
+	marker="$(task_root_replan_file "$root")"
+	declared="$(metadata_value "$task_file" Context-Closure-Cut)"
+	if [[ ! -f "$marker" ]]; then
+		[[ -z "$declared" ]] || die 'Context-Closure-Cut requires a pending typed closure-repair marker'
+		return 0
+	fi
+	action="$(metadata_value "$marker" Closure-Repair-Action)"
+	if [[ "$action" != GRAFT_GRAPH_CUTS ]]; then
+		[[ -z "$declared" ]] || die 'Context-Closure-Cut is valid only for a pending GRAFT_GRAPH_CUTS repair'
+		return 0
+	fi
+	trigger="$(metadata_value "$marker" Triggered-By)"
+	repair="$dir/control/context-closures/$(task_base "$trigger")/repair-children.tsv"
+	[[ -s "$repair" ]] || return 0
+	parent_depth=0
+	if [[ -f "$criterion_decomposition" ]]; then
+		parent_depth="$(awk -F '\t' -v wanted="$parent" '
+			NR > 1 {value=depth[$1]+1; if(value>depth[$2])depth[$2]=value}
+			END {print depth[wanted]+0}
+		' "$criterion_decomposition")"
+	fi
+	child_count="$(root_child_criterion_count "$root")"
+	if (( parent_depth < HARNESS_MAX_CRITERION_DEPTH &&
+		child_count < HARNESS_MAX_ROOT_CHILD_CRITERIA )); then
+		[[ -z "$declared" ]] || die 'Context-Closure-Cut may replace child grafting only after the structural criterion budget is exhausted'
+		return 0
+	fi
+	[[ -n "$declared" ]] ||
+		die "structurally saturated GRAFT_GRAPH_CUTS recovery must bind the first compiled Context-Closure-Cut without adding another criterion level"
+	row="$(tail -n +2 "$repair" | sort -t $'\t' -k3,3n -k1,1 | head -n 1)"
+	IFS=$'\t' read -r child_id _parent_task _sequence allowed_paths context_paths required_symbols acceptance \
+		focused_validation _source_cut _seam_kind _estimated _status <<< "$row"
+	[[ "$declared" == "$child_id" ]] ||
+		die "Context-Closure-Cut must bind the first ordered compiled cut: $child_id"
+	target="$(metadata_value "$task_file" Target-Criterion)"
+	[[ "$target" == "$parent" ]] || die "closure evidence cut must retain its immutable parent criterion: $parent"
+	[[ "$(metadata_value "$task_file" Allowed-Scope)" == "$allowed_paths" ]] ||
+		die 'closure evidence cut Allowed-Scope differs from its deterministic source cut'
+	[[ "$(metadata_value "$task_file" Context-Paths)" == "$context_paths" ]] ||
+		die 'closure evidence cut Context-Paths differ from its deterministic source cut'
+	[[ "$(metadata_value "$task_file" Required-Symbols)" == "$required_symbols" ]] ||
+		die 'closure evidence cut Required-Symbols differ from its deterministic source cut'
+	[[ "$(metadata_value "$task_file" Goal-Success-Evidence)" == "$acceptance" ]] ||
+		die 'closure evidence cut Goal-Success-Evidence differs from its deterministic acceptance evidence'
+	[[ "$(metadata_value "$task_file" Focused-Validation)" == "$focused_validation" ]] ||
+		die 'closure evidence cut Focused-Validation differs from its deterministic source cut'
+	if [[ "$(metadata_value "$task_file" Manager-Remediation)" == 1 ]]; then
+		[[ "$(metadata_value "$task_file" Remediation-Scope)" == "$allowed_paths" ]] ||
+			die 'manager-remediation closure evidence cut must use its deterministic allowed_paths as Remediation-Scope'
+	fi
+	log_event "DETERMINISTIC_CLOSURE_CUT_VALIDATED root=$root task=$task_id parent=$parent cut=$child_id depth=$parent_depth children=$child_count"
+}
+
 target_criterion=""
 if (( ${#declared_criteria[@]} > 0 )) && [[ "$task_id" != "$root" ]]; then
 	target_count="$(awk -F': ' '$1 == "Target-Criterion" {count++} END {print count + 0}' "$task_file")"
@@ -769,6 +827,8 @@ if (( ${#declared_criteria[@]} > 0 )) && [[ "$task_id" != "$root" ]]; then
 			die "continuation must target the first new child criterion: $decomposed_first"
 	elif [[ "$target_criterion" != "$first_unmet" ]]; then
 		die "continuation must target the first unmet criterion: $first_unmet"
+	else
+		validate_deterministic_closure_cut "$first_unmet"
 	fi
 elif [[ -n "$decomposition_candidate" ]]; then
 	die 'child criterion decomposition requires an existing explicit criterion inventory'
@@ -912,11 +972,17 @@ normalize_unique_cmake_target_aliases()
 
 validate_focused_validation_boundary()
 {
-	local validation="$1" lower
+	local validation="$1" success_evidence="${2:-}" lower success_lower
 	lower="${validation,,}"
+	success_lower="${success_evidence,,}"
 	[[ -n "$validation" ]] || die 'FOCUSED validation requires a nonempty bounded command or evidence boundary'
 	validation_is_executable_command "$validation" ||
 		die 'Focused-Validation must be one machine-executable shell command without Markdown quoting or trailing prose; use Validation-Command to refine a descriptive DAG boundary'
+	if grep -Eq '(^|[[:space:];&|])([0-9]*>|&>)[[:space:]]*[^&|;]*|[0-9]+>&[0-9]+' <<< "$validation"; then
+		mark_efficiency_warning VALIDATION_EVIDENCE_SUPPRESSED "${task_id:--}" \
+			'focused validation redirected command diagnostics outside harness capture' "validation=$validation"
+		die 'Focused-Validation must not redirect stdout or stderr; harness-run-assigned-validation retains bounded complete diagnostics'
+	fi
 	if [[ "$lower" == *"cmake --build"* && "$lower" != *"--target"* ]]; then
 		mark_efficiency_warning VALIDATION_INFLATION "${task_id:--}" \
 			'focused leaf requested an unqualified CMake all-target build' "validation=$validation"
@@ -932,6 +998,13 @@ validate_focused_validation_boundary()
 		mark_efficiency_warning VALIDATION_INFLATION "${task_id:--}" \
 			'focused leaf requested a repository-wide test-build target' "validation=$validation"
 		die 'FOCUSED validation cannot use a repository-wide test-build target; name the exact executable/test target or use CLEAN_GLOBAL validation'
+	fi
+	if [[ "$success_lower" =~ (execut|runtime|observation|observes|reports|output|status[[:space:]]+row|fixture) ]] &&
+		grep -Eq 'cmake[[:space:]].*--build([[:space:]]|=).*(--target([=[:space:]])[^[:space:];&|]+)?[[:space:]]*$' <<< "$validation"; then
+		mark_efficiency_warning VALIDATION_CONTRACT_INCOMPLETE "${task_id:--}" \
+			'focused success evidence requires runtime observation but the command ends after compilation' \
+			"success_evidence=$success_evidence validation=$validation"
+		die 'Focused-Validation ends after compilation but Goal-Success-Evidence requires execution/runtime observation; execute the exact built fixture or selected test in the same captured command'
 	fi
 }
 
@@ -1170,8 +1243,8 @@ normalize_revision_execution_metadata
 normalize_recovery_context_paths()
 {
 	local requested required allowed validation normalized entry symbol candidate tmp changed=0
-	local found duplicate
-	local -a entries=() kept=() symbols=() candidates=()
+	local found duplicate exact_file stem directory
+	local -a entries=() kept=() symbols=() candidates=() source_directories=() exact_files=()
 	(( recovery_publish == 1 )) || return 0
 	[[ "$HARNESS_MODEL_POLICY" == luna_only ]] || return 0
 	requested="$(metadata_value "$task_file" Context-Paths)"
@@ -1196,7 +1269,16 @@ normalize_recovery_context_paths()
 			changed=1
 			continue
 		fi
+		if [[ "$entry" != /* && -d "$REPOSITORY/$entry" ]]; then
+			# A directory is mutation authority, not an exact closure evidence
+			# seed. Keep it as a bounded deterministic search boundary and replace
+			# it with tracked source files below.
+			source_directories+=("$entry")
+			changed=1
+			continue
+		fi
 		kept+=("$entry")
+		[[ "$entry" == /* || ! -f "$REPOSITORY/$entry" ]] || exact_files+=("$entry")
 	done
 
 	# Required-Symbols and explicit Context-Paths form one compiled closure
@@ -1234,8 +1316,31 @@ normalize_recovery_context_paths()
 		done
 		(( duplicate == 1 )) || {
 			kept+=("$candidate")
+			exact_files+=("$candidate")
 			changed=1
 		}
+	done
+
+	# Resolve conventional public-header/implementation seams without a model
+	# turn. For example, include/foo.h plus src/core becomes the unique tracked
+	# src/core/foo.c. Ambiguous basenames remain absent rather than broadening
+	# the capsule to a whole directory.
+	for directory in "${source_directories[@]}"; do
+		for exact_file in "${exact_files[@]}"; do
+			stem="${exact_file##*/}"
+			stem="${stem%.*}"
+			mapfile -t candidates < <(git -C "$REPOSITORY" ls-files -- \
+				"$directory/$stem.c" "$directory/**/$stem.c" \
+				"$directory/$stem.cc" "$directory/**/$stem.cc" \
+				"$directory/$stem.cpp" "$directory/**/$stem.cpp" | LC_ALL=C sort -u)
+			(( ${#candidates[@]} == 1 )) || continue
+			candidate="${candidates[0]}"
+			duplicate=0
+			for entry in "${kept[@]}"; do
+				[[ "$entry" != "$candidate" ]] || duplicate=1
+			done
+			(( duplicate == 1 )) || kept+=("$candidate")
+		done
 	done
 	(( changed == 1 )) || return 0
 	(( ${#kept[@]} > 0 && ${#kept[@]} <= 8 )) ||
@@ -1560,7 +1665,7 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 		fi
 		[[ "$leaf_validation_class" =~ ^(FOCUSED|INCREMENTAL|CLEAN_GLOBAL)$ ]] || die "invalid Validation-Class: $leaf_validation_class"
 		if [[ "$leaf_validation_class" == FOCUSED ]]; then
-			validate_focused_validation_boundary "$goal_focused_validation"
+			validate_focused_validation_boundary "$goal_focused_validation" "$goal_success_evidence"
 		fi
 		validate_static_cmake_validation_paths "$goal_focused_validation"
 		validate_static_make_validation_target "$goal_focused_validation"

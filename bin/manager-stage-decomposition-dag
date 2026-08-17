@@ -98,7 +98,8 @@ set +e
 		fi
 	fi
 	if [[ "$dag_header" == "$complexity_dag_header" ]]; then
-		write_decomposition_complexity_report "$candidate_dir/dag.tsv" "$candidate_dir/coverage.tsv" "$candidate_dir/complexity.tsv"
+		write_decomposition_complexity_report "$candidate_dir/dag.tsv" "$candidate_dir/coverage.tsv" "$candidate_dir/complexity.tsv" ||
+			die 'decomposition DAG exceeds the configured executable-leaf complexity contract'
 		if ! python3 "$HARNESS_HOME/tools/irregularity_detector.py" decomposition \
 			--dag "$candidate_dir/dag.tsv" --complexity "$candidate_dir/complexity.tsv"; then
 			mark_efficiency_warning NON_SHRINKING_DECOMPOSITION - \

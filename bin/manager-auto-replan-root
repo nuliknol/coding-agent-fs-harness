@@ -257,6 +257,7 @@ mv "$recovery_packet.tmp.$$" "$recovery_packet"
 
 criteria_instruction=""
 deterministic_closure_graft=0
+deterministic_closure_cut=0
 publish_flag="--auto-replan"
 recovery_task_metadata=""
 recovery_authority=""
@@ -295,13 +296,25 @@ if task_root_uses_assignment_criteria "$root" || [[ -f "$criteria_definition" ]]
 			END {print depth[wanted]+0}
 		' "$criterion_decomposition")"
 	fi
+	root_child_count="$(root_child_criterion_count "$root")"
 	if (( first_unmet_depth >= HARNESS_MAX_CRITERION_DEPTH ||
-		$(root_child_criterion_count "$root") >= HARNESS_MAX_ROOT_CHILD_CRITERIA )); then
-		criteria_instruction="Use the existing immutable criterion inventory. Its first unmet leaf is: $first_unmet. The structural decomposition budget is exhausted at depth $first_unmet_depth/$HARNESS_MAX_CRITERION_DEPTH and children $(root_child_criterion_count "$root")/$HARNESS_MAX_ROOT_CHILD_CRITERIA. Do not write or pass DECOMPOSITION_OUTPUT. Keep exactly this first-unmet criterion, add only the missing bounded context/contract evidence, and publish with $publish_flag only. Never rewrite or remove an existing criterion or decomposition row."
+		root_child_count >= HARNESS_MAX_ROOT_CHILD_CRITERIA )); then
+		if [[ "$trigger_closure_repair_action" == GRAFT_GRAPH_CUTS &&
+			"$trigger_closure_repair_children" != - ]] &&
+			(( $(awk 'END {print NR > 0 ? NR - 1 : 0}' "$trigger_closure_repair_children") >= 1 )); then
+			closure_cut_id="$(tail -n +2 "$trigger_closure_repair_children" |
+				sort -t $'\t' -k3,3n -k1,1 | head -n 1 | cut -f1)"
+			deterministic_closure_cut=1
+			criteria_instruction="Use the existing immutable criterion inventory. Its first unmet leaf is: $first_unmet. The structural criterion budget is intentionally preserved at depth $first_unmet_depth/$HARNESS_MAX_CRITERION_DEPTH and children $root_child_count/$HARNESS_MAX_ROOT_CHILD_CRITERIA. The trusted Context Closure compiler supplied an execution evidence cut that can narrow this same immutable leaf without adding another criterion level. Do not write or pass DECOMPOSITION_OUTPUT. Keep Target-Criterion exactly $first_unmet, add exactly 'Context-Closure-Cut: $closure_cut_id', and copy only that first ordered row's exact allowed_paths, context_paths, required_symbols, acceptance_evidence, and focused_validation from CLOSURE_REPAIR_CHILDREN_FILE. If this is manager remediation, set Remediation-Scope exactly to that row's allowed_paths. Publish with $publish_flag only. The publisher validates every copied field against the compiled cut."
+		else
+			criteria_instruction="Use the existing immutable criterion inventory. Its first unmet leaf is: $first_unmet. The structural decomposition budget is exhausted at depth $first_unmet_depth/$HARNESS_MAX_CRITERION_DEPTH and children $root_child_count/$HARNESS_MAX_ROOT_CHILD_CRITERIA. Do not write or pass DECOMPOSITION_OUTPUT. Keep exactly this first-unmet criterion, add only the missing bounded context/contract evidence, and publish with $publish_flag only. Never rewrite or remove an existing criterion or decomposition row."
+		fi
 	else
 		if (( resource_progress_verification == 1 )); then
 			criteria_instruction="Use the existing immutable criterion inventory. Its first unmet leaf is: $first_unmet. The preceding bounded episode changed preserved source before its resource fuse. Do not append decomposition and do not authorize another implementation edit. Target exactly $first_unmet with a VERIFICATION_ONLY leaf, Expected-Max-Implementation-Files: 0, fresh context, and the narrowest executable focused validation that proves or disproves the preserved change."
-		elif { (( resource_decomposition == 1 || policy_migration == 1 )) || [[ "$trigger_closure_repair_action" == GRAFT_GRAPH_CUTS ]]; } && [[ "$recovery_mode" != MANAGER_REMEDIATION ]]; then
+		elif [[ "$trigger_closure_repair_action" == GRAFT_GRAPH_CUTS ]] ||
+			{ (( resource_decomposition == 1 || policy_migration == 1 )) &&
+				[[ "$recovery_mode" != MANAGER_REMEDIATION ]]; }; then
 			if [[ "$trigger_closure_repair_action" == GRAFT_GRAPH_CUTS && "$trigger_closure_repair_children" != - ]] &&
 				(( $(awk 'END {print NR > 0 ? NR - 1 : 0}' "$trigger_closure_repair_children") >= 2 )); then
 				python3 "$HARNESS_HOME/tools/compile_closure_graft.py" \
@@ -355,6 +368,7 @@ CLOSURE_REPAIR_PROVIDER=${trigger_closure_repair_provider:--}
 CLOSURE_REPAIR_CHILDREN_FILE=$trigger_closure_repair_children
 CLOSURE_REPAIR_REPORT_FILE=$trigger_closure_repair_report
 DETERMINISTIC_CLOSURE_GRAFT=$deterministic_closure_graft
+DETERMINISTIC_CLOSURE_CUT=$deterministic_closure_cut
 TRIGGER_BLOCKER_CLASS=${trigger_blocker_class:--}
 TRIGGER_REMEDIATION_SCOPE=${trigger_remediation_scope:--}
 TRIGGER_CONTEXT_PATHS=${trigger_context_paths:--}

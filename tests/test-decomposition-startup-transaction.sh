@@ -545,6 +545,12 @@ grep -Fqx 'status=REJECTED' "$project_dir/control/decomposition-dag-candidate.en
 # repair. Its typed reports are projected onto the rejected DAG transaction so
 # recursive decomposition can split the named nodes before architecture binds
 # again.
+set +e
+"$HARNESS_BIN/manager-submit-decomposition" "$env_file" \
+	"$TEST_ROOT/dag.tsv" "$TEST_ROOT/bad-coverage.tsv" - >/dev/null 2>&1
+full_context_status=$?
+set -e
+(( full_context_status != 0 ))
 full_context_candidate="$(awk -F= '$1=="directory" {print $2}' "$project_dir/control/decomposition-candidate.env" | tail -1)"
 mkdir -p "$full_context_candidate/context-admission"
 cat > "$full_context_candidate/context-admission/admission.tsv" <<'TSV'

@@ -11,11 +11,12 @@ else
 	trap 'rm -rf -- "$TEST_ROOT"' EXIT
 fi
 
-mkdir -p "$TEST_ROOT/repo/src" "$TEST_ROOT/manager-home" "$TEST_ROOT/worker-home"
+mkdir -p "$TEST_ROOT/repo/src" "$TEST_ROOT/repo/include" "$TEST_ROOT/manager-home" "$TEST_ROOT/worker-home"
 printf 'Implement one focused behavior.\n' > "$TEST_ROOT/repo/spec.md"
 printf 'int target_symbol(void) { return 0; }\n' > "$TEST_ROOT/repo/src/a.c"
+printf 'int target_symbol(void);\n' > "$TEST_ROOT/repo/include/a.h"
 git -C "$TEST_ROOT/repo" init -q
-git -C "$TEST_ROOT/repo" add spec.md src/a.c
+git -C "$TEST_ROOT/repo" add spec.md src/a.c include/a.h
 git -C "$TEST_ROOT/repo" -c user.name=test -c user.email=test@example.invalid commit -qm seed
 
 cat > "$TEST_ROOT/harness.env" <<ENV
@@ -64,6 +65,20 @@ grep -Fq 'node=planner-one has non-executable leaf_type=DECOMPOSITION' "$TEST_RO
 grep -Fq 'node=planner-one has non-executable worker_route=SOL' "$TEST_ROOT/invalid-measured-plan.out"
 grep -Fq 'node=planner-two has non-executable leaf_type=DECOMPOSITION' "$TEST_ROOT/invalid-measured-plan.out"
 grep -Fq 'node=planner-two has non-executable worker_route=SOL' "$TEST_ROOT/invalid-measured-plan.out"
+
+cat > "$TEST_ROOT/invalid-executable-scope-plan.tsv" <<'PLAN'
+node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route	behavioral_concerns	failure_paths	ownership_transitions	concurrency_boundaries	validation_surfaces	implementation_files	predicted_worker_actions	predicted_p95_tokens	terra_exception
+report	-	-	Write completion.md	Report evidence is retained	FOCUSED: inspect report	-	-	DOCUMENTATION	LOW	LUNA	1	0	0	0	1	1	4	50000	-
+PLAN
+if (
+	source "$HARNESS_HOME/lib/harness-common.sh"
+	validate_decomposition_measured_schema_file "$TEST_ROOT/invalid-executable-scope-plan.tsv"
+) > "$TEST_ROOT/invalid-executable-scope.out" 2>&1; then
+	printf 'measured staging accepted an executable documentation row without allowed paths\n' >&2
+	exit 1
+fi
+grep -Fq 'node=report requires explicit allowed_paths for its executable implementation boundary' \
+	"$TEST_ROOT/invalid-executable-scope.out"
 
 # Prompt construction uses an interpolated heredoc. Literal shell backticks in
 # prose must not accidentally execute commands while the prompt is generated.
@@ -162,6 +177,31 @@ fi
 grep -Fq 'Root-Criterion REQ-CROSS-NODE is a cross-node specification obligation allocated to n1,n2' \
 	"$TEST_ROOT/cross-node-criterion.out"
 rm -f "$project_dir/control/specification-coverage.tsv"
+
+# Focused validation must leave complete diagnostics under harness capture.
+# It must also execute a fixture when its success contract requires runtime
+# observation rather than treating compilation as acceptance evidence.
+sed \
+	-e 's#^Focused-Validation:.*#Focused-Validation: cc -I. src/a.c -o /tmp/a-test > /tmp/a-test.log 2>\&1#' \
+	"$TEST_ROOT/task.md" > "$TEST_ROOT/suppressed-validation-task.md"
+if "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" 001 \
+	"$TEST_ROOT/suppressed-validation-task.md" n1 > "$TEST_ROOT/suppressed-validation.out" 2>&1; then
+	printf 'focused validation with hidden diagnostics was accepted\n' >&2
+	exit 1
+fi
+grep -Fq 'Focused-Validation must not redirect stdout or stderr' \
+	"$TEST_ROOT/suppressed-validation.out"
+sed \
+	-e 's#^Goal-Success-Evidence:.*#Goal-Success-Evidence: fixture execution reports the expected runtime status#' \
+	-e 's#^Focused-Validation:.*#Focused-Validation: cmake -S . -B /tmp/decompv2-build \&\& cmake --build /tmp/decompv2-build --target focused-smoke#' \
+	"$TEST_ROOT/task.md" > "$TEST_ROOT/build-only-runtime-task.md"
+if "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" 001 \
+	"$TEST_ROOT/build-only-runtime-task.md" n1 > "$TEST_ROOT/build-only-runtime.out" 2>&1; then
+	printf 'build-only validation was accepted for runtime success evidence\n' >&2
+	exit 1
+fi
+grep -Fq 'Focused-Validation ends after compilation' "$TEST_ROOT/build-only-runtime.out"
+
 "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" 001 "$TEST_ROOT/task.md" n1 >/dev/null
 
 grep -Eq $'^n1\tACTIVE\t001\t' "$project_dir/control/project-plan-state.tsv"
@@ -375,6 +415,106 @@ grep -Fq 'RESOURCE_PROGRESS_VERIFICATION_VECTOR_NORMALIZED root=001 task=001-rev
 	"$verification_project/logs/events.log"
 grep -Eq 'RECOVERY_(TERRA_ESCALATION|EXHAUSTED_LUNA_ROUTE)_NORMALIZED root=001 task=001-revision-01 .*luna_failures=3.*exception=IRREDUCIBLE_CROSS_BOUNDARY' \
 	"$verification_project/logs/events.log"
+
+# Luna-only recovery treats repository directories as search boundaries, not
+# exact capsule evidence. A unique header/source basename seam is compiled to
+# the tracked source file without broadening the task.
+sed \
+	-e 's/export PROJECT="decompv2"/export PROJECT="decompnormalize"/' \
+	-e "s|export HARNESS_ROOT=\"$TEST_ROOT/state\"|export HARNESS_ROOT=\"$TEST_ROOT/normalize-state\"|" \
+	"$TEST_ROOT/harness.env" > "$TEST_ROOT/normalize-harness.env"
+printf '%s\n' 'export HARNESS_MODEL_POLICY="luna_only"' >> "$TEST_ROOT/normalize-harness.env"
+chmod 600 "$TEST_ROOT/normalize-harness.env"
+"$HARNESS_BIN/harness-init" "$TEST_ROOT/normalize-harness.env" >/dev/null
+"$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/normalize-harness.env" \
+	"$TEST_ROOT/verification-plan.tsv" >/dev/null
+"$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/normalize-harness.env" 001 \
+	"$TEST_ROOT/task.md" n1 >/dev/null
+normalize_project="$TEST_ROOT/normalize-state/projects/decompnormalize"
+mv "$normalize_project/tasks/decompnormalize-task-001.ready.md" \
+	"$normalize_project/archive/decompnormalize-task-001.checkpointed.md"
+cat > "$normalize_project/control/progress/decompnormalize-task-001.needs-replan.md" <<'MARKER'
+# Root Task Needs Replanning
+
+Task-Root: 001
+Triggered-By: 001
+Trigger-Outcome: NEEDS_DECOMPOSITION
+MARKER
+sed \
+	-e 's/^Task-ID: 001$/Task-ID: 001-revision-01/' \
+	-e 's/^Goal-ID: n1.goal$/Goal-ID: n1.normalize/' \
+	-e 's#^Context-Paths: src/a.c$#Context-Paths: include/a.h,src#' \
+	-e '/^Root-Criterion: n1.done$/a Replan-Strategy-ID: normalize.context.1\nStrategy-Change: NARROW_SCOPE\nSupersedes-Task: 001' \
+	"$TEST_ROOT/task.md" > "$TEST_ROOT/normalize-recovery-task.md"
+"$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/normalize-harness.env" \
+	001-revision-01 "$TEST_ROOT/normalize-recovery-task.md" --auto-replan >/dev/null
+normalize_ready="$normalize_project/tasks/decompnormalize-task-001-revision-01.ready.md"
+grep -Fqx 'Context-Paths: include/a.h,src/a.c' "$normalize_ready"
+grep -Fq 'LUNA_CONTEXT_PATHS_NORMALIZED root=001 task=001-revision-01' \
+	"$normalize_project/logs/events.log"
+
+# A compiled graph cut remains usable when the append-only criterion budget is
+# saturated. It narrows the immutable leaf as a validated execution-evidence
+# cut instead of exceeding or resetting the structural fuse.
+sed \
+	-e 's/export PROJECT="decompv2"/export PROJECT="decompcut"/' \
+	-e "s|export HARNESS_ROOT=\"$TEST_ROOT/state\"|export HARNESS_ROOT=\"$TEST_ROOT/cut-state\"|" \
+	"$TEST_ROOT/harness.env" > "$TEST_ROOT/cut-harness.env"
+cat >> "$TEST_ROOT/cut-harness.env" <<'ENV'
+export HARNESS_MODEL_POLICY="luna_only"
+export HARNESS_ESCALATION_POLICY="decompose"
+export HARNESS_MAX_ROOT_CHILD_CRITERIA="1"
+ENV
+chmod 600 "$TEST_ROOT/cut-harness.env"
+"$HARNESS_BIN/harness-init" "$TEST_ROOT/cut-harness.env" >/dev/null
+"$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/cut-harness.env" \
+	"$TEST_ROOT/verification-plan.tsv" >/dev/null
+sed \
+	-e 's/^Root-Criterion: n1.done$/Root-Criterion: broad.parent/' \
+	-e 's/^Target-Criterion: n1.done$/Target-Criterion: broad.parent/' \
+	"$TEST_ROOT/task.md" > "$TEST_ROOT/cut-root-task.md"
+"$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/cut-harness.env" 001 \
+	"$TEST_ROOT/cut-root-task.md" n1 >/dev/null
+cut_project="$TEST_ROOT/cut-state/projects/decompcut"
+mv "$cut_project/tasks/decompcut-task-001.ready.md" \
+	"$cut_project/archive/decompcut-task-001.assignment.md"
+cut_progress="$cut_project/control/progress"
+cat > "$cut_progress/decompcut-task-001.criterion-decomposition.tsv" <<'TSV'
+parent_criterion	child_criterion	title	acceptance_evidence
+broad.parent	broad.parent.leaf	Bounded leaf	compiled cut validation passes
+TSV
+cat > "$cut_progress/decompcut-task-001.needs-replan.md" <<'MARKER'
+# Root Task Needs Replanning
+
+Task-Root: 001
+Triggered-By: 001
+Trigger-Outcome: CONTEXT_CLOSURE_REPAIR
+Closure-Condition: CLOSURE_BUDGET_EXCEEDED
+Closure-Repair-Action: GRAFT_GRAPH_CUTS
+Closure-Repair-Provider: decomposition-compiler
+MARKER
+mkdir -p "$cut_project/control/context-closures/decompcut-task-001"
+cat > "$cut_project/control/context-closures/decompcut-task-001/repair-children.tsv" <<'TSV'
+child_id	parent_task	sequence	allowed_paths	context_paths	required_symbols	acceptance_evidence	focused_validation	source_cut	seam_kind	estimated_source_bytes	status
+CCR-cut001	001	1	src/a.c	src/a.c	target_symbol	compiled cut validation passes	test "$(./focused-smoke)" = 1	cut-a	SOURCE	40	PROPOSED
+CCR-cut002	001	2	include/a.h	include/a.h	target_symbol	public declaration remains exact	test -f include/a.h	cut-h	INTERFACE	30	PROPOSED
+TSV
+sed \
+	-e 's/^Task-ID: 001$/Task-ID: 001-revision-01/' \
+	-e 's/^Goal-ID: n1.goal$/Goal-ID: n1.cut.goal/' \
+	-e 's/^Root-Criterion: broad.parent$/Root-Criterion: broad.parent/' \
+	-e 's/^Target-Criterion: broad.parent$/Target-Criterion: broad.parent.leaf/' \
+	-e 's/^Goal-Success-Evidence:.*$/Goal-Success-Evidence: compiled cut validation passes/' \
+	-e '/^Target-Criterion:/a Context-Closure-Cut: CCR-cut001' \
+	-e '/^Task-Root:/a Manager-Remediation: 1\nBlocker-Class: LOCAL_CODE_PREREQUISITE\nRemediation-Scope: src/a.c' \
+	-e '/^Root-Criterion:/a Replan-Strategy-ID: cut.strategy.1\nStrategy-Change: REPAIR_PREREQUISITE\nSupersedes-Task: 001' \
+	"$TEST_ROOT/cut-root-task.md" > "$TEST_ROOT/cut-recovery-task.md"
+"$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/cut-harness.env" 001-revision-01 \
+	"$TEST_ROOT/cut-recovery-task.md" --manager-remediation >/dev/null
+cut_ready="$cut_project/tasks/decompcut-task-001-revision-01.ready.md"
+grep -Fqx 'Context-Closure-Cut: CCR-cut001' "$cut_ready"
+grep -Fq 'DETERMINISTIC_CLOSURE_CUT_VALIDATED root=001 task=001-revision-01' \
+	"$cut_project/logs/events.log"
 
 # Decomposition TSV fields are canonicalized at registration. In particular,
 # generated validation commands may contain harmless surrounding whitespace,

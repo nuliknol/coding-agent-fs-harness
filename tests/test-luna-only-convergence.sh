@@ -26,6 +26,14 @@ grep -Fq 'typed Context Closure repair must retain the triggering manager-remedi
 	"$ROOT/bin/manager-auto-replan-root"
 grep -Fq 'normalize_recovery_context_paths' "$ROOT/bin/manager-publish-task"
 grep -Fq 'LUNA_CONTEXT_PATHS_NORMALIZED' "$ROOT/bin/manager-publish-task"
+grep -Fq 'DETERMINISTIC_CLOSURE_CUT=' "$ROOT/bin/manager-auto-replan-root"
+grep -Fq 'DETERMINISTIC_CLOSURE_CUT_VALIDATED' "$ROOT/bin/manager-publish-task"
+grep -Fq "Context-Closure-Cut: \$closure_cut_id" "$ROOT/bin/manager-auto-replan-root"
+if grep -Fq '[[ "$trigger_closure_repair_action" == GRAFT_GRAPH_CUTS ]]; } && [[ "$recovery_mode" != MANAGER_REMEDIATION ]]' \
+	"$ROOT/bin/manager-auto-replan-root"; then
+	printf 'manager remediation still disables deterministic closure grafting\n' >&2
+	exit 1
+fi
 
 mkdir -p "$TMP/repo" "$TMP/codex-home"
 printf 'test specification\n' > "$TMP/repo/spec.md"
