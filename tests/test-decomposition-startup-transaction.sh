@@ -370,7 +370,9 @@ grep -Fq '"$complexity_report"' "$HARNESS_BIN/manager-decomposition-dag-repair"
 ! grep -Fq '"$allowed"' "$HARNESS_BIN/manager-decomposition-dag-repair"
 # Context admission runs before complexity measurement. Its repair route must
 # consume the compiled admission/cut reports without requiring complexity.tsv.
-grep -Fq "if grep -Eq 'CONTEXT_CLOSURE_OVER_BUDGET.*status=OVER_BUDGET'" \
+grep -Fq 'decomposition_dag_candidate_state_value rejection_stage -' \
+	"$HARNESS_BIN/manager-decomposition-dag-repair"
+grep -Fq "grep -Eq 'CONTEXT_CLOSURE_OVER_BUDGET.*status=OVER_BUDGET'" \
 	"$HARNESS_BIN/manager-decomposition-dag-repair"
 grep -Fq 'CONTEXT_CLOSURE_REPAIR=$context_closure_repair' \
 	"$HARNESS_BIN/manager-decomposition-dag-repair"
