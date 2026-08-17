@@ -36,6 +36,9 @@ Trigger-Outcome: GOAL_NEEDS_DECOMPOSITION
 MARKER
 	exit 3
 fi
+if [[ "\$task_id" == 005 ]]; then
+	exit 3
+fi
 rm -f "$TEST_ROOT/state/projects/raceproj/results/raceproj-task-\$task_id.result.md"
 SCRIPT
 chmod 700 "$TEST_ROOT/manager-invoker"
@@ -200,6 +203,38 @@ sleep 1.2
 [[ -f "$project/control/raceproj-task-004-revision-01.manager-review-stalled.md" ]]
 [[ ! -e "$TEST_ROOT/manager-replan-called-004" ]]
 kill -0 "$supervisor_pid"
+"$HARNESS_BIN/harness-supervisor-stop" "$TEST_ROOT/harness.env" >/dev/null
+
+# A deployed review fix changes the executable review boundary even when the
+# result and project artifacts are unchanged. Restarting with that new harness
+# must retry the preserved result instead of retaining an obsolete stall.
+cat > "$project/archive/raceproj-task-005.assignment.md" <<'ASSIGNMENT'
+# Task Assignment
+
+Task-ID: 005
+Task-Root: 005
+ASSIGNMENT
+cat > "$project/results/raceproj-task-005.result.md" <<'RESULT'
+# Task Result
+
+Task-ID: 005
+Status: COMPLETED
+RESULT
+"$HARNESS_BIN/harness-supervisor-start" "$TEST_ROOT/harness.env" >/dev/null
+for _ in $(seq 1 100); do
+	[[ -e "$project/control/raceproj-task-005.manager-review-stalled.md" ]] && break
+	sleep 0.05
+done
+[[ -e "$project/control/raceproj-task-005.manager-review-stalled.md" ]]
+"$HARNESS_BIN/harness-supervisor-stop" "$TEST_ROOT/harness.env" >/dev/null
+printf '\n# deployed review fix\n' >> "$TEST_ROOT/manager-invoker"
+rm -f "$TEST_ROOT/manager-called-005"
+"$HARNESS_BIN/harness-supervisor-start" "$TEST_ROOT/harness.env" >/dev/null
+for _ in $(seq 1 100); do
+	[[ -e "$TEST_ROOT/manager-called-005" ]] && break
+	sleep 0.05
+done
+[[ -e "$TEST_ROOT/manager-called-005" ]]
 "$HARNESS_BIN/harness-supervisor-stop" "$TEST_ROOT/harness.env" >/dev/null
 
 printf 'supervisor result barrier tests passed.\n'

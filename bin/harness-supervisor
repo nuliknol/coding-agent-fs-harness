@@ -86,7 +86,11 @@ review_state_fingerprint()
 			"$(project_plan_definition_file)" \
 			"$(project_plan_state_file)" \
 			"$(project_decomposition_plan_file)" \
-			"$dir/control/agent-commits.tsv"; do
+			"$dir/control/agent-commits.tsv" \
+			"$HARNESS_ENV_FILE" \
+			"$HARNESS_HOME/VERSION" \
+			"$manager_invoker" \
+			"$HARNESS_HOME/lib/harness-common.sh"; do
 			if [[ -f "$candidate" ]]; then
 				sha256sum "$candidate"
 			else

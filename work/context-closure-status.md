@@ -1,6 +1,6 @@
 # Context Closure Implementation Status
 
-Last updated (UTC): 2026-08-17T03:54:21Z
+Last updated (UTC): 2026-08-17T04:08:00Z
 
 Overall status: `COMPLETE`
 
@@ -8,7 +8,7 @@ Active phase: `PRODUCTION ENFORCEMENT — selected active projects`
 
 Active milestone: `Rebuild selected project indexes and enforce compiled Luna contexts`
 
-Deployment state: `5.17.2 candidate; defaults remain off, selected projects are operator-promoted to required index and patch-only closure`
+Deployment state: `5.17.3 candidate; defaults remain off, selected projects are operator-promoted to required index and patch-only closure`
 
 Commit: `5eb60c3` (production-enforcement corrections), following the original `bba8e609f575a159e254d50f7b308dce737e87ce` implementation
 
@@ -40,6 +40,10 @@ Commit: `5eb60c3` (production-enforcement corrections), following the original `
 - Selected running projects are intentionally promoted by the operator after
   deployment. Non-ready Luna leaves must return to deterministic Sol
   decomposition; they must not fall back to repository exploration.
+- Included the harness release, environment, shared runtime, and manager-review
+  invoker in the durable review fingerprint. A corrected deployment now makes
+  a preserved `REVIEW_STALLED` result eligible for one fresh review instead of
+  retaining a suppression decision made by obsolete harness code.
 
 ## Completed since previous update
 
