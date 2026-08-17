@@ -50,6 +50,12 @@ Updated: 2026-08-17
   normalizer that rewrote a valid Luna draft to Terra after three historical
   Luna strategy failures. Under `luna_only`, exhaustion now requires a smaller
   Luna decomposition and can never grant stronger-model authority.
+- Follow-up commit `8f291b0` is deployed in production. Live publication of
+  `compmod-wc-3` revision 34 remained LOW/LUNA after three historical Luna
+  failures; Context Closure then rejected its incomplete capsule and queued a
+  typed repository-index evidence repair instead of launching with fallback
+  context. `compmod-wc-2` revision 46 launched Luna from a READY 29,824-byte
+  compiled closure capsule.
 - `compmod-wc-4`, `dplm-final-v2`, and `dpvis-w2-a2` remain stopped at their
   durable `ARCHITECTURE_REASSESSMENT_REQUIRED` boundaries; their evidence and
   counters were not reset.
