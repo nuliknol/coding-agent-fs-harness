@@ -473,6 +473,28 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
 - Focused Codex resource tests, root-liveness tests, Luna-only convergence tests,
   and the full v4.4 harness suite pass after these changes.
 
+### Checkpoint — 2026-08-17T17:06:00Z
+
+- The compmod-wc-4 reassessment was resolved from its verified revision-15
+  criterion checkpoint. It immediately resumed Luna planning, published
+  revision 16 in three commands, and correctly routed its 38,476-byte capsule
+  to deterministic graph-cut repair without launching a worker.
+- The dplm token incident was archived with preserved tracked overlay and
+  rotated goal threads. Its fresh Luna planner used two commands before
+  publication instead of the failed episode's thirteen source/publisher
+  commands. Revision 26 then proved the manager-remediation closure fix in
+  production: its incomplete 53,958-byte capsule was rejected before Luna
+  launch even though its route label was `MANAGER_REMEDIATION`, and automatic
+  graph-cut replanning began.
+- Production patch repair exposed independent format and validation counters:
+  a declared three-turn leaf could consume two format corrections and then a
+  validation correction as attempt four. Patch-only format, diagnostic, and
+  typed-context resumes now share the smaller of the configured patch-round
+  ceiling and the leaf's declared expected-turn ceiling. Exhaustion publishes
+  typed decomposition instead of starting another Luna turn.
+- Luna-only convergence and the full v4.4 harness suite pass with the unified
+  attempt ceiling.
+
 ## Validation journal
 
 - `tests/test-codex-exec-jsonl.sh` — PASS. Includes Luna-only normalization,
