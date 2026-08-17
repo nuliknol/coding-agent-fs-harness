@@ -807,9 +807,26 @@ def build_closure(args: argparse.Namespace) -> str:
             has_selected_evidence = any(
                 item["path"] == normalized or item["path"].startswith(prefix)
                 for item in items.values())
-            contains_mutation_scope = any(
-                scope.rstrip("/") == normalized or scope.startswith(prefix)
-                for scope in allowed_scopes)
+            contained_mutation_scopes = sorted(
+                scope.rstrip("/") for scope in allowed_scopes
+                if scope.rstrip("/") == normalized or scope.startswith(prefix))
+            # Exact mutable descendants are already stronger authority than the
+            # containing Context-Paths directory. Promote each declared file as
+            # deterministic evidence instead of asking Luna to repeat it.
+            for mutation_scope in contained_mutation_scopes:
+                mutation_source = safe_source_path(repository, mutation_scope)
+                if mutation_source is None:
+                    continue
+                if any(item["path"] == mutation_scope for item in items.values()):
+                    continue
+                with mutation_source.open(encoding="utf-8", errors="replace") as stream:
+                    line_count = sum(1 for _ in stream)
+                add_item(items, kind="DECLARED_CONTEXT", path=mutation_scope, start=1,
+                         end=max(line_count, 1), symbol="-",
+                         why="exact Allowed-Scope descendant of declared context directory",
+                         required=True, provider="assignment-allowed-scope")
+                has_selected_evidence = True
+            contains_mutation_scope = bool(contained_mutation_scopes)
             if contains_mutation_scope and not has_selected_evidence:
                 unresolved.append(("CONTEXT_PATH", normalized,
                                    "directory path has no exact required symbol or file evidence seed"))

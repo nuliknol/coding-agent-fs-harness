@@ -354,6 +354,21 @@ class ContextClosureToolsTest(unittest.TestCase):
         self.assertNotIn("CONTEXT_PATH\ttests", (output / "unresolved.tsv").read_text())
         self.assertNotIn("tests/unrelated.c", (output / "closure.tsv").read_text())
 
+    def test_directory_promotes_exact_allowed_scope_descendant(self):
+        self.repository.joinpath("tests").mkdir()
+        self.repository.joinpath("tests", "CMakeLists.txt").write_text(
+            "add_executable(calc_test calc_test.c)\n", encoding="utf-8")
+
+        status, output = self.closure(
+            context_paths="calc.c,tests", allowed_scope="calc.c,tests/CMakeLists.txt",
+            required_symbols="add")
+
+        self.assertEqual("READY", status)
+        self.assertNotIn("CONTEXT_PATH\ttests", (output / "unresolved.tsv").read_text())
+        closure = (output / "closure.tsv").read_text()
+        self.assertIn("\tDECLARED_CONTEXT\ttests/CMakeLists.txt\t", closure)
+        self.assertIn("\tassignment-allowed-scope\n", closure)
+
     def test_context_file_symbol_selector_embeds_bounded_window(self):
         status, output = self.closure(
             context_paths="calc.c#add", allowed_scope="calc.c",

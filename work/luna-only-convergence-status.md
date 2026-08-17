@@ -891,3 +891,11 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   Packet construction enforces both byte and line caps, and the prompt supplies
   one exact `head -c` command while forbidding line-range reads. Full harness
   regression passes with the compact packet and asserts both limits.
+- DPVIS revision 59 named `tests/render_compile/CMakeLists.txt` in exact
+  `Allowed-Scope` while using its containing `tests/render_compile` directory
+  as Context-Paths. The compiler previously recognized that the directory
+  contained mutable scope but still reported no exact seed. Exact file
+  descendants of a declared context directory are now promoted directly from
+  immutable mutation authority into `DECLARED_CONTEXT` evidence. A broad
+  directory mutation scope remains incomplete and must still be decomposed.
+  The closure suite now has 32 passing cases.
