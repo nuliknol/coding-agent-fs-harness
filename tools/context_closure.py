@@ -325,15 +325,12 @@ def build_closure(args: argparse.Namespace) -> str:
                     if safe_repository_path(repository, path) is not None:
                         path_seeds.setdefault(path, f"scope of invariant {identifier}")
             elif authority_kind == "ARCHITECTURE_DECISION":
-                # The complete decision remains allocated below as normative
-                # authority.  Its complete interface inventory must not widen
-                # a leaf that already declares exact Required-Symbols.
-                if "I" in requested_classes and not assigned_symbols:
-                    for symbol in split_list(record.get("affected_interfaces", "")):
-                        if safe_repository_path(repository, symbol) is not None:
-                            path_seeds.setdefault(symbol, f"interface path governed by decision {identifier}")
-                        else:
-                            symbol_seeds.setdefault(symbol, f"interface governed by decision {identifier}")
+                # The compiled decision below is the normative authority. Its
+                # repository-wide interface inventory is not executable leaf
+                # context and must never widen explicit Context-Paths or cause
+                # complete source-file dumps when Required-Symbols is empty.
+                # Exact implementation evidence is admitted only from the
+                # assignment's declared paths/symbols and indexed relations.
                 evidence = record.get("evidence", "")
                 if evidence and evidence not in ("-", "NONE"):
                     evidence = evidence.removeprefix("operator-worktree:")
@@ -346,15 +343,9 @@ def build_closure(args: argparse.Namespace) -> str:
                 consumer = record.get("consumer_node", "-") or "-"
                 ownership = record.get("ownership_model", "-") or "-"
                 ownership_boundaries.add((identifier, producer, consumer, ownership))
-                if "I" in requested_classes and not assigned_symbols:
-                    for symbol in split_list(record.get("public_symbols", "")):
-                        if safe_repository_path(repository, symbol) is not None:
-                            path_seeds.setdefault(symbol, f"public interface path of edge contract {identifier}")
-                        else:
-                            symbol_seeds.setdefault(symbol, f"public symbol of edge contract {identifier}")
-                for artifact in split_list(record.get("contract_artifact", "")):
-                    if not artifact.startswith("decision:"):
-                        path_seeds.setdefault(artifact, f"artifact of edge contract {identifier}")
+                # Public symbols and artifacts remain in the compiled edge
+                # record. They become source evidence only when the bounded
+                # assignment explicitly names the corresponding symbol/path.
 
     if selected_obligations and args.relations_file:
         _, relations = tsv_records(args.relations_file)

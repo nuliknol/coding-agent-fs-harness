@@ -337,7 +337,7 @@ class ContextClosureToolsTest(unittest.TestCase):
         self.assertIn("\tcalc-tool\tEXECUTABLE\tMakefile\t", (output / "build-targets.tsv").read_text())
         self.assertIn("`calc-tool` (EXECUTABLE)", (output / "context.md").read_text())
 
-    def test_architecture_interface_paths_are_path_evidence_not_scip_symbols(self):
+    def test_architecture_interface_inventory_remains_compiled_authority(self):
         decisions = self.root / "decisions.tsv"
         decisions.write_text(
             "decision_id\tstate\taffected_interfaces\tevidence\n"
@@ -350,7 +350,8 @@ class ContextClosureToolsTest(unittest.TestCase):
 
         self.assertEqual("READY", status)
         self.assertNotIn("REQUIRED_SYMBOL\tcalc.h", (output / "unresolved.tsv").read_text())
-        self.assertIn("DECLARED_CONTEXT\tcalc.h", (output / "closure.tsv").read_text())
+        self.assertNotIn("DECLARED_CONTEXT\tcalc.h", (output / "closure.tsv").read_text())
+        self.assertIn("ARCHITECTURE_DECISION\tADR-PATH", (output / "authority.tsv").read_text())
 
     def test_tracked_worktree_overlay_relocates_live_symbol_evidence(self):
         live_source = "\n".join(["/* inserted */"] * 24 +
