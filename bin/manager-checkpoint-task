@@ -183,23 +183,25 @@ archive_lingering_result()
 
 mark_checkpoint_decomposition_replan()
 {
-	local blocker_class remediation_scope result_guard
+	local blocker_class remediation_scope result_guard continuation_reason
 	result_guard="$(metadata_value "$result_archive" Resource-Guard 2>/dev/null || true)"
 	[[ -n "$result_guard" ]] || result_guard="-"
-	if [[ "$result_guard" != "-" ]]; then
-		mark_root_needs_replan "$task_id" \
-			"checkpointed evidence from a worker context that reached the $result_guard fuse; decompose or restate the remaining semantic episode" \
-			RESOURCE_NEEDS_DECOMPOSITION
-		return 0
-	fi
 	if assignment_is_manager_remediation "$assignment_archive"; then
 		blocker_class="$(require_single_metadata_value "$assignment_archive" Blocker-Class \
 			'manager remediation assignment')"
 		remediation_scope="$(require_single_metadata_value "$assignment_archive" Remediation-Scope \
 			'manager remediation assignment')"
+		continuation_reason='checkpointed manager baseline remediation exposed another directly implicated prerequisite'
+		if [[ "$result_guard" != "-" ]]; then
+			continuation_reason+=" after reaching the $result_guard fuse"
+		fi
 		mark_root_needs_replan "$task_id" \
-			'checkpointed manager baseline remediation exposed another directly implicated prerequisite' \
+			"$continuation_reason" \
 			MANAGER_REMEDIATION_CONTINUATION "$blocker_class" "$remediation_scope"
+	elif [[ "$result_guard" != "-" ]]; then
+		mark_root_needs_replan "$task_id" \
+			"checkpointed evidence from a worker context that reached the $result_guard fuse; decompose or restate the remaining semantic episode" \
+			RESOURCE_NEEDS_DECOMPOSITION
 	else
 		mark_root_needs_replan "$task_id" \
 			'verified leaf-goal progress was checkpointed, but the remaining criterion requires decomposition or a materially different strategy' \

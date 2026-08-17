@@ -1225,6 +1225,7 @@ cat > "$hard_project/results/hardblockproj-task-001-revision-01.result.md" <<'RE
 Task-ID: 001-revision-01
 Status: COMPLETED
 Goal-Outcome: NEEDS_DECOMPOSITION
+Resource-Guard: ITEM_LIMIT
 
 ## Summary
 

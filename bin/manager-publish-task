@@ -920,17 +920,21 @@ normalize_revision_execution_metadata()
 {
 	local root_scope root_max_files root_max_turns requested_scope requested_files requested_turns
 	local normalized_scope normalized_files normalized_turns tmp changed=0 scope_override additional_scope additional_entry
-	local replan_trigger_outcome requested_leaf
+	local replan_trigger_outcome requested_leaf declared_root_max_files effective_root_scope dirty_path
+	local preserved_dirty_files=0
 	local additional_file_allowance=0
 	local -a additional_entries=()
 	[[ "$task_id" != "$root" && -f "$root_assignment" ]] || return 0
 	root_scope="$(metadata_value "$root_assignment" Allowed-Scope)"
 	root_max_files="$(metadata_value "$root_assignment" Expected-Max-Implementation-Files)"
+	declared_root_max_files="$root_max_files"
+	effective_root_scope="$root_scope"
 	root_max_turns="$(metadata_value "$root_assignment" Expected-Max-Worker-Turns)"
 	scope_override="$(task_root_architecture_scope_override_file "$root")"
 	if (( manager_remediation == 1 )) && [[ "$root_max_files" =~ ^[0-9]+$ && -f "$scope_override" ]] &&
 		[[ "$(kv_file_value "$scope_override" authorized_for 2>/dev/null || true)" == manager_remediation ]]; then
 		additional_scope="$(kv_file_value "$scope_override" additional_scope 2>/dev/null || true)"
+		[[ -z "$additional_scope" ]] || effective_root_scope="$root_scope,$additional_scope"
 		IFS=',' read -r -a additional_entries <<< "${additional_scope//;/,}"
 		for additional_entry in "${additional_entries[@]}"; do
 			additional_entry="$(trim_surrounding_whitespace "$additional_entry")"
@@ -943,6 +947,22 @@ normalize_revision_execution_metadata()
 	requested_scope="$(metadata_value "$task_file" Allowed-Scope)"
 	requested_files="$(metadata_value "$task_file" Expected-Max-Implementation-Files)"
 	requested_turns="$(metadata_value "$task_file" Expected-Max-Worker-Turns)"
+	# A verification-only root can expose a pre-existing tracked source defect.
+	# Fresh Terra remediation may repair only those already-dirty paths within
+	# the immutable root/explicitly audited scope. Recover that concrete ceiling
+	# instead of clamping the remediation back to zero and then rejecting the
+	# machine-owned measured vector that correctly accounts for the file.
+	if (( manager_remediation == 1 )) && [[ "$declared_root_max_files" == 0 &&
+		"$requested_files" =~ ^[1-9][0-9]*$ ]]; then
+		while IFS= read -r -d '' dirty_path; do
+			scope_is_within_root_authority "$dirty_path" "$effective_root_scope" || continue
+			preserved_dirty_files=$((preserved_dirty_files + 1))
+		done < <(git -C "$REPOSITORY" diff --name-only --diff-filter=ACMRD -z HEAD --)
+		if (( preserved_dirty_files > root_max_files )); then
+			root_max_files="$preserved_dirty_files"
+			log_event "ZERO_WRITE_REMEDIATION_FILE_CEILING_RECOVERED root=$root task=$task_id files=$preserved_dirty_files scope=$(printf '%q' "$effective_root_scope")"
+		fi
+	fi
 	normalized_scope="$requested_scope"
 	normalized_files="$requested_files"
 	normalized_turns="$requested_turns"
