@@ -385,11 +385,42 @@ def build_closure(args: argparse.Namespace) -> str:
             row for row in definitions
             if path_is_allowed(row["repository_path"], definition_boundaries)
         ]
+        scoped_references: list[sqlite3.Row] = []
         if scoped_definitions:
             scoped_symbol_ids = {row["symbol_id"] for row in scoped_definitions}
             definitions = scoped_definitions
             rows = [row for row in rows if row["symbol_id"] in scoped_symbol_ids]
-        if "D" in requested_classes and not definitions:
+        elif definition_boundaries:
+            candidate_symbol_ids = sorted({row["symbol_id"] for row in rows})
+            if candidate_symbol_ids:
+                marks = ",".join("?" for _ in candidate_symbol_ids)
+                reference_rows = connection.execute(
+                    f"""
+                    SELECT DISTINCT x.symbol_id,s.display_name,f.repository_path,
+                                    r.start_line,r.end_line,x.reference_kind,x.provider
+                    FROM symbol_references x
+                    JOIN symbols s ON s.symbol_id=x.symbol_id
+                    JOIN source_regions r ON r.region_id=x.region_id
+                    JOIN files f ON f.file_id=r.file_id
+                    WHERE x.symbol_id IN ({marks})
+                    ORDER BY f.repository_path,r.start_line,x.symbol_id
+                    """, candidate_symbol_ids).fetchall()
+                scoped_references = [
+                    row for row in reference_rows
+                    if path_is_allowed(row["repository_path"], definition_boundaries)
+                ]
+            if scoped_references:
+                scoped_symbol_ids = {row["symbol_id"] for row in scoped_references}
+                rows = [row for row in rows if row["symbol_id"] in scoped_symbol_ids]
+                definitions = []
+                for reference in scoped_references:
+                    add_item(items, kind="SCOPED_DECLARATION",
+                             path=reference["repository_path"],
+                             start=reference["start_line"], end=reference["end_line"],
+                             symbol=reference["display_name"],
+                             why=f"{seed_reason}: exact declaration for {requested}",
+                             required=True, provider=reference["provider"])
+        if "D" in requested_classes and not definitions and not scoped_references:
             unresolved.append(("REQUIRED_DEFINITION", requested, "symbol exists but has no indexed definition"))
         if "D" in requested_classes:
             for row in definitions:

@@ -1,6 +1,6 @@
 # Luna-Only Convergence Implementation Status
 
-Last updated (UTC): 2026-08-17T16:32:24Z
+Last updated (UTC): 2026-08-17T16:37:25Z
 
 Overall status: `IN_PROGRESS`
 
@@ -385,6 +385,21 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   authority record.
 - Luna-only publication telemetry now reports the enforced Luna model instead
   of retaining a stale Sol decomposition label from an immutable legacy DAG.
+- Production preflight under the packed-evidence compiler converted three more
+  preserved revisions directly to `READY`: compmod-wc-2 at 32,760 bytes,
+  compmod-wc-4 at 23,807 bytes, and dpvis at 14,313 bytes. Their live admission
+  rebuilds were smaller still (30,543; 19,795; and 11,363 bytes respectively),
+  and all three launched Luna workers without another planning revision.
+- Along with compmod-wc-3, four projects have now demonstrated the intended
+  pairing: `CONTEXT_CLOSURE_PREPARED status=READY` immediately precedes a
+  `WORKER_INVOCATION_STARTED model=gpt-5.6-luna` record. Process inspection
+  shows no Java, Joern, or SQLite CPU consumers on these launches.
+- The remaining dplm child is a header-only mechanical API task. SCIP records
+  the header site as a reference while three same-display-name implementations
+  exist elsewhere, so the compiler previously selected all implementations.
+  Resolution now prefers an exact declaration/reference inside the declared
+  path boundary when no in-boundary definition exists; out-of-boundary
+  implementations do not inflate that header capsule.
 
 ## Validation journal
 
@@ -426,7 +441,7 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   `tests/test-decomposition-v2.sh`, and
   `tests/test-luna-only-convergence.sh` — PASS.
 - Combined Python suite — PASS, 24 tests.
-- Context Closure and graft tool suites — PASS, 23 tests after adding
+- Context Closure and graft tool suites — PASS, 24 tests after adding
   mixed-defect routing, write-scope conservation, bounded discovered-test
   evidence, and pure-evidence-refresh coverage.
 - Post-classifier regression: Luna-only convergence, SCIP importer,

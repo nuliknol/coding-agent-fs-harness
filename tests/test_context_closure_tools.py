@@ -173,6 +173,25 @@ class ContextClosureToolsTest(unittest.TestCase):
         self.assertNotIn("\tsrc/other.c\t", closure)
         self.assertIn("modules\t1\n", (output / "quality.tsv").read_text())
 
+    def test_header_boundary_prefers_exact_declaration_over_external_definitions(self):
+        connection = sqlite3.connect(self.database)
+        connection.execute("INSERT INTO files VALUES(2,'g','calc.h','c',NULL,1,0)")
+        connection.execute(
+            "INSERT INTO source_regions VALUES(2,2,'reference','add',1,0,1,20,NULL,'scip-clang')")
+        connection.execute(
+            "INSERT INTO symbol_references VALUES('sym',2,'declaration','scip-clang')")
+        connection.commit()
+        connection.close()
+
+        status, output = self.closure(
+            context_paths="calc.h", allowed_scope="calc.h")
+
+        self.assertEqual("READY", status)
+        closure = (output / "closure.tsv").read_text()
+        self.assertIn("SCOPED_DECLARATION\tcalc.h", closure)
+        self.assertNotIn("DEFINITION\tcalc.c", closure)
+        self.assertIn("modules\t1\n", (output / "quality.tsv").read_text())
+
     def test_pure_missing_evidence_still_requests_provider_refresh(self):
         status, output = self.closure(required_symbols="missing")
 
@@ -276,8 +295,8 @@ class ContextClosureToolsTest(unittest.TestCase):
             health_gates_file=None, node_bindings_file=None, omissions_file=None)
         self.assertEqual("READY", build_closure(arguments))
         closure = (output / "closure.tsv").read_text()
-        self.assertIn("DEFINITION\tcalc.c", closure)
-        self.assertIn("DECLARED_CONTEXT\tcalc.h", closure)
+        self.assertIn("SCOPED_DECLARATION\tcalc.h", closure)
+        self.assertNotIn("DEFINITION\tcalc.c", closure)
         self.assertNotIn("CALLEE", closure)
         self.assertNotIn("\tother\t", closure)
         self.assertIn("Required-Dependency-Classes: D,I,V", (output / "context.md").read_text())
