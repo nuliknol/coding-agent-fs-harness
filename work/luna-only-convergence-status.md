@@ -814,3 +814,42 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   the exact false-migration state atomically when no newer root artifact exists,
   restoring the archived safe assignment and clearing only its matching policy
   marker. A focused regression covers both preservation and reversal.
+
+### 2026-08-17 20:35 UTC — compiled manager-review evidence
+
+- COMP3 revision 44 and DPVIS revision 56 independently tripped the unchanged
+  500,000 live-estimated-token fuse during Luna manager review, at 521,235 and
+  516,624 tokens respectively. Both terminal rejections had already committed,
+  no worker/source mutation was left partial, and each root has a durable
+  `NEEDS_REPLAN` continuation. The fuse behavior is correct; the common defect
+  was review-context amplification.
+- The review prompt named valid bounded component paths but also instructed the
+  model to read them individually. One optional missing criteria file caused a
+  combined read to abort; Luna then searched project control directories for
+  review context and schemas. COMP3 followed the same compatibility prose into
+  repeated filesystem discovery. This spent the review budget rediscovering
+  harness evidence that had already been compiled.
+- Manager review now deterministically emits one
+  `manager-review-packet.md`. It contains the development policy, compiled
+  plan/DAG/specification/architecture authority, exact assignment, bounded
+  worker/result digest, and all pass, checkpoint, accept, and reject schemas.
+  Optional absence is represented as `NONE`. The packet is atomically written,
+  permission-restricted, and rejected before launch if it exceeds the existing
+  32 KiB bounded-read cap.
+- The final prompt authority requires exactly one packet read, the harness
+  bounded diff, assigned focused validation, at most one decisive source
+  window, one review-note write, and one terminal command. It explicitly
+  forbids probing, concatenating, or searching for the component files. The
+  archived evidence that triggered these incidents totals well below the cap
+  for both projects.
+- Full `test-harness.sh`, Luna-only convergence, irregularity detection, Bash
+  syntax, and `git diff --check` pass. The standalone Codex JSONL test retains
+  a pre-existing fixture-order failure: its intentional Luna-only model-policy
+  violation now creates the expected durable project-integrity marker, but the
+  fixture does not resolve or isolate that marker before its next launch.
+- A separate orphaned `resys_knowledge_fixed_point_smoke` process group from an
+  older interactive Codex validation was consuming one CPU continuously. It
+  was not a Joern/SCIP/SQLite closure process; the exact process group was
+  terminated. The two anomaly-paused supervisors were stopped before deploy so
+  they cannot perform background maintenance until their incident records are
+  explicitly resolved.
