@@ -1,6 +1,6 @@
 # Luna-Only Convergence Implementation Status
 
-Last updated (UTC): 2026-08-17T16:37:25Z
+Last updated (UTC): 2026-08-17T16:42:05Z
 
 Overall status: `IN_PROGRESS`
 
@@ -400,6 +400,19 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   Resolution now prefers an exact declaration/reference inside the declared
   path boundary when no in-boundary definition exists; out-of-boundary
   implementations do not inflate that header capsule.
+- The dplm production preflight is now `READY` at 23,063 bytes (5,766
+  estimated tokens), one module, and zero build targets; its live admission
+  rebuild was 21,987 bytes and launched Luna. All five target projects have now
+  supplied at least one validated compiled capsule to a Luna worker.
+- Typed extension rejection exposed another liveness bug: a nonzero trusted
+  resolver outcome could escape through Bash errexit before the patch-only
+  state machine synthesized its `CONTEXT_INCOMPLETE` result. The resolver call
+  is now an explicit conditional, so rejection is handled as typed data and
+  cannot leave an orphan running task.
+- Exact scoped declaration evidence now includes a bounded 16-line window on
+  each side of the indexed declaration. This supplies nearby contract comments
+  needed by documentation/mechanical API leaves without opening a whole header
+  or granting repository exploration.
 
 ## Validation journal
 

@@ -12,6 +12,8 @@ grep -Fq 'successor_trigger="$(metadata_value "$successor_marker" Triggered-By)"
 	"$ROOT/bin/manager-auto-replan-root"
 grep -Fq '[[ "$successor_trigger" == "$expected_task_id" ]]' \
 	"$ROOT/bin/manager-auto-replan-root"
+grep -Fq 'if prepare_typed_context_expansion "$last_message"; then' \
+	"$ROOT/bin/worker-invoke-task"
 
 mkdir -p "$TMP/repo" "$TMP/codex-home"
 printf 'test specification\n' > "$TMP/repo/spec.md"

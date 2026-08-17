@@ -814,10 +814,15 @@ while true; do
 	observed_thread_id="$(codex_thread_id_from_jsonl "$json_log" 2>/dev/null || true)"
 	if (( status == 0 )) && [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only && "$worker_route" == LUNA ]]; then
 		context_request_status=1
-		set +e
-		prepare_typed_context_expansion "$last_message"
-		context_request_status=$?
-		set -e
+		# Call in a conditional so every nonzero typed-resolver outcome is data
+		# for the patch-only state machine, never an errexit from the worker
+		# transaction. Rejected extensions must synthesize a durable
+		# CONTEXT_INCOMPLETE result below instead of orphaning the running task.
+		if prepare_typed_context_expansion "$last_message"; then
+			context_request_status=0
+		else
+			context_request_status=$?
+		fi
 		if (( context_request_status == 0 )) &&
 			[[ ! "$observed_thread_id" =~ ^[A-Za-z0-9-]+$ ]] &&
 			[[ ! "$worker_resume_thread_id" =~ ^[A-Za-z0-9-]+$ ]]; then

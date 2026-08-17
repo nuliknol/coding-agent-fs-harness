@@ -416,7 +416,8 @@ def build_closure(args: argparse.Namespace) -> str:
                 for reference in scoped_references:
                     add_item(items, kind="SCOPED_DECLARATION",
                              path=reference["repository_path"],
-                             start=reference["start_line"], end=reference["end_line"],
+                             start=max(1, reference["start_line"] - 16),
+                             end=reference["end_line"] + 16,
                              symbol=reference["display_name"],
                              why=f"{seed_reason}: exact declaration for {requested}",
                              required=True, provider=reference["provider"])
