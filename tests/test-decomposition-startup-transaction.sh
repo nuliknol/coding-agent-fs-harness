@@ -370,6 +370,8 @@ grep -Fq '"$complexity_report"' "$HARNESS_BIN/manager-decomposition-dag-repair"
 ! grep -Fq '"$allowed"' "$HARNESS_BIN/manager-decomposition-dag-repair"
 grep -Fq 'manager-repair-decomposition-terra-exceptions' "$HARNESS_BIN/harness-start"
 grep -Fq 'manager-route-decomposition-complexity-repair' "$HARNESS_BIN/harness-start"
+grep -Fq 'Recovering an interrupted decomposition submission with no completed rejection diagnostic.' \
+	"$HARNESS_BIN/harness-start"
 # Candidate directory names, transient PIDs, and invalid free-form exception
 # prose do not make an unchanged deterministic rejection a new defect.
 cat > "$TEST_ROOT/diagnostic-a.log" <<'EOF'

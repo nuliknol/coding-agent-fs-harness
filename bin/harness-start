@@ -197,6 +197,11 @@ while ! project_plan_exists; do
 		if decomposition_candidate_matches_current_inputs &&
 			[[ "$(decomposition_candidate_state_value status)" == REJECTED ]]; then
 			full_rejection_log="$(decomposition_candidate_state_value rejection_log "$(decomposition_candidate_state_value directory)/rejection.log")"
+			if [[ ! -s "$full_rejection_log" ]]; then
+				printf 'Recovering an interrupted decomposition submission with no completed rejection diagnostic.\n'
+				"$HARNESS_BIN/manager-submit-decomposition" --recover "$HARNESS_ENV_FILE"
+				continue
+			fi
 			if [[ -f "$full_rejection_log" ]] &&
 				grep -q 'status=INVALID_TERRA_EXCEPTION' "$full_rejection_log"; then
 				printf 'Normalizing irreducible Terra integration exception enums without an agent turn.\n'

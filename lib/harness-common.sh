@@ -4392,7 +4392,7 @@ decomposition_repair_diagnostic_fingerprint()
 {
 	local diagnostic="$1"
 	[[ -f "$diagnostic" ]] || return 1
-	grep -E '^(ERROR:|LUNA_COMPLEXITY_|CONTEXT_CLOSURE_)' "$diagnostic" |
+	{ grep -E '^(ERROR:|LUNA_COMPLEXITY_|CONTEXT_CLOSURE_)' "$diagnostic" || true; } |
 		sed -E \
 			-e 's#\.tmp\.[0-9]+#.tmp.PID#g' \
 			-e 's#/decomposition-candidates/[0-9a-f]{64}/#/decomposition-candidates/CANDIDATE/#g' \
