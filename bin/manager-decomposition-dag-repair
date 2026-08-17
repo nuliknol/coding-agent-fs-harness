@@ -282,7 +282,7 @@ When COMPLEXITY_REPAIR=0, submit once with:
 
 $HARNESS_BIN/manager-stage-decomposition-dag "$HARNESS_ENV_FILE" "$repair_dir/dag.tsv" "$repair_dir/coverage.tsv"
 
-If validation rejects it, read only the new rejection log printed by that staged candidate, make at most one additional bounded correction, and submit once more. After success, terminate. Never create architecture files, launch tests, or search the repository.
+If validation rejects it, terminate immediately with that bounded diagnostic. The startup transaction will classify the new durable candidate and start a fresh repair turn compiled specifically for its rejection stage. Do not inspect the new candidate, read its rejection log, or attempt a second correction in this context. After success, terminate. Never create architecture files, launch tests, or search the repository.
 The staging command's zero exit status is complete success authority. After a zero exit, do not inspect, list, find, or count files in the candidate directory; terminate immediately.
 PROMPT
 if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then

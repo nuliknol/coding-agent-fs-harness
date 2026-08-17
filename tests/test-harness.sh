@@ -142,6 +142,7 @@ elif [[ "$kind" == replan ]]; then
 	printf '%s\n' "$prompt" | grep -Fq 'COMPILED RECOVERY OVERRIDE: RECOVERY_PACKET_FILE'
 	RECOVERY_PACKET_FILE="$(value RECOVERY_PACKET_FILE)"
 	[[ -f "$RECOVERY_PACKET_FILE" ]]
+	[[ "$RECOVERY_PACKET_FILE" == */control/progress/*.manager-recovery-packet.md ]]
 	grep -Fqx '# Compiled Manager Recovery Packet' "$RECOVERY_PACKET_FILE"
 	grep -Fqx '## Required recovery assignment sections' "$RECOVERY_PACKET_FILE"
 	(( $(stat -c %s "$RECOVERY_PACKET_FILE") <= 32768 ))

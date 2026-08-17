@@ -367,6 +367,8 @@ grep -Fq 'leaf_type INTEGRATION, complexity_class HIGH, worker_route TERRA, and 
 # Sol could be invoked.
 grep -Fq 'NR>1 && $19=="OVER_BUDGET"' "$HARNESS_BIN/manager-decomposition-dag-repair"
 grep -Fq '"$complexity_report"' "$HARNESS_BIN/manager-decomposition-dag-repair"
+grep -Fq 'Do not inspect the new candidate, read its rejection log, or attempt a second correction' \
+	"$HARNESS_BIN/manager-decomposition-dag-repair"
 ! grep -Fq '"$allowed"' "$HARNESS_BIN/manager-decomposition-dag-repair"
 # Context admission runs before complexity measurement. Its repair route must
 # consume the compiled admission/cut reports without requiring complexity.tsv.

@@ -185,7 +185,11 @@ fi
 # for bounded publisher corrections. Each source below is independently capped,
 # escaped onto one content line, and selected by recovery value rather than by
 # repository exploration.
-recovery_packet="$project_path/control/$PROJECT-task-$root.manager-recovery-packet.md"
+	# Keep the compiled packet beside the other root-scoped progress authority.
+	# Small models otherwise tend to "correct" its location to control/progress
+	# after seeing every other root continuity path there, wasting the bounded
+	# action budget on a failed read and legacy fallbacks.
+	recovery_packet="$project_path/control/progress/$PROJECT-task-$root.manager-recovery-packet.md"
 packet_first_unmet="$(task_first_unmet_criterion "$root" 2>/dev/null || true)"
 append_recovery_packet_component()
 {
