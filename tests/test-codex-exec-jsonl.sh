@@ -21,6 +21,7 @@ for a in "$@"; do
 done
 case "${MOCK_MODE:?}" in
  success) printf 'done\n' > "$last"; printf '{"type":"turn.completed"}\n' ;;
+	arg_capture) printf '%s\n' "$*" > "$last"; printf '{"type":"turn.completed"}\n' ;;
 	env_capture) printf '%s\n%s\n' "${REVIEW_CONTEXT_CAPSULE_FILE:-missing}" "${RESULT_FILE:-missing}" > "$last"; printf '{"type":"turn.completed"}\n' ;;
  failed) printf '{"type":"turn.failed","error":{"message":"simulated"}}\n'; exit 1 ;;
  error) printf '{"type":"error","message":"simulated"}\n'; exit 1 ;;
@@ -129,6 +130,12 @@ run_case() {
  [[ "$(awk -F= '$1 == "classification" {print $2}' "$base.classification")" == "$want" ]]
 }
 run_case success success
+# Patch-only workers run in a non-repository scratch directory and therefore
+# must explicitly waive Codex's Git worktree startup check.
+printf 'CONTEXT_CLOSURE_MODE=patch_only\nTASK_ID=001\n' > "$TMP/patch-only-prompt"
+MOCK_MODE=arg_capture "$ROOT/bin/codex-exec-jsonl" "$TMP/env" worker_luna gpt-5.5 \
+	"$TMP/patch-only-prompt" "$TMP/patch-only.jsonl" "$TMP/patch-only.stderr" "$TMP/patch-only.last"
+grep -q -- '--skip-git-repo-check' "$TMP/patch-only.last"
 # Durable capsule paths named by a manager prompt are also exported into its
 # shell, preventing repeated harness-state path discovery.
 printf 'REVIEW_CONTEXT_CAPSULE_FILE=%s\nRESULT_FILE=%s\n' "$TMP/review-capsule.md" "$TMP/result.md" > "$TMP/env-capture-prompt"

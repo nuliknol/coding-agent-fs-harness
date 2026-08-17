@@ -151,13 +151,18 @@ done
 
 agent_workdir="$REPOSITORY"
 agent_add_dirs=(--add-dir "$HARNESS_ROOT" --add-dir "$PROJECT_TMP_DIR")
+agent_repository_args=()
 if [[ "$role" =~ ^worker && "$(prompt_value CONTEXT_CLOSURE_MODE)" == patch_only ]]; then
 	sandbox=read-only
 	agent_workdir="$PROJECT_TMP_DIR/patch-only-$(prompt_value TASK_ID)"
 	mkdir -p "$agent_workdir"
 	agent_add_dirs=()
+	# Patch-only workers are deliberately isolated from the repository and run
+	# in a tool-less scratch directory. Codex otherwise rejects that directory
+	# before inference because it is not a Git worktree.
+	agent_repository_args=(--skip-git-repo-check)
 fi
-cmd=(env "${agent_context_env[@]}" "$bin" exec --json --model "$model" --sandbox "$sandbox" "${agent_add_dirs[@]}" --cd "$agent_workdir" "${extras[@]}" -c 'approval_policy="never"' -c "model_reasoning_effort=\"$effort\"" --output-last-message "$last_message")
+cmd=(env "${agent_context_env[@]}" "$bin" exec "${agent_repository_args[@]}" --json --model "$model" --sandbox "$sandbox" "${agent_add_dirs[@]}" --cd "$agent_workdir" "${extras[@]}" -c 'approval_policy="never"' -c "model_reasoning_effort=\"$effort\"" --output-last-message "$last_message")
 if [[ $# -eq 2 ]]; then
  [[ "$1" == resume ]] || usage
  cmd+=(resume "$2")
