@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TMP="$(mktemp -d /tmp/luna-only-convergence-test.XXXXXX)"
+trap 'rm -rf "$TMP"' EXIT
+
+mkdir -p "$TMP/repo" "$TMP/codex-home"
+printf 'test specification\n' > "$TMP/repo/spec.md"
+printf 'int target(void) { return 0; }\n' > "$TMP/repo/target.c"
+git -C "$TMP/repo" init -q
+git -C "$TMP/repo" add .
+git -C "$TMP/repo" -c user.name=test -c user.email=test@example.invalid commit -qm baseline
+
+cat > "$TMP/harness.env" <<ENV
+export PROJECT="lunaconvergence"
+export REPOSITORY="$TMP/repo"
+export SPECIFICATION="$TMP/repo/spec.md"
+export HARNESS_HOME="$ROOT"
+export HARNESS_BIN="$ROOT/bin"
+export HARNESS_ROOT="$TMP/state"
+export MANAGER_CODEX_BIN="/bin/true"
+export WORKER_CODEX_BIN="/bin/true"
+export MANAGER_CODEX_HOME="$TMP/codex-home"
+export WORKER_CODEX_HOME="$TMP/codex-home"
+export HARNESS_MODEL_POLICY="luna_only"
+export HARNESS_ESCALATION_POLICY="decompose"
+export HARNESS_AUTO_REPLAN_ENABLED="1"
+ENV
+chmod 600 "$TMP/harness.env"
+"$ROOT/bin/harness-init" "$TMP/harness.env" >/dev/null
+
+project="$TMP/state/projects/lunaconvergence"
+ready="$project/tasks/lunaconvergence-task-001.ready.md"
+cat > "$ready" <<'TASK'
+# Task
+
+Task-ID: 001
+Worker-Route: LUNA
+Allowed-Scope: target.c
+Context-Paths: target.c
+Required-Symbols: target
+TASK
+chmod 600 "$ready"
+bash -c 'source "$1/lib/harness-common.sh"; load_harness_env "$2"; initialize_task_progress 001 "$3"' \
+	_ "$ROOT" "$TMP/harness.env" "$ready"
+session="$("$ROOT/bin/harness-new-session" "$TMP/harness.env" worker)"
+"$ROOT/bin/worker-claim-task" "$TMP/harness.env" 001 "$session" >/dev/null
+
+marker="$("$ROOT/bin/worker-return-context-repair" "$TMP/harness.env" 001 "$session" \
+	INDEX_EVIDENCE_MISSING REFRESH_INDEX_OR_OVERLAY scip unresolved-required-evidence)"
+test -f "$marker"
+test -f "$project/archive/lunaconvergence-task-001.assignment.md"
+test ! -e "$project/running/lunaconvergence-task-001.running.md"
+test ! -e "$project/control/lunaconvergence-task-001.lease"
+test ! -e "$project/results/lunaconvergence-task-001.result.md"
+grep -Fqx 'Trigger-Outcome: CONTEXT_CLOSURE_REPAIR' "$marker"
+grep -Fqx 'Closure-Condition: INDEX_EVIDENCE_MISSING' "$marker"
+grep -Fqx 'Closure-Repair-Action: REFRESH_INDEX_OR_OVERLAY' "$marker"
+grep -Fqx 'Closure-Repair-Provider: scip' "$marker"
+repair="$project/control/lunaconvergence-task-001.context-closure-repair.env"
+grep -Fqx 'state=CLOSURE_REPAIR' "$repair"
+grep -Fqx 'repair_action=REFRESH_INDEX_OR_OVERLAY' "$repair"
+
+# Replaying the same completed transaction is idempotent and preserves the
+# original marker rather than creating a new revision or result.
+test "$("$ROOT/bin/worker-return-context-repair" "$TMP/harness.env" 001 "$session" \
+	INDEX_EVIDENCE_MISSING REFRESH_INDEX_OR_OVERLAY scip unresolved-required-evidence)" = "$marker"
+test "$(find "$project/results" -type f | wc -l)" -eq 0
+
+# A stopped project can migrate an already-published pre-policy Terra task
+# without resetting its root. The assignment is archived and automatic Luna
+# decomposition resumes from the existing first-unmet criterion.
+legacy_ready="$project/tasks/lunaconvergence-task-002.ready.md"
+cat > "$legacy_ready" <<'TASK'
+# Pre-policy task
+
+Task-ID: 002
+Worker-Route: TERRA
+Allowed-Scope: target.c
+Context-Paths: target.c
+Required-Symbols: target
+Root-Criterion: root-002.acceptance
+Root-Criterion: root-002.validation
+TASK
+chmod 600 "$legacy_ready"
+bash -c 'source "$1/lib/harness-common.sh"; load_harness_env "$2"; initialize_task_progress 002 "$3"' \
+	_ "$ROOT" "$TMP/harness.env" "$legacy_ready"
+"$ROOT/bin/harness-migrate-state" "$TMP/harness.env" >/dev/null
+test ! -e "$legacy_ready"
+test -f "$project/archive/lunaconvergence-task-002.assignment.md"
+migration_marker="$project/control/progress/lunaconvergence-task-002.needs-replan.md"
+grep -Fqx 'Trigger-Outcome: LUNA_ONLY_POLICY_MIGRATION' "$migration_marker"
+grep -Fqx 'status=READY' "$project/control/luna-only-migration.env"
+grep -Fqx 'migrated_ready_tasks=1' "$project/control/luna-only-migration.env"
+
+printf 'Luna-only convergence tests passed.\n'

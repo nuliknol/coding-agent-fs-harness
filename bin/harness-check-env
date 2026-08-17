@@ -60,14 +60,26 @@ printf 'Worker Codex: %s\n' "$WORKER_CODEX_BIN"
 printf 'Worker Codex home: %s\n' "$WORKER_CODEX_HOME"
 printf 'Worker model: %s (%s)\n' "$WORKER_MODEL" "$WORKER_REASONING_EFFORT"
 printf 'Validated agent source commits: %s\n' "$([[ "$HARNESS_AGENT_COMMITS_ENABLED" == 1 ]] && printf enabled || printf disabled)"
+printf 'Model policy: %s\n' "$HARNESS_MODEL_POLICY"
+printf 'Escalation policy: %s\n' "$HARNESS_ESCALATION_POLICY"
+if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
+	printf 'Terra leaf route: disabled by Luna-only policy\n'
+fi
 printf 'Repository index mode: %s\n' "$HARNESS_REPOSITORY_INDEX_MODE"
+printf 'Repository overlay mode: %s\n' "$HARNESS_REPOSITORY_OVERLAY_MODE"
 printf 'Context Closure mode: %s\n' "$HARNESS_CONTEXT_CLOSURE_MODE"
+printf 'Context Closure typed expansions: %s x %s bytes\n' \
+	"$HARNESS_MAX_CONTEXT_EXPANSIONS_PER_LEAF" "$HARNESS_CONTEXT_EXPANSION_MAX_BYTES"
+printf 'Patch-only validation rounds: %s\n' "$HARNESS_PATCH_ONLY_MAX_VALIDATION_ROUNDS"
 if [[ "$HARNESS_REPOSITORY_INDEX_MODE" != off ]]; then
 	printf 'Repository index root: %s\n' "$HARNESS_REPOSITORY_INDEX_ROOT"
 	printf 'Compilation database: %s\n' "${HARNESS_COMPILE_COMMANDS:-auto-discover}"
 	printf 'SCIP tools: %s / %s / %s (%s indexing job(s))\n' \
 		"$HARNESS_SCIP_CLANG_BIN" "$HARNESS_SCIP_BIN" "$HARNESS_SCIP_IMPORTER_BIN" \
 		"$HARNESS_SCIP_CLANG_JOBS"
+	printf 'Joern: enabled=%s mode=%s cpus=%s heap=%sMiB nice=%s\n' \
+		"$HARNESS_JOERN_ENABLED" "$HARNESS_JOERN_EXECUTION_MODE" \
+		"$HARNESS_JOERN_MAX_CPUS" "$HARNESS_JOERN_MAX_HEAP_MB" "$HARNESS_JOERN_NICE_LEVEL"
 	printf 'Context Closure bounds: bytes<=%s symbols<=%s modules<=%s ownership<=%s direct-edges<=%s tests<=%s build-targets<=%s estimated-tokens<=%s\n' \
 		"$HARNESS_CONTEXT_CLOSURE_MAX_BYTES" "$HARNESS_CONTEXT_CLOSURE_MAX_SYMBOLS" \
 		"$HARNESS_CONTEXT_CLOSURE_MAX_MODULES" "$HARNESS_CONTEXT_CLOSURE_MAX_OWNERSHIP_BOUNDARIES" \
@@ -87,12 +99,14 @@ if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 	printf 'Maximum specification-review processed tokens: %s\n' "$HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION"
 	printf 'Selected domain profiles: %s\n' "${HARNESS_DOMAIN_PROFILES:-none}"
 	printf 'Luna leaf route: %s (%s)\n' "$LUNA_WORKER_MODEL" "$LUNA_WORKER_REASONING_EFFORT"
-	printf 'Terra leaf route: %s (%s)\n' "$TERRA_WORKER_MODEL" "$TERRA_WORKER_REASONING_EFFORT"
+	if [[ "$HARNESS_MODEL_POLICY" != luna_only ]]; then
+		printf 'Terra leaf route: %s (%s)\n' "$TERRA_WORKER_MODEL" "$TERRA_WORKER_REASONING_EFFORT"
+	fi
 	printf 'Preferred worker route: %s\n' "$HARNESS_PREFERRED_WORKER_ROUTE"
 	printf 'Minimum Luna DAG nodes: %s%%\n' "$HARNESS_MIN_LUNA_NODE_PERCENT"
 	printf 'Minimum Luna coding nodes: %s%%\n' "$HARNESS_MIN_LUNA_CODING_NODE_PERCENT"
 	printf 'Architecture guards: %s\n' "$([[ "$HARNESS_ARCHITECTURE_GUARDS" == 1 ]] && printf enabled || printf disabled)"
-	printf 'Luna strategy failures before escalation: %s\n' "$HARNESS_MAX_LUNA_STRATEGY_FAILURES"
+	printf 'Luna strategy failures before decomposition: %s\n' "$HARNESS_MAX_LUNA_STRATEGY_FAILURES"
 	printf 'Maximum Luna Allowed-Scope path groups: %s\n' "$HARNESS_MAX_LUNA_ALLOWED_PATHS"
 	printf 'Measured Luna bounds: obligations<=%s score<=%s actions<=%s p95-tokens<=%s files<=%s risk-domains<=%s\n' \
 		"$HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF" "$HARNESS_MAX_LUNA_COMPLEXITY_SCORE" \

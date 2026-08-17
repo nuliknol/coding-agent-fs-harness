@@ -18,15 +18,32 @@ umask 077
 mkdir -p "$(dirname "$json_log")" "$(dirname "$stderr_log")"
 : > "$json_log"; : > "$stderr_log"
 
-case "$role" in
-	 manager_bootstrap|manager_review|manager_plan|manager_replan|manager_remediation) bin="$MANAGER_CODEX_BIN"; home="$MANAGER_CODEX_HOME"; sandbox="$MANAGER_SANDBOX"; effort="$MANAGER_REASONING_EFFORT"; extras=("${MANAGER_CODEX_EXTRA_ARGS[@]}") ;;
-	 decomposition) bin="$MANAGER_CODEX_BIN"; home="$MANAGER_CODEX_HOME"; sandbox="$MANAGER_SANDBOX"; effort="$DECOMPOSITION_REASONING_EFFORT"; extras=("${MANAGER_CODEX_EXTRA_ARGS[@]}") ;;
-	 worker) bin="$WORKER_CODEX_BIN"; home="$WORKER_CODEX_HOME"; sandbox="$WORKER_SANDBOX"; effort="$WORKER_REASONING_EFFORT"; extras=("${WORKER_CODEX_EXTRA_ARGS[@]}") ;;
-	 worker_luna) bin="$WORKER_CODEX_BIN"; home="$WORKER_CODEX_HOME"; sandbox="$WORKER_SANDBOX"; effort="$LUNA_WORKER_REASONING_EFFORT"; extras=("${WORKER_CODEX_EXTRA_ARGS[@]}") ;;
-	 worker_terra) bin="$WORKER_CODEX_BIN"; home="$WORKER_CODEX_HOME"; sandbox="$WORKER_SANDBOX"; effort="$TERRA_WORKER_REASONING_EFFORT"; extras=("${WORKER_CODEX_EXTRA_ARGS[@]}") ;;
-	oracle) bin="$ORACLE_CODEX_BIN"; home="$ORACLE_CODEX_HOME"; sandbox="$ORACLE_SANDBOX"; effort="$ORACLE_REASONING_EFFORT"; extras=("${ORACLE_CODEX_EXTRA_ARGS[@]}") ;;
-	 *) die "invalid Codex role: $role" ;;
-esac
+if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
+	[[ "$model" == "$LUNA_WORKER_MODEL" ]] ||
+		die "Luna-only policy rejected model $model for role $role; expected $LUNA_WORKER_MODEL"
+	[[ "$role" != worker_terra ]] ||
+		die 'Luna-only policy rejected the worker_terra execution role'
+	case "$role" in
+		manager_bootstrap|manager_review|manager_plan|manager_replan|manager_remediation|decomposition|worker|worker_luna|oracle)
+			bin="$WORKER_CODEX_BIN"
+			home="$WORKER_CODEX_HOME"
+			sandbox="$WORKER_SANDBOX"
+			effort="$LUNA_WORKER_REASONING_EFFORT"
+			extras=("${WORKER_CODEX_EXTRA_ARGS[@]}")
+			;;
+		*) die "invalid Codex role: $role" ;;
+	esac
+else
+	case "$role" in
+		 manager_bootstrap|manager_review|manager_plan|manager_replan|manager_remediation) bin="$MANAGER_CODEX_BIN"; home="$MANAGER_CODEX_HOME"; sandbox="$MANAGER_SANDBOX"; effort="$MANAGER_REASONING_EFFORT"; extras=("${MANAGER_CODEX_EXTRA_ARGS[@]}") ;;
+		 decomposition) bin="$MANAGER_CODEX_BIN"; home="$MANAGER_CODEX_HOME"; sandbox="$MANAGER_SANDBOX"; effort="$DECOMPOSITION_REASONING_EFFORT"; extras=("${MANAGER_CODEX_EXTRA_ARGS[@]}") ;;
+		 worker) bin="$WORKER_CODEX_BIN"; home="$WORKER_CODEX_HOME"; sandbox="$WORKER_SANDBOX"; effort="$WORKER_REASONING_EFFORT"; extras=("${WORKER_CODEX_EXTRA_ARGS[@]}") ;;
+		 worker_luna) bin="$WORKER_CODEX_BIN"; home="$WORKER_CODEX_HOME"; sandbox="$WORKER_SANDBOX"; effort="$LUNA_WORKER_REASONING_EFFORT"; extras=("${WORKER_CODEX_EXTRA_ARGS[@]}") ;;
+		 worker_terra) bin="$WORKER_CODEX_BIN"; home="$WORKER_CODEX_HOME"; sandbox="$WORKER_SANDBOX"; effort="$TERRA_WORKER_REASONING_EFFORT"; extras=("${WORKER_CODEX_EXTRA_ARGS[@]}") ;;
+		oracle) bin="$ORACLE_CODEX_BIN"; home="$ORACLE_CODEX_HOME"; sandbox="$ORACLE_SANDBOX"; effort="$ORACLE_REASONING_EFFORT"; extras=("${ORACLE_CODEX_EXTRA_ARGS[@]}") ;;
+		 *) die "invalid Codex role: $role" ;;
+	esac
+fi
 require_executable_runtime "$role" "$bin"
 
 wait_for_agent_invocation_slot()
@@ -310,6 +327,8 @@ record_resource_guard()
 			"agent invocation resource circuit breaker: $resource_guard_reason" \
 			"" "The bounded agent process exceeded a machine-enforced resource limit; inspect its JSONL, token accounting, and preserved workspace before explicitly resuming.")"
 	fi
+	mkdir -p "$(project_dir)/logs"
+	chmod 700 "$(project_dir)/logs"
 	alarm="$(project_dir)/logs/agent-resource-alarms.log"
 	printf '%s\tproject=%s\troot=%s\ttask=%s\trole=%s\tmodel=%s\tkind=%s\treason=%q\tjsonl=%s\tmarker=%s\n' \
 		"$(timestamp_utc)" "$PROJECT" "${resource_task_root:--}" "$resource_task_id" "$role" "$model" \
@@ -383,6 +402,8 @@ while kill -0 "$pid" 2>/dev/null; do
 		[[ "$repeated_evidence_count" =~ ^[0-9]+$ ]] || repeated_evidence_count=0
 		if (( repeated_evidence_count >= 1 && repeated_evidence_warning_recorded == 0 )); then
 			repeated_evidence_warning_recorded=1
+			mkdir -p "$(project_dir)/logs"
+			chmod 700 "$(project_dir)/logs"
 			alarm="$(project_dir)/logs/agent-resource-alarms.log"
 			printf '%s\tproject=%s\troot=%s\ttask=%s\trole=%s\tmodel=%s\tkind=REPEATED_EVIDENCE_WARNING\treason=%q\tjsonl=%s\tmarker=-\n' \
 				"$(timestamp_utc)" "$PROJECT" "${resource_task_root:--}" "$resource_task_id" "$role" "$model" \

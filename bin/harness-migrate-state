@@ -16,3 +16,56 @@ ensure_project
 acquire_project_lock
 migrated="$(migrate_legacy_token_limit_human_markers)"
 printf 'Legacy token-limit markers migrated: %s\n' "$migrated"
+
+if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
+	dir="$(project_dir)"
+	for supervisor_file in "$dir/control/supervisor.pid" "$dir/control/worker-supervisor.pid"; do
+		if [[ -f "$supervisor_file" ]]; then
+			supervisor_pid="$(cat "$supervisor_file" 2>/dev/null || true)"
+			if [[ "$supervisor_pid" =~ ^[0-9]+$ ]] && kill -0 "$supervisor_pid" 2>/dev/null; then
+				die "stop project supervisors before Luna-only migration: $supervisor_file"
+			fi
+		fi
+	done
+	if compgen -G "$dir/running/$PROJECT-task-*.running.md" >/dev/null; then
+		die 'Luna-only migration requires a safe task boundary; a worker assignment is still running'
+	fi
+	migrated_ready=0
+	shopt -s nullglob
+	for ready in "$dir/tasks/$PROJECT-task-"*.ready.md; do
+		task_id="$(task_id_from_filename "$ready")"
+		route="$(metadata_value "$ready" Worker-Route)"
+		if [[ "$route" != TERRA ]] && ! assignment_is_manager_remediation "$ready"; then
+			continue
+		fi
+		root="$(task_root_id "$task_id")"
+		archive="$dir/archive/$(task_base "$task_id").assignment.md"
+		[[ ! -e "$archive" ]] || die "migration archive already exists: $archive"
+		mv "$ready" "$archive"
+		chmod 600 "$archive"
+		mark_root_needs_replan "$task_id" \
+			"The installed assignment used a pre-policy Terra/manager route. Preserve its root authority and verified checkpoints, then split the first unmet criterion into Luna-sized children." \
+			LUNA_ONLY_POLICY_MIGRATION >/dev/null
+		clear_worker_thread_for_root "$root" luna-only-policy-migration
+		log_event "LUNA_ONLY_READY_TASK_MIGRATED task=$task_id root=$root previous_route=${route:--} archive=$archive"
+		migrated_ready=$((migrated_ready + 1))
+	done
+	shopt -u nullglob
+	pending_terra=0
+	if project_plan_uses_dag; then
+		pending_terra="$(awk -F '\t' 'NR>1 && $11=="TERRA" {count++} END {print count+0}' "$(project_decomposition_plan_file)")"
+	fi
+	migration_state="$dir/control/luna-only-migration.env"
+	{
+		printf 'status=READY\n'
+		printf 'migrated_ready_tasks=%s\n' "$migrated_ready"
+		printf 'installed_terra_nodes=%s\n' "$pending_terra"
+		printf 'pending_node_policy=recursive_root_criteria\n'
+		printf 'migrated_at=%s\n' "$(timestamp_utc)"
+	} > "$migration_state.tmp.$$"
+	chmod 600 "$migration_state.tmp.$$"
+	mv "$migration_state.tmp.$$" "$migration_state"
+	log_event "LUNA_ONLY_STATE_MIGRATION_READY migrated_ready=$migrated_ready installed_terra_nodes=$pending_terra state=$migration_state"
+	printf 'Luna-only state migration: ready-tasks=%s installed-Terra-nodes=%s (decomposed in place at activation)\n' \
+		"$migrated_ready" "$pending_terra"
+fi

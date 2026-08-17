@@ -180,10 +180,11 @@ load_harness_env()
 	unset HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS HARNESS_START_MAX_AGENT_INVOCATIONS
 	unset HARNESS_LARGE_DECOMPOSITION_OBLIGATION_THRESHOLD
 	unset HARNESS_DOMAIN_PROFILES
-	unset HARNESS_REPOSITORY_INDEX_MODE HARNESS_CONTEXT_CLOSURE_MODE
+	unset HARNESS_MODEL_POLICY HARNESS_ESCALATION_POLICY
+	unset HARNESS_REPOSITORY_INDEX_MODE HARNESS_REPOSITORY_OVERLAY_MODE HARNESS_CONTEXT_CLOSURE_MODE
 	unset HARNESS_REPOSITORY_INDEX_ROOT HARNESS_COMPILE_COMMANDS
 	unset HARNESS_SCIP_CLANG_BIN HARNESS_SCIP_BIN HARNESS_SCIP_IMPORTER_BIN HARNESS_JOERN_BIN HARNESS_JOERN_ENABLED
-	unset HARNESS_JOERN_ANALYSIS_CLASSES HARNESS_JOERN_SOURCE_ROOT HARNESS_JOERN_EXCLUDE_REGEX HARNESS_JOERN_TIMEOUT_SECONDS
+	unset HARNESS_JOERN_ANALYSIS_CLASSES HARNESS_JOERN_SOURCE_ROOT HARNESS_JOERN_EXCLUDE_REGEX HARNESS_JOERN_TIMEOUT_SECONDS HARNESS_JOERN_EXECUTION_MODE
 	unset HARNESS_JOERN_MAX_HEAP_MB HARNESS_JOERN_MAX_CPUS HARNESS_JOERN_NICE_LEVEL
 	unset HARNESS_RECOLL_BIN HARNESS_RECOLL_ENABLED HARNESS_REPOSITORY_INDEX_RETENTION
 	unset HARNESS_REPOSITORY_INDEX_REFRESH_ACCEPTED_LEAVES
@@ -192,6 +193,8 @@ load_harness_env()
 	unset HARNESS_CONTEXT_CLOSURE_MAX_OWNERSHIP_BOUNDARIES
 	unset HARNESS_CONTEXT_CLOSURE_MAX_DIRECT_RELATIONSHIPS HARNESS_CONTEXT_CLOSURE_MAX_TESTS
 	unset HARNESS_CONTEXT_CLOSURE_MAX_BUILD_TARGETS HARNESS_CONTEXT_CLOSURE_MAX_ESTIMATED_TOKENS
+	unset HARNESS_CONTEXT_EXPANSION_MAX_BYTES HARNESS_MAX_CONTEXT_EXPANSIONS_PER_LEAF
+	unset HARNESS_PATCH_ONLY_MAX_VALIDATION_ROUNDS
 	unset HARNESS_CONTEXT_CLOSURE_PROMOTION_MIN_SAMPLES HARNESS_CONTEXT_CLOSURE_MIN_FILE_RECALL_PERCENT
 	unset HARNESS_CONTEXT_CLOSURE_MIN_LUNA_SUCCESS_PERCENT HARNESS_CONTEXT_CLOSURE_MAX_FALSE_BLOCK_PERCENT
 	unset HARNESS_MAX_LUNA_STRATEGY_FAILURES HARNESS_MAX_LUNA_ALLOWED_PATHS HARNESS_MIN_LUNA_NODE_PERCENT
@@ -365,10 +368,28 @@ load_harness_env()
 	# no product semantics. Names resolve first from the repository and then from
 	# the harness installation.
 	HARNESS_DOMAIN_PROFILES="${HARNESS_DOMAIN_PROFILES:-}"
+	# Model policy is independent from the leaf-route preference. The legacy
+	# policy preserves existing deployments; luna_only makes every semantic role
+	# use the configured Luna model and forbids stronger-model escalation.
+	HARNESS_MODEL_POLICY="${HARNESS_MODEL_POLICY:-legacy}"
+	if [[ -z "${HARNESS_ESCALATION_POLICY+x}" ]]; then
+		if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
+			HARNESS_ESCALATION_POLICY=decompose
+		else
+			HARNESS_ESCALATION_POLICY=legacy
+		fi
+	fi
 	# Repository intelligence is initially inert. Advisory and required modes are
 	# introduced behind explicit configuration so installing a newer harness
 	# cannot mutate or block an existing project.
 	HARNESS_REPOSITORY_INDEX_MODE="${HARNESS_REPOSITORY_INDEX_MODE:-off}"
+	if [[ -z "${HARNESS_REPOSITORY_OVERLAY_MODE+x}" ]]; then
+		if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
+			HARNESS_REPOSITORY_OVERLAY_MODE=tracked
+		else
+			HARNESS_REPOSITORY_OVERLAY_MODE=off
+		fi
+	fi
 	HARNESS_CONTEXT_CLOSURE_MODE="${HARNESS_CONTEXT_CLOSURE_MODE:-off}"
 	HARNESS_REPOSITORY_INDEX_ROOT="${HARNESS_REPOSITORY_INDEX_ROOT:-$HARNESS_ROOT/repository-indexes}"
 	if [[ "$HARNESS_REPOSITORY_INDEX_ROOT" != /* ]]; then
@@ -387,6 +408,13 @@ load_harness_env()
 	HARNESS_SCIP_IMPORTER_BIN="${HARNESS_SCIP_IMPORTER_BIN:-$HARNESS_HOME/libexec/harness-scip-importer}"
 	HARNESS_JOERN_BIN="${HARNESS_JOERN_BIN:-joern}"
 	HARNESS_JOERN_ENABLED="${HARNESS_JOERN_ENABLED:-0}"
+	if [[ -z "${HARNESS_JOERN_EXECUTION_MODE+x}" ]]; then
+		if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
+			HARNESS_JOERN_EXECUTION_MODE=on_demand
+		else
+			HARNESS_JOERN_EXECUTION_MODE=eager
+		fi
+	fi
 	HARNESS_JOERN_ANALYSIS_CLASSES="${HARNESS_JOERN_ANALYSIS_CLASSES:-call,data-flow,control-flow,mutation}"
 	HARNESS_JOERN_SOURCE_ROOT="${HARNESS_JOERN_SOURCE_ROOT:-.}"
 	HARNESS_JOERN_EXCLUDE_REGEX="${HARNESS_JOERN_EXCLUDE_REGEX:-}"
@@ -394,8 +422,12 @@ load_harness_env()
 	# Repository refreshes from different harness projects share one Joern
 	# admission lock.  Bound each admitted JVM as a second line of defence so a
 	# large CPG cannot take every core or let the JVM choose an unbounded heap.
-	HARNESS_JOERN_MAX_HEAP_MB="${HARNESS_JOERN_MAX_HEAP_MB:-12288}"
-	HARNESS_JOERN_MAX_CPUS="${HARNESS_JOERN_MAX_CPUS:-2}"
+	if [[ -z "${HARNESS_JOERN_MAX_HEAP_MB+x}" ]]; then
+		[[ "$HARNESS_MODEL_POLICY" == luna_only ]] && HARNESS_JOERN_MAX_HEAP_MB=4096 || HARNESS_JOERN_MAX_HEAP_MB=12288
+	fi
+	if [[ -z "${HARNESS_JOERN_MAX_CPUS+x}" ]]; then
+		[[ "$HARNESS_MODEL_POLICY" == luna_only ]] && HARNESS_JOERN_MAX_CPUS=1 || HARNESS_JOERN_MAX_CPUS=2
+	fi
 	HARNESS_JOERN_NICE_LEVEL="${HARNESS_JOERN_NICE_LEVEL:-10}"
 	HARNESS_RECOLL_BIN="${HARNESS_RECOLL_BIN:-recollq}"
 	HARNESS_SCIP_CLANG_BIN="$(resolve_command_path "$HARNESS_SCIP_CLANG_BIN")"
@@ -423,6 +455,12 @@ load_harness_env()
 	HARNESS_CONTEXT_CLOSURE_MAX_TESTS="${HARNESS_CONTEXT_CLOSURE_MAX_TESTS:-8}"
 	HARNESS_CONTEXT_CLOSURE_MAX_BUILD_TARGETS="${HARNESS_CONTEXT_CLOSURE_MAX_BUILD_TARGETS:-4}"
 	HARNESS_CONTEXT_CLOSURE_MAX_ESTIMATED_TOKENS="${HARNESS_CONTEXT_CLOSURE_MAX_ESTIMATED_TOKENS:-250000}"
+	HARNESS_CONTEXT_EXPANSION_MAX_BYTES="${HARNESS_CONTEXT_EXPANSION_MAX_BYTES:-8192}"
+	HARNESS_MAX_CONTEXT_EXPANSIONS_PER_LEAF="${HARNESS_MAX_CONTEXT_EXPANSIONS_PER_LEAF:-2}"
+	# A patch-only Luna receives compact typed diagnostics and may repair the
+	# same bounded patch transaction. Repeated identical failure sets terminate
+	# early; this value is a hard ceiling, not an unconditional retry count.
+	HARNESS_PATCH_ONLY_MAX_VALIDATION_ROUNDS="${HARNESS_PATCH_ONLY_MAX_VALIDATION_ROUNDS:-3}"
 	HARNESS_CONTEXT_CLOSURE_PROMOTION_MIN_SAMPLES="${HARNESS_CONTEXT_CLOSURE_PROMOTION_MIN_SAMPLES:-20}"
 	HARNESS_CONTEXT_CLOSURE_MIN_FILE_RECALL_PERCENT="${HARNESS_CONTEXT_CLOSURE_MIN_FILE_RECALL_PERCENT:-95}"
 	HARNESS_CONTEXT_CLOSURE_MIN_LUNA_SUCCESS_PERCENT="${HARNESS_CONTEXT_CLOSURE_MIN_LUNA_SUCCESS_PERCENT:-90}"
@@ -493,6 +531,9 @@ load_harness_env()
 	# preference also lets old immutable Terra-heavy DAG nodes be reclassified at
 	# publication time when the manager can prove a Luna-ready execution leaf.
 	HARNESS_PREFERRED_WORKER_ROUTE="${HARNESS_PREFERRED_WORKER_ROUTE:-LUNA}"
+	if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
+		HARNESS_PREFERRED_WORKER_ROUTE=LUNA
+	fi
 	# Implementation agents publish focused source-only commits by default.
 	HARNESS_AGENT_COMMITS_ENABLED="${HARNESS_AGENT_COMMITS_ENABLED:-1}"
 	# Provider-side failures retry forever. Short transient failures use a
@@ -591,6 +632,24 @@ load_harness_env()
 	fi
 	ORACLE_REASONING_EFFORT="${ORACLE_REASONING_EFFORT:-xhigh}"
 	ORACLE_SANDBOX="${ORACLE_SANDBOX:-$MANAGER_SANDBOX}"
+	if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
+		# Normalize every inference role before callers construct an invocation.
+		# The process launcher independently verifies the requested model so a
+		# stale or external caller cannot bypass this policy.
+		MANAGER_MODEL="$LUNA_WORKER_MODEL"
+		MANAGER_REASONING_EFFORT="$LUNA_WORKER_REASONING_EFFORT"
+		DECOMPOSITION_MODEL="$LUNA_WORKER_MODEL"
+		DECOMPOSITION_REASONING_EFFORT="$LUNA_WORKER_REASONING_EFFORT"
+		TERRA_WORKER_MODEL="$LUNA_WORKER_MODEL"
+		TERRA_WORKER_REASONING_EFFORT="$LUNA_WORKER_REASONING_EFFORT"
+		MANAGER_FALLBACK_MODEL="$LUNA_WORKER_MODEL"
+		WORKER_FALLBACK_MODEL="$LUNA_WORKER_MODEL"
+		ORACLE_FALLBACK_MODEL="$LUNA_WORKER_MODEL"
+		if [[ "$ORACLE_ENABLED" == 1 ]]; then
+			ORACLE_MODEL="$LUNA_WORKER_MODEL"
+			ORACLE_REASONING_EFFORT="$LUNA_WORKER_REASONING_EFFORT"
+		fi
+	fi
 
 	MANAGER_CODEX_BIN="${MANAGER_CODEX_BIN:-${CODEX_BIN:-codex}}"
 	WORKER_CODEX_BIN="${WORKER_CODEX_BIN:-${CODEX_BIN:-codex}}"
@@ -697,12 +756,23 @@ load_harness_env()
 	[[ "$HARNESS_DECOMPOSITION_V2" =~ ^[01]$ ]] || die 'HARNESS_DECOMPOSITION_V2 must be 0 or 1'
 	[[ "$HARNESS_DECOMPOSITION_CRITIC_ENABLED" =~ ^[01]$ ]] || die 'HARNESS_DECOMPOSITION_CRITIC_ENABLED must be 0 or 1'
 	[[ "$HARNESS_SPECIFICATION_REVIEW_ENABLED" =~ ^[01]$ ]] || die 'HARNESS_SPECIFICATION_REVIEW_ENABLED must be 0 or 1'
+	[[ "$HARNESS_MODEL_POLICY" =~ ^(legacy|luna_only)$ ]] ||
+		die 'HARNESS_MODEL_POLICY must be legacy or luna_only'
+	[[ "$HARNESS_ESCALATION_POLICY" =~ ^(legacy|decompose)$ ]] ||
+		die 'HARNESS_ESCALATION_POLICY must be legacy or decompose'
+	if [[ "$HARNESS_MODEL_POLICY" == luna_only && "$HARNESS_ESCALATION_POLICY" != decompose ]]; then
+		die 'HARNESS_MODEL_POLICY=luna_only requires HARNESS_ESCALATION_POLICY=decompose'
+	fi
 	[[ "$HARNESS_REPOSITORY_INDEX_MODE" =~ ^(off|advisory|required)$ ]] ||
 		die 'HARNESS_REPOSITORY_INDEX_MODE must be off, advisory, or required'
+	[[ "$HARNESS_REPOSITORY_OVERLAY_MODE" =~ ^(off|tracked)$ ]] ||
+		die 'HARNESS_REPOSITORY_OVERLAY_MODE must be off or tracked'
 	[[ "$HARNESS_CONTEXT_CLOSURE_MODE" =~ ^(off|advisory|required|patch_only)$ ]] ||
 		die 'HARNESS_CONTEXT_CLOSURE_MODE must be off, advisory, required, or patch_only'
 	[[ "$HARNESS_RECOLL_ENABLED" =~ ^[01]$ ]] || die 'HARNESS_RECOLL_ENABLED must be 0 or 1'
 	[[ "$HARNESS_JOERN_ENABLED" =~ ^[01]$ ]] || die 'HARNESS_JOERN_ENABLED must be 0 or 1'
+	[[ "$HARNESS_JOERN_EXECUTION_MODE" =~ ^(eager|on_demand)$ ]] ||
+		die 'HARNESS_JOERN_EXECUTION_MODE must be eager or on_demand'
 	[[ "$HARNESS_JOERN_ANALYSIS_CLASSES" =~ ^[A-Za-z0-9,_-]+$ ]] ||
 		die 'HARNESS_JOERN_ANALYSIS_CLASSES contains invalid characters'
 	[[ "$HARNESS_JOERN_SOURCE_ROOT" != /* && "$HARNESS_JOERN_SOURCE_ROOT" != .. &&
@@ -730,10 +800,14 @@ load_harness_env()
 		HARNESS_CONTEXT_CLOSURE_MAX_OWNERSHIP_BOUNDARIES \
 		HARNESS_CONTEXT_CLOSURE_MAX_DIRECT_RELATIONSHIPS HARNESS_CONTEXT_CLOSURE_MAX_TESTS \
 		HARNESS_CONTEXT_CLOSURE_MAX_BUILD_TARGETS \
-		HARNESS_CONTEXT_CLOSURE_MAX_ESTIMATED_TOKENS; do
+		HARNESS_CONTEXT_CLOSURE_MAX_ESTIMATED_TOKENS HARNESS_CONTEXT_EXPANSION_MAX_BYTES; do
 		[[ "${!context_closure_limit_name}" =~ ^[1-9][0-9]*$ ]] ||
 			die "$context_closure_limit_name must be a positive integer"
 	done
+	[[ "$HARNESS_MAX_CONTEXT_EXPANSIONS_PER_LEAF" =~ ^[0-9]+$ ]] ||
+		die 'HARNESS_MAX_CONTEXT_EXPANSIONS_PER_LEAF must be a non-negative integer'
+	[[ "$HARNESS_PATCH_ONLY_MAX_VALIDATION_ROUNDS" =~ ^[1-9][0-9]*$ ]] ||
+		die 'HARNESS_PATCH_ONLY_MAX_VALIDATION_ROUNDS must be a positive integer'
 	(( HARNESS_ARCHITECTURE_FIT_CAPSULE_MAX_BYTES >= 8192 )) ||
 		die 'HARNESS_ARCHITECTURE_FIT_CAPSULE_MAX_BYTES must be at least 8192'
 	(( HARNESS_DECOMPOSITION_CAPSULE_MAX_BYTES >= 16384 )) ||
@@ -894,10 +968,11 @@ load_harness_env()
 	export HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED
 	export HARNESS_DECOMPOSITION_V2 HARNESS_DECOMPOSITION_CRITIC_ENABLED HARNESS_SPECIFICATION_REVIEW_ENABLED
 	export HARNESS_DOMAIN_PROFILES
-	export HARNESS_REPOSITORY_INDEX_MODE HARNESS_CONTEXT_CLOSURE_MODE
+	export HARNESS_MODEL_POLICY HARNESS_ESCALATION_POLICY
+	export HARNESS_REPOSITORY_INDEX_MODE HARNESS_REPOSITORY_OVERLAY_MODE HARNESS_CONTEXT_CLOSURE_MODE
 	export HARNESS_REPOSITORY_INDEX_ROOT HARNESS_COMPILE_COMMANDS
 	export HARNESS_SCIP_CLANG_BIN HARNESS_SCIP_BIN HARNESS_SCIP_IMPORTER_BIN HARNESS_JOERN_BIN HARNESS_JOERN_ENABLED
-	export HARNESS_JOERN_ANALYSIS_CLASSES HARNESS_JOERN_SOURCE_ROOT HARNESS_JOERN_EXCLUDE_REGEX HARNESS_JOERN_TIMEOUT_SECONDS
+	export HARNESS_JOERN_ANALYSIS_CLASSES HARNESS_JOERN_SOURCE_ROOT HARNESS_JOERN_EXCLUDE_REGEX HARNESS_JOERN_TIMEOUT_SECONDS HARNESS_JOERN_EXECUTION_MODE
 	export HARNESS_JOERN_MAX_HEAP_MB HARNESS_JOERN_MAX_CPUS HARNESS_JOERN_NICE_LEVEL
 	export HARNESS_RECOLL_BIN HARNESS_RECOLL_ENABLED HARNESS_REPOSITORY_INDEX_RETENTION
 	export HARNESS_REPOSITORY_INDEX_REFRESH_ACCEPTED_LEAVES
@@ -907,6 +982,8 @@ load_harness_env()
 	export HARNESS_CONTEXT_CLOSURE_MAX_DIRECT_RELATIONSHIPS HARNESS_CONTEXT_CLOSURE_MAX_TESTS
 	export HARNESS_CONTEXT_CLOSURE_MAX_BUILD_TARGETS
 	export HARNESS_CONTEXT_CLOSURE_MAX_ESTIMATED_TOKENS
+	export HARNESS_CONTEXT_EXPANSION_MAX_BYTES HARNESS_MAX_CONTEXT_EXPANSIONS_PER_LEAF
+	export HARNESS_PATCH_ONLY_MAX_VALIDATION_ROUNDS
 	export HARNESS_CONTEXT_CLOSURE_PROMOTION_MIN_SAMPLES HARNESS_CONTEXT_CLOSURE_MIN_FILE_RECALL_PERCENT
 	export HARNESS_CONTEXT_CLOSURE_MIN_LUNA_SUCCESS_PERCENT HARNESS_CONTEXT_CLOSURE_MAX_FALSE_BLOCK_PERCENT
 	export HARNESS_MAX_LUNA_STRATEGY_FAILURES
@@ -1692,6 +1769,13 @@ task_criterion_decomposition_file()
 	local root
 	root="$(task_root_id "$1")"
 	printf '%s/control/progress/%s-task-%s.criterion-decomposition.tsv' "$(project_dir)" "$PROJECT" "$root"
+}
+
+task_criterion_facets_file()
+{
+	local root
+	root="$(task_root_id "$1")"
+	printf '%s/control/progress/%s-task-%s.criterion-facets.tsv' "$(project_dir)" "$PROJECT" "$root"
 }
 
 task_replan_ledger_file()
@@ -3601,6 +3685,7 @@ mark_root_needs_replan()
 {
 	local task_id="$1" reason="$2" trigger="$3"
 	local blocker_class="${4:-}" remediation_scope="${5:-}" context_paths="${6:-}"
+	local closure_condition="${7:-}" closure_repair_action="${8:-}" closure_repair_provider="${9:-}"
 	local root marker progress blocking_fingerprint tmp
 	root="$(task_root_id "$task_id")"
 	marker="$(task_root_replan_file "$root")"
@@ -3631,6 +3716,15 @@ mark_root_needs_replan()
 		fi
 		if [[ -n "$context_paths" ]]; then
 			printf 'Context-Paths: %s\n\n' "$context_paths"
+		fi
+		if [[ -n "$closure_condition" ]]; then
+			printf 'Closure-Condition: %s\n\n' "$closure_condition"
+		fi
+		if [[ -n "$closure_repair_action" ]]; then
+			printf 'Closure-Repair-Action: %s\n\n' "$closure_repair_action"
+		fi
+		if [[ -n "$closure_repair_provider" ]]; then
+			printf 'Closure-Repair-Provider: %s\n\n' "$closure_repair_provider"
 		fi
 		printf 'Reviewed-Attempts: %s\n' "$(root_reviewed_attempt_count "$root")"
 		printf 'Reviewed-Attempts-Since-Last-Replan: %s\n' "$(root_reviewed_attempts_since_replan "$root")"
@@ -5235,6 +5329,10 @@ validate_decomposition_measured_schema_file()
 			printf 'LUNA_COMPLEXITY_INVALID node=%s has non-executable worker_route=%s; Sol decomposes but never executes DAG rows\n' "$node_id" "$worker_route"
 			errors=$((errors + 1))
 		fi
+		if [[ "${HARNESS_MODEL_POLICY:-legacy}" == luna_only && "$worker_route" != LUNA ]]; then
+			printf 'LUNA_ONLY_ROUTE_INVALID node=%s worker_route=%s; recursively decompose this boundary into Luna-executable children\n' "$node_id" "$worker_route"
+			errors=$((errors + 1))
+		fi
 		for index in 11 12 13 14 15 16 17 18; do
 			value="${fields[$index]}"
 			if [[ ! "$value" =~ ^[0-9]+$ ]]; then
@@ -5436,6 +5534,9 @@ write_decomposition_complexity_report()
 				fi
 			done
 			[[ "$violations" == - ]] || status=OVER_BUDGET
+		elif [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
+			status=LUNA_ONLY_ROUTE_INVALID
+			violations="worker_route=$route"
 		else
 			[[ "$exception" =~ ^(CONTRACT_DECISION|ARCHITECTURE_DECISION|CONCURRENCY_DESIGN|AMBIGUOUS_SPECIFICATION|UNEXPLAINED_INTEGRATION|IRREDUCIBLE_CROSS_BOUNDARY)$ ]] || {
 				status=INVALID_TERRA_EXCEPTION
@@ -5449,7 +5550,11 @@ write_decomposition_complexity_report()
 	done < <(tail -n +2 "$dag")
 	chmod 600 "$output"
 	if awk -F '\t' 'NR>1 && $19!="READY" {found=1} END{exit found?0:1}' "$output"; then
-		awk -F '\t' 'NR>1 && $19!="READY" {printf "LUNA_COMPLEXITY_OVER_BUDGET node=%s route=%s score=%s status=%s violations=%s; continue recursive Sol decomposition or justify an irreducible Terra boundary\n",$1,$2,$4,$19,$20 > "/dev/stderr"}' "$output"
+		if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
+			awk -F '\t' 'NR>1 && $19!="READY" {printf "LUNA_COMPLEXITY_OVER_BUDGET node=%s route=%s score=%s status=%s violations=%s; recursively decompose into Luna-executable children\n",$1,$2,$4,$19,$20 > "/dev/stderr"}' "$output"
+		else
+			awk -F '\t' 'NR>1 && $19!="READY" {printf "LUNA_COMPLEXITY_OVER_BUDGET node=%s route=%s score=%s status=%s violations=%s; continue recursive Sol decomposition or justify an irreducible Terra boundary\n",$1,$2,$4,$19,$20 > "/dev/stderr"}' "$output"
+		fi
 		return 1
 	fi
 }
@@ -5576,6 +5681,8 @@ initialize_project_plan_v2()
 		fi
 		[[ "$complexity_class" =~ ^(LOW|MEDIUM|HIGH)$ ]] || die "invalid complexity_class for $node_id: $complexity_class"
 		[[ "$worker_route" =~ ^(LUNA|TERRA)$ ]] || die "invalid worker_route for $node_id: $worker_route"
+		[[ "$HARNESS_MODEL_POLICY" != luna_only || "$worker_route" == LUNA ]] ||
+			die "Luna-only decomposition cannot install worker_route $worker_route for $node_id"
 		[[ "$worker_route" != LUNA || "$complexity_class" == LOW ]] ||
 			die "Luna node $node_id must have complexity_class LOW"
 		if (( has_leaf_type == 1 )) && [[ "$worker_route" == LUNA ]]; then
@@ -5798,6 +5905,7 @@ write_project_snapshot()
 		printf 'architecture_guards=%s\n' "$HARNESS_ARCHITECTURE_GUARDS"
 		printf 'repository_index_mode=%s\n' "$HARNESS_REPOSITORY_INDEX_MODE"
 		printf 'context_closure_mode=%s\n' "$HARNESS_CONTEXT_CLOSURE_MODE"
+		printf 'patch_only_max_validation_rounds=%s\n' "$HARNESS_PATCH_ONLY_MAX_VALIDATION_ROUNDS"
 		printf 'repository_index_root=%s\n' "$HARNESS_REPOSITORY_INDEX_ROOT"
 		printf 'compile_commands=%s\n' "$HARNESS_COMPILE_COMMANDS"
 		printf 'semantic_continuation_review_enabled=%s\n' "$HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED"

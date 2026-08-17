@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+source "$SCRIPT_DIR/../lib/harness-repository-index.sh"
+
+[[ $# -eq 2 ]] || { printf 'Usage: %s ENV_FILE ASSIGNMENT\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+assignment="$(realpath "$2")"
+ensure_project
+(( HARNESS_JOERN_ENABLED == 1 )) || die 'on-demand Joern evidence requires HARNESS_JOERN_ENABLED=1'
+[[ "$HARNESS_JOERN_EXECUTION_MODE" == on_demand ]] || die 'on-demand Joern overlay requires HARNESS_JOERN_EXECUTION_MODE=on_demand'
+[[ -f "$assignment" ]] || die "assignment does not exist: $assignment"
+pointer="$(repository_index_project_pointer_file)"
+repository_index_project_pointer_is_current ||
+	die "on-demand Joern requires a current base index: $REPOSITORY_INDEX_POINTER_REASON"
+generation="$(kv_file_value "$pointer" generation)"
+generation_dir="$(kv_file_value "$pointer" generation_dir)"
+joern_fingerprint="$(kv_file_value "$generation_dir/manifest.env" joern_fingerprint)"
+database="$generation_dir/architecture.sqlite"
+compile_commands="$generation_dir/compile-commands.normalized.json"
+worktree_digest="$({ git -C "$REPOSITORY" diff --binary HEAD --; git -C "$REPOSITORY" status --porcelain=v1 --untracked-files=no; } | sha256sum | awk '{print $1}')"
+overlay_key="$({ sha256sum "$assignment"; printf '%s\n' "$generation" "$worktree_digest" \
+	"$joern_fingerprint" "$HARNESS_JOERN_SOURCE_ROOT" \
+	"$HARNESS_JOERN_ANALYSIS_CLASSES"; } | sha256sum | awk '{print $1}')"
+overlay_root="$(project_dir)/control/flow-overlays"
+target="$overlay_root/$overlay_key"
+if [[ -f "$target/READY" && -s "$target/architecture.sqlite" ]] &&
+	[[ "$(sqlite3 "$target/architecture.sqlite" 'PRAGMA integrity_check;')" == ok ]]; then
+	printf 'JOERN_OVERLAY_REUSED key=%s database=%s\n' "$overlay_key" "$target/architecture.sqlite"
+	exit 0
+fi
+mkdir -p "$overlay_root"
+chmod 700 "$overlay_root"
+temporary="$overlay_root/.${overlay_key}.tmp.$$.$RANDOM"
+mkdir -p "$temporary/export"
+chmod 700 "$temporary" "$temporary/export"
+cleanup_overlay()
+{
+	local status=$?
+	trap - EXIT
+	if [[ -d "$temporary" ]]; then
+		if (( status != 0 )); then
+			mv "$temporary" "$overlay_root/${overlay_key}.failed.$(timestamp_compact_utc).$$"
+		else
+			find "$temporary" -type f -delete
+			find "$temporary" -depth -type d -empty -delete
+		fi
+	fi
+	exit "$status"
+}
+trap cleanup_overlay EXIT
+sqlite3 "$database" ".backup '$temporary/architecture.sqlite'"
+joern_source="$(realpath -m "$REPOSITORY/$HARNESS_JOERN_SOURCE_ROOT")"
+case "$joern_source" in "$REPOSITORY"|"$REPOSITORY"/*) ;; *) die 'Joern source root escapes the repository' ;; esac
+joern_command_path="$(repository_index_command_path "$HARNESS_JOERN_BIN")"
+joern_parse="$(dirname "$joern_command_path")/joern-parse"
+joern_export="$(dirname "$joern_command_path")/joern-export"
+[[ -x "$joern_parse" && -x "$joern_export" ]] ||
+	die 'joern-parse/joern-export are not adjacent to HARNESS_JOERN_BIN'
+joern_frontend_args=(--compilation-database "$compile_commands")
+[[ -z "$HARNESS_JOERN_EXCLUDE_REGEX" ]] || joern_frontend_args+=(--exclude-regex "$HARNESS_JOERN_EXCLUDE_REGEX")
+java_opts="${JAVA_OPTS:-}"
+java_opts="${java_opts:+$java_opts }-Xmx${HARNESS_JOERN_MAX_HEAP_MB}m -XX:ActiveProcessorCount=${HARNESS_JOERN_MAX_CPUS}"
+cpu_affinity="$(repository_index_cpu_affinity_list "$HARNESS_JOERN_MAX_CPUS")" ||
+	die 'unable to derive bounded Joern CPU affinity'
+command -v taskset >/dev/null 2>&1 || die 'on-demand Joern CPU enforcement requires taskset'
+exec {joern_lock_fd}> "$HARNESS_REPOSITORY_INDEX_ROOT/.joern.lock"
+flock -x "$joern_lock_fd"
+env JAVA_OPTS="$java_opts" nice -n "$HARNESS_JOERN_NICE_LEVEL" \
+	taskset --cpu-list "$cpu_affinity" \
+	timeout --signal=TERM --kill-after=30 "$HARNESS_JOERN_TIMEOUT_SECONDS" \
+	"$joern_parse" --language c --output "$temporary/cpg.bin" "$joern_source" \
+	--frontend-args "${joern_frontend_args[@]}" > "$temporary/joern-parse.log" 2>&1 ||
+	die 'on-demand Joern parse failed'
+env JAVA_OPTS="$java_opts" nice -n "$HARNESS_JOERN_NICE_LEVEL" \
+	taskset --cpu-list "$cpu_affinity" \
+	timeout --signal=TERM --kill-after=30 "$HARNESS_JOERN_TIMEOUT_SECONDS" \
+	"$joern_export" --repr cpg --format graphml --out "$temporary/export/cpg" \
+	"$temporary/cpg.bin" > "$temporary/joern-export.log" 2>&1 ||
+	die 'on-demand Joern export failed'
+nice -n "$HARNESS_JOERN_NICE_LEVEL" taskset --cpu-list "$cpu_affinity" \
+	python3 "$HARNESS_HOME/tools/import_joern_graphml.py" \
+	--database "$temporary/architecture.sqlite" --generation "$generation" \
+	--repository "$REPOSITORY" --source-root "$HARNESS_JOERN_SOURCE_ROOT" \
+	--export "$temporary/export/cpg" --classes "$HARNESS_JOERN_ANALYSIS_CLASSES" \
+	--version "$(repository_index_tool_version "$HARNESS_JOERN_BIN")" \
+	--fingerprint "$joern_fingerprint" \
+	--report "$temporary/joern-import.tsv" > "$temporary/joern-import.log" 2>&1 ||
+	die 'on-demand Joern import failed'
+sqlite3 "$temporary/architecture.sqlite" \
+	"UPDATE provider_runs SET evidence_path=$(repository_index_sql_quote "flow-overlay:$overlay_key") WHERE provider='joern';"
+flock -u "$joern_lock_fd"
+exec {joern_lock_fd}>&-
+find "$temporary/export" -type f -delete
+find "$temporary/export" -depth -type d -empty -delete
+find "$temporary" -maxdepth 1 -type f -name 'cpg.bin*' -delete
+{
+	printf 'overlay_key=%s\n' "$overlay_key"
+	printf 'generation=%s\n' "$generation"
+	printf 'assignment_sha256=%s\n' "$(sha256sum "$assignment" | awk '{print $1}')"
+	printf 'worktree_digest=%s\n' "$worktree_digest"
+	printf 'joern_fingerprint=%s\n' "$joern_fingerprint"
+	printf 'max_cpus=%s\n' "$HARNESS_JOERN_MAX_CPUS"
+	printf 'max_heap_mb=%s\n' "$HARNESS_JOERN_MAX_HEAP_MB"
+	printf 'created_at=%s\n' "$(timestamp_utc)"
+} > "$temporary/manifest.env"
+printf 'READY\n' > "$temporary/READY"
+chmod 600 "$temporary"/*
+if [[ -e "$target" ]]; then
+	mv "$target" "$overlay_root/${overlay_key}.stale.$(timestamp_compact_utc).$$"
+fi
+mv "$temporary" "$target"
+printf 'JOERN_OVERLAY_READY key=%s database=%s\n' "$overlay_key" "$target/architecture.sqlite"

@@ -3,7 +3,11 @@
 set -Eeuo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d /tmp/codex-jsonl-test.XXXXXX)"
-trap 'rm -rf "$TMP"' EXIT
+if [[ "${HARNESS_TEST_KEEP_TMP:-0}" == 1 ]]; then
+	trap 'printf "Preserved test root: %s\n" "$TMP" >&2' EXIT
+else
+	trap 'rm -rf "$TMP"' EXIT
+fi
 mkdir -p "$TMP/repo" "$TMP/home"
 printf 'base\n' > "$TMP/repo/tracked.txt"
 printf 'test specification\n' > "$TMP/repo/spec.md"
@@ -78,6 +82,56 @@ grep -q '^Transient provider retry seconds: 60 (retries unlimited)$' "$TMP/defau
 grep -q '^Quota retry seconds: 300 (retries unlimited)$' "$TMP/defaults.out"
 grep -q '^Minimum interval between agent launches: 60 seconds (project-wide)$' "$TMP/defaults.out"
 grep -q '^Runtime PATH prefix: (none)$' "$TMP/defaults.out"
+grep -q '^Patch-only validation rounds: 3$' "$TMP/defaults.out"
+# The remaining cases exercise classification and policy, not the production
+# launch cadence. A dedicated case below restores a nonzero throttle.
+printf 'export HARNESS_AGENT_MIN_INTERVAL_SECONDS="0"\n' >> "$TMP/env"
+
+# Luna-only policy normalizes every semantic role to the configured Luna model
+# and rejects stale direct callers before a provider process is launched.
+cp "$TMP/env" "$TMP/env-luna-only"
+{
+	printf 'export HARNESS_MODEL_POLICY="luna_only"\n'
+	printf 'export HARNESS_ESCALATION_POLICY="decompose"\n'
+	printf 'export LUNA_WORKER_MODEL="gpt-5.6-luna"\n'
+	printf 'export LUNA_WORKER_REASONING_EFFORT="high"\n'
+	printf 'export ORACLE_MODEL="gpt-5.6-sol"\n'
+} >> "$TMP/env-luna-only"
+chmod 600 "$TMP/env-luna-only"
+"$ROOT/bin/harness-check-env" "$TMP/env-luna-only" > "$TMP/luna-only-check.out"
+grep -q '^Model policy: luna_only$' "$TMP/luna-only-check.out"
+grep -q '^Escalation policy: decompose$' "$TMP/luna-only-check.out"
+grep -q '^Manager model: gpt-5.6-luna (high)$' "$TMP/luna-only-check.out"
+grep -q '^Decomposition model: gpt-5.6-luna (high)$' "$TMP/luna-only-check.out"
+grep -q '^Terra leaf route: disabled by Luna-only policy$' "$TMP/luna-only-check.out"
+MOCK_MODE=arg_capture "$ROOT/bin/codex-exec-jsonl" "$TMP/env-luna-only" manager_review \
+	gpt-5.6-luna "$prompt" "$TMP/luna-manager.jsonl" "$TMP/luna-manager.stderr" "$TMP/luna-manager.last"
+grep -Fq -- '--model gpt-5.6-luna' "$TMP/luna-manager.last"
+set +e
+MOCK_MODE=success "$ROOT/bin/codex-exec-jsonl" "$TMP/env-luna-only" decomposition \
+	gpt-5.6-sol "$prompt" "$TMP/luna-reject-model.jsonl" "$TMP/luna-reject-model.stderr" \
+	"$TMP/luna-reject-model.last" > "$TMP/luna-reject-model.out" 2>&1
+luna_reject_model_status=$?
+MOCK_MODE=success "$ROOT/bin/codex-exec-jsonl" "$TMP/env-luna-only" worker_terra \
+	gpt-5.6-luna "$prompt" "$TMP/luna-reject-role.jsonl" "$TMP/luna-reject-role.stderr" \
+	"$TMP/luna-reject-role.last" > "$TMP/luna-reject-role.out" 2>&1
+luna_reject_role_status=$?
+set -e
+(( luna_reject_model_status != 0 ))
+(( luna_reject_role_status != 0 ))
+grep -Fq 'Luna-only policy rejected model gpt-5.6-sol' "$TMP/luna-reject-model.out"
+grep -Fq 'Luna-only policy rejected the worker_terra execution role' "$TMP/luna-reject-role.out"
+
+cp "$TMP/env-luna-only" "$TMP/env-luna-invalid-escalation"
+printf 'export HARNESS_ESCALATION_POLICY="legacy"\n' >> "$TMP/env-luna-invalid-escalation"
+chmod 600 "$TMP/env-luna-invalid-escalation"
+set +e
+"$ROOT/bin/harness-check-env" "$TMP/env-luna-invalid-escalation" > "$TMP/luna-invalid-escalation.out" 2>&1
+luna_invalid_escalation_status=$?
+set -e
+(( luna_invalid_escalation_status != 0 ))
+grep -Fq 'HARNESS_MODEL_POLICY=luna_only requires HARNESS_ESCALATION_POLICY=decompose' \
+	"$TMP/luna-invalid-escalation.out"
 
 # An executable Codex wrapper is not actually runnable when its env shebang
 # runtime is absent. Service-like PATHs must fail at startup, while an explicit
@@ -425,7 +479,7 @@ runtime_floor="$(awk -F= '$1=="runtime_p95_floor" {print $2}' "$TMP/runtime-floo
 runtime_limit="$(awk -F= '$1=="processed_token_limit" {print $2}' "$TMP/runtime-floor.classification")"
 (( runtime_floor > 70 ))
 (( runtime_limit > 105 && runtime_limit <= 500000 ))
-grep -q '^context_rounds=14$' "$TMP/runtime-floor.classification"
+grep -q '^context_rounds=15$' "$TMP/runtime-floor.classification"
 
 # The named specification-normalization phase has a separate bounded allowance
 # while ordinary manager/worker turns retain the lower default limit.

@@ -68,6 +68,7 @@ progress="$(task_progress_file "$root")"
 root_assignment="$(task_root_assignment_file "$root")"
 criteria_definition="$(task_criteria_definition_file "$root")"
 criterion_decomposition="$(task_criterion_decomposition_file "$root")"
+criterion_facets="$(task_criterion_facets_file "$root")"
 
 if (( recovery_publish == 1 )); then
 	[[ "$task_id" != "$root" ]] || die 'a recovery task must publish a revision of an existing root'
@@ -180,7 +181,7 @@ normalize_measured_assignment_metadata()
 	local report decomposition report_row dag_row report_parse_row dag_parse_row tmp
 	local complexity_score behavioral failures ownership concurrency validations implementation_files actions declared_p95 effective_p95 complexity_class worker_route terra_exception
 	local planned_effective_p95 planned_worker_route planned_leaf_type
-	local obligation_weight requested_route requested_class requested_leaf requested_architecture requested_validation requested_files requested_turns requested_exception luna_failures
+	local obligation_weight requested_route requested_class requested_leaf requested_architecture requested_validation requested_files requested_turns requested_exception luna_failures root_criterion_count
 	local required_symbols symbol_count calibration_rate residual_p95 verified_items
 	local recovery_decisions_resolved recovery_verified_child resource_recovery resource_local_authority decision requested_obligations obligation_count architecture_decisions
 	# Every task bound to a measured plan node uses the installed deterministic
@@ -221,7 +222,14 @@ normalize_measured_assignment_metadata()
 		log_event "RESOURCE_PROGRESS_VERIFICATION_VECTOR_NORMALIZED root=$root task=$task_id expected_files=0"
 	fi
 	if (( manager_remediation == 1 )); then
-		worker_route=TERRA
+		if [[ "$HARNESS_ESCALATION_POLICY" == decompose ]]; then
+			worker_route=LUNA
+			complexity_class=LOW
+			architecture_decisions=NONE
+			log_event "LUNA_ONLY_MANAGER_REMEDIATION_NORMALIZED root=$root task=$task_id"
+		else
+			worker_route=TERRA
+		fi
 		# Remediation is execution authority granted by the recovery protocol,
 		# not a new semantic decision.  Do not inherit the plan node's decision
 		# exception into the bounded repair leaf.
@@ -309,7 +317,7 @@ normalize_measured_assignment_metadata()
 			if (( implementation_files == 0 )) && [[ "$verified_items" =~ ^[1-9][0-9]*$ ]]; then
 				log_event "RECOVERY_RESIDUAL_EVIDENCE_RECLASSIFIED root=$root task=$task_id leaf_type=$requested_leaf complexity_score=$complexity_score actions=$actions p95=$effective_p95"
 			fi
-		elif luna_strategy_exhausted_coding_leaf "$luna_failures" \
+		elif [[ "$HARNESS_ESCALATION_POLICY" == legacy ]] && luna_strategy_exhausted_coding_leaf "$luna_failures" \
 			"$HARNESS_MAX_LUNA_STRATEGY_FAILURES" "$requested_leaf"; then
 			requested_exception="$(metadata_value "$task_file" Terra-Exception)"
 			worker_route=TERRA
@@ -335,7 +343,7 @@ normalize_measured_assignment_metadata()
 		# its Luna strategies, do not restore the stale DAG route and reject the
 		# planner's next task. Normalize the bounded continuation to fresh Terra.
 		luna_failures="$(root_luna_strategy_failure_count "$root")"
-		if luna_strategy_exhausted_coding_leaf "$luna_failures" \
+		if [[ "$HARNESS_ESCALATION_POLICY" == legacy ]] && luna_strategy_exhausted_coding_leaf "$luna_failures" \
 			"$HARNESS_MAX_LUNA_STRATEGY_FAILURES" "$requested_leaf"; then
 			worker_route=TERRA
 			complexity_class=HIGH
@@ -343,6 +351,57 @@ normalize_measured_assignment_metadata()
 			measured_recovery_route_override=1
 			log_event "CONTINUATION_TERRA_ESCALATION_NORMALIZED root=$root task=$task_id luna_failures=$luna_failures exception=$terra_exception"
 		fi
+	fi
+	# An installed pre-policy DAG may retain a HIGH/TERRA aggregate even though
+	# the active execution policy forbids stronger models. Preserve that plan
+	# node as semantic authority while measuring the manager-authored first-unmet
+	# child as its own Luna-sized execution vector. This is an in-place recursive
+	# decomposition, not a mutation of accepted specification coverage.
+	if [[ "$HARNESS_MODEL_POLICY" == luna_only && "$planned_worker_route" == TERRA ]] &&
+		(( measured_recovery_route_override == 0 )); then
+		if [[ "$task_id" == "$root" ]]; then
+			root_criterion_count="$(awk -F': ' '$1=="Root-Criterion" {count++} END {print count+0}' "$task_file")"
+			(( root_criterion_count >= 2 )) ||
+				die 'a migrated Terra aggregate must declare at least two ordered node-local Root-Criterion stages'
+		fi
+		[[ "$requested_leaf" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY)$ ]] ||
+			die "Luna-only migration requires a bounded executable child leaf, not aggregate $requested_leaf"
+		[[ "$requested_validation" =~ ^(FOCUSED|INCREMENTAL)$ ]] ||
+			die 'Luna-only migration child requires FOCUSED or INCREMENTAL validation'
+		[[ "$requested_files" =~ ^[0-9]+$ && "$requested_turns" =~ ^[1-3]$ ]] ||
+			die 'Luna-only migration child requires bounded implementation files and one to three turns'
+		(( requested_files <= HARNESS_MAX_LUNA_IMPLEMENTATION_FILES )) ||
+			die 'Luna-only migration child exceeds the implementation-file budget'
+		required_symbols="$(metadata_value "$task_file" Required-Symbols)"
+		symbol_count="$(awk -F, '{if ($0=="-" || $0=="") print 0; else print NF}' <<< "$required_symbols")"
+		requested_obligations="$(metadata_value "$task_file" Obligations)"
+		obligation_count="$(awk -F, '{if ($0=="-" || $0=="") print 1; else print NF}' <<< "$requested_obligations")"
+		(( obligation_count <= HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF )) ||
+			die 'Luna-only migration child inherits too many obligations; split the criterion again'
+		obligation_weight="$obligation_count"
+		behavioral=1
+		[[ "$requested_leaf" == FOCUSED_BUG ]] && failures=1 || failures=0
+		ownership=0
+		concurrency=0
+		validations=1
+		implementation_files="$requested_files"
+		actions=$((requested_turns + 3))
+		complexity_score=$((obligation_weight + behavioral * 3 + failures * 2 + validations * 2 + implementation_files * 2 + (symbol_count + 1) / 2))
+		declared_p95=$((complexity_score * HARNESS_COMPLEXITY_TOKENS_PER_SCORE_POINT))
+		calibration_rate="$(complexity_calibrated_tokens_per_score "$LUNA_WORKER_MODEL")"
+		residual_p95=$((complexity_score * calibration_rate))
+		effective_p95="$declared_p95"
+		(( effective_p95 >= residual_p95 )) || effective_p95="$residual_p95"
+		(( complexity_score <= HARNESS_MAX_LUNA_COMPLEXITY_SCORE &&
+			actions <= HARNESS_MAX_LUNA_PREDICTED_ACTIONS &&
+			effective_p95 <= HARNESS_MAX_LUNA_PREDICTED_P95_TOKENS )) ||
+			die "migrated child still exceeds the Luna budget (score=$complexity_score actions=$actions p95=$effective_p95)"
+		complexity_class=LOW
+		worker_route=LUNA
+		terra_exception=-
+		architecture_decisions=NONE
+		measured_recovery_route_override=2
+		log_event "LUNA_ONLY_INSTALLED_TERRA_NODE_DECOMPOSED plan_item=$plan_item_id root=$root task=$task_id leaf=$requested_leaf score=$complexity_score actions=$actions p95=$effective_p95"
 	fi
 	if (( implementation_files > 0 && actions < HARNESS_MIN_SOURCE_CHANGE_AGENT_ACTIONS )); then
 		actions="$HARNESS_MIN_SOURCE_CHANGE_AGENT_ACTIONS"
@@ -600,6 +659,55 @@ validate_decomposition_for_root()
 	done < <(tail -n +2 "$candidate")
 }
 
+validate_deterministic_closure_graft()
+{
+	local candidate="$1" parent="$2" marker action trigger assignment repair expected expected_facets
+	local row child_id _parent_task _sequence allowed_paths required_symbols _acceptance focused_validation
+	local _source_cut _seam_kind _estimated _status target
+	marker="$(task_root_replan_file "$root")"
+	action="$(metadata_value "$marker" Closure-Repair-Action)"
+	[[ "$action" == GRAFT_GRAPH_CUTS ]] || return 0
+	trigger="$(metadata_value "$marker" Triggered-By)"
+	[[ -n "$trigger" ]] || die 'deterministic closure graft marker is missing Triggered-By'
+	assignment="$dir/archive/$(task_base "$trigger").assignment.md"
+	repair="$dir/control/context-closures/$(task_base "$trigger")/repair-children.tsv"
+	[[ -f "$assignment" && -s "$repair" ]] ||
+		die 'deterministic closure graft source assignment or repair children are missing'
+	# A single indexed seam is evidence that semantic subdivision is still
+	# required; it is not itself a valid child graft and remains a bounded Luna
+	# decomposition task.
+	(( $(awk 'END {print NR > 0 ? NR - 1 : 0}' "$repair") >= 2 )) || return 0
+	expected="$PROJECT_TMP_DIR/$(task_base "$task_id").expected-closure-graft.$$"
+	expected_facets="$expected.facets.tsv"
+	python3 "$HARNESS_HOME/tools/compile_closure_graft.py" \
+		--assignment "$assignment" --repair-children "$repair" \
+		--parent-criterion "$parent" --output "$expected" \
+		--facets-output "$expected_facets" >/dev/null ||
+		die 'trusted Context Closure child graft could not be recompiled'
+	if ! cmp -s "$candidate" "$expected"; then
+		rm -f "$expected" "$expected_facets"
+		die 'child decomposition differs from the trusted Context Closure graph-cut graft'
+	fi
+	if [[ ! -f "$candidate.facets.tsv" ]] || ! cmp -s "$candidate.facets.tsv" "$expected_facets"; then
+		rm -f "$expected" "$expected_facets"
+		die 'child facet ledger is missing or violates parent-facet conservation'
+	fi
+	rm -f "$expected" "$expected_facets"
+	row="$(tail -n +2 "$repair" | sort -t $'\t' -k3,3n -k1,1 | head -n 1)"
+	IFS=$'\t' read -r child_id _parent_task _sequence allowed_paths required_symbols _acceptance \
+		focused_validation _source_cut _seam_kind _estimated _status <<< "$row"
+	target="$(metadata_value "$task_file" Target-Criterion)"
+	[[ "$target" == "$parent.$child_id" ]] ||
+		die "closure graft continuation must target the first deterministic child: $parent.$child_id"
+	[[ "$(metadata_value "$task_file" Allowed-Scope)" == "$allowed_paths" ]] ||
+		die 'closure graft continuation Allowed-Scope differs from its deterministic source cut'
+	[[ "$(metadata_value "$task_file" Required-Symbols)" == "$required_symbols" ]] ||
+		die 'closure graft continuation Required-Symbols differ from its deterministic source cut'
+	[[ "$(metadata_value "$task_file" Focused-Validation)" == "$focused_validation" ]] ||
+		die 'closure graft continuation Focused-Validation differs from its deterministic source cut'
+	log_event "DETERMINISTIC_CLOSURE_GRAFT_VALIDATED root=$root task=$task_id parent=$parent children=$(( $(wc -l < "$candidate") - 1 )) facets=$candidate.facets.tsv"
+}
+
 target_criterion=""
 if (( ${#declared_criteria[@]} > 0 )) && [[ "$task_id" != "$root" ]]; then
 	target_count="$(awk -F': ' '$1 == "Target-Criterion" {count++} END {print count + 0}' "$task_file")"
@@ -640,6 +748,7 @@ if (( ${#declared_criteria[@]} > 0 )) && [[ "$task_id" != "$root" ]]; then
 		[[ -z "$(task_criterion_children "$root" "$first_unmet")" ]] ||
 			die "the first unmet criterion is already decomposed: $first_unmet"
 		validate_decomposition_for_root "$decomposition_candidate" "$first_unmet"
+		validate_deterministic_closure_graft "$decomposition_candidate" "$first_unmet"
 		decomposed_first="$(awk -F '\t' 'NR == 2 {print $2}' "$decomposition_candidate")"
 		[[ "$target_criterion" == "$decomposed_first" ]] ||
 			die "continuation must target the first new child criterion: $decomposed_first"
@@ -693,6 +802,20 @@ canonical_scope_path_set()
 {
 	local scope="$1"
 	printf '%s\n' "$scope" | tr ',;[:space:]' '\n' | sed '/^$/d' | sort -u | paste -sd, -
+}
+
+comma_values_are_subset()
+{
+	local candidate="$1" authority="$2" value
+	local -A allowed=()
+	while IFS= read -r value; do
+		[[ -n "$value" && "$value" != - ]] && allowed[$value]=1
+	done < <(tr ',' '\n' <<< "$authority" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+	while IFS= read -r value; do
+		[[ -n "$value" && "$value" != - ]] || continue
+		[[ -n "${allowed[$value]:-}" ]] || return 1
+	done < <(tr ',' '\n' <<< "$candidate" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+	return 0
 }
 
 scope_authorizes_governing_specification()
@@ -1396,26 +1519,50 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 			fi
 		fi
 		if (( manager_remediation == 1 )); then
-			[[ "$leaf_worker_route" == TERRA ]] || die 'manager remediation must use Worker-Route: TERRA'
+			if [[ "$HARNESS_ESCALATION_POLICY" == decompose ]]; then
+				[[ "$leaf_worker_route" == LUNA ]] || die 'Luna-only manager remediation must use Worker-Route: LUNA'
+			else
+				[[ "$leaf_worker_route" == TERRA ]] || die 'manager remediation must use Worker-Route: TERRA'
+			fi
 		fi
 		if [[ "$task_id" == "$root" ]]; then
 			project_plan_uses_dag || die 'v2 leaf publication requires a registered decomposition DAG'
-			[[ "$leaf_depends_on" == "$(project_plan_node_value "$plan_item_id" depends_on)" ]] || die 'leaf Depends-On does not match its DAG node'
-			[[ "$leaf_deliverable" == "$(project_plan_node_value "$plan_item_id" deliverable)" ]] || die 'leaf Deliverable does not match its DAG node'
-			[[ "$goal_success_evidence" == "$(project_plan_node_value "$plan_item_id" acceptance_evidence)" ]] || die 'leaf Goal-Success-Evidence does not match its DAG node'
-			planned_validation="$(project_plan_node_value "$plan_item_id" focused_validation)"
-			if [[ "$goal_focused_validation" != "$planned_validation" ]]; then
-				validation_is_review_descriptor "$planned_validation" ||
-					die 'leaf Focused-Validation does not match its DAG node'
-				! validation_is_review_descriptor "$goal_focused_validation" ||
-					die 'descriptive DAG validation must be refined to one machine-executable focused command'
-				log_event "DESCRIPTIVE_VALIDATION_REFINED node=$plan_item_id task=$task_id"
-			fi
-			[[ "$goal_allowed_scope" == "$(project_plan_node_value "$plan_item_id" allowed_paths)" ]] || die 'leaf Allowed-Scope does not match its DAG node'
-			[[ "$leaf_required_symbols" == "$(project_plan_node_value "$plan_item_id" required_symbols)" ]] || die 'leaf Required-Symbols does not match its DAG node'
 			planned_complexity="$(project_plan_node_value "$plan_item_id" complexity_class)"
 			planned_route="$(project_plan_node_value "$plan_item_id" worker_route)"
 			planned_leaf_type="$(project_plan_node_value "$plan_item_id" leaf_type)"
+			luna_migrated_child=0
+			if [[ "$HARNESS_MODEL_POLICY" == luna_only && "$planned_route" == TERRA ]] &&
+				(( measured_recovery_route_override == 2 )); then
+				luna_migrated_child=1
+			fi
+			[[ "$leaf_depends_on" == "$(project_plan_node_value "$plan_item_id" depends_on)" ]] || die 'leaf Depends-On does not match its DAG node'
+			[[ "$leaf_deliverable" == "$(project_plan_node_value "$plan_item_id" deliverable)" ]] || die 'leaf Deliverable does not match its DAG node'
+			if (( luna_migrated_child == 0 )); then
+				[[ "$goal_success_evidence" == "$(project_plan_node_value "$plan_item_id" acceptance_evidence)" ]] || die 'leaf Goal-Success-Evidence does not match its DAG node'
+			fi
+			planned_validation="$(project_plan_node_value "$plan_item_id" focused_validation)"
+			if [[ "$goal_focused_validation" != "$planned_validation" ]]; then
+				if (( luna_migrated_child == 1 )); then
+					! validation_is_review_descriptor "$goal_focused_validation" ||
+						die 'migrated Luna child validation must be one machine-executable focused command'
+					log_event "LUNA_ONLY_MIGRATION_VALIDATION_REFINED node=$plan_item_id task=$task_id"
+				else
+					validation_is_review_descriptor "$planned_validation" ||
+						die 'leaf Focused-Validation does not match its DAG node'
+					! validation_is_review_descriptor "$goal_focused_validation" ||
+						die 'descriptive DAG validation must be refined to one machine-executable focused command'
+					log_event "DESCRIPTIVE_VALIDATION_REFINED node=$plan_item_id task=$task_id"
+				fi
+			fi
+			if (( luna_migrated_child == 1 )); then
+				scope_is_within_root_authority "$goal_allowed_scope" "$(project_plan_node_value "$plan_item_id" allowed_paths)" ||
+					die 'migrated Luna child Allowed-Scope exceeds its installed Terra aggregate'
+				comma_values_are_subset "$leaf_required_symbols" "$(project_plan_node_value "$plan_item_id" required_symbols)" ||
+					die 'migrated Luna child Required-Symbols exceed its installed Terra aggregate'
+			else
+				[[ "$goal_allowed_scope" == "$(project_plan_node_value "$plan_item_id" allowed_paths)" ]] || die 'leaf Allowed-Scope does not match its DAG node'
+				[[ "$leaf_required_symbols" == "$(project_plan_node_value "$plan_item_id" required_symbols)" ]] || die 'leaf Required-Symbols does not match its DAG node'
+			fi
 			if (( recovery_publish == 1 && measured_recovery_route_override == 0 )) &&
 				[[ "$planned_route" == TERRA &&
 				"$planned_leaf_type" =~ ^(CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]]; then
@@ -1426,10 +1573,10 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 				architecture_recovery_authority=1
 				preferred_route_override=1
 			fi
-			if [[ -n "$planned_leaf_type" && "$architecture_recovery_authority" == 0 ]]; then
+			if [[ -n "$planned_leaf_type" && "$architecture_recovery_authority" == 0 && "$luna_migrated_child" == 0 ]]; then
 				[[ "$leaf_type" == "$planned_leaf_type" ]] || die 'leaf Leaf-Type does not match its DAG node'
 			fi
-			if [[ "$leaf_complexity" != "$planned_complexity" || "$leaf_worker_route" != "$planned_route" ]]; then
+			if (( luna_migrated_child == 0 )) && [[ "$leaf_complexity" != "$planned_complexity" || "$leaf_worker_route" != "$planned_route" ]]; then
 				if [[ -z "$planned_leaf_type" && "$HARNESS_PREFERRED_WORKER_ROUTE" == LUNA &&
 					"$planned_route" == TERRA && "$leaf_worker_route" == LUNA && "$leaf_complexity" == LOW ]]; then
 					preferred_route_override=1
@@ -1834,6 +1981,17 @@ if (( recovery_publish == 1 )); then
 		tail -n +2 "$decomposition_candidate" >> "$decomposition_tmp"
 		chmod 600 "$decomposition_tmp"
 		mv "$decomposition_tmp" "$criterion_decomposition"
+		if [[ -f "$decomposition_candidate.facets.tsv" ]]; then
+			facets_tmp="$criterion_facets.tmp.$$"
+			if [[ -f "$criterion_facets" ]]; then
+				cp -p "$criterion_facets" "$facets_tmp"
+			else
+				printf 'parent_criterion\tchild_criterion\tfacet_kind\tfacet_id\trelation\tsource_cut\n' > "$facets_tmp"
+			fi
+			tail -n +2 "$decomposition_candidate.facets.tsv" >> "$facets_tmp"
+			chmod 600 "$facets_tmp"
+			mv "$facets_tmp" "$criterion_facets"
+		fi
 	fi
 	record_root_convergence_baseline "$root"
 	clear_worker_thread_for_root "$root" automatic-replan

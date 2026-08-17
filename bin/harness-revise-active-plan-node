@@ -95,6 +95,8 @@ new_complexity="${new_fields[9]}"; new_route="${new_fields[10]}"
 	die "invalid revised leaf type: $new_type"
 [[ "$new_complexity" =~ ^(LOW|MEDIUM|HIGH)$ ]] || die "invalid revised complexity: $new_complexity"
 [[ "$new_route" =~ ^(LUNA|TERRA)$ ]] || die "invalid revised route: $new_route"
+[[ "$HARNESS_MODEL_POLICY" != luna_only || "$new_route" == LUNA ]] ||
+	die 'Luna-only policy rejects an active-node revision to route TERRA; decompose the remaining acceptance boundary'
 if [[ "$new_route" == LUNA ]]; then
 	[[ "$new_complexity" == LOW ]] || die 'a revised Luna node must have LOW complexity'
 	[[ "$new_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY)$ ]] ||

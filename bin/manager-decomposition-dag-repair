@@ -260,6 +260,12 @@ $HARNESS_BIN/manager-stage-decomposition-dag "$HARNESS_ENV_FILE" "$repair_dir/da
 
 If validation rejects it, read only the new rejection log printed by that staged candidate, make at most one additional bounded correction, and submit once more. After success, terminate. Never create architecture files, launch tests, or search the repository.
 PROMPT
+if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
+	cat >> "$prompt.tmp.$$" <<PROMPT
+
+LUNA-ONLY POLICY OVERRIDE: Repair every rejected boundary into LOW/LUNA executable children with terra_exception '-'. Never introduce TERRA, Sol, an irreducible stronger-model exception, or a global integration worker. Preserve obligation coverage and use ordered compatibility stages when one broad boundary cannot fit a single Luna closure.
+PROMPT
+fi
 chmod 600 "$prompt.tmp.$$"
 mv "$prompt.tmp.$$" "$prompt"
 

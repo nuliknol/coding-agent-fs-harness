@@ -184,6 +184,30 @@ mark_manager_remediation_decomposition_replan()
 	esac
 }
 
+mark_context_closure_replan()
+{
+	local result_file="$1" condition action provider reason
+	condition="$(metadata_value "$result_file" Closure-Condition)"
+	action="$(metadata_value "$result_file" Closure-Repair-Action)"
+	provider="$(metadata_value "$result_file" Closure-Repair-Provider)"
+	[[ -n "$condition" && -n "$action" ]] || return 1
+	[[ -n "$provider" ]] || provider=repository-index
+	case "$action" in
+		GRAFT_GRAPH_CUTS)
+			reason="Context Closure exceeded its Luna resource boundary; graft independently verifiable children from the recorded graph cuts"
+			;;
+		REFRESH_INDEX_OR_OVERLAY)
+			reason="Context Closure is missing indexed workspace evidence; refresh only the implicated provider or live overlay before rebuilding the same leaf"
+			;;
+		REPAIR_AUTHORITY_BINDING)
+			reason="Context Closure is missing accepted architecture authority; repair the exact binding before rebuilding the same leaf"
+			;;
+		*) reason="Context Closure requested typed repair action $action" ;;
+	esac
+	mark_root_needs_replan "$task_id" "$reason" CONTEXT_CLOSURE_REPAIR "" "" "" \
+		"$condition" "$action" "$provider"
+}
+
 if [[ -f "$rejected" ]]; then
 	archive_lingering_result
 	result_resource_guard="$(metadata_value "$result_archive" Resource-Guard 2>/dev/null || true)"
@@ -221,7 +245,9 @@ if [[ -f "$rejected" ]]; then
 		printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
 	elif [[ -f "$result_archive" &&
 		"$(metadata_value "$result_archive" Goal-Outcome)" == NEEDS_DECOMPOSITION ]]; then
-		if [[ "$result_resource_guard" != "-" ]]; then
+		if metadata_value "$result_archive" Closure-Repair-Action | grep -qv '^$'; then
+			mark_context_closure_replan "$result_archive"
+		elif [[ "$result_resource_guard" != "-" ]]; then
 			mark_root_needs_replan "$task_id" \
 				"worker execution context reached the $result_resource_guard fuse; use its bounded evidence to decompose or restate the semantic episode" \
 				RESOURCE_NEEDS_DECOMPOSITION
@@ -297,7 +323,9 @@ elif (( circuit_breaker_recovery == 1 )); then
 		DETERMINISTIC_BLOCKER)"
 	printf '%s\n' "$replan_marker"
 elif [[ "$goal_outcome" == NEEDS_DECOMPOSITION ]]; then
-	if [[ "$result_resource_guard" != "-" ]]; then
+	if metadata_value "$result_archive" Closure-Repair-Action | grep -qv '^$'; then
+		replan_marker="$(mark_context_closure_replan "$result_archive")"
+	elif [[ "$result_resource_guard" != "-" ]]; then
 		if [[ "$result_workspace_changed" == 1 ]]; then
 			replan_marker="$(mark_root_needs_replan "$task_id" \
 				"worker changed the preserved workspace before reaching the $result_resource_guard fuse; publish a fresh VERIFICATION_ONLY leaf for the exact change before further implementation" \

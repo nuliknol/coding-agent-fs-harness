@@ -83,8 +83,23 @@ target="$output_root/$(task_base "$task_id")"
 temporary="$output_root/.${PROJECT}-task-${task_id}.tmp.$$.$RANDOM"
 mkdir -p "$output_root" "$temporary"
 chmod 700 "$output_root" "$temporary"
+closure_database="$generation_dir/architecture.sqlite"
+required_dependency_classes="$(metadata_value "$assignment" Required-Dependency-Classes)"
+closure_leaf_type="$(metadata_value "$assignment" Leaf-Type)"
+flow_evidence_required=0
+if [[ ",$required_dependency_classes," == *,F,* ]] ||
+	[[ "$closure_leaf_type" =~ ^(CONCURRENCY_PROTOCOL|INTEGRATION)$ ]]; then
+	flow_evidence_required=1
+fi
+if (( flow_evidence_required == 1 && HARNESS_JOERN_ENABLED == 1 )) &&
+	[[ "$HARNESS_JOERN_EXECUTION_MODE" == on_demand ]] &&
+	[[ "$(sqlite3 "$closure_database" "SELECT COALESCE((SELECT status FROM provider_runs WHERE provider='joern'),'UNAVAILABLE');")" != READY ]]; then
+	joern_overlay_output="$($HARNESS_BIN/harness-build-joern-overlay "$HARNESS_ENV_FILE" "$assignment")"
+	closure_database="$(sed -n 's/^.* database=//p' <<< "$joern_overlay_output" | tail -n 1)"
+	[[ -s "$closure_database" ]] || die 'on-demand Joern overlay did not publish an architecture database'
+fi
 compiler_args=(
-	--assignment "$assignment" --database "$generation_dir/architecture.sqlite"
+	--assignment "$assignment" --database "$closure_database"
 	--repository "$REPOSITORY" --generation "$generation" --output "$temporary"
 	--max-bytes "$HARNESS_CONTEXT_CLOSURE_MAX_BYTES"
 	--max-symbols "$HARNESS_CONTEXT_CLOSURE_MAX_SYMBOLS"
@@ -95,6 +110,16 @@ compiler_args=(
 	--max-build-targets "$HARNESS_CONTEXT_CLOSURE_MAX_BUILD_TARGETS"
 	--max-tokens "$HARNESS_CONTEXT_CLOSURE_MAX_ESTIMATED_TOKENS"
 )
+if [[ "$HARNESS_REPOSITORY_OVERLAY_MODE" == tracked ]] && {
+	! git -C "$REPOSITORY" diff --quiet --ignore-submodules -- ||
+	! git -C "$REPOSITORY" diff --cached --quiet --ignore-submodules --
+}; then
+	overlay_file="$(repository_index_write_worktree_overlay)"
+	compiler_args+=(--overlay-file "$overlay_file")
+fi
+if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
+	compiler_args+=(--luna-only)
+fi
 if specification_ir_available; then
 	compiler_args+=(--obligations-file "$(specification_obligations_file)")
 	compiler_args+=(--relations-file "$(specification_relations_file)")

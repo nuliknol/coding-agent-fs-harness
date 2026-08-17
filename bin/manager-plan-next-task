@@ -197,6 +197,12 @@ if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 Use PLAN_NODE_CONTEXT_FILE as the only V2 semantic source. Every assignment contains the complete v2 leaf contract: Leaf-Type, Complexity-Class, Worker-Route, Depends-On, Deliverable, Required-Symbols, Context-Paths, Architecture-Decisions, Validation-Class, Expected-Max-Implementation-Files, and Expected-Max-Worker-Turns. Copy DAG-backed values exactly. Routine bounded coding is LOW/LUNA; CLEAN_GLOBAL validation is TERRA INTEGRATION. Allowed-Scope is only a comma-separated list of repository-relative path prefixes—put explanations in Objective, never in Allowed-Scope.
 PROMPT
 fi
+if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
+	cat >> "$prompt_file.tmp.$$" <<PROMPT
+
+LUNA-ONLY POLICY OVERRIDE: every inference and executable leaf uses $LUNA_WORKER_MODEL. Never publish Worker-Route: TERRA, a Terra-Exception, CLEAN_GLOBAL validation, or a stronger-model fallback. This supersedes legacy Terra language and old route values in PLAN_NODE_CONTEXT_FILE. If READY_PLAN_NODE is an installed HIGH/TERRA aggregate and there is no active root, preserve it as semantic authority but declare at least two ordered node-local Root-Criterion stages. Publish only the first small stage as a LOW/LUNA LOCAL_IMPLEMENTATION, TEST_IMPLEMENTATION, MECHANICAL_API, FOCUSED_BUG, DOCUMENTATION, or VERIFICATION_ONLY leaf with FOCUSED/INCREMENTAL validation, at most five implementation files, and at most three worker turns. Its Allowed-Scope, Context-Paths, and Required-Symbols must be the smallest cohesive seam from the compiled capsule, not the aggregate node scope. Later planning turns advance the remaining immutable criteria in order. If an active root already exists, target only ACTIVE_FIRST_UNMET_CRITERION and split it further through recovery when it exceeds these bounds. Preserve normalized obligations and architecture authority as root semantics; do not ask a child Luna worker to rediscover or redesign the aggregate.
+PROMPT
+fi
 if codex_model_requires_narrow_prompt "$MANAGER_MODEL"; then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
 

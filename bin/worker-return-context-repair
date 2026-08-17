@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+
+# Close a claimed task at Context Closure admission without manufacturing a
+# worker result or spending a manager-review turn. The root remains active and
+# resumes through the ordinary durable replan transaction.
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TASK_ID SESSION CONDITION REPAIR_ACTION REPAIR_PROVIDER REASON\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 7 ]] || usage
+load_harness_env "$1"
+task_id="$2"
+session="$3"
+condition="$4"
+repair_action="$5"
+repair_provider="$6"
+reason="$7"
+
+ensure_project
+ensure_session "$session"
+validate_task_id "$task_id"
+[[ "$HARNESS_ESCALATION_POLICY" == decompose ]] ||
+	die 'internal Context Closure repair requires HARNESS_ESCALATION_POLICY=decompose'
+[[ "$condition" =~ ^[A-Z][A-Z0-9_]*$ ]] || die "invalid closure condition: $condition"
+[[ "$repair_action" =~ ^[A-Z][A-Z0-9_]*$ ]] || die "invalid closure repair action: $repair_action"
+[[ "$repair_provider" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid closure repair provider: $repair_provider"
+
+trace_init worker_return_context_repair
+trace_script_start "$@"
+trap 'trace_script_exit $?' EXIT
+acquire_project_lock
+
+dir="$(project_dir)"
+base="$(task_base "$task_id")"
+root="$(task_root_id "$task_id")"
+running="$dir/running/$base.running.md"
+lease="$dir/control/$base.lease"
+assignment_archive="$dir/archive/$base.assignment.md"
+marker="$(task_root_replan_file "$root")"
+repair_record="$dir/control/$base.context-closure-repair.env"
+
+if [[ ! -f "$running" && -f "$assignment_archive" && -f "$marker" ]]; then
+	printf '%s\n' "$marker"
+	exit 0
+fi
+[[ -f "$running" ]] || die "task is not running: $task_id"
+[[ -f "$lease" ]] || die "lease is missing: $task_id"
+[[ "$(lease_value "$lease" owner)" == "$session" ]] ||
+	die "task lease is not owned by session $session"
+[[ ! -e "$assignment_archive" ]] || die "assignment archive already exists: $assignment_archive"
+
+{
+	printf 'state=CLOSURE_REPAIR\n'
+	printf 'task_id=%s\n' "$task_id"
+	printf 'task_root=%s\n' "$root"
+	printf 'condition=%s\n' "$condition"
+	printf 'repair_action=%s\n' "$repair_action"
+	printf 'repair_provider=%s\n' "$repair_provider"
+	printf 'reason=%s\n' "$reason"
+	printf 'assignment_sha256=%s\n' "$(sha256sum "$running" | awk '{print $1}')"
+	printf 'recorded_at=%s\n' "$(timestamp_utc)"
+} > "$repair_record.tmp.$$"
+chmod 600 "$repair_record.tmp.$$"
+mv "$repair_record.tmp.$$" "$repair_record"
+
+mv "$running" "$assignment_archive"
+rm -f "$lease"
+if assignment_uses_goal_mode "$assignment_archive"; then
+	goal_state="$(goal_state_file "$task_id")"
+	if [[ -f "$goal_state" ]]; then
+		goal_state_set "$goal_state" state CLOSURE_REPAIR
+		goal_state_set "$goal_state" updated_at "$(timestamp_utc)"
+	fi
+fi
+marker="$(mark_root_needs_replan "$task_id" \
+	"Context Closure admission requires $repair_action through $repair_provider ($reason)" \
+	CONTEXT_CLOSURE_REPAIR "" "" "" "$condition" "$repair_action" "$repair_provider")"
+clear_worker_thread_for_root "$task_id" context-closure-repair
+clear_worker_goal_thread_for_task "$task_id" context-closure-repair
+log_event "CONTEXT_CLOSURE_REPAIR_QUEUED task=$task_id root=$root condition=$condition repair_action=$repair_action repair_provider=$repair_provider record=$repair_record marker=$marker"
+trace_event CONTEXT_CLOSURE_REPAIR_QUEUED "task_id=$task_id" "task_root=$root" \
+	"condition=$condition" "repair_action=$repair_action" "repair_provider=$repair_provider" \
+	"record=$repair_record" "marker=$marker"
+printf '%s\n' "$marker"

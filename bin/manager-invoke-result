@@ -373,6 +373,12 @@ if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 V2 decomposition remains mandatory for every continuation. PREFERRED_WORKER_ROUTE=$HARNESS_PREFERRED_WORKER_ROUTE. Preserve the node and dependency boundary in REVIEW_CONTEXT_CAPSULE_FILE. Every next assignment must include Leaf-Type, Complexity-Class, Worker-Route, Depends-On, Deliverable, Required-Symbols, Context-Paths, Architecture-Decisions, Validation-Class, Expected-Max-Implementation-Files, and Expected-Max-Worker-Turns. Routine implementation, tests, mechanical API work, focused fixes, and documentation are LOW/LUNA after decisions are resolved. Split only until one cohesive concern, at most five implementation files, bounded paths, at most three worker turns, and one focused or incremental validation remain. CLEAN_GLOBAL validation is TERRA integration. Never resend an unchanged Luna leaf.
 PROMPT
 fi
+if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
+	cat >> "$prompt_file.tmp.$$" <<PROMPT
+
+LUNA-ONLY POLICY OVERRIDE: All semantic roles and executable leaves use $LUNA_WORKER_MODEL. Never route a result, closure/index repair, integration check, remediation, or exhausted strategy to Terra or Sol. This instruction supersedes legacy Terra language above. Convert a non-ready closure into exact context repair or independently verifiable Luna children. Use Worker-Route: LUNA and Terra-Exception: - for every continuation. Only incompatible unresolved product outcomes may become HUMAN_PRODUCT_SPECIFICATION.
+PROMPT
+fi
 if codex_model_requires_narrow_prompt "$MANAGER_MODEL"; then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
 

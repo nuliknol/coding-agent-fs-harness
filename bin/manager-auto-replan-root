@@ -47,14 +47,27 @@ resource_decomposition=0
 resource_progress_verification=0
 [[ "$trigger_outcome" != RESOURCE_PROGRESS_NEEDS_VERIFICATION ]] || resource_progress_verification=1
 resource_recovery=$((resource_decomposition || resource_progress_verification))
+policy_migration=0
+[[ "$trigger_outcome" != LUNA_ONLY_POLICY_MIGRATION ]] || policy_migration=1
 blocking_fingerprint="$(awk -F': ' '$1 == "Blocking-Fingerprint" {print $2; exit}' "$replan_marker")"
 [[ -n "$blocking_fingerprint" ]] || blocking_fingerprint="-"
 trigger_blocker_class="$(awk -F': ' '$1 == "Blocker-Class" {print $2; exit}' "$replan_marker")"
 trigger_remediation_scope="$(awk -F': ' '$1 == "Remediation-Scope" {print $2; exit}' "$replan_marker")"
 trigger_context_paths="$(awk -F': ' '$1 == "Context-Paths" {print $2; exit}' "$replan_marker")"
+trigger_closure_condition="$(awk -F': ' '$1 == "Closure-Condition" {print $2; exit}' "$replan_marker")"
+trigger_closure_repair_action="$(awk -F': ' '$1 == "Closure-Repair-Action" {print $2; exit}' "$replan_marker")"
+trigger_closure_repair_provider="$(awk -F': ' '$1 == "Closure-Repair-Provider" {print $2; exit}' "$replan_marker")"
+trigger_closure_repair_children="$(project_dir)/control/context-closures/$(task_base "$trigger_task")/repair-children.tsv"
+[[ -s "$trigger_closure_repair_children" ]] || trigger_closure_repair_children=-
+closure_repair=0
+[[ "$trigger_outcome" != CONTEXT_CLOSURE_REPAIR ]] || closure_repair=1
 recovery_mode="AUTOMATIC_REPLAN"
 recovery_reason="bounded strategy change remains available"
-if (( resource_progress_verification == 1 )); then
+if (( closure_repair == 1 )); then
+	recovery_reason="typed Context Closure repair $trigger_closure_repair_action is required for $trigger_closure_condition through $trigger_closure_repair_provider"
+elif (( policy_migration == 1 )); then
+	recovery_reason="an installed pre-policy Terra assignment must be recursively decomposed into Luna-only child criteria without discarding verified state"
+elif (( resource_progress_verification == 1 )); then
 	recovery_reason="the preceding resource-bounded episode changed preserved source and requires isolated verification before more implementation"
 elif [[ "$trigger_outcome" == DETERMINISTIC_BLOCKER ]]; then
 	recovery_mode="MANAGER_REMEDIATION"
@@ -153,6 +166,7 @@ fi
 [[ -n "$architecture_resolution_file" && -f "$architecture_resolution_file" ]] || architecture_resolution_file="-"
 
 criteria_instruction=""
+deterministic_closure_graft=0
 publish_flag="--auto-replan"
 recovery_task_metadata=""
 recovery_authority=""
@@ -197,8 +211,20 @@ if task_root_uses_assignment_criteria "$root" || [[ -f "$criteria_definition" ]]
 	else
 		if (( resource_progress_verification == 1 )); then
 			criteria_instruction="Use the existing immutable criterion inventory. Its first unmet leaf is: $first_unmet. The preceding bounded episode changed preserved source before its resource fuse. Do not append decomposition and do not authorize another implementation edit. Target exactly $first_unmet with a VERIFICATION_ONLY leaf, Expected-Max-Implementation-Files: 0, fresh context, and the narrowest executable focused validation that proves or disproves the preserved change."
-		elif (( resource_decomposition == 1 )) && [[ "$recovery_mode" != MANAGER_REMEDIATION ]]; then
-			criteria_instruction="Use the existing immutable criterion inventory. Its first unmet leaf is: $first_unmet. The resource guard proved this leaf is too broad, so decomposition is mandatory. Do not create or replace CRITERIA_OUTPUT. Refine exactly $first_unmet into at least two ordered, independently verifiable direct children by writing DECOMPOSITION_OUTPUT with the exact header parent_criterion<TAB>child_criterion<TAB>title<TAB>acceptance_evidence. Every data row must name exactly $first_unmet as parent_criterion; do not include grandchildren or recursively split a new child in this publication. Target the first new direct child and publish with $publish_flag - DECOMPOSITION_OUTPUT. Publishing the unchanged parent without DECOMPOSITION_OUTPUT is invalid. Never rewrite or remove an existing criterion or decomposition row."
+		elif { (( resource_decomposition == 1 || policy_migration == 1 )) || [[ "$trigger_closure_repair_action" == GRAFT_GRAPH_CUTS ]]; } && [[ "$recovery_mode" != MANAGER_REMEDIATION ]]; then
+			if [[ "$trigger_closure_repair_action" == GRAFT_GRAPH_CUTS && "$trigger_closure_repair_children" != - ]] &&
+				(( $(awk 'END {print NR > 0 ? NR - 1 : 0}' "$trigger_closure_repair_children") >= 2 )); then
+				python3 "$HARNESS_HOME/tools/compile_closure_graft.py" \
+					--assignment "$trigger_assignment" \
+					--repair-children "$trigger_closure_repair_children" \
+					--parent-criterion "$first_unmet" \
+					--output "$decomposition_output" \
+					--facets-output "$decomposition_output.facets.tsv" >/dev/null
+				deterministic_closure_graft=1
+				criteria_instruction="Use the existing immutable criterion inventory. Its first unmet leaf is: $first_unmet. The trusted decomposition compiler has already written DECOMPOSITION_OUTPUT and DECOMPOSITION_OUTPUT.facets.tsv from CLOSURE_REPAIR_CHILDREN_FILE. Do not edit, replace, or reread either generated file. Target the first generated child criterion and copy only that child's exact allowed_paths, required_symbols, and focused_validation from CLOSURE_REPAIR_CHILDREN_FILE into the bounded assignment. Publish with $publish_flag - DECOMPOSITION_OUTPUT. The publisher recompiles and byte-compares both graft files and rejects semantic transcription drift."
+			else
+				criteria_instruction="Use the existing immutable criterion inventory. Its first unmet leaf is: $first_unmet. The resource guard proved this leaf is too broad, so decomposition is mandatory. Do not create or replace CRITERIA_OUTPUT. Refine exactly $first_unmet into at least two ordered, independently verifiable direct children by writing DECOMPOSITION_OUTPUT with the exact header parent_criterion<TAB>child_criterion<TAB>title<TAB>acceptance_evidence. Every data row must name exactly $first_unmet as parent_criterion; do not include grandchildren or recursively split a new child in this publication. Target the first new direct child and publish with $publish_flag - DECOMPOSITION_OUTPUT. Publishing the unchanged parent without DECOMPOSITION_OUTPUT is invalid. Never rewrite or remove an existing criterion or decomposition row."
+			fi
 		else
 			criteria_instruction="Use the existing immutable criterion inventory. Its first unmet leaf is: $first_unmet. Do not create or replace CRITERIA_OUTPUT. If repository evidence proves this leaf is unexpectedly broad, you may refine only $first_unmet into at least two ordered independently verifiable direct children by writing DECOMPOSITION_OUTPUT with the exact header parent_criterion<TAB>child_criterion<TAB>title<TAB>acceptance_evidence. Every data row in this transaction must name exactly $first_unmet as parent_criterion; do not include grandchildren or recursively split a newly introduced child in the same publication. In that case target the first new direct child and publish with $publish_flag - DECOMPOSITION_OUTPUT. A later replan may split that child if it remains too broad. Otherwise target $first_unmet and publish with $publish_flag only. Never rewrite or remove an existing criterion or decomposition row."
 		fi
@@ -233,6 +259,11 @@ WORKER_GOAL_MODE=$HARNESS_WORKER_GOAL_MODE
 RECOVERY_MODE=$recovery_mode
 RECOVERY_REASON=$recovery_reason
 BLOCKING_FINGERPRINT=$blocking_fingerprint
+CLOSURE_CONDITION=${trigger_closure_condition:--}
+CLOSURE_REPAIR_ACTION=${trigger_closure_repair_action:--}
+CLOSURE_REPAIR_PROVIDER=${trigger_closure_repair_provider:--}
+CLOSURE_REPAIR_CHILDREN_FILE=$trigger_closure_repair_children
+DETERMINISTIC_CLOSURE_GRAFT=$deterministic_closure_graft
 TRIGGER_BLOCKER_CLASS=${trigger_blocker_class:--}
 TRIGGER_REMEDIATION_SCOPE=${trigger_remediation_scope:--}
 TRIGGER_CONTEXT_PATHS=${trigger_context_paths:--}
@@ -307,6 +338,12 @@ After a verified checkpoint has completed the root's Terra decision, a remaining
 
 When an otherwise measured Luna-ready implementation leaf is routed to TERRA only because LUNA_STRATEGY_FAILURES reached MAX_LUNA_STRATEGY_FAILURES and no smaller independently verifiable decomposition remains, set 'Terra-Exception: IRREDUCIBLE_CROSS_BOUNDARY' exactly. Strategy exhaustion is evidence for this controlled route override, not itself a valid Terra-Exception enum. Do not use 'LUNA_STRATEGY_LIMIT_EXHAUSTED' or another narrative value.
 Allowed-Scope is only a comma-separated list of repository-relative path prefixes. Put explanations and adaptation details in Objective; never append prose to Allowed-Scope.
+PROMPT
+fi
+if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
+	cat >> "$prompt_file.tmp.$$" <<PROMPT
+
+LUNA-ONLY POLICY OVERRIDE: Every inference and executable leaf uses $LUNA_WORKER_MODEL. Never emit Worker-Route: TERRA, a Terra-Exception, manager-model execution, or a stronger-model fallback. This instruction supersedes legacy Terra language above. When a boundary exceeds Luna limits, append independently acceptance-complete child criteria or add exact typed Context-Paths/Required-Symbols. Use Worker-Route: LUNA and Terra-Exception: - for every published leaf. If CLOSURE_REPAIR_ACTION=GRAFT_GRAPH_CUTS, read CLOSURE_REPAIR_CHILDREN_FILE as the only additional repair source and use its deterministic path/symbol seams to allocate ordered acceptance-complete children; do not clone the parent scope onto every child. If incompatible observable product outcomes are not resolved by the governing specification, request clarification; strategy exhaustion alone is always a decomposition signal.
 PROMPT
 fi
 if codex_model_requires_narrow_prompt "$MANAGER_MODEL"; then

@@ -3,6 +3,7 @@
 set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/harness-common.sh"
+source "$SCRIPT_DIR/../lib/harness-repository-index.sh"
 
 usage()
 {
@@ -43,8 +44,13 @@ if assignment_is_manager_remediation "$ready"; then
 		leaf_expected_turns="$(require_single_metadata_value "$ready" Expected-Max-Worker-Turns 'v2 manager remediation assignment')"
 		[[ "$leaf_expected_turns" =~ ^[1-9][0-9]*$ ]] || die 'invalid v2 Expected-Max-Worker-Turns'
 	fi
-	require_manager_codex
-	write_manager_snapshot
+	if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
+		require_worker_codex
+		write_worker_snapshot
+	else
+		require_manager_codex
+		write_manager_snapshot
+	fi
 else
 	if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 		worker_route="$(require_single_metadata_value "$ready" Worker-Route 'v2 worker assignment')"
@@ -54,10 +60,16 @@ else
 			LUNA)
 				execution_role=worker_luna
 				execution_model="$LUNA_WORKER_MODEL"
-				execution_fallback_model="$TERRA_WORKER_MODEL"
+				if [[ "$HARNESS_ESCALATION_POLICY" == decompose ]]; then
+					execution_fallback_model="$WORKER_FALLBACK_MODEL"
+				else
+					execution_fallback_model="$TERRA_WORKER_MODEL"
+				fi
 				execution_mode=LUNA_LEAF
 				;;
 			TERRA)
+				[[ "$HARNESS_MODEL_POLICY" != luna_only ]] ||
+					die 'Luna-only policy rejected a TERRA worker assignment; decompose it into Luna children'
 				execution_role=worker_terra
 				execution_model="$TERRA_WORKER_MODEL"
 				execution_fallback_model="$MANAGER_FALLBACK_MODEL"
@@ -81,6 +93,10 @@ context_closure_status=OFF
 context_closure_reason=-
 context_closure_bytes=0
 context_closure_tokens=0
+context_closure_condition=OFF
+context_closure_repair_action=NONE
+context_closure_repair_provider=-
+context_closure_semantic_split=0
 if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" != off ]]; then
 	closure_build_log="$dir/logs/context-closure-$task_id-$(timestamp_compact_utc)-$$.log"
 	set +e
@@ -95,12 +111,19 @@ if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" != off ]]; then
 		context_closure_reason="$(kv_file_value "$closure_manifest" reasons 2>/dev/null || printf missing-manifest)"
 		context_closure_bytes="$(kv_file_value "$closure_manifest" context_bytes 2>/dev/null || printf 0)"
 		context_closure_tokens="$(kv_file_value "$closure_manifest" estimated_tokens 2>/dev/null || printf 0)"
+		context_closure_condition="$(kv_file_value "$closure_manifest" condition 2>/dev/null || printf LEGACY_UNCLASSIFIED)"
+		context_closure_repair_action="$(kv_file_value "$closure_manifest" repair_action 2>/dev/null || printf REPAIR_CONTEXT)"
+		context_closure_repair_provider="$(kv_file_value "$closure_manifest" repair_provider 2>/dev/null || printf repository-index)"
+		context_closure_semantic_split="$(kv_file_value "$closure_manifest" semantic_split_required 2>/dev/null || printf 0)"
 		if [[ "$context_closure_status" == READY && -s "$closure_path/context.md" ]]; then
 			compiled_context_closure_file="$closure_path/context.md"
 		fi
 	else
 		context_closure_status=UNAVAILABLE
 		context_closure_reason="build-exit-$closure_build_status"
+		context_closure_condition=CLOSURE_BUILD_UNAVAILABLE
+		context_closure_repair_action=REFRESH_INDEX_OR_OVERLAY
+		context_closure_repair_provider=repository-index
 	fi
 	closure_events="$dir/logs/context-closure-events.tsv"
 	if [[ ! -f "$closure_events" ]]; then
@@ -113,7 +136,7 @@ if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" != off ]]; then
 		"$context_closure_status" "$context_closure_reason" \
 		"$context_closure_bytes" "$context_closure_tokens" \
 		"${compiled_context_closure_file:--}" >> "$closure_events"
-	log_event "CONTEXT_CLOSURE_PREPARED task=$task_id mode=$HARNESS_CONTEXT_CLOSURE_MODE status=$context_closure_status reason=$context_closure_reason bytes=$context_closure_bytes estimated_tokens=$context_closure_tokens file=${compiled_context_closure_file:-none} log=$closure_build_log"
+	log_event "CONTEXT_CLOSURE_PREPARED task=$task_id mode=$HARNESS_CONTEXT_CLOSURE_MODE status=$context_closure_status condition=$context_closure_condition repair_action=$context_closure_repair_action repair_provider=$context_closure_repair_provider semantic_split=$context_closure_semantic_split reason=$context_closure_reason bytes=$context_closure_bytes estimated_tokens=$context_closure_tokens file=${compiled_context_closure_file:-none} log=$closure_build_log"
 fi
 
 session="$("$HARNESS_BIN/harness-new-session" "$HARNESS_ENV_FILE" worker)"
@@ -279,8 +302,35 @@ log_event "WORKER_CONTEXT_SELECTED task=$task_id root=$task_root mode=$worker_co
 trace_event WORKER_CONTEXT_SELECTED "task_id=$task_id" "task_root=$task_root" "mode=$worker_context_mode" "reason=$worker_context_reason" "thread_id=${worker_resume_thread_id:-}" "retained_rejections=$worker_thread_rejections" "closure_mode=$closure_mode" "goal_mode=$goal_mode" "goal_id=${goal_id:-}" "execution_mode=$execution_mode"
 
 prompt_file="$dir/control/$base.worker.prompt.md"
-cp "$HARNESS_HOME/prompts/worker-agent-event-driven.md" "$prompt_file.tmp.$$"
-cat >> "$prompt_file.tmp.$$" <<PROMPT
+patch_only_compact=0
+if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only && "$worker_route" == LUNA ]]; then
+	patch_only_compact=1
+	cat > "$prompt_file.tmp.$$" <<PROMPT
+You are the bounded Luna patch compiler for one authorized local repository task.
+
+TASK_ID=$task_id
+TASK_ROOT=$task_root
+STARTING_PROGRESS_PERCENT=$starting_progress
+CONTEXT_CLOSURE_STATUS=$context_closure_status
+CONTEXT_EXPANSION_MAX_BYTES=$HARNESS_CONTEXT_EXPANSION_MAX_BYTES
+MAX_CONTEXT_EXPANSIONS_PER_LEAF=$HARNESS_MAX_CONTEXT_EXPANSIONS_PER_LEAF
+GOAL_ID=$goal_id
+GOAL_TARGET_CRITERION=$goal_target
+EXPECTED_MAX_IMPLEMENTATION_FILES=$expected_implementation_files
+EFFECTIVE_P95_TOKENS=$effective_p95_tokens
+
+The trusted harness has already claimed the task and compiled all source,
+interface, test, build, flow, and normative evidence below. You have no tools.
+Do not describe shell commands, repository searches, commits, or harness calls.
+Preserve the exact baseline and Allowed-Scope. Solve only the embedded task.
+For a terminal goal result include Goal-ID and exactly one Goal-Outcome:
+COMPLETE, NEEDS_DECOMPOSITION, or HARD_BLOCKED. NEEDS_DECOMPOSITION also includes
+one Decomposition-Reason: TASK_TOO_BROAD, CONTEXT_INCOMPLETE, SCOPE_INCOMPLETE,
+VALIDATION_PREREQUISITE, or RESOURCE_LIMIT.
+PROMPT
+else
+	cp "$HARNESS_HOME/prompts/worker-agent-event-driven.md" "$prompt_file.tmp.$$"
+	cat >> "$prompt_file.tmp.$$" <<PROMPT
 
 The worker protocol above is already loaded. Do not open or reread its source file.
 
@@ -311,6 +361,8 @@ WORKER_RETAINED_REJECTIONS=$worker_thread_rejections
 CLOSURE_MODE=$closure_mode
 CLOSURE_MAX_FIXES=$HARNESS_CLOSURE_MODE_MAX_FIXES
 CLOSURE_MAX_SMOKE_RUNS=$HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS
+CONTEXT_EXPANSION_MAX_BYTES=$HARNESS_CONTEXT_EXPANSION_MAX_BYTES
+MAX_CONTEXT_EXPANSIONS_PER_LEAF=$HARNESS_MAX_CONTEXT_EXPANSIONS_PER_LEAF
 WORKER_GOAL_MODE=$goal_mode
 ARCHITECTURE_GUARDS=$HARNESS_ARCHITECTURE_GUARDS
 ARCHITECTURE_DIR=$(architecture_dir)
@@ -342,10 +394,29 @@ $HARNESS_BIN/harness-run-assigned-validation "$HARNESS_ENV_FILE" "$task_id" LABE
 
 Use that command when Focused-Validation is executable. When it is descriptive, run a concrete validation through harness-run-logged. A compound command must be passed as one quoted /bin/bash -lc argument; placing a logical operator after the harness-run-logged invocation is forbidden because the following command escapes capture. Never invoke a potentially verbose build/test command directly. Validation-Class CLEAN_GLOBAL authorizes observation only in a Terra integration leaf; it never broadens implementation scope. Commit every task-owned source/source-related change with harness-commit-source before a terminal result. Use harness-publish-branch when Publish-Branch is declared. Never run direct Git index/history mutations. Generated output, object files, binaries, ignored files, and paths outside Allowed-Scope must remain uncommitted. Write scratch files and the result report under PROJECT_TMP_DIR, publish the result with worker-complete-task, and terminate. If an exact mandatory cross-harness Git ref is absent, use worker-wait-dependency with a precise requirements TSV and supplier note instead of repeating absence audits or claiming gain. Do not wait for another task.
 PROMPT
+fi
 if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only && "$worker_route" == LUNA ]]; then
 	cat >> "$prompt_file.tmp.$$" <<'PROMPT'
 
 Patch-only Context Closure execution is active. The compiled closure below is the complete implementation context. Do not use shell, filesystem, web, search, or repository tools. Do not attempt to call harness commands. Reason only from the embedded task and closure. Your final response must contain exactly one fenced `diff` block containing a standard `diff --git` patch, followed by the normal worker-result metadata and headings. The trusted harness will validate scope, baseline, patch syntax, apply it, run Focused-Validation, and commit accepted source changes. If the closed evidence is insufficient, emit no patch and report Goal-Outcome: NEEDS_DECOMPOSITION with Decomposition-Reason: CONTEXT_INCOMPLETE.
+
+After the patch, emit `# Worker Task Result`, Task-ID, `Status: COMPLETED`,
+Goal-ID/Goal-Outcome when configured, and the impact fields
+Changed-Public-Symbols, Changed-Representations, Changed-Ownership,
+Changed-Serialization, Changed-Dependencies, Affected-Invariants, and
+Affected-Edges (use `-` when empty). Then emit nonempty `## Summary`,
+`## Modified files`, `## Implemented behavior`, `## Validation performed`,
+`## Deviations from assignment`, `## Remaining concerns`, and
+`## Worker assessment` sections. Do not claim validation execution; the trusted
+harness performs it after applying the patch.
+
+Before reporting CONTEXT_INCOMPLETE, you may request exactly one missing fact by emitting no patch and exactly these metadata lines:
+
+Context-Request-Kind: TYPE_DEFINITION|CALLER_CONTRACT|FAILING_ASSERTION|BUILD_OWNER|REPRESENTATION_WRITER
+Context-Request-Identifier: one exact symbol, test, or declared path
+Context-Request-Reason: one sentence explaining why that fact is decisive
+
+The trusted harness accepts only an assignment seed or its direct indexed graph neighbor, compiles a bounded provenance-bearing extension, and resumes this same thread. Do not request broad files, searches, or multiple identifiers. The per-leaf maximum is HARNESS_MAX_CONTEXT_EXPANSIONS_PER_LEAF from the execution header.
 PROMPT
 fi
 if (( manager_remediation == 1 )); then
@@ -361,7 +432,7 @@ Authorized remediation scope: $remediation_scope
 You may edit the directly implicated local files in Remediation-Scope even if an ordinary worker ownership rule, exclusive-file list, forbidden-file list, baseline label, or prior Allowed-Scope excluded them. The harness records these paths as manager baseline remediation, separate from the feature worker's owned implementation delta. Diagnose from current compiler, linker, test, and repository evidence; make the smallest complete repair; then validate the original Target-Criterion without weakening its observable behavior. Do not alter the specification, acceptance behavior, unrelated APIs/behavior, external systems, credentials, or authorization boundaries. A normal source, build, test, integration, or file-ownership defect is resolvable here and is not a reason to request human intervention.
 PROMPT
 fi
-if (( goal_mode == 1 )); then
+if (( goal_mode == 1 && patch_only_compact == 0 )); then
 	goal_iteration="$(kv_file_value "$goal_state" iteration_count)"
 	goal_boundary="$(kv_file_value "$goal_state" last_boundary)"
 	goal_workspace="$(kv_file_value "$goal_state" last_workspace)"
@@ -390,7 +461,7 @@ After that command succeeds, end this Codex turn. The harness will review the se
 For a terminal result, include "Goal-ID: $goal_id" and exactly one "Goal-Outcome: COMPLETE|NEEDS_DECOMPOSITION|HARD_BLOCKED". A NEEDS_DECOMPOSITION result also includes exactly one typed Decomposition-Reason line as defined above. Retain the normal worker result headings, publish it with worker-complete-task, and terminate. Do not use NEEDS_DECOMPOSITION merely because another ordinary diagnostic/fix turn is required. Do not use HARD_BLOCKED for test failure, complexity, token pressure, or lack of immediate progress.
 PROMPT
 fi
-if (( closure_mode == 1 )); then
+if (( closure_mode == 1 && patch_only_compact == 0 )); then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
 
 Bounded closure mode is active because this continuation starts at ${starting_progress}%. Within this one turn, close the same focused root acceptance gate using at most $HARNESS_CLOSURE_MODE_MAX_FIXES small evidence-backed corrections and at most $HARNESS_CLOSURE_MODE_MAX_SMOKE_RUNS total executions of the assigned focused smoke. A manager-authored phrase such as "exactly once" or "do not rerun" does not reduce this closure budget; the human-owned specification and immutable root scope remain authoritative.
@@ -406,15 +477,17 @@ PROMPT
 fi
 if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 	{
-		if [[ -n "$prior_episode_digest" ]]; then
+		if [[ -n "$prior_episode_digest" ]] && (( patch_only_compact == 0 )); then
 			printf '\n## Immediate predecessor evidence\n\n'
 			printf 'This bounded digest is execution continuity, not additional scope. Begin with the next missing fact or implementation action. One redundant predecessor source-read is tolerated and logged; a second exact repeated inspection command terminates this episode as context amplification.\n\n'
 			cat "$prior_episode_digest"
 		fi
 		printf '\n## Embedded bounded assignment\n\n'
 		cat "$task_file"
-		printf '\n## Embedded bounded context capsule\n\n'
-		cat "$context_capsule_file"
+		if (( patch_only_compact == 0 )); then
+			printf '\n## Embedded bounded context capsule\n\n'
+			cat "$context_capsule_file"
+		fi
 		if [[ -n "$compiled_context_closure_file" ]]; then
 			printf '\n## Embedded compiled Context Closure (%s)\n\n' "$HARNESS_CONTEXT_CLOSURE_MODE"
 			cat "$compiled_context_closure_file"
@@ -442,6 +515,13 @@ quota_waits=0
 fallback_stage=0
 current_model="$execution_model"
 patch_only_baseline=""
+context_expansion_count=0
+context_expansion_pending=0
+context_followup_prompt=""
+followup_reason=""
+patch_validation_round=0
+patch_last_diagnostic_fingerprint=""
+patch_repair_ledger="$dir/control/progress/$base.patch-only-repairs.tsv"
 if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only && "$worker_route" == LUNA ]]; then
 	patch_only_baseline="$($HARNESS_BIN/harness-workspace-fingerprint "$HARNESS_ENV_FILE")"
 fi
@@ -476,24 +556,40 @@ emit_synthetic_impact_manifest()
 # into NEEDS_HUMAN.
 if [[ "$worker_route" == LUNA && "$HARNESS_CONTEXT_CLOSURE_MODE" =~ ^(required|patch_only)$ &&
 	"$context_closure_status" != READY ]]; then
+	if [[ "$HARNESS_ESCALATION_POLICY" == decompose ]]; then
+		"$HARNESS_BIN/worker-return-context-repair" "$HARNESS_ENV_FILE" "$task_id" "$session" \
+			"$context_closure_condition" "$context_closure_repair_action" \
+			"$context_closure_repair_provider" "$context_closure_reason" >/dev/null
+		log_event "CONTEXT_CLOSURE_LAUNCH_REJECTED task=$task_id route=$worker_route status=$context_closure_status condition=$context_closure_condition repair_action=$context_closure_repair_action repair_provider=$context_closure_repair_provider reason=$context_closure_reason internal_repair=1"
+		printf 'Luna task %s entered internal Context Closure repair before worker launch.\n' "$task_id"
+		exit 0
+	fi
 	closure_handoff="$PROJECT_TMP_DIR/$base.context-closure-handoff.$$"
 	{
 		printf '# Worker Task Result\n\nTask-ID: %s\nStatus: COMPLETED\n' "$task_id"
 		if (( goal_mode == 1 )); then
-			printf 'Goal-ID: %s\nGoal-Outcome: NEEDS_DECOMPOSITION\nDecomposition-Reason: CONTEXT_INCOMPLETE\n' "$goal_id"
+			if [[ "$context_closure_semantic_split" == 1 ]]; then
+				closure_decomposition_reason=TASK_TOO_BROAD
+			else
+				closure_decomposition_reason=CONTEXT_INCOMPLETE
+			fi
+			printf 'Goal-ID: %s\nGoal-Outcome: NEEDS_DECOMPOSITION\nDecomposition-Reason: %s\n' "$goal_id" "$closure_decomposition_reason"
 		fi
+		printf 'Closure-Condition: %s\nClosure-Repair-Action: %s\nClosure-Repair-Provider: %s\n' \
+			"$context_closure_condition" "$context_closure_repair_action" "$context_closure_repair_provider"
 		emit_synthetic_impact_manifest
 		printf '\n## Summary\n\nThe Luna worker was not launched because its required Context Closure is %s (%s).\n' "$context_closure_status" "$context_closure_reason"
 		printf '\n## Modified files\n\nNone.\n\n## Implemented behavior\n\nNone; deterministic admission stopped before inference.\n'
 		printf '\n## Validation performed\n\nContext Closure manifest and unresolved ledger only.\n'
 		printf '\n## Deviations from assignment\n\nNo worker execution occurred.\n'
-		printf '\n## Remaining concerns\n\nRepair missing index/context evidence or split this leaf using the recorded graph cuts.\n'
+		printf '\n## Remaining concerns\n\nPerform typed closure repair action %s through %s; do not retry the unchanged worker context.\n' \
+			"$context_closure_repair_action" "$context_closure_repair_provider"
 		printf '\n## Worker assessment\n\nNEEDS_DECOMPOSITION due to deterministic Context Closure admission failure, not a product decision.\n'
 	} > "$closure_handoff"
 	chmod 600 "$closure_handoff"
 	"$HARNESS_BIN/worker-complete-task" "$HARNESS_ENV_FILE" "$task_id" "$session" "$closure_handoff" >/dev/null
 	rm -f "$closure_handoff"
-	log_event "CONTEXT_CLOSURE_LAUNCH_REJECTED task=$task_id route=$worker_route status=$context_closure_status reason=$context_closure_reason"
+	log_event "CONTEXT_CLOSURE_LAUNCH_REJECTED task=$task_id route=$worker_route status=$context_closure_status condition=$context_closure_condition repair_action=$context_closure_repair_action repair_provider=$context_closure_repair_provider reason=$context_closure_reason"
 	printf 'Luna task %s returned to decomposition before worker launch.\n' "$task_id"
 	exit 0
 fi
@@ -586,6 +682,63 @@ normalize_last_message_result()
 	fi
 }
 
+prepare_typed_context_expansion()
+{
+	local response="$1" kind identifier reason pointer generation_dir extension_dir extension_file
+	local resolver_output resolver_status request_number
+	context_expansion_pending=0
+	[[ -s "$response" ]] || return 1
+	[[ "$(grep -Ec '^Context-Request-Kind:[[:space:]]*' "$response" || true)" == 1 ]] || return 1
+	[[ "$(grep -Ec '^Context-Request-Identifier:[[:space:]]*' "$response" || true)" == 1 ]] || return 1
+	[[ "$(grep -Ec '^```(diff|patch)[[:space:]]*$' "$response" || true)" == 0 ]] || return 1
+	kind="$(sed -n 's/^Context-Request-Kind:[[:space:]]*//p' "$response")"
+	identifier="$(sed -n 's/^Context-Request-Identifier:[[:space:]]*//p' "$response")"
+	reason="$(sed -n 's/^Context-Request-Reason:[[:space:]]*//p' "$response" | head -n 1)"
+	case "$kind" in
+		TYPE_DEFINITION|CALLER_CONTRACT|FAILING_ASSERTION|BUILD_OWNER|REPRESENTATION_WRITER) ;;
+		*) return 1 ;;
+	esac
+	if (( context_expansion_count >= HARNESS_MAX_CONTEXT_EXPANSIONS_PER_LEAF )); then
+		patch_apply_output="typed Context Closure expansion limit reached ($context_expansion_count/$HARNESS_MAX_CONTEXT_EXPANSIONS_PER_LEAF)"
+		return 2
+	fi
+	pointer="$(repository_index_project_pointer_file)"
+	repository_index_project_pointer_is_current || {
+		patch_apply_output="typed Context Closure request rejected: repository index is not current ($REPOSITORY_INDEX_POINTER_REASON)"
+		return 2
+	}
+	generation_dir="$(kv_file_value "$pointer" generation_dir)"
+	request_number="$((context_expansion_count + 1))"
+	extension_dir="$closure_path/extensions"
+	extension_file="$extension_dir/request-$(printf '%03d' "$request_number").md"
+	set +e
+	resolver_output="$(python3 "$HARNESS_HOME/tools/resolve_context_request.py" \
+		--assignment "$task_file" --closure "$closure_path/closure.tsv" \
+		--database "$generation_dir/architecture.sqlite" --repository "$REPOSITORY" \
+		--request-kind "$kind" --identifier "$identifier" --output "$extension_file" \
+		--max-bytes "$HARNESS_CONTEXT_EXPANSION_MAX_BYTES" 2>&1)"
+	resolver_status=$?
+	set -e
+	if (( resolver_status != 0 )) || [[ ! -s "$extension_file" ]]; then
+		patch_apply_output="typed Context Closure request rejected: $(tr '\n' ' ' <<< "$resolver_output" | head -c 512)"
+		log_event "CONTEXT_EXPANSION_REJECTED task=$task_id kind=$kind identifier=$(printf '%q' "$identifier") reason=$(printf '%q' "$reason") resolver_status=$resolver_status resolver=$(printf '%q' "$resolver_output")"
+		return 2
+	fi
+	context_expansion_count="$request_number"
+	context_followup_prompt="$PROJECT_TMP_DIR/$base.context-followup-$request_number.md"
+	{
+		printf 'The trusted harness accepted typed Context Closure request %s of %s. Use only the extension below plus the prior thread context. Do not use tools or request the same fact again. Produce the required single fenced Git diff and normal terminal result metadata. If another decisive fact is absent, you may use the same typed request protocol within the remaining expansion budget.\n\n' \
+			"$request_number" "$HARNESS_MAX_CONTEXT_EXPANSIONS_PER_LEAF"
+		cat "$extension_file"
+	} > "$context_followup_prompt.tmp.$$"
+	chmod 600 "$context_followup_prompt.tmp.$$"
+	mv "$context_followup_prompt.tmp.$$" "$context_followup_prompt"
+	context_expansion_pending=1
+	followup_reason=context_extension
+	log_event "CONTEXT_EXPANSION_READY task=$task_id kind=$kind identifier=$(printf '%q' "$identifier") reason=$(printf '%q' "$reason") count=$context_expansion_count extension=$extension_file resolver=$(printf '%q' "$resolver_output")"
+	return 0
+}
+
 heartbeat_loop()
 {
 	while true; do
@@ -611,6 +764,8 @@ heartbeat_pid=$!
 trace_event WORKER_HEARTBEAT_STARTED "task_id=$task_id" "session=$session" "heartbeat_pid=$heartbeat_pid" "interval=$WORKER_HEARTBEAT_SECONDS"
 
 while true; do
+	context_expansion_pending=0
+	followup_reason=""
 	if (( pending_semantic_review == 1 )); then
 		"$HARNESS_BIN/manager-review-goal-continuation" "$HARNESS_ENV_FILE" "$task_id" >/dev/null
 		semantic_decision="$(kv_file_value "$goal_state" semantic_decision 2>/dev/null || true)"
@@ -644,6 +799,7 @@ while true; do
 	json_log="$dir/logs/worker-task-$task_id-$stamp-attempt-$attempt_label.jsonl"
 	stderr_log="$dir/logs/worker-task-$task_id-$stamp-attempt-$attempt_label.stderr.log"
 	last_message="$dir/logs/worker-task-$task_id-$stamp-attempt-$attempt_label.md"
+	invocation_prompt_file="${context_followup_prompt:-$prompt_file}"
 
 	log_event "WORKER_INVOCATION_STARTED task=$task_id session=$session model=$current_model execution_mode=$execution_mode attempt=$attempt"
 	trace_event WORKER_INVOCATION_ATTEMPT "task_id=$task_id" "session=$session" "attempt=$attempt" "execution_mode=$execution_mode" "thread_id=${worker_resume_thread_id:-}" "json_log=$json_log" "last_message=$last_message"
@@ -652,11 +808,29 @@ while true; do
 	resume_args=()
 	[[ -z "$worker_resume_thread_id" ]] || resume_args=(resume "$worker_resume_thread_id")
 	HARNESS_CODEX_STOP_FILE="$(task_root_waiting_dependency_file "$task_root")" \
-		"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" "$execution_role" "$current_model" "$prompt_file" "$json_log" "$stderr_log" "$last_message" "${resume_args[@]}"
+		"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" "$execution_role" "$current_model" "$invocation_prompt_file" "$json_log" "$stderr_log" "$last_message" "${resume_args[@]}"
 	status=$?
 	set -e
+	observed_thread_id="$(codex_thread_id_from_jsonl "$json_log" 2>/dev/null || true)"
 	if (( status == 0 )) && [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only && "$worker_route" == LUNA ]]; then
-		if ! grep -Eq '^```(diff|patch)[[:space:]]*$' "$last_message"; then
+		context_request_status=1
+		set +e
+		prepare_typed_context_expansion "$last_message"
+		context_request_status=$?
+		set -e
+		if (( context_request_status == 0 )) &&
+			[[ ! "$observed_thread_id" =~ ^[A-Za-z0-9-]+$ ]] &&
+			[[ ! "$worker_resume_thread_id" =~ ^[A-Za-z0-9-]+$ ]]; then
+			context_expansion_pending=0
+			context_request_status=2
+			patch_apply_status=3
+			patch_apply_output='typed Context Closure extension was compiled, but the Luna thread identifier was unavailable for a bounded resume'
+		fi
+		if (( context_request_status == 0 )); then
+			:
+		elif (( context_request_status == 2 )); then
+			patch_apply_status=3
+		elif ! grep -Eq '^```(diff|patch)[[:space:]]*$' "$last_message"; then
 			patch_apply_status=3
 			patch_apply_output='patch-only response omitted the required single fenced Git diff'
 		else
@@ -665,13 +839,17 @@ while true; do
 		patch_apply_status=$?
 		set -e
 		fi
-		if (( patch_apply_status == 0 )); then
+		if (( context_expansion_pending == 1 )); then
+			:
+		elif (( patch_apply_status == 0 )); then
 			patch_file="$(sed -n 's/^PATCH=//p' <<< "$patch_apply_output" | tail -n 1)"
 			patch_paths_file="$(sed -n 's/^PATHS=//p' <<< "$patch_apply_output" | tail -n 1)"
+			patch_validation_capture="$dir/logs/patch-only-validation-$task_id-$stamp.log"
 			set +e
-			"$HARNESS_BIN/harness-run-assigned-validation" "$HARNESS_ENV_FILE" "$task_id" patch-only > "$dir/logs/patch-only-validation-$task_id-$stamp.log" 2>&1
+			"$HARNESS_BIN/harness-run-assigned-validation" "$HARNESS_ENV_FILE" "$task_id" patch-only > "$patch_validation_capture" 2>&1
 			patch_validation_status=$?
 			set -e
+			patch_validation_round=$((patch_validation_round + 1))
 			if (( patch_validation_status == 0 )); then
 				patch_message="$PROJECT_TMP_DIR/$base.patch-commit-message.$$"
 				printf 'Implement %s through validated Context Closure patch\n' "$task_id" > "$patch_message"
@@ -680,19 +858,61 @@ while true; do
 					> "$dir/logs/patch-only-commit-$task_id-$stamp.log"
 				rm -f "$patch_message"
 				printf '\n<!-- Harness patch-only validation: PASS; patch=%s -->\n' "$patch_file" >> "$last_message"
-				log_event "PATCH_ONLY_APPLIED task=$task_id patch=$patch_file paths=$patch_paths_file"
+				log_event "PATCH_ONLY_APPLIED task=$task_id patch=$patch_file paths=$patch_paths_file validation_round=$patch_validation_round"
 			else
 				git -C "$REPOSITORY" apply -R --whitespace=nowarn "$patch_file"
-				{
-					printf '# Worker Task Result\n\nTask-ID: %s\nStatus: COMPLETED\n' "$task_id"
-					if (( goal_mode == 1 )); then printf 'Goal-ID: %s\nGoal-Outcome: NEEDS_DECOMPOSITION\nDecomposition-Reason: VALIDATION_PREREQUISITE\n' "$goal_id"; fi
-					emit_synthetic_impact_manifest
-					printf '\n## Summary\n\nThe patch proposal was syntactically valid and scoped, but deterministic focused validation failed. The proposal remains at `%s`.\n' "$patch_file"
-					printf '\n## Modified files\n\nThe failed proposal was rolled back; no source delta remains.\n\n## Implemented behavior\n\nNone accepted.\n'
-					printf '\n## Validation performed\n\nSee `%s`.\n' "$dir/logs/patch-only-validation-$task_id-$stamp.log"
-					printf '\n## Deviations from assignment\n\nPatch-only validation rejected the proposal.\n\n## Remaining concerns\n\nManager must repair the context or split the leaf.\n\n## Worker assessment\n\nNEEDS_DECOMPOSITION without another worker retry.\n'
-				} > "$last_message"
-				log_event "PATCH_ONLY_VALIDATION_FAILED task=$task_id patch=$patch_file"
+				patch_diagnostics="$(sed -n 's/^VALIDATION_DIAGNOSTICS records=[^ ]* file=\([^ ]*\) full_log_sha256=.*/\1/p' "$patch_validation_capture" | tail -n 1)"
+				patch_diagnostic_fingerprint=""
+				# Compare semantic failure identity only. Occurrence counts and the raw
+				# log digest are forensic fields and may change while the failure set
+				# itself makes no progress.
+				[[ ! -s "$patch_diagnostics" ]] || patch_diagnostic_fingerprint="$(cut -f1-10 "$patch_diagnostics" | sha256sum | awk '{print $1}')"
+				patch_fingerprint="$(sha256sum "$patch_file" | awk '{print $1}')"
+				if [[ ! -f "$patch_repair_ledger" ]]; then
+					printf 'validation_round\tpatch_sha256\tdiagnostic_sha256\tdiagnostics_file\trecorded_at\n' > "$patch_repair_ledger"
+					chmod 600 "$patch_repair_ledger"
+				fi
+				printf '%s\t%s\t%s\t%s\t%s\n' "$patch_validation_round" "$patch_fingerprint" \
+					"${patch_diagnostic_fingerprint:--}" "${patch_diagnostics:--}" "$(timestamp_utc)" >> "$patch_repair_ledger"
+				patch_diagnostic_repeated=0
+				if [[ -n "$patch_diagnostic_fingerprint" &&
+					"$patch_diagnostic_fingerprint" == "$patch_last_diagnostic_fingerprint" ]]; then
+					patch_diagnostic_repeated=1
+				fi
+				if (( patch_validation_round < HARNESS_PATCH_ONLY_MAX_VALIDATION_ROUNDS &&
+					patch_diagnostic_repeated == 0 )) && [[ -s "$patch_diagnostics" ]] &&
+					{ [[ "$observed_thread_id" =~ ^[A-Za-z0-9-]+$ ]] ||
+					[[ "$worker_resume_thread_id" =~ ^[A-Za-z0-9-]+$ ]]; }; then
+					patch_last_diagnostic_fingerprint="$patch_diagnostic_fingerprint"
+					context_followup_prompt="$PROJECT_TMP_DIR/$base.patch-diagnostic-followup-$patch_validation_round.md"
+					{
+						printf 'Trusted focused validation rejected patch round %s of %s and rolled it back. Repair only the typed diagnostic delta below. The original assignment and Context Closure remain authoritative in this thread; do not request or explore general repository context. Return one corrected fenced Git diff with the required terminal metadata, or a permitted typed Context Request when one exact missing fact is decisive. Repeating the same diagnostic set closes this leaf for deterministic decomposition.\n\n' \
+							"$patch_validation_round" "$HARNESS_PATCH_ONLY_MAX_VALIDATION_ROUNDS"
+						head -n "$HARNESS_VALIDATION_OUTPUT_MAX_LINES" "$patch_diagnostics" |
+							head -c "$HARNESS_VALIDATION_OUTPUT_MAX_BYTES" || true
+					} > "$context_followup_prompt.tmp.$$"
+					chmod 600 "$context_followup_prompt.tmp.$$"
+					mv "$context_followup_prompt.tmp.$$" "$context_followup_prompt"
+					context_expansion_pending=1
+					followup_reason=diagnostic_repair
+					log_event "PATCH_ONLY_DIAGNOSTIC_REPAIR_READY task=$task_id patch=$patch_file validation_round=$patch_validation_round diagnostics=$patch_diagnostics diagnostic_sha256=$patch_diagnostic_fingerprint"
+				else
+					{
+						printf '# Worker Task Result\n\nTask-ID: %s\nStatus: COMPLETED\n' "$task_id"
+						if (( goal_mode == 1 )); then printf 'Goal-ID: %s\nGoal-Outcome: NEEDS_DECOMPOSITION\nDecomposition-Reason: VALIDATION_PREREQUISITE\n' "$goal_id"; fi
+						emit_synthetic_impact_manifest
+						printf '\n## Summary\n\nPatch-only focused validation did not converge after %s bounded validation round(s). The last proposal remains at `%s`.\n' "$patch_validation_round" "$patch_file"
+						printf '\n## Modified files\n\nThe failed proposal was rolled back; no source delta remains.\n\n## Implemented behavior\n\nNone accepted.\n'
+						printf '\n## Validation performed\n\nSee `%s` and `%s`.\n' "$patch_validation_capture" "$patch_repair_ledger"
+						if (( patch_diagnostic_repeated == 1 )); then
+							printf '\n## Deviations from assignment\n\nThe typed diagnostic set was unchanged across consecutive patches, so the no-progress circuit breaker stopped the loop.\n'
+						else
+							printf '\n## Deviations from assignment\n\nThe bounded patch-only validation-round limit was reached or no resumable typed diagnostic was available.\n'
+						fi
+						printf '\n## Remaining concerns\n\nThe deterministic child-DAG compiler must narrow the leaf at the recorded failing boundary.\n\n## Worker assessment\n\nNEEDS_DECOMPOSITION without a stronger-model fallback.\n'
+					} > "$last_message"
+					log_event "PATCH_ONLY_VALIDATION_FAILED task=$task_id patch=$patch_file validation_round=$patch_validation_round repeated_diagnostic=$patch_diagnostic_repeated diagnostics=${patch_diagnostics:--}"
+				fi
 			fi
 		else
 			log_event "PATCH_ONLY_REJECTED task=$task_id reason=$(printf '%q' "$patch_apply_output")"
@@ -791,6 +1011,20 @@ while true; do
 		goal_state_set "$goal_state" cumulative_output_tokens "$((goal_output + turn_output))"
 	fi
 	trace_event CODEX_EXEC_END "role=$execution_role" "task_id=$task_id" "session=$session" "attempt=$attempt" "status=$status" "classification=${classification:-unknown}" "json_log=$json_log" "stderr_log=$stderr_log" "last_message=$last_message"
+	if (( context_expansion_pending == 1 )); then
+		if [[ "$observed_thread_id" =~ ^[A-Za-z0-9-]+$ ]]; then
+			worker_resume_thread_id="$observed_thread_id"
+		fi
+		attempt=$((attempt + 1))
+		if [[ "$followup_reason" == diagnostic_repair ]]; then
+			log_event "WORKER_DIAGNOSTIC_REPAIR_RESUMING task=$task_id session=$session validation_round=$patch_validation_round thread_id=$worker_resume_thread_id attempt=$attempt"
+			trace_event WORKER_DIAGNOSTIC_REPAIR_RESUMING "task_id=$task_id" "session=$session" "validation_round=$patch_validation_round" "thread_id=$worker_resume_thread_id" "attempt=$attempt"
+		else
+			log_event "WORKER_CONTEXT_EXPANSION_RESUMING task=$task_id session=$session count=$context_expansion_count thread_id=$worker_resume_thread_id attempt=$attempt"
+			trace_event WORKER_CONTEXT_EXPANSION_RESUMING "task_id=$task_id" "session=$session" "count=$context_expansion_count" "thread_id=$worker_resume_thread_id" "attempt=$attempt"
+		fi
+		continue
+	fi
 	if waiting_dependency_committed; then
 		cleanup_heartbeat
 		log_event "WORKER_INVOCATION_WAITING_DEPENDENCY task=$task_id session=$session attempt=$attempt"

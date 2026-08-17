@@ -337,8 +337,13 @@ architecture_validate_forced_redesign_plan()
 			die "forced redesign debt $debt_id requires an expiration date"
 		node_type="$(awk -F '\t' -v node="$remediation" 'NR > 1 && $1 == node {print $9; exit}' "$dag")"
 		node_route="$(awk -F '\t' -v node="$remediation" 'NR > 1 && $1 == node {print $11; exit}' "$dag")"
-		[[ "$node_type" == CROSS_COMPONENT_ARCHITECTURE && "$node_route" == TERRA ]] ||
-			die "forced redesign debt $debt_id remediation node $remediation must be a Terra CROSS_COMPONENT_ARCHITECTURE node"
+		if [[ "${HARNESS_MODEL_POLICY:-legacy}" == luna_only ]]; then
+			[[ "$node_route" == LUNA && "$node_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY)$ ]] ||
+				die "forced redesign debt $debt_id remediation node $remediation must be a bounded Luna executable stage under Luna-only policy"
+		else
+			[[ "$node_type" == CROSS_COMPONENT_ARCHITECTURE && "$node_route" == TERRA ]] ||
+				die "forced redesign debt $debt_id remediation node $remediation must be a Terra CROSS_COMPONENT_ARCHITECTURE node"
+		fi
 		gates="$(awk -F '\t' -v node="$remediation" 'NR > 1 && $1 == node {print $6; exit}' "$(architecture_node_bindings_file)")"
 		[[ -n "$gates" && "$gates" != - ]] || die "forced redesign remediation node $remediation requires a bound health gate"
 		IFS=',' read -r -a gate_ids <<< "$gates"

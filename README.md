@@ -172,6 +172,8 @@ export HARNESS_MAX_LUNA_CONTEXT_CAPSULE_BYTES="32768"
 export HARNESS_MIN_LUNA_NODE_PERCENT="80"
 export HARNESS_MIN_LUNA_CODING_NODE_PERCENT="80"
 export HARNESS_PREFERRED_WORKER_ROUTE="LUNA"
+export HARNESS_MODEL_POLICY="legacy"             # legacy|luna_only
+export HARNESS_ESCALATION_POLICY="legacy"        # legacy|decompose
 export HARNESS_ARCHITECTURE_GUARDS="1"
 export LUNA_WORKER_MODEL="gpt-5.6-luna"
 export TERRA_WORKER_MODEL="gpt-5.6-terra"
@@ -852,6 +854,7 @@ export HARNESS_SCIP_BIN="scip"
 export HARNESS_SCIP_IMPORTER_BIN="$HARNESS_HOME/libexec/harness-scip-importer"
 export HARNESS_JOERN_BIN="joern"
 export HARNESS_JOERN_ENABLED="0"
+export HARNESS_JOERN_EXECUTION_MODE="eager"       # eager|on_demand; luna_only defaults on_demand
 export HARNESS_JOERN_ANALYSIS_CLASSES="call,control-flow,data-flow,mutation"
 export HARNESS_JOERN_SOURCE_ROOT="."
 export HARNESS_SCIP_CLANG_JOBS="1"
@@ -865,6 +868,9 @@ export HARNESS_CONTEXT_CLOSURE_MAX_DIRECT_RELATIONSHIPS="16"
 export HARNESS_CONTEXT_CLOSURE_MAX_TESTS="8"
 export HARNESS_CONTEXT_CLOSURE_MAX_BUILD_TARGETS="4"
 export HARNESS_CONTEXT_CLOSURE_MAX_ESTIMATED_TOKENS="250000"
+export HARNESS_CONTEXT_EXPANSION_MAX_BYTES="8192"
+export HARNESS_MAX_CONTEXT_EXPANSIONS_PER_LEAF="2"
+export HARNESS_PATCH_ONLY_MAX_VALIDATION_ROUNDS="3"
 export HARNESS_REPOSITORY_INDEX_RETENTION="3"
 export HARNESS_REPOSITORY_INDEX_REFRESH_ACCEPTED_LEAVES="4"
 
@@ -1008,6 +1014,17 @@ content. Generated build inputs selected by a leaf are embedded as bounded,
 hash-addressed read-only prerequisites even when `scip-clang` does not emit
 them as repository documents.
 
+With `HARNESS_JOERN_EXECUTION_MODE=on_demand`, the immutable SCIP/build index
+does not launch a JVM. Only a leaf whose dependency classes require flow
+evidence (or a concurrency/integration leaf) admits Joern. Its imported flow
+graph is stored in an assignment- and worktree-digest-addressed database
+overlay and reused by later closure compilations. A host-global lock admits one
+Joern process at a time; `taskset`, `ActiveProcessorCount`, heap, timeout, and
+nice limits remain enforced. Luna-only mode defaults to on-demand, one CPU, and
+a 4096 MiB heap unless the project explicitly overrides those limits. Eager
+mode retains the compatible full-index behavior and shares its GraphML export
+through a digest cache.
+
 On a new project with repository indexing enabled, `harness-start` builds or
 reuses the immutable generation before the first Sol decomposition turn and
 exports a compact architecture slice. Proposed Luna rows are dry-run against
@@ -1026,7 +1043,20 @@ closure returns to deterministic decomposition before a model launch. In
 `patch_only` mode Luna receives only the compiled context in a read-only,
 tool-less invocation and emits one Git patch; the harness validates the
 workspace baseline, syntax, declared paths, binary/generated exclusions,
-focused validation, and controlled commit.
+focused validation, and controlled commit. When one decisive fact is absent,
+Luna can request an exact type definition, caller contract, failing assertion,
+build owner, or representation writer. The trusted resolver admits only an
+assignment seed or direct indexed graph neighbor, compiles a provenance-bearing
+extension no larger than `HARNESS_CONTEXT_EXPANSION_MAX_BYTES`, and resumes the
+same thread. `HARNESS_MAX_CONTEXT_EXPANSIONS_PER_LEAF` prevents exploratory or
+unchanged request loops; a rejected or exhausted request returns to smaller
+decomposition without enabling repository tools.
+
+When focused validation rejects a patch, the trusted runner rolls it back and
+resumes the same thread with only normalized typed diagnostics. It permits at
+most `HARNESS_PATCH_ONLY_MAX_VALIDATION_ROUNDS` total validation rounds and
+stops early when consecutive patches produce the same semantic diagnostic set.
+No repair round enables shell/repository exploration or a stronger model.
 
 Promotion, prediction, omission, architecture, and cost-comparison reports are
 available through:

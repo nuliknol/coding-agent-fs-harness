@@ -101,6 +101,40 @@ repository_index_require_clean_tracked_tree()
 		die 'repository index requires an empty Git index; commit staged changes first'
 }
 
+repository_index_worktree_overlay_file()
+{
+	printf '%s/control/repository-worktree-overlay.tsv\n' "$(project_dir)"
+}
+
+# Record the tracked workspace delta without rebuilding the immutable baseline
+# generation. Context Closure reads source from the live worktree and uses this
+# manifest to relocate stale indexed regions and bind the capsule to exact
+# changed-file content.
+repository_index_write_worktree_overlay()
+{
+	local output="${1:-$(repository_index_worktree_overlay_file)}" tmp relative source status digest bytes
+	tmp="$output.tmp.$$"
+	mkdir -p "$(dirname "$output")"
+	printf 'repository_path\tstatus\tcontent_sha256\tcontent_bytes\n' > "$tmp"
+	while IFS= read -r -d '' relative; do
+		[[ -n "$relative" ]] || continue
+		source="$REPOSITORY/$relative"
+		if [[ -f "$source" ]]; then
+			status=MODIFIED
+			digest="$(sha256sum "$source" | awk '{print $1}')"
+			bytes="$(stat -c %s "$source")"
+		else
+			status=DELETED
+			digest=-
+			bytes=0
+		fi
+		printf '%s\t%s\t%s\t%s\n' "$relative" "$status" "$digest" "$bytes" >> "$tmp"
+	done < <(git -C "$REPOSITORY" diff --name-only -z HEAD --)
+	chmod 600 "$tmp"
+	mv "$tmp" "$output"
+	printf '%s\n' "$output"
+}
+
 repository_index_compile_commands_file()
 {
 	local candidate
@@ -253,6 +287,7 @@ scip=$REPOSITORY_INDEX_SCIP_FINGERPRINT
 importer=$REPOSITORY_INDEX_IMPORTER_FINGERPRINT
 build_importer=$REPOSITORY_INDEX_BUILD_IMPORTER_FINGERPRINT
 joern=$REPOSITORY_INDEX_JOERN_FINGERPRINT
+joern_execution_mode=$HARNESS_JOERN_EXECUTION_MODE
 joern_source_root=$HARNESS_JOERN_SOURCE_ROOT
 joern_exclude_regex=$HARNESS_JOERN_EXCLUDE_REGEX
 joern_timeout_seconds=$HARNESS_JOERN_TIMEOUT_SECONDS
@@ -468,8 +503,12 @@ repository_index_project_pointer_is_current()
 	fi
 	if ! git -C "$REPOSITORY" diff --quiet --ignore-submodules -- ||
 		! git -C "$REPOSITORY" diff --cached --quiet --ignore-submodules --; then
-		REPOSITORY_INDEX_POINTER_REASON=tracked-worktree-changed
-		return 1
+		if [[ "$HARNESS_REPOSITORY_OVERLAY_MODE" == tracked ]]; then
+			REPOSITORY_INDEX_POINTER_REASON=worktree-overlay
+		else
+			REPOSITORY_INDEX_POINTER_REASON=tracked-worktree-changed
+			return 1
+		fi
 	fi
 	recorded_revision="$(kv_file_value "$pointer" source_revision 2>/dev/null || true)"
 	if [[ "$(repository_index_source_revision)" != "$recorded_revision" ]]; then

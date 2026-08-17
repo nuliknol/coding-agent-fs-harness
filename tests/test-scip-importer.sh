@@ -289,6 +289,51 @@ test "$(sqlite3 "$joern_dir/architecture.sqlite" 'SELECT count(*) FROM mutation_
 test "$(sqlite3 "$joern_dir/architecture.sqlite" 'SELECT count(*) FROM call_edges;')" -ge 1
 test "$(sqlite3 "$joern_dir/architecture.sqlite" "SELECT count(*) FROM files WHERE repository_path='src/kernel.hip';")" = 1
 
+# Luna-only on-demand mode keeps the immutable base index JVM-free, admits one
+# bounded Joern overlay only for a flow-bearing leaf, and reuses that overlay by
+# assignment/index/worktree digest.
+cp "$TEST_ROOT/e2e.env" "$TEST_ROOT/e2e-joern-on-demand.env"
+cat >> "$TEST_ROOT/e2e-joern-on-demand.env" <<'ENV'
+export PROJECT="scip-e2e-joern-on-demand"
+export HARNESS_MODEL_POLICY="luna_only"
+export HARNESS_ESCALATION_POLICY="decompose"
+export HARNESS_JOERN_ENABLED="1"
+export HARNESS_JOERN_EXECUTION_MODE="on_demand"
+export HARNESS_JOERN_SOURCE_ROOT="src"
+ENV
+"$HARNESS_HOME/bin/harness-init" "$TEST_ROOT/e2e-joern-on-demand.env" >/dev/null
+"$HARNESS_HOME/bin/harness-index-repository" "$TEST_ROOT/e2e-joern-on-demand.env" >/dev/null
+on_demand_pointer="$TEST_ROOT/state/projects/scip-e2e-joern-on-demand/control/repository-index.env"
+on_demand_base="$(awk -F= '$1=="generation_dir" {print $2}' "$on_demand_pointer")"
+grep -Fqx 'joern_execution_mode=on_demand' "$on_demand_base/manifest.env"
+grep -Fqx 'joern_max_cpus=1' "$on_demand_base/manifest.env"
+grep -Fqx 'joern_max_heap_mb=4096' "$on_demand_base/manifest.env"
+test "$(sqlite3 "$on_demand_base/architecture.sqlite" "SELECT status FROM provider_runs WHERE provider='joern';")" = UNAVAILABLE
+cat > "$TEST_ROOT/context-flow-assignment.md" <<'ASSIGNMENT'
+Task-ID: context-flow-test
+Plan-Node: n-flow
+Worker-Route: LUNA
+Leaf-Type: LOCAL_IMPLEMENTATION
+Required-Dependency-Classes: D,F,V
+Deliverable: Preserve the indexed mutation flow.
+Acceptance-Evidence: context_add behavior remains validated.
+Focused-Validation: ctest --test-dir BUILD -R context_calc_test
+Allowed-Scope: src/calc.c
+Context-Paths: src/calc.c
+Required-Symbols: context_add
+ASSIGNMENT
+flow_output="$("$HARNESS_HOME/bin/harness-build-context-closure" \
+	"$TEST_ROOT/e2e-joern-on-demand.env" "$TEST_ROOT/context-flow-assignment.md")"
+grep -Fq 'CONTEXT_CLOSURE status=READY task=context-flow-test' <<< "$flow_output"
+flow_overlay="$(find "$TEST_ROOT/state/projects/scip-e2e-joern-on-demand/control/flow-overlays" \
+	-mindepth 1 -maxdepth 1 -type d ! -name '.*' | head -n 1)"
+test -f "$flow_overlay/READY"
+test "$(sqlite3 "$flow_overlay/architecture.sqlite" "SELECT status FROM provider_runs WHERE provider='joern';")" = READY
+flow_overlay_digest="$(sha256sum "$flow_overlay/architecture.sqlite" | awk '{print $1}')"
+"$HARNESS_HOME/bin/harness-build-context-closure" \
+	"$TEST_ROOT/e2e-joern-on-demand.env" "$TEST_ROOT/context-flow-assignment.md" >/dev/null
+test "$(sha256sum "$flow_overlay/architecture.sqlite" | awk '{print $1}')" = "$flow_overlay_digest"
+
 # Normative architecture authority is selected by exact registered IDs and can
 # add contract artifacts and public symbols to the structural seed set.
 architecture_dir="$TEST_ROOT/state/projects/scip-e2e/control/architecture"

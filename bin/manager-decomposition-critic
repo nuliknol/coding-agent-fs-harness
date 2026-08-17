@@ -181,7 +181,13 @@ $HARNESS_BIN/manager-stage-decomposition-dag "$HARNESS_ENV_FILE" DAG_FILE SPECIF
 
 After the command succeeds, terminate. Do not publish a worker task, construct architecture bindings, wait, poll, or modify repository files.
 PROMPT
-printf '\n## Embedded deterministic decomposition capsule\n\n'
+	if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
+		cat <<PROMPT
+
+LUNA-ONLY POLICY OVERRIDE: This transaction runs on $LUNA_WORKER_MODEL. Emit only LOW/LUNA executable nodes with terra_exception '-'. Never create a TERRA decision, architecture, concurrency, ambiguity, integration, waiver-remediation, or fallback node. This supersedes all legacy Terra/Sol language above. Express broad decisions as explicit specification constraints, evidence nodes, compatibility-preserving migration stages, and independently acceptance-complete Luna children. If two required observable outcomes remain incompatible after consulting the compiled authority, request specification clarification instead of guessing.
+PROMPT
+	fi
+	printf '\n## Embedded deterministic decomposition capsule\n\n'
 cat "$decomposition_capsule"
 } > "$prompt.tmp.$$"
 chmod 600 "$prompt.tmp.$$"

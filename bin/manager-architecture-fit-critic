@@ -67,7 +67,7 @@ elif [[ -f "$recovery_marker" ]]; then
 fi
 {
 cat <<PROMPT
-You are the independent Sol architecture-fit critic for a filesystem-backed coding harness. Do not edit repository source and do not build a decomposition DAG in this turn.
+You are the independent architecture-fit critic for a filesystem-backed coding harness. Do not edit repository source and do not build a decomposition DAG in this turn.
 
 ENV_FILE=$HARNESS_ENV_FILE
 HARNESS_BIN=$HARNESS_BIN
@@ -105,7 +105,7 @@ Repository-Baseline: $(specification_review_repository_baseline)
 Domain-Profiles-SHA256: $(domain_profiles_sha256)
 Decision: ACCEPT
 
-Include an Evidence: section naming the inspected ownership, transaction, dependency, migration, observability, invariant, and resource-lifetime boundaries, plus any authorized Terra architecture decisions the future DAG must contain. Then call:
+Include an Evidence: section naming the inspected ownership, transaction, dependency, migration, observability, invariant, and resource-lifetime boundaries, plus any authorized architecture decisions the future DAG must contain. Then call:
 
 $HARNESS_BIN/manager-record-architecture-fit "$HARNESS_ENV_FILE" REPORT
 

@@ -105,10 +105,16 @@ else
 fi
 
 printf '\nAgent routing\n'
+printf '  Model policy: %s\n' "$HARNESS_MODEL_POLICY"
+printf '  Escalation policy: %s\n' "$HARNESS_ESCALATION_POLICY"
 printf '  Manager: %s (%s)\n' "$MANAGER_MODEL" "$MANAGER_REASONING_EFFORT"
 printf '  Decomposition: %s (%s)\n' "$DECOMPOSITION_MODEL" "$DECOMPOSITION_REASONING_EFFORT"
 printf '  Luna worker: %s (%s)\n' "$LUNA_WORKER_MODEL" "$LUNA_WORKER_REASONING_EFFORT"
-printf '  Terra worker: %s (%s)\n' "$TERRA_WORKER_MODEL" "$TERRA_WORKER_REASONING_EFFORT"
+if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
+	printf '  Terra worker: disabled\n'
+else
+	printf '  Terra worker: %s (%s)\n' "$TERRA_WORKER_MODEL" "$TERRA_WORKER_REASONING_EFFORT"
+fi
 if oracle_enabled; then
 	printf '  Oracle: %s (%s)\n' "$ORACLE_MODEL" "$ORACLE_REASONING_EFFORT"
 else
@@ -131,6 +137,7 @@ fi
 
 printf '\nRepository intelligence\n'
 printf '  Index / Context Closure mode: %s / %s\n' "$HARNESS_REPOSITORY_INDEX_MODE" "$HARNESS_CONTEXT_CLOSURE_MODE"
+printf '  Worktree overlay mode: %s\n' "$HARNESS_REPOSITORY_OVERLAY_MODE"
 if [[ "$HARNESS_REPOSITORY_INDEX_MODE" != off ]]; then
 	index_summary="$($HARNESS_BIN/harness-index-status "$HARNESS_ENV_FILE" 2>/dev/null || true)"
 	printf '  Index status: %s (%s)\n' \

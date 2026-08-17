@@ -91,7 +91,8 @@ probe_elapsed="$(( $(date +%s) - probe_started ))"
 (( probe_elapsed < 15 ))
 cpu_affinity="$(repository_index_cpu_affinity_list 2)"
 [[ "$cpu_affinity" =~ ^[0-9]+,[0-9]+$ ]]
-[[ "$(taskset --cpu-list "$cpu_affinity" sh -c "awk '\$1 == \"Cpus_allowed_list:\" {print \$2}' /proc/self/status")" == "$cpu_affinity" ]]
+observed_affinity="$(taskset --cpu-list "$cpu_affinity" sh -c "awk '\$1 == \"Cpus_allowed_list:\" {print \$2}' /proc/self/status")"
+[[ "$observed_affinity" == "$cpu_affinity" || "$observed_affinity" == "${cpu_affinity/,/-}" ]]
 
 write_env()
 {

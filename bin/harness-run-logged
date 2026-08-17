@@ -35,10 +35,18 @@ status=$?
 set -e
 chmod 600 "$log"
 
+diagnostics="$log.diagnostics.tsv"
+diagnostic_count="$(python3 "$HARNESS_HOME/tools/normalize_validation_diagnostics.py" \
+	--log "$log" --output "$diagnostics" --tool "${1##*/}" --target "$label" \
+	--exit-status "$status")"
+chmod 600 "$diagnostics"
+
 lines="$(wc -l < "$log")"
 bytes="$(stat -c %s "$log")"
 printf 'VALIDATION_LOG label=%s exit=%s lines=%s bytes=%s log=%s\n' \
 	"$label" "$status" "$lines" "$bytes" "$log"
+printf 'VALIDATION_DIAGNOSTICS records=%s file=%s full_log_sha256=%s\n' \
+	"$diagnostic_count" "$diagnostics" "$(sha256sum "$log" | awk '{print $1}')"
 
 summary="$(mktemp)"
 trap 'rm -f "$summary"' EXIT
@@ -46,14 +54,10 @@ if (( status == 0 )); then
 	printf '%s\n' '--- bounded success tail ---' > "$summary"
 	tail -n "$((HARNESS_VALIDATION_OUTPUT_MAX_LINES / 4 + 1))" "$log" >> "$summary"
 else
-	printf '%s\n' '--- bounded failure diagnostics ---' > "$summary"
-	if command -v rg >/dev/null 2>&1; then
-		rg -n -m "$((HARNESS_VALIDATION_OUTPUT_MAX_LINES / 2))" \
-			'(^|[^[:alpha:]])(fatal|error|failed|failure|undefined reference|assert|timeout|segmentation fault)([^[:alpha:]]|$)' \
-			"$log" >> "$summary" 2>/dev/null || true
-	fi
+	printf '%s\n' '--- normalized failure diagnostics ---' > "$summary"
+	head -n "$((HARNESS_VALIDATION_OUTPUT_MAX_LINES * 3 / 4))" "$diagnostics" >> "$summary"
 	printf '%s\n' '--- bounded failure tail ---' >> "$summary"
-	tail -n "$((HARNESS_VALIDATION_OUTPUT_MAX_LINES / 2))" "$log" >> "$summary"
+	tail -n "$((HARNESS_VALIDATION_OUTPUT_MAX_LINES / 4))" "$log" >> "$summary"
 fi
 
 # Apply both independent bounds after assembling diagnostics. The complete log

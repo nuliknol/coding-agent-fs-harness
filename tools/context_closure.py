@@ -7,6 +7,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import sqlite3
 import sys
 
@@ -112,6 +113,59 @@ def excerpt(path: Path, start: int, end: int, maximum: int = 16384) -> str:
     return text
 
 
+def worktree_overlay(path: str | None) -> dict[str, dict[str, str]]:
+    if not path:
+        return {}
+    overlay_path = Path(path)
+    if not overlay_path.is_file():
+        raise ValueError(f"worktree overlay does not exist: {path}")
+    with overlay_path.open(encoding="utf-8", errors="replace", newline="") as stream:
+        records: dict[str, dict[str, str]] = {}
+        for row in csv.DictReader(stream, delimiter="\t"):
+            repository_path = (row.get("repository_path") or "").strip()
+            if repository_path:
+                records[repository_path] = dict(row)
+        return records
+
+
+def live_symbol_window(path: Path, symbol: str, maximum_lines: int = 160) -> tuple[int, int] | None:
+    """Return a bounded live-worktree window for an exact symbol token.
+
+    This is an overlay relocation fallback, not a semantic parser. SCIP remains
+    the baseline authority; the bounded live window prevents stale line ranges
+    from selecting unrelated source after a checkpointed edit.
+    """
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+    token = symbol.rsplit("/", 1)[-1].rsplit("#", 1)[-1]
+    token = token.split("(", 1)[0].strip()
+    if not token or token == "-":
+        return None
+    pattern = re.compile(r"(?<![A-Za-z0-9_])" + re.escape(token) + r"(?![A-Za-z0-9_])")
+    matches = [index for index, line in enumerate(lines) if pattern.search(line)]
+    if not matches:
+        return None
+    center = matches[0]
+    start = max(0, center - 12)
+    end = min(len(lines), start + maximum_lines)
+    # Prefer a complete nearby brace-delimited definition while keeping the
+    # window bounded. This works for C-family sources and harmlessly falls back
+    # to the fixed window for other languages.
+    depth = 0
+    opened = False
+    for index in range(center, end):
+        depth += lines[index].count("{")
+        if lines[index].count("{"):
+            opened = True
+        depth -= lines[index].count("}")
+        if opened and depth <= 0:
+            end = index + 1
+            break
+    return start + 1, max(end, start + 1)
+
+
 def add_item(items: dict[tuple, dict], *, kind: str, path: str, start: int, end: int,
              symbol: str, why: str, required: bool, provider: str) -> None:
     key = (kind, path, start, end, symbol)
@@ -157,6 +211,16 @@ def build_closure(args: argparse.Namespace) -> str:
     symbol_seeds = {symbol: "assignment required symbol" for symbol in assigned_symbols}
     path_seeds = {path: "manager-declared context path"
                   for path in split_list(values.get("Context-Paths", values.get("Allowed-Scope", "")))}
+    overlay = worktree_overlay(getattr(args, "overlay_file", None))
+    for overlay_path, overlay_record in overlay.items():
+        if overlay_record.get("status") == "DELETED":
+            continue
+        source = safe_source_path(repository, overlay_path)
+        if source is None:
+            raise ValueError(f"worktree overlay source is unavailable: {overlay_path}")
+        current_digest = hashlib.sha256(source.read_bytes()).hexdigest()
+        if current_digest != overlay_record.get("content_sha256"):
+            raise ValueError(f"worktree overlay is stale: {overlay_path}")
 
     connection = sqlite3.connect(args.database)
     connection.row_factory = sqlite3.Row
@@ -272,7 +336,26 @@ def build_closure(args: argparse.Namespace) -> str:
     for requested, seed_reason in sorted(symbol_seeds.items()):
         rows = exact_symbol_rows(connection, requested)
         if not rows:
-            unresolved.append(("REQUIRED_SYMBOL", requested, "no exact SCIP symbol or definition"))
+            overlay_match = False
+            for overlay_path, overlay_record in sorted(overlay.items()):
+                if overlay_record.get("status") == "DELETED":
+                    continue
+                if path_seeds and not any(
+                        overlay_path == seed.rstrip("/") or
+                        overlay_path.startswith(seed.rstrip("/") + "/")
+                        for seed in path_seeds):
+                    continue
+                source = safe_source_path(repository, overlay_path)
+                window = live_symbol_window(source, requested) if source else None
+                if not window:
+                    continue
+                add_item(items, kind="OVERLAY_DEFINITION", path=overlay_path,
+                         start=window[0], end=window[1], symbol=requested,
+                         why=f"{seed_reason}: live worktree definition for {requested}",
+                         required=True, provider="worktree-overlay")
+                overlay_match = True
+            if not overlay_match:
+                unresolved.append(("REQUIRED_SYMBOL", requested, "no exact SCIP or worktree-overlay definition"))
             continue
         definitions = [row for row in rows if row["repository_path"] is not None]
         if "D" in requested_classes and not definitions:
@@ -628,6 +711,25 @@ def build_closure(args: argparse.Namespace) -> str:
                     unresolved.append(("SYSTEMATIC_CONTEXT_OMISSION", candidate,
                                        "reviewed episodes repeatedly required this path; repair index/closure rules"))
 
+    for item in items.values():
+        overlay_record = overlay.get(item["path"])
+        if not overlay_record:
+            continue
+        if overlay_record.get("status") == "DELETED":
+            if item["required"] == "REQUIRED":
+                unresolved.append(("WORKTREE_OVERLAY", item["path"],
+                                   "required indexed source was deleted in the live worktree"))
+            continue
+        source = safe_source_path(repository, item["path"])
+        window = live_symbol_window(source, item["symbol"]) if source else None
+        if window:
+            item["start"], item["end"] = window
+        elif source and item["kind"] == "DECLARED_CONTEXT":
+            line_count = len(source.read_text(encoding="utf-8", errors="replace").splitlines())
+            item["start"], item["end"] = 1, max(line_count, 1)
+        item["provider"] = "worktree-overlay"
+        item["why"] += "; relocated against live tracked workspace content"
+
     ordered_items = sorted(items.values(), key=lambda row: (
         0 if row["required"] == "REQUIRED" else 1,
         row["path"], row["start"], row["kind"], row["symbol"]))
@@ -734,7 +836,8 @@ def build_closure(args: argparse.Namespace) -> str:
             if source:
                 source_bytes += len(excerpt(source, row["start"], row["end"]).encode("utf-8"))
         source_bytes += sum(build_input_bytes_by_source.get(path, 0) for path in paths)
-        route = "LUNA" if source_bytes <= args.max_bytes and len(symbols) <= args.max_symbols else "DECOMPOSE_OR_TERRA"
+        route = "LUNA" if source_bytes <= args.max_bytes and len(symbols) <= args.max_symbols else \
+            ("DECOMPOSE" if getattr(args, "luna_only", False) else "DECOMPOSE_OR_TERRA")
         cut_id = stable_id(task_id, key, ",".join(paths), ",".join(symbols))[:16]
         suggested_cuts.append({
             "cut_id": cut_id,
@@ -801,6 +904,13 @@ def build_closure(args: argparse.Namespace) -> str:
                 authority_records, key=lambda entry: (entry[0], entry[1], entry[2])):
             writer.writerow((kind, identifier, source,
                              json.dumps(record, sort_keys=True, separators=(",", ":"))))
+    with (output / "worktree-overlay.tsv").open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.writer(stream, delimiter="\t", lineterminator="\n")
+        writer.writerow(("repository_path", "status", "content_sha256", "content_bytes"))
+        for overlay_path, record in sorted(overlay.items()):
+            writer.writerow((overlay_path, record.get("status", "-"),
+                             record.get("content_sha256", "-"),
+                             record.get("content_bytes", "0")))
 
     context_lines = [
         "# Compiled Context Closure", "", f"Task-ID: {task_id}", f"Plan-Node: {plan_node}",
@@ -811,6 +921,7 @@ def build_closure(args: argparse.Namespace) -> str:
         f"Allowed-Scope: {values.get('Allowed-Scope', '-')}",
         f"Required-Symbols: {values.get('Required-Symbols', '-')}", "",
         f"Required-Dependency-Classes: {','.join(sorted(requested_classes))}", "",
+        f"Worktree-Overlay-Paths: {len(overlay)}", "",
         "## Architecture and behavior contract", "",
         f"Architecture-Decisions: {values.get('Architecture-Decisions', 'NONE')}",
         f"Affected-Invariants: {values.get('Affected-Invariants', '-')}",
@@ -932,6 +1043,89 @@ def build_closure(args: argparse.Namespace) -> str:
     else:
         status = "READY"
 
+    unresolved_kinds = {kind for kind, _, _ in unresolved}
+    authority_kinds = {"ARCHITECTURE_BINDING", "SPECIFICATION_OBLIGATION",
+                       "ARCHITECTURE_INVARIANT", "ARCHITECTURE_DECISION",
+                       "EDGE_CONTRACT", "HEALTH_GATE"}
+    provider_by_kind = {
+        "FLOW_EVIDENCE": "joern",
+        "REQUIRED_SYMBOL": "scip",
+        "REQUIRED_DEFINITION": "scip",
+        "DEPENDENCY_DEFINITION": "scip",
+        "NAMED_TEST": "repository-index",
+        "NAMED_TEST_REGION": "repository-index",
+        "BUILD_CONFIGURATION": "build-index",
+        "BUILD_TARGET": "build-index",
+        "BUILD_INPUT": "build-index",
+        "CONTEXT_PATH": "repository-index",
+        "SYSTEMATIC_CONTEXT_OMISSION": "repository-index",
+        "WORKTREE_OVERLAY": "worktree-overlay",
+    }
+    if status == "READY":
+        condition = "READY"
+        repair_action = "LAUNCH_LUNA"
+        repair_provider = "-"
+        semantic_split_required = 0
+    elif unresolved_kinds & authority_kinds:
+        condition = "AUTHORITY_EVIDENCE_MISSING"
+        repair_action = "REPAIR_AUTHORITY_BINDING"
+        repair_provider = "architecture-registry"
+        semantic_split_required = 0
+    elif unresolved:
+        condition = "INDEX_EVIDENCE_MISSING"
+        repair_action = "REFRESH_INDEX_OR_OVERLAY"
+        repair_provider = next(
+            (provider_by_kind[kind] for kind, _, _ in unresolved if kind in provider_by_kind),
+            "repository-index")
+        semantic_split_required = 0
+    else:
+        condition = "CLOSURE_BUDGET_EXCEEDED"
+        repair_action = "GRAFT_GRAPH_CUTS"
+        repair_provider = "decomposition-compiler"
+        semantic_split_required = 1
+
+    repair_children: list[dict[str, str]] = []
+    if repair_action == "GRAFT_GRAPH_CUTS":
+        for cut in suggested_cuts:
+            paths = split_list(cut["allowed_paths"])
+            symbols_by_path: dict[str, list[str]] = {}
+            for item in ordered_items:
+                if item["path"] in paths and item["symbol"] != "-":
+                    symbols_by_path.setdefault(item["path"], []).append(item["symbol"])
+            boundaries: list[tuple[list[str], list[str]]] = []
+            if cut["route_hint"] == "LUNA":
+                boundaries.append((paths, split_list(cut["required_symbols"])))
+            elif len(paths) > 1:
+                for path in paths:
+                    boundaries.append(([path], sorted(set(symbols_by_path.get(path, [])))))
+            elif paths:
+                path_symbols = sorted(set(symbols_by_path.get(paths[0], [])))
+                if len(path_symbols) > 1:
+                    boundaries.extend((paths, [symbol]) for symbol in path_symbols)
+                else:
+                    boundaries.append((paths, path_symbols))
+            for child_paths, child_symbols in boundaries:
+                child_id = "CCR-" + stable_id(task_id, cut["cut_id"],
+                                               ",".join(child_paths),
+                                               ",".join(child_symbols))[:12]
+                repair_children.append({
+                    "child_id": child_id,
+                    "parent_task": task_id,
+                    "sequence": "0",
+                    "allowed_paths": ",".join(child_paths) or "-",
+                    "required_symbols": ",".join(child_symbols) or "-",
+                    "acceptance_evidence": cut["acceptance_hint"],
+                    "focused_validation": cut["acceptance_hint"],
+                    "source_cut": cut["cut_id"],
+                    "seam_kind": cut["seam_kind"],
+                    "estimated_source_bytes": cut["estimated_source_bytes"],
+                    "status": "PROPOSED",
+                })
+        repair_children.sort(key=lambda row: (row["allowed_paths"], row["required_symbols"],
+                                              row["child_id"]))
+        for sequence, child in enumerate(repair_children, start=1):
+            child["sequence"] = str(sequence)
+
     (output / "context.md").write_text(context_text, encoding="utf-8")
     with (output / "quality.tsv").open("w", encoding="utf-8") as stream:
         stream.write("metric\tvalue\n")
@@ -953,6 +1147,30 @@ def build_closure(args: argparse.Namespace) -> str:
         stream.write(f"context_bytes\t{context_bytes}\n")
         stream.write(f"estimated_tokens\t{estimated_tokens}\n")
         stream.write(f"reasons\t{','.join(reasons) if reasons else '-'}\n")
+        stream.write(f"condition\t{condition}\n")
+        stream.write(f"repair_action\t{repair_action}\n")
+        stream.write(f"repair_provider\t{repair_provider}\n")
+        stream.write(f"semantic_split_required\t{semantic_split_required}\n")
+        stream.write(f"worktree_overlay_paths\t{len(overlay)}\n")
+        stream.write(f"repair_candidate_children\t{len(repair_children)}\n")
+    with (output / "repair.tsv").open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.writer(stream, delimiter="\t", lineterminator="\n")
+        writer.writerow(("condition", "repair_action", "provider", "evidence_kind",
+                         "identifier", "reason"))
+        if unresolved:
+            for kind, identifier, reason in unresolved:
+                writer.writerow((condition, repair_action, provider_by_kind.get(kind, repair_provider),
+                                 kind, identifier, reason))
+        else:
+            writer.writerow((condition, repair_action, repair_provider, "-", "-",
+                             ",".join(reasons) if reasons else "ready"))
+    with (output / "repair-children.tsv").open("w", encoding="utf-8", newline="") as stream:
+        fields = ("child_id", "parent_task", "sequence", "allowed_paths", "required_symbols",
+                  "acceptance_evidence", "focused_validation", "source_cut", "seam_kind",
+                  "estimated_source_bytes", "status")
+        writer = csv.DictWriter(stream, fieldnames=fields, delimiter="\t", lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(repair_children)
     assignment_hash = hashlib.sha256(assignment.read_bytes()).hexdigest()
     with (output / "manifest.env").open("w", encoding="utf-8") as stream:
         stream.write(f"status={status}\n")
@@ -963,6 +1181,13 @@ def build_closure(args: argparse.Namespace) -> str:
         stream.write(f"context_bytes={context_bytes}\n")
         stream.write(f"estimated_tokens={estimated_tokens}\n")
         stream.write(f"reasons={','.join(reasons) if reasons else '-'}\n")
+        stream.write(f"condition={condition}\n")
+        stream.write(f"repair_action={repair_action}\n")
+        stream.write(f"repair_provider={repair_provider}\n")
+        stream.write(f"semantic_split_required={semantic_split_required}\n")
+        stream.write(f"worktree_overlay_paths={len(overlay)}\n")
+        stream.write(f"worktree_overlay_sha256={hashlib.sha256(Path(args.overlay_file).read_bytes()).hexdigest() if getattr(args, 'overlay_file', None) else '-'}\n")
+        stream.write(f"repair_candidate_children={len(repair_children)}\n")
     connection.close()
     return status
 
@@ -982,6 +1207,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-tests", required=True, type=int)
     parser.add_argument("--max-build-targets", required=True, type=int)
     parser.add_argument("--max-tokens", required=True, type=int)
+    parser.add_argument("--luna-only", action="store_true")
+    parser.add_argument("--overlay-file")
     parser.add_argument("--obligations-file")
     parser.add_argument("--relations-file")
     parser.add_argument("--invariants-file")

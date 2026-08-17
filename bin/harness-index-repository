@@ -176,13 +176,21 @@ python3 "$HARNESS_HOME/tools/import_index_diagnostics.py" \
 	--scip-lint-status "$lint_status" --scip-lint-log "$tmp_generation/reports/scip-lint.log"
 
 joern_status=UNAVAILABLE
-if (( HARNESS_JOERN_ENABLED == 1 )); then
+if (( HARNESS_JOERN_ENABLED == 1 )) && [[ "$HARNESS_JOERN_EXECUTION_MODE" == eager ]]; then
 	# Joern is deliberately global rather than repository-scoped: otherwise
 	# unrelated harnesses can each admit a large JVM at the same time.  Keep the
 	# lock through GraphML import so the memory-heavy export is fully consumed
 	# before another refresh starts producing one.
 	exec {joern_lock_fd}> "$HARNESS_REPOSITORY_INDEX_ROOT/.joern.lock"
 	flock -x "$joern_lock_fd"
+	joern_cache_root="$HARNESS_REPOSITORY_INDEX_ROOT/joern-cache"
+	joern_cache_key="$(printf '%s\0%s\0%s\0%s\0%s\0%s\0%s' \
+		"$REPOSITORY_INDEX_REPOSITORY_ID" "$REPOSITORY_INDEX_GENERATION" "$REPOSITORY_INDEX_JOERN_FINGERPRINT" \
+		"$REPOSITORY_INDEX_COMPILE_COMMANDS_SHA256" "$REPOSITORY_INDEX_GENERATED_INPUTS_SHA256" \
+		"$HARNESS_JOERN_SOURCE_ROOT" "$HARNESS_JOERN_ANALYSIS_CLASSES" | sha256sum | awk '{print $1}')"
+	joern_cache_dir="$joern_cache_root/$joern_cache_key"
+	mkdir -p "$joern_cache_root"
+	chmod 700 "$joern_cache_root"
 	joern_source="$(realpath -m "$REPOSITORY/$HARNESS_JOERN_SOURCE_ROOT")"
 	case "$joern_source" in "$REPOSITORY"|"$REPOSITORY"/*) ;; *) die 'Joern source root escapes the repository' ;; esac
 	[[ -d "$joern_source" ]] || die "Joern source root is not a directory: $joern_source"
@@ -200,31 +208,60 @@ if (( HARNESS_JOERN_ENABLED == 1 )); then
 	joern_cpu_affinity="$(repository_index_cpu_affinity_list "$HARNESS_JOERN_MAX_CPUS")" ||
 		die 'unable to derive a bounded Joern CPU affinity from /proc/self/status'
 	command -v taskset >/dev/null 2>&1 || die 'Joern CPU enforcement requires taskset'
-	set +e
-	env JAVA_OPTS="$joern_java_opts" nice -n "$HARNESS_JOERN_NICE_LEVEL" \
-		taskset --cpu-list "$joern_cpu_affinity" \
-		timeout --signal=TERM --kill-after=30 "$HARNESS_JOERN_TIMEOUT_SECONDS" \
-		"$joern_parse" --language c --output "$tmp_generation/joern/cpg.bin" "$joern_source" \
-		--frontend-args "${joern_frontend_args[@]}" \
-		> "$tmp_generation/reports/joern-parse.log" 2>&1
-	joern_parse_status=$?
-	if (( joern_parse_status == 0 )); then
+	joern_cache_hit=0
+	joern_export_root="$joern_cache_dir/cpg"
+	if [[ -f "$joern_cache_dir/READY" && -d "$joern_export_root" ]]; then
+		joern_parse_status=0
+		joern_export_status=0
+		joern_cache_hit=1
+		printf 'Joern GraphML cache hit: %s\n' "$joern_cache_key" > "$tmp_generation/reports/joern-parse.log"
+		printf 'Joern export reused from global digest cache.\n' > "$tmp_generation/reports/joern-export.log"
+	else
+		if [[ -e "$joern_cache_dir" ]]; then
+			mv "$joern_cache_dir" "$joern_cache_root/${joern_cache_key}.stale.$(timestamp_compact_utc).$$"
+		fi
+		set +e
 		env JAVA_OPTS="$joern_java_opts" nice -n "$HARNESS_JOERN_NICE_LEVEL" \
 			taskset --cpu-list "$joern_cpu_affinity" \
 			timeout --signal=TERM --kill-after=30 "$HARNESS_JOERN_TIMEOUT_SECONDS" \
-			"$joern_export" --repr cpg --format graphml --out "$tmp_generation/joern/export/cpg" \
-			"$tmp_generation/joern/cpg.bin" > "$tmp_generation/reports/joern-export.log" 2>&1
-		joern_export_status=$?
-	else
-		joern_export_status=1
+			"$joern_parse" --language c --output "$tmp_generation/joern/cpg.bin" "$joern_source" \
+			--frontend-args "${joern_frontend_args[@]}" \
+			> "$tmp_generation/reports/joern-parse.log" 2>&1
+		joern_parse_status=$?
+		if (( joern_parse_status == 0 )); then
+			env JAVA_OPTS="$joern_java_opts" nice -n "$HARNESS_JOERN_NICE_LEVEL" \
+				taskset --cpu-list "$joern_cpu_affinity" \
+				timeout --signal=TERM --kill-after=30 "$HARNESS_JOERN_TIMEOUT_SECONDS" \
+				"$joern_export" --repr cpg --format graphml --out "$tmp_generation/joern/export/cpg" \
+				"$tmp_generation/joern/cpg.bin" > "$tmp_generation/reports/joern-export.log" 2>&1
+			joern_export_status=$?
+		else
+			joern_export_status=1
+		fi
+		set -e
+		if (( joern_parse_status == 0 && joern_export_status == 0 )); then
+			joern_cache_tmp="$joern_cache_root/.${joern_cache_key}.tmp.$$.$RANDOM"
+			mkdir -p "$joern_cache_tmp"
+			chmod 700 "$joern_cache_tmp"
+			mv "$tmp_generation/joern/export/cpg" "$joern_cache_tmp/cpg"
+			{
+				printf 'cache_key=%s\n' "$joern_cache_key"
+				printf 'generation=%s\n' "$REPOSITORY_INDEX_GENERATION"
+				printf 'joern_fingerprint=%s\n' "$REPOSITORY_INDEX_JOERN_FINGERPRINT"
+				printf 'created_at=%s\n' "$(timestamp_utc)"
+			} > "$joern_cache_tmp/manifest.env"
+			printf 'READY\n' > "$joern_cache_tmp/READY"
+			chmod 600 "$joern_cache_tmp/manifest.env" "$joern_cache_tmp/READY"
+			mv "$joern_cache_tmp" "$joern_cache_dir"
+			joern_export_root="$joern_cache_dir/cpg"
+		fi
 	fi
-	set -e
 	if (( joern_parse_status == 0 && joern_export_status == 0 )); then
 		nice -n "$HARNESS_JOERN_NICE_LEVEL" taskset --cpu-list "$joern_cpu_affinity" \
 			python3 "$HARNESS_HOME/tools/import_joern_graphml.py" \
 			--database "$tmp_generation/architecture.sqlite" --generation "$REPOSITORY_INDEX_GENERATION" \
 			--repository "$REPOSITORY" --source-root "$HARNESS_JOERN_SOURCE_ROOT" \
-			--export "$tmp_generation/joern/export/cpg" --classes "$HARNESS_JOERN_ANALYSIS_CLASSES" \
+			--export "$joern_export_root" --classes "$HARNESS_JOERN_ANALYSIS_CLASSES" \
 			--version "$(repository_index_tool_version "$HARNESS_JOERN_BIN")" \
 			--fingerprint "$REPOSITORY_INDEX_JOERN_FINGERPRINT" \
 			--report "$tmp_generation/reports/joern-import.tsv" \
@@ -320,6 +357,7 @@ printf 'metric\tvalue\nscip_index_bytes\t%s\ncompile_commands\t%s\nfiles\t%s\nsy
 	printf 'build_scanner_path=%s\n' "$REPOSITORY_INDEX_BUILD_SCANNER_PATH"
 	printf 'build_importer_fingerprint=%s\n' "$REPOSITORY_INDEX_BUILD_IMPORTER_FINGERPRINT"
 	printf 'joern_enabled=%s\n' "$HARNESS_JOERN_ENABLED"
+	printf 'joern_execution_mode=%s\n' "$HARNESS_JOERN_EXECUTION_MODE"
 	printf 'joern_fingerprint=%s\n' "$REPOSITORY_INDEX_JOERN_FINGERPRINT"
 	printf 'joern_source_root=%s\n' "$HARNESS_JOERN_SOURCE_ROOT"
 	printf 'joern_exclude_regex=%s\n' "$HARNESS_JOERN_EXCLUDE_REGEX"
@@ -330,6 +368,8 @@ printf 'metric\tvalue\nscip_index_bytes\t%s\ncompile_commands\t%s\nfiles\t%s\nsy
 	printf 'joern_cpu_affinity=%s\n' "${joern_cpu_affinity:--}"
 	printf 'joern_nice_level=%s\n' "$HARNESS_JOERN_NICE_LEVEL"
 	printf 'joern_status=%s\n' "$joern_status"
+	printf 'joern_cache_key=%s\n' "${joern_cache_key:--}"
+	printf 'joern_cache_hit=%s\n' "${joern_cache_hit:-0}"
 	printf 'recoll_enabled=%s\n' "$HARNESS_RECOLL_ENABLED"
 	printf 'recoll_fingerprint=%s\n' "$REPOSITORY_INDEX_RECOLL_FINGERPRINT"
 	printf 'provider_fingerprint=%s\n' "$REPOSITORY_INDEX_PROVIDER_FINGERPRINT"

@@ -80,6 +80,12 @@ tail -n $HARNESS_VALIDATION_OUTPUT_MAX_LINES "\$SUBMISSION_TRANSCRIPT" | head -c
 
 If deterministic validation rejects it, read only the new candidate rejection log reported by the command, make at most one further local correction, and submit once more. After success, terminate. Never launch tests, builds, workers, or repository searches.
 PROMPT
+if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
+	cat >> "$prompt.tmp.$$" <<PROMPT
+
+LUNA-ONLY POLICY OVERRIDE: Preserve or create only LOW/LUNA executable nodes with terra_exception '-'. Never retain or introduce TERRA/Sol execution. If the candidate contains a broad decision or integration boundary, repair it into ordered, independently acceptance-complete Luna compatibility stages while conserving normalized obligation coverage.
+PROMPT
+fi
 chmod 600 "$prompt.tmp.$$"
 mv "$prompt.tmp.$$" "$prompt"
 

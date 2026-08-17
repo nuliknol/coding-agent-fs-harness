@@ -71,6 +71,10 @@ install_candidate()
 			die "invalid leaf_type for $node_id: $leaf_type"
 		[[ "$complexity" =~ ^(LOW|MEDIUM|HIGH)$ ]] || die "invalid complexity for $node_id: $complexity"
 		[[ "$route" =~ ^(LUNA|TERRA)$ ]] || die "invalid route for $node_id: $route"
+		status="$(project_plan_item_status "$node_id")"
+		if [[ "$HARNESS_MODEL_POLICY" == luna_only && "$status" == PENDING && "$route" != LUNA ]]; then
+			die "Luna-only policy requires pending node $node_id to use route LUNA"
+		fi
 		if [[ "$route" == LUNA ]]; then
 			[[ "$complexity" == LOW ]] || die "Luna node $node_id must be LOW"
 			[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY)$ ]] ||
@@ -79,7 +83,6 @@ install_candidate()
 			[[ "$leaf_type" =~ ^(CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]] ||
 				die "pending routine-coding node $node_id cannot remain on Terra"
 		fi
-		status="$(project_plan_item_status "$node_id")"
 		if [[ "$status" == PENDING ]]; then
 			pending=$((pending + 1))
 			[[ "$route" == LUNA ]] && pending_luna=$((pending_luna + 1)) || pending_terra=$((pending_terra + 1))
@@ -177,6 +180,12 @@ For PENDING rows, use LUNA with LOW complexity and LOCAL_IMPLEMENTATION, TEST_IM
 
 This pass classifies existing nodes; later manager turns may split a broad node's Root-Criteria further. Prefer the largest cohesive deterministic Luna-ready concern, not microscopic handoffs. Write only CANDIDATE_DAG, then terminate without running harness commands.
 PROMPT
+if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
+	cat >> "$prompt.tmp.$$" <<PROMPT
+
+LUNA-ONLY POLICY OVERRIDE: every PENDING row must use worker_route LUNA, complexity_class LOW, and a Luna-safe executable leaf_type. This supersedes every Terra instruction above. Preserve COMPLETE and ACTIVE rows as historical authority. If a pending row contains unresolved decision complexity, classify the first compatibility-preserving, independently verifiable implementation or evidence stage; later root-criterion decomposition owns the remaining stages. Never emit a Terra route or stronger-model fallback.
+PROMPT
+fi
 chmod 600 "$prompt.tmp.$$"
 mv "$prompt.tmp.$$" "$prompt"
 

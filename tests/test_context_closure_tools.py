@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import csv
+import hashlib
 import os
 from pathlib import Path
 import sqlite3
@@ -47,7 +48,9 @@ class ContextClosureToolsTest(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
-    def closure(self, extra: str = "", omissions: Path | None = None) -> tuple[str, Path]:
+    def closure(self, extra: str = "", omissions: Path | None = None,
+                overlay: Path | None = None, max_bytes: int = 32768,
+                luna_only: bool = False) -> tuple[str, Path]:
         assignment = self.root / "assignment.md"
         assignment.write_text(
             "Task-ID: t1\nPlan-Node: n1\nWorker-Route: LUNA\nAllowed-Scope: calc.c\n"
@@ -55,12 +58,46 @@ class ContextClosureToolsTest(unittest.TestCase):
         output = self.root / ("closure-" + str(len(list(self.root.glob("closure-*")))))
         arguments = SimpleNamespace(
             assignment=str(assignment), database=str(self.database), repository=str(self.repository),
-            generation="g", output=str(output), max_bytes=32768, max_symbols=32, max_modules=4,
+            generation="g", output=str(output), max_bytes=max_bytes, max_symbols=32, max_modules=4,
             max_ownership_boundaries=2, max_direct_relationships=8, max_tests=4,
             max_build_targets=4, max_tokens=10000, obligations_file=None, relations_file=None,
             invariants_file=None, decisions_file=None, edges_file=None, health_gates_file=None,
-            node_bindings_file=None, omissions_file=str(omissions) if omissions else None)
+            node_bindings_file=None, omissions_file=str(omissions) if omissions else None,
+            overlay_file=str(overlay) if overlay else None, luna_only=luna_only)
         return build_closure(arguments), output
+
+    def test_luna_only_budget_repair_compiles_deterministic_child_candidates(self):
+        status, output = self.closure(max_bytes=32, luna_only=True)
+        self.assertEqual("NEEDS_FURTHER_DECOMPOSITION", status)
+        manifest = (output / "manifest.env").read_text()
+        self.assertIn("condition=CLOSURE_BUDGET_EXCEEDED", manifest)
+        self.assertIn("repair_action=GRAFT_GRAPH_CUTS", manifest)
+        self.assertIn("semantic_split_required=1", manifest)
+        cuts = (output / "suggested-cuts.tsv").read_text()
+        self.assertIn("\tDECOMPOSE\t", cuts)
+        self.assertNotIn("TERRA", cuts)
+        children = (output / "repair-children.tsv").read_text()
+        self.assertIn("CCR-", children)
+        self.assertIn("\tcalc.c\tadd\t", children)
+
+    def test_tracked_worktree_overlay_relocates_live_symbol_evidence(self):
+        live_source = "\n".join(["/* inserted */"] * 24 +
+                                ["int add(int a, int b) { return a + b + 1; }"]) + "\n"
+        (self.repository / "calc.c").write_text(live_source, encoding="utf-8")
+        digest = hashlib.sha256(live_source.encode()).hexdigest()
+        overlay = self.root / "overlay.tsv"
+        overlay.write_text(
+            "repository_path\tstatus\tcontent_sha256\tcontent_bytes\n"
+            f"calc.c\tMODIFIED\t{digest}\t{len(live_source.encode())}\n",
+            encoding="utf-8")
+        status, output = self.closure(overlay=overlay)
+        self.assertEqual("READY", status)
+        context = (output / "context.md").read_text()
+        self.assertIn("return a + b + 1", context)
+        self.assertIn("Worktree-Overlay-Paths: 1", context)
+        self.assertIn("worktree-overlay", (output / "closure.tsv").read_text())
+        manifest = (output / "manifest.env").read_text()
+        self.assertIn("worktree_overlay_paths=1", manifest)
 
     def test_conflicting_configuration_fails_closed(self):
         connection = sqlite3.connect(self.database)
@@ -70,11 +107,17 @@ class ContextClosureToolsTest(unittest.TestCase):
         status, output = self.closure()
         self.assertEqual("INCOMPLETE", status)
         self.assertIn("multiple indexed configurations", (output / "unresolved.tsv").read_text())
+        manifest = (output / "manifest.env").read_text()
+        self.assertIn("condition=INDEX_EVIDENCE_MISSING", manifest)
+        self.assertIn("repair_action=REFRESH_INDEX_OR_OVERLAY", manifest)
+        self.assertIn("repair_provider=build-index", manifest)
+        self.assertIn("BUILD_CONFIGURATION", (output / "repair.tsv").read_text())
 
     def test_requested_flow_without_joern_fails_closed(self):
         status, output = self.closure("Required-Dependency-Classes: D,F\n")
         self.assertEqual("INCOMPLETE", status)
         self.assertIn("Joern flow evidence was requested", (output / "unresolved.tsv").read_text())
+        self.assertIn("repair_provider=joern", (output / "manifest.env").read_text())
 
     def test_requested_flow_embeds_bounded_joern_evidence(self):
         connection = sqlite3.connect(self.database)
@@ -175,6 +218,7 @@ class ContextClosureToolsTest(unittest.TestCase):
             node_bindings_file=None, omissions_file=None)
         self.assertEqual("INCOMPLETE", build_closure(arguments))
         self.assertIn("directory path has no exact required symbol", (output / "unresolved.tsv").read_text())
+        self.assertIn("repair_action=REFRESH_INDEX_OR_OVERLAY", (output / "manifest.env").read_text())
 
     def test_external_sdk_input_is_hashed_but_not_embedded(self):
         external = self.root / "sdk.h"
