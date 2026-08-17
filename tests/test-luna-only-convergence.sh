@@ -87,6 +87,34 @@ chmod 600 "$legacy_ready"
 bash -c 'source "$1/lib/harness-common.sh"; load_harness_env "$2"; initialize_task_progress 002 "$3"' \
 	_ "$ROOT" "$TMP/harness.env" "$legacy_ready"
 
+# An unreviewed result from a pre-policy manager-remediation assignment is not
+# accepted during migration. Its workspace is retained as tracked-overlay
+# evidence, while the result itself is archived with explicit unaccepted
+# provenance and the root returns to mandatory Luna decomposition.
+legacy_result_assignment="$project/archive/lunaconvergence-task-004.assignment.md"
+cat > "$legacy_result_assignment" <<'TASK'
+# Pre-policy manager remediation
+
+Task-ID: 004
+Worker-Route: LUNA
+Manager-Remediation: 1
+Allowed-Scope: target.c
+Context-Paths: target.c
+Required-Symbols: target
+Root-Criterion: root-004.acceptance
+TASK
+chmod 600 "$legacy_result_assignment"
+bash -c 'source "$1/lib/harness-common.sh"; load_harness_env "$2"; initialize_task_progress 004 "$3"' \
+	_ "$ROOT" "$TMP/harness.env" "$legacy_result_assignment"
+cat > "$project/results/lunaconvergence-task-004.result.md" <<'RESULT'
+# Unreviewed result
+
+Task-ID: 004
+Goal-Outcome: COMPLETE
+Workspace-Changed: 1
+RESULT
+chmod 600 "$project/results/lunaconvergence-task-004.result.md"
+
 # A pre-policy broad root that exhausted monotonic liveness may migrate only to
 # mandatory child-criterion decomposition. Historical counts remain archived,
 # while the new child boundary receives its own measured budget.
@@ -111,13 +139,19 @@ Reason: legacy broad boundary exhausted
 MARKER
 migration_output="$("$ROOT/bin/harness-migrate-state" "$TMP/harness.env")"
 grep -Fq 'liveness-roots=1' <<< "$migration_output"
+grep -Fq 'pending-results=1' <<< "$migration_output"
 test ! -e "$legacy_ready"
 test -f "$project/archive/lunaconvergence-task-002.assignment.md"
 migration_marker="$project/control/progress/lunaconvergence-task-002.needs-replan.md"
 grep -Fqx 'Trigger-Outcome: LUNA_ONLY_POLICY_MIGRATION' "$migration_marker"
 grep -Fqx 'status=READY' "$project/control/luna-only-migration.env"
 grep -Fqx 'migrated_ready_tasks=1' "$project/control/luna-only-migration.env"
+grep -Fqx 'migrated_pending_results=1' "$project/control/luna-only-migration.env"
 grep -Fqx 'migrated_liveness_roots=1' "$project/control/luna-only-migration.env"
+test ! -e "$project/results/lunaconvergence-task-004.result.md"
+test -f "$project/archive/lunaconvergence-task-004.policy-migration-result.md"
+grep -Fqx 'Trigger-Outcome: LUNA_ONLY_POLICY_MIGRATION' \
+	"$project/control/progress/lunaconvergence-task-004.needs-replan.md"
 test ! -e "$project/control/progress/lunaconvergence-task-003.architecture-reassessment-required.md"
 test "$(find "$project/archive/luna-only-migrations" -type f -name '*task-003*.migrated' | wc -l)" -eq 1
 grep -Fqx 'Trigger-Outcome: LUNA_ONLY_POLICY_MIGRATION' \

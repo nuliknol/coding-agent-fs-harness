@@ -30,6 +30,33 @@ if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
 	if compgen -G "$dir/running/$PROJECT-task-*.running.md" >/dev/null; then
 		die 'Luna-only migration requires a safe task boundary; a worker assignment is still running'
 	fi
+	migrated_results=0
+	shopt -s nullglob
+	for result in "$dir/results/$PROJECT-task-"*.result.md; do
+		task_id="$(task_id_from_filename "$result")"
+		base="$(task_base "$task_id")"
+		assignment="$dir/archive/$base.assignment.md"
+		if ! assignment_is_manager_remediation "$assignment"; then
+			continue
+		fi
+		root="$(task_root_id "$task_id")"
+		archive="$dir/archive/$base.policy-migration-result.md"
+		[[ ! -e "$archive" ]] ||
+			die "migration result archive already exists: $archive"
+		mv "$result" "$archive"
+		chmod 600 "$archive"
+		mark_root_needs_replan "$task_id" \
+			"The unreviewed result came from a pre-policy manager-remediation assignment. Retain its workspace delta only as unaccepted tracked-overlay evidence, then verify it through closed Luna-sized child criteria." \
+			LUNA_ONLY_POLICY_MIGRATION >/dev/null
+		clear_worker_thread_for_root "$root" luna-only-policy-migration
+		rm -f \
+			"$dir/control/$base.reviewed-event" \
+			"$dir/control/$base.manager-review-stalled.md" \
+			"$dir/control/$base.manager-failed.md"
+		log_event "LUNA_ONLY_PENDING_RESULT_MIGRATED task=$task_id root=$root archive=$archive evidence_status=UNACCEPTED"
+		migrated_results=$((migrated_results + 1))
+	done
+	shopt -u nullglob
 	migrated_ready=0
 	shopt -s nullglob
 	for ready in "$dir/tasks/$PROJECT-task-"*.ready.md; do
@@ -106,6 +133,7 @@ if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
 	migration_state="$dir/control/luna-only-migration.env"
 	{
 		printf 'status=READY\n'
+		printf 'migrated_pending_results=%s\n' "$migrated_results"
 		printf 'migrated_ready_tasks=%s\n' "$migrated_ready"
 		printf 'migrated_liveness_roots=%s\n' "$migrated_liveness"
 		printf 'installed_terra_nodes=%s\n' "$pending_terra"
@@ -114,7 +142,7 @@ if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
 	} > "$migration_state.tmp.$$"
 	chmod 600 "$migration_state.tmp.$$"
 	mv "$migration_state.tmp.$$" "$migration_state"
-	log_event "LUNA_ONLY_STATE_MIGRATION_READY migrated_ready=$migrated_ready installed_terra_nodes=$pending_terra state=$migration_state"
-	printf 'Luna-only state migration: ready-tasks=%s liveness-roots=%s installed-Terra-nodes=%s (decomposed in place at activation)\n' \
-		"$migrated_ready" "$migrated_liveness" "$pending_terra"
+	log_event "LUNA_ONLY_STATE_MIGRATION_READY migrated_results=$migrated_results migrated_ready=$migrated_ready installed_terra_nodes=$pending_terra state=$migration_state"
+	printf 'Luna-only state migration: pending-results=%s ready-tasks=%s liveness-roots=%s installed-Terra-nodes=%s (decomposed in place at activation)\n' \
+		"$migrated_results" "$migrated_ready" "$migrated_liveness" "$pending_terra"
 fi

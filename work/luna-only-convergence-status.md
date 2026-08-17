@@ -1,6 +1,6 @@
 # Luna-Only Convergence Implementation Status
 
-Last updated (UTC): 2026-08-17T16:02:00Z
+Last updated (UTC): 2026-08-17T16:12:00Z
 
 Overall status: `IN_PROGRESS`
 
@@ -280,6 +280,12 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   decomposition instructions regardless of their preserved legacy history.
 - Added a regression invariant covering both override sites before the
   corrected migration path is promoted again.
+- Migration now also consumes an unreviewed result produced by a pre-policy
+  manager-remediation assignment. The result is archived with explicit
+  unaccepted provenance, its tracked workspace delta remains available to the
+  closure overlay, and the root receives the same mandatory decomposition
+  marker. This closes the race where a turn crossed the supervisor stop
+  boundary during policy promotion.
 
 ## Validation journal
 
