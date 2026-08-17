@@ -27,6 +27,11 @@ def split_list(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip() not in ("", "-", "NONE")]
 
 
+def path_is_allowed(path: str, scopes: list[str]) -> bool:
+    return any(path == scope.rstrip("/") or path.startswith(scope.rstrip("/") + "/")
+               for scope in scopes)
+
+
 def dependency_classes(values: dict[str, str]) -> set[str]:
     """Return the evidence classes that this leaf actually requires.
 
@@ -111,6 +116,19 @@ def excerpt(path: Path, start: int, end: int, maximum: int = 16384) -> str:
     if len(encoded) > maximum:
         text = encoded[:maximum].decode("utf-8", errors="ignore") + "\n[excerpt truncated]\n"
     return text
+
+
+def item_excerpt(path: Path, item: dict) -> str:
+    """Render one evidence record within its kind-specific read budget."""
+    maximum = {
+        "FOCUSED_TEST": 4096,
+        "TEST_REFERENCE": 2048,
+        "INTERFACE_REFERENCE": 4096,
+        "CONTROL_FLOW": 2048,
+        "DATA_FLOW": 2048,
+        "MUTATION": 2048,
+    }.get(item["kind"], 16384)
+    return excerpt(path, item["start"], item["end"], maximum)
 
 
 def worktree_overlay(path: str | None) -> dict[str, dict[str, str]]:
@@ -208,6 +226,7 @@ def build_closure(args: argparse.Namespace) -> str:
     task_id = values.get("Task-ID", assignment.stem)
     plan_node = values.get("Plan-Node", values.get("Project-Plan-Item-ID", "-"))
     assigned_symbols = split_list(values.get("Required-Symbols", ""))
+    allowed_scopes = split_list(values.get("Allowed-Scope", ""))
     symbol_seeds = {symbol: "assignment required symbol" for symbol in assigned_symbols}
     path_seeds = {path: "manager-declared context path"
                   for path in split_list(values.get("Context-Paths", values.get("Allowed-Scope", "")))}
@@ -233,6 +252,7 @@ def build_closure(args: argparse.Namespace) -> str:
     authority_records: list[tuple[str, str, str, dict[str, str]]] = []
     ownership_boundaries: set[tuple[str, str, str, str]] = set()
     selected_tests: set[str] = set()
+    bounded_test_candidates_omitted = 0
     expanded_seed_ids: set[str] = set()
     selected_call_edges: set[tuple[str, str, str, str]] = set()
     remaining_calls = args.max_direct_relationships
@@ -413,6 +433,10 @@ def build_closure(args: argparse.Namespace) -> str:
                     ORDER BY f.repository_path, r.start_line LIMIT 8
                     """, (row["symbol_id"],)).fetchall()
                 for test in test_rows:
+                    if (test["name"] not in selected_tests and
+                            len(selected_tests) >= args.max_tests):
+                        bounded_test_candidates_omitted += 1
+                        continue
                     selected_tests.add(test["name"])
                     add_item(items, kind="FOCUSED_TEST", path=test["repository_path"],
                              start=test["start_line"], end=test["end_line"],
@@ -834,7 +858,7 @@ def build_closure(args: argparse.Namespace) -> str:
         for row in group:
             source = safe_source_path(repository, row["path"])
             if source:
-                source_bytes += len(excerpt(source, row["start"], row["end"]).encode("utf-8"))
+                source_bytes += len(item_excerpt(source, row).encode("utf-8"))
         source_bytes += sum(build_input_bytes_by_source.get(path, 0) for path in paths)
         route = "LUNA" if source_bytes <= args.max_bytes and len(symbols) <= args.max_symbols else \
             ("DECOMPOSE" if getattr(args, "luna_only", False) else "DECOMPOSE_OR_TERRA")
@@ -992,7 +1016,7 @@ def build_closure(args: argparse.Namespace) -> str:
     ))
     for row in ordered_items:
         source = safe_source_path(repository, row["path"])
-        text = excerpt(source, row["start"], row["end"]) if source else ""
+        text = item_excerpt(source, row) if source else ""
         context_lines.extend((
             f"### {row['kind']}: `{row['path']}:{row['start']}` — `{row['symbol']}`", "",
             f"Selected because: {row['why']} ({row['required']}, {row['provider']}).", "",
@@ -1061,16 +1085,72 @@ def build_closure(args: argparse.Namespace) -> str:
         "SYSTEMATIC_CONTEXT_OMISSION": "repository-index",
         "WORKTREE_OVERLAY": "worktree-overlay",
     }
+    # Compile candidate mutation seams before classifying the repair. Context
+    # evidence can legitimately live outside Allowed-Scope, but it can never
+    # become child write authority. Each candidate therefore intersects the
+    # indexed cut with the immutable assignment scope and carries a separate
+    # exact context path field.
+    repair_children: list[dict[str, str]] = []
+    for cut in suggested_cuts:
+        cut_paths = split_list(cut["allowed_paths"])
+        mutable_paths = [path for path in cut_paths if path_is_allowed(path, allowed_scopes)]
+        if not mutable_paths:
+            continue
+        symbols_by_path: dict[str, list[str]] = {}
+        for item in ordered_items:
+            if item["path"] in mutable_paths and item["symbol"] != "-":
+                symbols_by_path.setdefault(item["path"], []).append(item["symbol"])
+        boundaries: list[tuple[list[str], list[str]]] = []
+        if cut["route_hint"] == "LUNA":
+            mutable_symbols = sorted({symbol for path in mutable_paths
+                                      for symbol in symbols_by_path.get(path, [])})
+            boundaries.append((mutable_paths, mutable_symbols))
+        elif len(mutable_paths) > 1:
+            for path in mutable_paths:
+                boundaries.append(([path], sorted(set(symbols_by_path.get(path, [])))))
+        elif mutable_paths:
+            path_symbols = sorted(set(symbols_by_path.get(mutable_paths[0], [])))
+            if len(path_symbols) > 1:
+                boundaries.extend((mutable_paths, [symbol]) for symbol in path_symbols)
+            else:
+                boundaries.append((mutable_paths, path_symbols))
+        for child_paths, child_symbols in boundaries:
+            child_id = "CCR-" + stable_id(task_id, cut["cut_id"],
+                                           ",".join(child_paths),
+                                           ",".join(child_symbols))[:12]
+            child_source_bytes = 0
+            for item in ordered_items:
+                if item["path"] not in child_paths:
+                    continue
+                source = safe_source_path(repository, item["path"])
+                if source:
+                    child_source_bytes += len(item_excerpt(source, item).encode("utf-8"))
+            repair_children.append({
+                "child_id": child_id,
+                "parent_task": task_id,
+                "sequence": "0",
+                "allowed_paths": ",".join(child_paths) or "-",
+                "context_paths": ",".join(child_paths) or "-",
+                "required_symbols": ",".join(child_symbols) or "-",
+                "acceptance_evidence": cut["acceptance_hint"],
+                "focused_validation": cut["acceptance_hint"],
+                "source_cut": cut["cut_id"],
+                "seam_kind": cut["seam_kind"],
+                "estimated_source_bytes": str(child_source_bytes),
+                "status": "PROPOSED",
+            })
+    repair_children.sort(key=lambda row: (row["allowed_paths"], row["required_symbols"],
+                                          row["child_id"]))
+    for sequence, child in enumerate(repair_children, start=1):
+        child["sequence"] = str(sequence)
+
     # Missing evidence and an oversized evidence set are independent closure
-    # defects.  Prefer a deterministic graph-cut graft when the compiler has
-    # at least two indexed seams: refreshing an already-current provider cannot
-    # make an oversized assignment Luna-sized, and used to cause identical
-    # manager-replan loops.  A pure evidence miss (or a single unsplittable
-    # seam) still routes to the exact provider and remains fail-closed.
+    # defects. Refreshing an already-current provider cannot make an oversized
+    # assignment Luna-sized, so any mixed resource failure remains a semantic
+    # decomposition signal. A pure evidence miss still routes to its provider.
     decomposition_reasons = [
         reason for reason in reasons if reason != "unresolved-required-evidence"
     ]
-    has_deterministic_graft = len(suggested_cuts) >= 2
     if status == "READY":
         condition = "READY"
         repair_action = "LAUNCH_LUNA"
@@ -1081,7 +1161,7 @@ def build_closure(args: argparse.Namespace) -> str:
         repair_action = "REPAIR_AUTHORITY_BINDING"
         repair_provider = "architecture-registry"
         semantic_split_required = 0
-    elif unresolved and decomposition_reasons and has_deterministic_graft:
+    elif unresolved and decomposition_reasons:
         condition = "CLOSURE_BUDGET_EXCEEDED"
         repair_action = "GRAFT_GRAPH_CUTS"
         repair_provider = "decomposition-compiler"
@@ -1099,47 +1179,8 @@ def build_closure(args: argparse.Namespace) -> str:
         repair_provider = "decomposition-compiler"
         semantic_split_required = 1
 
-    repair_children: list[dict[str, str]] = []
-    if repair_action == "GRAFT_GRAPH_CUTS":
-        for cut in suggested_cuts:
-            paths = split_list(cut["allowed_paths"])
-            symbols_by_path: dict[str, list[str]] = {}
-            for item in ordered_items:
-                if item["path"] in paths and item["symbol"] != "-":
-                    symbols_by_path.setdefault(item["path"], []).append(item["symbol"])
-            boundaries: list[tuple[list[str], list[str]]] = []
-            if cut["route_hint"] == "LUNA":
-                boundaries.append((paths, split_list(cut["required_symbols"])))
-            elif len(paths) > 1:
-                for path in paths:
-                    boundaries.append(([path], sorted(set(symbols_by_path.get(path, [])))))
-            elif paths:
-                path_symbols = sorted(set(symbols_by_path.get(paths[0], [])))
-                if len(path_symbols) > 1:
-                    boundaries.extend((paths, [symbol]) for symbol in path_symbols)
-                else:
-                    boundaries.append((paths, path_symbols))
-            for child_paths, child_symbols in boundaries:
-                child_id = "CCR-" + stable_id(task_id, cut["cut_id"],
-                                               ",".join(child_paths),
-                                               ",".join(child_symbols))[:12]
-                repair_children.append({
-                    "child_id": child_id,
-                    "parent_task": task_id,
-                    "sequence": "0",
-                    "allowed_paths": ",".join(child_paths) or "-",
-                    "required_symbols": ",".join(child_symbols) or "-",
-                    "acceptance_evidence": cut["acceptance_hint"],
-                    "focused_validation": cut["acceptance_hint"],
-                    "source_cut": cut["cut_id"],
-                    "seam_kind": cut["seam_kind"],
-                    "estimated_source_bytes": cut["estimated_source_bytes"],
-                    "status": "PROPOSED",
-                })
-        repair_children.sort(key=lambda row: (row["allowed_paths"], row["required_symbols"],
-                                              row["child_id"]))
-        for sequence, child in enumerate(repair_children, start=1):
-            child["sequence"] = str(sequence)
+    if repair_action != "GRAFT_GRAPH_CUTS":
+        repair_children = []
 
     (output / "context.md").write_text(context_text, encoding="utf-8")
     with (output / "quality.tsv").open("w", encoding="utf-8") as stream:
@@ -1153,6 +1194,7 @@ def build_closure(args: argparse.Namespace) -> str:
         stream.write(f"joern_flow_relationships\t{joern_flow_relationships}\n")
         stream.write(f"joern_mutations\t{joern_mutations}\n")
         stream.write(f"tests\t{len(selected_tests)}\n")
+        stream.write(f"bounded_test_candidates_omitted\t{bounded_test_candidates_omitted}\n")
         stream.write(f"build_targets\t{len(build_targets)}\n")
         stream.write(f"build_inputs\t{len(build_inputs)}\n")
         stream.write(f"unresolved\t{len(unresolved)}\n")
@@ -1180,9 +1222,9 @@ def build_closure(args: argparse.Namespace) -> str:
             writer.writerow((condition, repair_action, repair_provider, "-", "-",
                              ",".join(reasons) if reasons else "ready"))
     with (output / "repair-children.tsv").open("w", encoding="utf-8", newline="") as stream:
-        fields = ("child_id", "parent_task", "sequence", "allowed_paths", "required_symbols",
-                  "acceptance_evidence", "focused_validation", "source_cut", "seam_kind",
-                  "estimated_source_bytes", "status")
+        fields = ("child_id", "parent_task", "sequence", "allowed_paths", "context_paths",
+                  "required_symbols", "acceptance_evidence", "focused_validation", "source_cut",
+                  "seam_kind", "estimated_source_bytes", "status")
         writer = csv.DictWriter(stream, fieldnames=fields, delimiter="\t", lineterminator="\n")
         writer.writeheader()
         writer.writerows(repair_children)

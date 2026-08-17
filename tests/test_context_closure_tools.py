@@ -51,10 +51,11 @@ class ContextClosureToolsTest(unittest.TestCase):
     def closure(self, extra: str = "", omissions: Path | None = None,
                 overlay: Path | None = None, max_bytes: int = 32768,
                 luna_only: bool = False, context_paths: str = "calc.c",
-                required_symbols: str = "add") -> tuple[str, Path]:
+                required_symbols: str = "add",
+                allowed_scope: str = "calc.c") -> tuple[str, Path]:
         assignment = self.root / "assignment.md"
         assignment.write_text(
-            "Task-ID: t1\nPlan-Node: n1\nWorker-Route: LUNA\nAllowed-Scope: calc.c\n"
+            f"Task-ID: t1\nPlan-Node: n1\nWorker-Route: LUNA\nAllowed-Scope: {allowed_scope}\n"
             f"Context-Paths: {context_paths}\nRequired-Symbols: {required_symbols}\n" + extra,
             encoding="utf-8")
         output = self.root / ("closure-" + str(len(list(self.root.glob("closure-*")))))
@@ -80,7 +81,7 @@ class ContextClosureToolsTest(unittest.TestCase):
         self.assertNotIn("TERRA", cuts)
         children = (output / "repair-children.tsv").read_text()
         self.assertIn("CCR-", children)
-        self.assertIn("\tcalc.c\tadd\t", children)
+        self.assertIn("\tcalc.c\tcalc.c\tadd\t", children)
 
     def test_missing_evidence_with_multiple_over_budget_seams_prefers_graph_cut(self):
         connection = sqlite3.connect(self.database)
@@ -97,7 +98,8 @@ class ContextClosureToolsTest(unittest.TestCase):
         status, output = self.closure(
             max_bytes=32, luna_only=True,
             context_paths="calc.c,src/other.c",
-            required_symbols="add,other,missing")
+            required_symbols="add,other,missing",
+            allowed_scope="calc.c,src/other.c")
 
         self.assertEqual("INCOMPLETE", status)
         manifest = (output / "manifest.env").read_text()
@@ -108,8 +110,48 @@ class ContextClosureToolsTest(unittest.TestCase):
         self.assertIn("semantic_split_required=1", manifest)
         self.assertIn("repair_candidate_children=2", manifest)
         children = (output / "repair-children.tsv").read_text()
-        self.assertIn("\tcalc.c\tadd\t", children)
-        self.assertIn("\tsrc/other.c\tother\t", children)
+        self.assertIn("\tcalc.c\tcalc.c\tadd\t", children)
+        self.assertIn("\tsrc/other.c\tsrc/other.c\tother\t", children)
+
+    def test_repair_children_never_promote_read_only_context_to_write_scope(self):
+        connection = sqlite3.connect(self.database)
+        connection.execute("INSERT INTO files VALUES(2,'g','calc.h','c',NULL,1,0)")
+        connection.commit()
+        connection.close()
+
+        _, output = self.closure(
+            max_bytes=32, luna_only=True,
+            context_paths="calc.c,calc.h", allowed_scope="calc.c")
+
+        with (output / "repair-children.tsv").open(encoding="utf-8", newline="") as stream:
+            children = list(csv.DictReader(stream, delimiter="\t"))
+        self.assertTrue(children)
+        self.assertEqual({"calc.c"}, {child["allowed_paths"] for child in children})
+        self.assertEqual({"calc.c"}, {child["context_paths"] for child in children})
+        self.assertNotIn("calc.h", {child["allowed_paths"] for child in children})
+
+    def test_discovered_test_evidence_is_capped_before_capsule_rendering(self):
+        connection = sqlite3.connect(self.database)
+        for index in range(6):
+            test_id = f"test-{index}"
+            connection.execute(
+                "INSERT INTO tests VALUES(?,?,?,?,?,?,?,?)",
+                (test_id, "g", test_id, 1, 1, "calc-tests", test_id, "scip-clang"))
+            connection.execute(
+                "INSERT INTO test_symbol_edges VALUES(?,?,?,?)",
+                (test_id, "sym", "COVERS", "scip-clang"))
+        connection.commit()
+        connection.close()
+
+        _, output = self.closure()
+
+        quality = (output / "quality.tsv").read_text()
+        self.assertIn("tests\t4\n", quality)
+        self.assertIn("bounded_test_candidates_omitted\t2\n", quality)
+        context = (output / "context.md").read_text()
+        self.assertIn("test-3", context)
+        self.assertNotIn("test-4", context)
+        self.assertNotIn("test-budget-exceeded", (output / "manifest.env").read_text())
 
     def test_pure_missing_evidence_still_requests_provider_refresh(self):
         status, output = self.closure(required_symbols="missing")

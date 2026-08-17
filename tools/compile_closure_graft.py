@@ -83,12 +83,13 @@ def main() -> int:
             raise ValueError("repair children must have unique criterion IDs and a source cut")
         seen_ids.add(criterion)
         paths = child.get("allowed_paths", "-")
+        context_paths = child.get("context_paths", paths)
         symbols = child.get("required_symbols", "-")
         seam = child.get("seam_kind", "SOURCE_SEAM")
         decomposition.append({
             "parent_criterion": parent,
             "child_criterion": criterion,
-            "title": f"{seam} cut {source_cut}: {paths} [{symbols}]",
+            "title": f"{seam} cut {source_cut}: write {paths}; context {context_paths} [{symbols}]",
             "acceptance_evidence": child.get("acceptance_evidence", "-") or "-",
         })
         for kind, facet_id in normative:

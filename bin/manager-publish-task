@@ -662,7 +662,7 @@ validate_decomposition_for_root()
 validate_deterministic_closure_graft()
 {
 	local candidate="$1" parent="$2" marker action trigger assignment repair expected expected_facets
-	local row child_id _parent_task _sequence allowed_paths required_symbols _acceptance focused_validation
+	local row child_id _parent_task _sequence allowed_paths context_paths required_symbols _acceptance focused_validation
 	local _source_cut _seam_kind _estimated _status target
 	marker="$(task_root_replan_file "$root")"
 	action="$(metadata_value "$marker" Closure-Repair-Action)"
@@ -694,13 +694,15 @@ validate_deterministic_closure_graft()
 	fi
 	rm -f "$expected" "$expected_facets"
 	row="$(tail -n +2 "$repair" | sort -t $'\t' -k3,3n -k1,1 | head -n 1)"
-	IFS=$'\t' read -r child_id _parent_task _sequence allowed_paths required_symbols _acceptance \
+	IFS=$'\t' read -r child_id _parent_task _sequence allowed_paths context_paths required_symbols _acceptance \
 		focused_validation _source_cut _seam_kind _estimated _status <<< "$row"
 	target="$(metadata_value "$task_file" Target-Criterion)"
 	[[ "$target" == "$parent.$child_id" ]] ||
 		die "closure graft continuation must target the first deterministic child: $parent.$child_id"
 	[[ "$(metadata_value "$task_file" Allowed-Scope)" == "$allowed_paths" ]] ||
 		die 'closure graft continuation Allowed-Scope differs from its deterministic source cut'
+	[[ "$(metadata_value "$task_file" Context-Paths)" == "$context_paths" ]] ||
+		die 'closure graft continuation Context-Paths differ from its deterministic evidence cut'
 	[[ "$(metadata_value "$task_file" Required-Symbols)" == "$required_symbols" ]] ||
 		die 'closure graft continuation Required-Symbols differ from its deterministic source cut'
 	[[ "$(metadata_value "$task_file" Focused-Validation)" == "$focused_validation" ]] ||

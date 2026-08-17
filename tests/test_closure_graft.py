@@ -21,17 +21,17 @@ class ClosureGraftTest(unittest.TestCase):
             encoding="utf-8",
         )
         self.children = self.root / "repair-children.tsv"
-        fields = ("child_id", "parent_task", "sequence", "allowed_paths", "required_symbols",
-                  "acceptance_evidence", "focused_validation", "source_cut", "seam_kind",
-                  "estimated_source_bytes", "status")
+        fields = ("child_id", "parent_task", "sequence", "allowed_paths", "context_paths",
+                  "required_symbols", "acceptance_evidence", "focused_validation", "source_cut",
+                  "seam_kind", "estimated_source_bytes", "status")
         with self.children.open("w", encoding="utf-8", newline="") as stream:
             writer = csv.DictWriter(stream, fieldnames=fields, delimiter="\t", lineterminator="\n")
             writer.writeheader()
             writer.writerow(dict(zip(fields, (
-                "CCR-a", "t1", "1", "a.c", "a", "test-a", "test-a", "cut-a",
+                "CCR-a", "t1", "1", "a.c", "a.c", "a", "test-a", "test-a", "cut-a",
                 "BUILD_TARGET", "100", "PROPOSED"))))
             writer.writerow(dict(zip(fields, (
-                "CCR-b", "t1", "2", "b.c", "b", "test-b", "test-b", "cut-b",
+                "CCR-b", "t1", "2", "b.c", "b.c", "b", "test-b", "test-b", "cut-b",
                 "BUILD_TARGET", "100", "PROPOSED"))))
 
     def tearDown(self):

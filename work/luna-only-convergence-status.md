@@ -1,6 +1,6 @@
 # Luna-Only Convergence Implementation Status
 
-Last updated (UTC): 2026-08-17T16:12:50Z
+Last updated (UTC): 2026-08-17T16:22:11Z
 
 Overall status: `IN_PROGRESS`
 
@@ -343,13 +343,26 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   and sent both roots through an index refresh/manager-replan path.
 - The five affected production process groups were stopped at preserved repair
   boundaries before another planning revision could be consumed.
-- The closure compiler now prefers `GRAFT_GRAPH_CUTS` for a mixed evidence and
-  resource failure only when at least two deterministic indexed seams exist.
-  Pure missing evidence and single unsplittable seams remain fail-closed on
+- The closure compiler now prefers `GRAFT_GRAPH_CUTS` for every mixed evidence
+  and resource failure. Pure missing evidence remains fail-closed on
   `REFRESH_INDEX_OR_OVERLAY`; authority failures retain their dedicated repair.
 - This classification keeps unresolved facts visible in `repair.tsv`, while
   compiling Luna-sized child candidates from evidence already present instead
   of asking a model to rediscover the decomposition.
+- The first production promotion proved the new mixed-failure classification,
+  then exposed a separate scope-conservation defect before publication: graph
+  cuts treated read-only headers, tests, and build evidence as child write
+  authority. All five turns were stopped before the deterministic publisher
+  could accept such a child.
+- Repair candidates now intersect every indexed cut with the immutable parent
+  `Allowed-Scope`; a read-only context path can never become child mutation
+  scope. The repair schema carries distinct `allowed_paths` and
+  `context_paths`, and publication verifies both against the compiled row.
+- Automatically discovered behavioral tests are globally capped at the
+  configured test budget, and large test/reference/flow excerpts use smaller
+  kind-specific byte windows. Explicit named tests remain required. This
+  removes irrelevant multi-megabyte test aggregation from otherwise focused
+  Luna capsules without weakening provider freshness or exact-symbol checks.
 
 ## Validation journal
 
@@ -391,10 +404,14 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   `tests/test-decomposition-v2.sh`, and
   `tests/test-luna-only-convergence.sh` — PASS.
 - Combined Python suite — PASS, 24 tests.
-- Context Closure tool suite — PASS, 18 tests after adding mixed-defect graph
-  cut and pure-evidence-refresh coverage.
+- Context Closure and graft tool suites — PASS, 22 tests after adding
+  mixed-defect routing, write-scope conservation, bounded discovered-test
+  evidence, and pure-evidence-refresh coverage.
 - Post-classifier regression: Luna-only convergence, SCIP importer,
   repository-index, and the complete v4.4 harness suite — PASS.
+- Post-scope-conservation regression: Luna-only convergence, decomposition v2,
+  Python Context Closure/graft tools, Bash syntax, and the complete v4.4
+  harness suite — PASS.
 - `git diff --check` and Bash syntax validation — PASS.
 
 ## Next actions
