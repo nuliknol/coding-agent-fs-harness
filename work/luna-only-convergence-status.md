@@ -1,6 +1,6 @@
 # Luna-Only Convergence Implementation Status
 
-Last updated (UTC): 2026-08-17T16:46:43Z
+Last updated (UTC): 2026-08-17T19:50:00Z
 
 Overall status: `IN_PROGRESS`
 
@@ -662,3 +662,63 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   containing repository paths were being treated as SCIP symbols. Existing
   paths in decision/edge interface metadata now seed exact path evidence;
   non-path identifiers remain symbol seeds.
+- Production was advanced through commits `9bf4e63`..`509bfe6` using the
+  required dev-push/production-pull workflow. The five previously paused roots
+  were resolved without discarding accepted reviews, checkpoints, raw liveness
+  history, or task evidence; liveness roots were rearmed only through audited
+  fix-commit epochs.
+- A live compmod-wc-4 leaf exposed duplicated required and supporting reference
+  windows in compiled capsules. Required scoped references are now bounded to
+  one stable occurrence per indexed symbol, supporting navigation to one item
+  per semantic file boundary, and optional supporting source to one quarter of
+  the complete capsule budget. The exact preserved leaf changed from repeated
+  `CLOSURE_BUDGET_EXCEEDED` at 40,746 bytes to `READY` at 23,101 bytes with all
+  five required symbols, two ownership boundaries, and six authority records.
+- A live DPVIS worker exposed a typed expansion defect: `BUILD_OWNER` accepted
+  exact files but rejected an authorized validation directory. The resolver
+  now recognizes exact existing repository paths named by `Focused-Validation`
+  and queries build ownership for descendant files. The formerly rejected
+  `tests/render_compile` request now returns a 9,842-byte trusted extension;
+  directory-wide mutation authority remains denied.
+- The story startup repository index is reused in on-demand Joern mode, its
+  specification and architecture fit remain accepted, and its all-Luna DAG has
+  reached deterministic staging. No eager Joern/JVM or SQLite workload was
+  present during the production restart checks.
+- Current focused regression: Context Closure tools, typed context requests,
+  and their production reproductions pass (31 Python tests total). All
+  500,000-token authoritative, live-estimate, and cumulative task fuses remain
+  unchanged.
+- A live zero-file verification exposed that assigned validation inherited the
+  persistent supervisor's launch directory. Relative commands such as
+  `cmake -S resys` therefore resolved below `HARNESS_HOME` and produced a false
+  `VALIDATION_PREREQUISITE`. Commit `8ecfe0d` makes the trusted runner enter the
+  configured repository before executing the complete captured expression.
+  A regression invokes the runner from `/`, and the preserved production
+  command now builds the exact `resys_semantic_smoke` target successfully.
+- The resulting compmod-wc-4 `REVIEW_STALLED` investigation fuse was retained,
+  the fix was deployed, and only then was the preserved result explicitly
+  requeued. A fresh Luna manager review is active; no task history, accepted
+  evidence, or fuse threshold was removed.
+- Current live state after deployment: compmod-wc-2, compmod-wc-3,
+  compmod-wc-4, dplm-final-v2, and dpvis-w2-a2 are running worker, review, or
+  local replanning transactions. DPVIS revision 52 and DPLM revision 47 both
+  compiled `READY` capsules and launched Luna. The story startup remains an
+  active bounded architecture-binding transaction after index reuse and DAG
+  staging, not a paused supervisor loop.
+- Story architecture binding subsequently found six non-ready leaves in an
+  81-node candidate. Its repair prompt ambiguously requested both a line cap
+  and byte cap, and Luna implemented that as two semicolon-separated reads of
+  the same DAG, producing 66,597 command-output bytes. Startup correctly
+  preserved the candidate as `RECOVERABLE`; it did not replay the input.
+- Commit `f92328f` completes the startup repair input boundary. Context Closure
+  aggregation now retains provider-only graph-cut rows whose evidence fields
+  are `-`, context-closure candidate rejection points at the compact typed
+  `repair.tsv` instead of the full admission table, and both repair prompts
+  specify the single `head -n ... | head -c ...` pipeline while forbidding
+  duplicate reads. A regression verifies that an ownership/byte-budget graph
+  cut survives aggregation.
+- Production resumed the preserved story startup after deployment. Its repair
+  input is now 951 bytes and names all seven typed repair rows covering the six
+  rejected leaves; observed repair commands use one source and remain at or
+  below 32,768 bytes. The other resumable projects have no current blocking
+  marker and remain active under Luna-only execution.
