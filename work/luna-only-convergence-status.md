@@ -971,3 +971,10 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   anchors, ambiguous anchors, out-of-scope paths, binaries, generated paths,
   and whitespace errors still fail closed. The closure/tool suite now has 36
   passing cases, including stale-line relocation and ambiguous-anchor rejection.
+- `TOKENS_WITHOUT_VERIFIED_GAIN` now has its own audited recovery transaction:
+  `REARM_EFFICIENCY_AFTER_HARNESS_BUG` requires an installed ancestor fix
+  commit and advances only the verified-facet efficiency baseline. It preserves
+  the append-only token/anomaly history and does not reset review, replan,
+  lifetime, or root-token liveness budgets. Reusing the same fix commit on the
+  unchanged efficiency boundary is rejected; root-liveness regression covers
+  the separation.

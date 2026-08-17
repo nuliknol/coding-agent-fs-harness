@@ -294,6 +294,56 @@ if "$HARNESS_BIN/harness-resolve-architecture-reassessment" \
 	exit 1
 fi
 rm -f "$bug_marker"
+
+# A tokens-without-gain investigation has a separate audited rearm. It resets
+# only the efficiency comparison boundary after an installed harness fix and
+# cannot silently reset the root's other monotonic liveness budgets.
+efficiency_root=efficiencyroot
+efficiency_marker="$project/control/progress/livenessproj-task-$efficiency_root.architecture-reassessment-required.md"
+cat > "$efficiency_marker" <<MD
+# Architecture Reassessment Required
+
+Project: livenessproj
+Task-Root: $efficiency_root
+Triggered-By: $efficiency_root-revision-03
+Category: TOKENS_WITHOUT_VERIFIED_GAIN
+MD
+efficiency_tokens="$project/control/progress/livenessproj-task-$efficiency_root.tokens.tsv"
+printf 'recorded_at\ttask_id\trole\tthread_id\tinput_tokens\toutput_tokens\tprocessed_delta\n' > "$efficiency_tokens"
+printf 'now\t%s-revision-03\tworker_luna\tthread\t0\t600\t600\n' "$efficiency_root" >> "$efficiency_tokens"
+cat > "$project/control/progress/livenessproj-task-$efficiency_root.efficiency-baseline.env" <<'ENV'
+processed_tokens=0
+verified_facets=0
+agent_episodes=0
+ENV
+cat > "$TEST_ROOT/efficiency-resolution.md" <<MD
+Resolution-Action: REARM_EFFICIENCY_AFTER_HARNESS_BUG
+Harness-Fix-Commit: $harness_fix_commit
+
+The trusted patch transaction was corrected and regression-tested.
+MD
+"$HARNESS_BIN/harness-resolve-architecture-reassessment" \
+	"$TEST_ROOT/harness.env" "$efficiency_root" "$TEST_ROOT/efficiency-resolution.md" >/dev/null
+efficiency_baseline="$project/control/progress/livenessproj-task-$efficiency_root.efficiency-baseline.env"
+grep -Fqx 'processed_tokens=600' "$efficiency_baseline"
+grep -Fqx 'agent_episodes=1' "$efficiency_baseline"
+grep -Fqx "harness_fix_commit=$harness_fix_commit" "$efficiency_baseline"
+[[ ! -f "$project/control/progress/livenessproj-task-$efficiency_root.liveness-epoch.env" ]]
+cat > "$efficiency_marker" <<MD
+# Architecture Reassessment Required
+
+Project: livenessproj
+Task-Root: $efficiency_root
+Triggered-By: $efficiency_root-revision-03
+Category: TOKENS_WITHOUT_VERIFIED_GAIN
+MD
+if "$HARNESS_BIN/harness-resolve-architecture-reassessment" \
+	"$TEST_ROOT/harness.env" "$efficiency_root" "$TEST_ROOT/efficiency-resolution.md" >/dev/null 2>&1; then
+	printf 'the same harness fix commit rearmed one efficiency boundary twice\n' >&2
+	exit 1
+fi
+rm -f "$efficiency_marker"
+
 # Raising a governing lifetime limit is explicit operator authority; unlike an
 # epoch subtraction, it remains visible in configuration and status.
 sed -i 's/HARNESS_MAX_TOTAL_ROOT_REVIEWS="2"/HARNESS_MAX_TOTAL_ROOT_REVIEWS="3"/' \

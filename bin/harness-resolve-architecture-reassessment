@@ -64,6 +64,21 @@ if [[ -n "$resolution_action" ]]; then
 				die "the same harness fix commit already rearmed this root: $harness_fix_commit"
 			fi
 			;;
+		REARM_EFFICIENCY_AFTER_HARNESS_BUG)
+			[[ "$category" == TOKENS_WITHOUT_VERIFIED_GAIN ]] ||
+				die 'REARM_EFFICIENCY_AFTER_HARNESS_BUG is valid only after a tokens-without-verified-gain investigation fuse'
+			[[ "$harness_fix_commit" =~ ^[0-9a-f]{7,64}$ ]] ||
+				die 'REARM_EFFICIENCY_AFTER_HARNESS_BUG requires Harness-Fix-Commit'
+			git -C "$HARNESS_HOME" cat-file -e "$harness_fix_commit^{commit}" 2>/dev/null ||
+				die "Harness-Fix-Commit is not installed in the harness repository: $harness_fix_commit"
+			git -C "$HARNESS_HOME" merge-base --is-ancestor "$harness_fix_commit" HEAD ||
+				die "Harness-Fix-Commit is not an ancestor of the deployed harness HEAD: $harness_fix_commit"
+			efficiency_baseline="$(task_root_efficiency_baseline_file "$root")"
+			if [[ -f "$efficiency_baseline" &&
+				"$(kv_file_value "$efficiency_baseline" harness_fix_commit 2>/dev/null || true)" == "$harness_fix_commit" ]]; then
+				die "the same harness fix commit already rearmed this efficiency boundary: $harness_fix_commit"
+			fi
+			;;
 		*) die "unsupported architecture Resolution-Action: $resolution_action" ;;
 	esac
 fi
@@ -124,6 +139,12 @@ if [[ "$resolution_action" == REARM_AFTER_HARNESS_BUG ]]; then
 	if liveness_reason="$(root_liveness_violation_reason "$root" 2>/dev/null)"; then
 		die "harness-bug correction failed to establish a fresh bounded liveness epoch: $liveness_reason"
 	fi
+elif [[ "$resolution_action" == REARM_EFFICIENCY_AFTER_HARNESS_BUG ]]; then
+	# The anomaly ledger and raw token history remain append-only. Reset only the
+	# verified-facet comparison boundary after an installed fix; do not buy a new
+	# review/replan/lifetime/token liveness epoch.
+	record_root_verified_facet_boundary "$root"
+	goal_state_set "$(task_root_efficiency_baseline_file "$root")" harness_fix_commit "$harness_fix_commit"
 fi
 rm -f "$marker"
 
