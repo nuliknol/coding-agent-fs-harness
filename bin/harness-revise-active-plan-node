@@ -120,7 +120,19 @@ list_is_subset()
 	done
 }
 
-list_is_subset "$old_paths" "$new_paths" || die 'revised allowed paths may expand but must not remove original authority'
+if ! list_is_subset "$old_paths" "$new_paths"; then
+	invalid_paths="$(metadata_value "$resolution_note" Invalid-Allowed-Scope)"
+	[[ -n "$invalid_paths" ]] ||
+		die 'revised allowed paths may remove an original entry only when the resolution names it in Invalid-Allowed-Scope'
+	IFS=',' read -r -a old_path_entries <<< "${old_paths//;/,}"
+	for old_path_entry in "${old_path_entries[@]}"; do
+		old_path_entry="$(trim_surrounding_whitespace "$old_path_entry")"
+		[[ -n "$old_path_entry" ]] || continue
+		list_is_subset "$old_path_entry" "$new_paths" && continue
+		list_is_subset "$old_path_entry" "$invalid_paths" ||
+			die "resolution does not authorize removal of allowed path: $old_path_entry"
+	done
+fi
 if ! list_is_subset "$old_symbols" "$new_symbols"; then
 	invalid_symbols="$(metadata_value "$resolution_note" Invalid-Required-Symbols)"
 	[[ -n "$invalid_symbols" ]] ||

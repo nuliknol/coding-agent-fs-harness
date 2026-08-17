@@ -8,6 +8,7 @@ HARNESS_BIN="$HARNESS_HOME/bin"
 mkdir -p "$TEST_ROOT/repo/src" "$TEST_ROOT/manager-home" "$TEST_ROOT/worker-home"
 printf 'Repair the bounded runtime contract.\n' > "$TEST_ROOT/repo/spec.md"
 printf 'int public_api(void);\n' > "$TEST_ROOT/repo/src/api.h"
+printf '/* stale planner path */\n' > "$TEST_ROOT/repo/src/legacy.h"
 printf 'int public_api(void) { return 0; }\n' > "$TEST_ROOT/repo/src/api.c"
 git -C "$TEST_ROOT/repo" init -q
 git -C "$TEST_ROOT/repo" add .
@@ -43,7 +44,7 @@ chmod 600 "$TEST_ROOT/harness.env"
 "$HARNESS_BIN/harness-init" "$TEST_ROOT/harness.env" >/dev/null
 cat > "$TEST_ROOT/plan.tsv" <<'TSV'
 node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route
-contract	-	-	Publish and execute the bounded API	API smoke passes	FOCUSED: run the focused API smoke	src/api.h	public_api	MECHANICAL_API	LOW	LUNA
+contract	-	-	Publish and execute the bounded API	API smoke passes	FOCUSED: run the focused API smoke	src/legacy.h,src/api.h	public_api	MECHANICAL_API	LOW	LUNA
 TSV
 "$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/harness.env" "$TEST_ROOT/plan.tsv" >/dev/null
 
@@ -59,7 +60,7 @@ Target-Criterion: contract.header
 Goal-Success-Evidence: API smoke passes
 Focused-Validation: FOCUSED: run the focused API smoke
 Validation-Command: ./focused-smoke
-Allowed-Scope: src/api.h
+Allowed-Scope: src/legacy.h,src/api.h
 Baseline-Boundary: seeded public API
 Hard-Block-Conditions: NONE
 Mandatory-Git-Refs: -
@@ -69,7 +70,7 @@ Worker-Route: LUNA
 Depends-On: -
 Deliverable: Publish and execute the bounded API
 Required-Symbols: public_api
-Context-Paths: src/api.h
+Context-Paths: src/legacy.h,src/api.h
 Architecture-Decisions: NONE
 Expected-Max-Implementation-Files: 1
 Expected-Max-Worker-Turns: 2
@@ -113,16 +114,19 @@ node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	
 contract	-	-	Publish and execute the bounded API	API smoke passes	./focused-smoke --runtime	src/api.h,src/api.c	public_api	FOCUSED_BUG	MEDIUM	TERRA
 TSV
 sed \
-	-e 's/^Allowed-Scope: src\/api.h$/Allowed-Scope: src\/api.h,src\/api.c/' \
+	-e 's/^Allowed-Scope: src\/legacy.h,src\/api.h$/Allowed-Scope: src\/api.h,src\/api.c/' \
 	-e 's#^Focused-Validation: FOCUSED: run the focused API smoke$#Focused-Validation: ./focused-smoke --runtime#' \
 	-e 's/^Leaf-Type: MECHANICAL_API$/Leaf-Type: FOCUSED_BUG/' \
 	-e 's/^Complexity-Class: LOW$/Complexity-Class: MEDIUM/' \
 	-e 's/^Worker-Route: LUNA$/Worker-Route: TERRA/' \
-	-e 's/^Context-Paths: src\/api.h$/Context-Paths: src\/api.h,src\/api.c/' \
+	-e 's/^Context-Paths: src\/legacy.h,src\/api.h$/Context-Paths: src\/api.h,src\/api.c/' \
 	-e 's/^Expected-Max-Implementation-Files: 1$/Expected-Max-Implementation-Files: 2/' \
 	"$TEST_ROOT/root.md" > "$TEST_ROOT/revised-root.md"
-printf 'The focused smoke proved that the API implementation source is part of this active acceptance boundary.\n' \
-	> "$TEST_ROOT/resolution.md"
+cat > "$TEST_ROOT/resolution.md" <<'MD'
+Invalid-Allowed-Scope: src/legacy.h
+
+The focused smoke proved that the stale planner path is not part of this active acceptance boundary and that the API implementation source is.
+MD
 
 output="$("$HARNESS_BIN/harness-revise-active-plan-node" "$TEST_ROOT/harness.env" \
 	"$TEST_ROOT/revised-plan.tsv" "$TEST_ROOT/revised-root.md" "$TEST_ROOT/resolution.md")"
@@ -141,7 +145,7 @@ revision_archive="$(find "$project/archive/plan-node-revisions/contract" -mindep
 [[ ! -e "$project/control/progress/revisionproj-task-contract.liveness-epoch.env" ]]
 grep -Fqx 'worker_route=TERRA' \
 	"$project/control/progress/revisionproj-task-contract.operator-worker-route-override.env"
-grep -Fqx 'old_allowed_paths=src/api.h' "$revision_archive/revision.env"
+grep -Fqx 'old_allowed_paths=src/legacy.h,src/api.h' "$revision_archive/revision.env"
 grep -Fqx 'new_allowed_paths=src/api.h,src/api.c' "$revision_archive/revision.env"
 grep -Fqx 'old_focused_validation=FOCUSED: run the focused API smoke' "$revision_archive/revision.env"
 grep -Fqx 'new_focused_validation=./focused-smoke --runtime' "$revision_archive/revision.env"
