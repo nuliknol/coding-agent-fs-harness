@@ -476,7 +476,7 @@ def build_closure(args: argparse.Namespace) -> str:
             # later path pass from embedding the complete declared file.
             for declared_path in sorted(path_seeds):
                 source = safe_source_path(repository, declared_path)
-                window = live_symbol_window(source, requested) if source else None
+                window = live_symbol_window(source, requested, maximum_lines=96) if source else None
                 if not window:
                     continue
                 add_item(items, kind="BOUNDED_SOURCE_EVIDENCE", path=declared_path,

@@ -912,7 +912,8 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   its definition region. The compiler therefore reported a missing required
   definition and later embedded the complete declared 289-line HIP source,
   producing a 38,707-byte capsule. Known symbols with no definition now use the
-  same exact declared-path symbol-window fallback as wholly omitted symbols;
+  same exact declared-path symbol-window fallback as wholly omitted symbols,
+  capped at 96 lines for this weaker provider case;
   the full file is not subsequently duplicated. The fuse remains enforced and
   will be resolved only after the archived revision recompiles within budget.
   The closure suite now has 34 passing cases.
