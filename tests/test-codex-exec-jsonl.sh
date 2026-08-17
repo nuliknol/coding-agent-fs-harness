@@ -312,7 +312,8 @@ rm -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-review-reso
 
 # Replanning has the same bounded-planning semantics as review. A replan that
 # keeps revising a rejected publication is a token anomaly, not a human product
-# decision, and receives its own role-specific action ceiling.
+# decision under the balanced policy, and receives its own role-specific action
+# ceiling.
 cp "$TMP/env" "$TMP/env-replan-items"
 printf 'export HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION="80"\n' >> "$TMP/env-replan-items"
 printf 'export HARNESS_MAX_MANAGER_REPLAN_ITEMS_PER_INVOCATION="3"\n' >> "$TMP/env-replan-items"
@@ -330,6 +331,27 @@ grep -q '^item_limit=3$' "$TMP/replan-item-loop.classification"
 [[ -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-replan-resource.token-usage-anomaly.md" ]]
 [[ ! -e "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-replan-resource.needs-human.md" ]]
 rm -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-replan-resource.token-usage-anomaly.md"
+
+# Under Luna-only convergence the same guard is a local, fresh-turn planning
+# retry signal. It must not globally pause every worker and reviewer in the
+# project while the recovery owner still has a bounded correction available.
+cp "$TMP/env-replan-items" "$TMP/env-replan-items-luna"
+printf 'export HARNESS_MODEL_POLICY="luna_only"\n' >> "$TMP/env-replan-items-luna"
+printf 'export MANAGER_MODEL="gpt-5.6-luna"\nexport DECOMPOSITION_MODEL="gpt-5.6-luna"\nexport CONVERGENCE_MODEL="gpt-5.6-luna"\nexport ORACLE_MODEL="gpt-5.6-luna"\nexport WORKER_MODEL="gpt-5.6-luna"\nexport LUNA_WORKER_MODEL="gpt-5.6-luna"\nexport TERRA_WORKER_MODEL="gpt-5.6-luna"\nexport HARNESS_ESCALATION_POLICY="decompose"\n' \
+	>> "$TMP/env-replan-items-luna"
+set +e
+MOCK_MODE=item_loop "$ROOT/bin/codex-exec-jsonl" "$TMP/env-replan-items-luna" \
+	manager_replan gpt-5.6-luna "$replan_resource_prompt" \
+	"$TMP/replan-item-loop-luna.jsonl" "$TMP/replan-item-loop-luna.stderr" \
+	"$TMP/replan-item-loop-luna.last"
+luna_replan_item_status=$?
+set -e
+(( luna_replan_item_status != 0 ))
+grep -q '^classification=agent_item_budget_exceeded$' \
+	"$TMP/replan-item-loop-luna.classification"
+[[ ! -e "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-replan-resource.token-usage-anomaly.md" ]]
+grep -q 'LUNA_ONLY_MANAGER_REPLAN_RESOURCE_RETRY_REQUIRED root=replan-resource.*marker=none' \
+	"$TMP/state/projects/jsonltest/logs/events.log"
 
 # A leaf-goal guard closes one semantic episode in worker-invoke-task. It must
 # not be mislabeled as a human authorization/secret/external-state dependency.

@@ -453,6 +453,15 @@ for increment in "${verified_increments[@]}"; do
 	printf '%s\tVERIFIED\t%s\t%s\t%s\n' "$increment" "$task_id" "$review_sha" "$(timestamp_utc)" >> "$criterion_ledger"
 done
 
+# A passed leaf criterion advances the immutable first-unmet acceptance
+# boundary. Give the next criterion its own bounded convergence allowance while
+# retaining lifetime totals in the epoch snapshot. A narrative increment does
+# not reset anything and therefore cannot be used to evade liveness guards.
+if (( ${#verified_criteria[@]} > 0 )); then
+	record_root_liveness_epoch "$root" verified-criterion-checkpoint
+	log_event "ROOT_LIVENESS_CRITERION_BOUNDARY_ADVANCED root=$root task=$task_id criteria=${#verified_criteria[@]} epoch=$(task_root_liveness_epoch_file "$root")"
+fi
+
 checkpoint_ledger="$(task_checkpoint_ledger_file "$root")"
 if [[ ! -f "$checkpoint_ledger" ]]; then
 	printf 'checkpointed_at\ttask_id\tcriterion_count\tincrement_count\tprogress_percent\timprovement_percent\treview_sha256\tartifact_directory\n' > "$checkpoint_ledger"

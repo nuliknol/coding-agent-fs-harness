@@ -450,6 +450,29 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   `compmod-wc-2` and dplm had live Luna planning/remediation turns; compmod-wc-4
   had just completed review/checkpoint work.
 
+### Checkpoint — 2026-08-17T17:01:30Z
+
+- Two remaining global pauses were convergence-policy dead ends rather than
+  process stalls. `compmod-wc-4` completed and checkpointed a leaf criterion,
+  but the next criterion inherited the prior criterion's lifetime replan count
+  and immediately hit `TOTAL_ROOT_REPLANS`. A verified criterion checkpoint now
+  records an authorized `verified-criterion-boundary` epoch. Only counters for
+  work after that acceptance boundary are enforced; lifetime totals remain in
+  the snapshot and logs. Verified narrative increments do not reset budgets.
+- dplm's Luna remediation planner ignored its eight-action contract, performed
+  thirteen source/publisher commands, and hit the 500,000-token live estimate.
+  Under Luna-only policy a manager-replan resource fuse is now a local recovery
+  signal, not a project-wide `TOKEN_USAGE_ANOMALY`. The owner retries fresh with
+  the bounded publisher diagnostic and an explicit compiled-evidence-only,
+  no-repository-exploration prompt. Balanced-policy review/replan anomalies
+  retain their existing inspection interlock.
+- The Luna-only replan override now caps the intended path to the plan-node
+  capsule, predecessor evidence digest, task output, and publisher. If compiled
+  inputs do not identify a seam, Luna must decompose the first-unmet criterion
+  instead of searching the repository.
+- Focused Codex resource tests, root-liveness tests, Luna-only convergence tests,
+  and the full v4.4 harness suite pass after these changes.
+
 ## Validation journal
 
 - `tests/test-codex-exec-jsonl.sh` — PASS. Includes Luna-only normalization,

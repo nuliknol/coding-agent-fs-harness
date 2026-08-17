@@ -346,6 +346,14 @@ if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
 
 LUNA-ONLY POLICY OVERRIDE: Every inference and executable leaf uses $LUNA_WORKER_MODEL. Never emit Worker-Route: TERRA, a Terra-Exception, manager-model execution, or a stronger-model fallback. This instruction supersedes legacy Terra language above. When a boundary exceeds Luna limits, append independently acceptance-complete child criteria or add exact typed Context-Paths/Required-Symbols. Use Worker-Route: LUNA and Terra-Exception: - for every published leaf. If CLOSURE_REPAIR_ACTION=GRAFT_GRAPH_CUTS, read CLOSURE_REPAIR_CHILDREN_FILE as the only additional repair source and use its deterministic path/symbol seams to allocate ordered acceptance-complete children; do not clone the parent scope onto every child. If incompatible observable product outcomes are not resolved by the governing specification, request clarification; strategy exhaustion alone is always a decomposition signal.
+
+This Luna planning turn is a compiler over the supplied bounded evidence, not a
+repository explorer. Do not inspect repository source, enumerate files, open
+raw logs, or create combined authority dumps. Read PLAN_NODE_CONTEXT_FILE and,
+when present, TRIGGER_EVIDENCE_DIGEST; then write TASK_OUTPUT and invoke the
+publisher. Use at most four shell/tool actions before the first publisher call.
+If those compiled inputs do not name an implementation-ready seam, decompose
+the first-unmet criterion; do not search for one.
 PROMPT
 fi
 if codex_model_requires_narrow_prompt "$MANAGER_MODEL"; then
@@ -491,6 +499,32 @@ while true; do
 		[[ "$retry_kind" != quota ]] || quota_waits=$((quota_waits + 1))
 		log_event "MANAGER_REPLAN_PROVIDER_WAIT root=$root kind=$retry_kind attempt=$attempt retry=$provider_retries delay_seconds=$retry_delay"
 		sleep "$retry_delay"
+		attempt=$((attempt + 1))
+		continue
+	fi
+	if [[ "$HARNESS_MODEL_POLICY" == luna_only &&
+		"$classification" =~ ^agent_(item|estimated_token|token|command_output)_budget_exceeded$ ]] &&
+		(( attempt < HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS )); then
+		resource_diagnostic="$(jq -rs '
+			[.[] | select(.type == "item.completed" and .item.type == "command_execution" and
+				((.item.command // "") | contains("manager-publish-task"))) |
+				(.item.aggregated_output // "")] | last // ""
+		' "$json_log" 2>/dev/null | head -c "$HARNESS_VALIDATION_OUTPUT_MAX_BYTES")"
+		log_event "LUNA_ONLY_MANAGER_REPLAN_RESOURCE_RETRY root=$root trigger=$trigger_task attempt=$attempt classification=$classification diagnostic_bytes=${#resource_diagnostic}"
+		cat >> "$prompt_file" <<PROMPT
+
+RESOURCE-BOUNDED CORRECTION TURN: the preceding planning process was stopped
+before publication. Start fresh. Repository inspection and combined document
+reads are now forbidden. Consume only PLAN_NODE_CONTEXT_FILE,
+TRIGGER_EVIDENCE_DIGEST, and this bounded publisher diagnostic:
+
+--- publisher diagnostic ---
+$resource_diagnostic
+--- end diagnostic ---
+
+Write TASK_OUTPUT directly, make one publisher call, and correct only that
+call's complete diagnostic if needed. Do not repeat any preceding source read.
+PROMPT
 		attempt=$((attempt + 1))
 		continue
 	fi
