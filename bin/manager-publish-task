@@ -1221,6 +1221,21 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 		[[ -n "$leaf_validation_class" ]] || leaf_validation_class=FOCUSED
 		leaf_expected_files="$(require_single_metadata_value "$task_file" Expected-Max-Implementation-Files 'v2 leaf assignment')"
 		leaf_expected_turns="$(require_single_metadata_value "$task_file" Expected-Max-Worker-Turns 'v2 leaf assignment')"
+		if [[ "$leaf_type" == VERIFICATION_ONLY && "$leaf_expected_files" != 0 ]]; then
+			requested_verification_files="$leaf_expected_files"
+			tmp_verification_files="$task_file.verification-files.$$"
+			awk '
+				index($0, "Expected-Max-Implementation-Files: ") == 1 {
+					if (!seen++) print "Expected-Max-Implementation-Files: 0"
+					next
+				}
+				{print}
+			' "$task_file" > "$tmp_verification_files"
+			chmod --reference="$task_file" "$tmp_verification_files"
+			mv "$tmp_verification_files" "$task_file"
+			leaf_expected_files=0
+			log_event "VERIFICATION_FILE_BUDGET_NORMALIZED root=$root task=$task_id requested=$requested_verification_files expected=0"
+		fi
 		if project_plan_has_column behavioral_concerns; then
 			leaf_expected_actions="$(require_single_metadata_value "$task_file" Expected-Max-Agent-Actions 'measured leaf assignment')"
 			leaf_predicted_p95="$(require_single_metadata_value "$task_file" Predicted-P95-Tokens 'measured leaf assignment')"
@@ -1248,6 +1263,9 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 				IFS=: read -r metadata_field report_field actual_value <<< "$mapping"
 				if (( measured_recovery_route_override != 2 )); then
 					expected_value="$(awk -F '\t' -v node="$plan_item_id" -v field="$report_field" 'NR>1 && $1==node {print $field; exit}' "$(decomposition_complexity_report_file)")"
+					if [[ "$metadata_field" == Expected-Max-Implementation-Files && "$leaf_type" == VERIFICATION_ONLY ]]; then
+						expected_value=0
+					fi
 					# Reports created before the source-action floor was introduced
 					# remain valid durable DAGs. Compare against the same normalized
 					# floor applied to the candidate instead of rejecting our own
