@@ -6,6 +6,7 @@ import argparse
 import csv
 import hashlib
 from pathlib import Path
+import shlex
 import sqlite3
 import sys
 
@@ -46,6 +47,16 @@ def safe_path(repository: Path, relative: str) -> Path | None:
     return candidate if candidate.is_file() else None
 
 
+def safe_entry(repository: Path, relative: str) -> Path | None:
+    """Resolve one declared repository file or directory without escaping it."""
+    candidate = (repository / relative).resolve()
+    try:
+        candidate.relative_to(repository)
+    except ValueError:
+        return None
+    return candidate if candidate.is_file() or candidate.is_dir() else None
+
+
 def source_excerpt(repository: Path, path: str, start: int, end: int,
                    maximum: int) -> str:
     source = safe_path(repository, path)
@@ -82,6 +93,23 @@ def definitions(connection: sqlite3.Connection, symbol_ids: list[str]) -> list[s
     ).fetchall()
 
 
+def declared_validation_paths(repository: Path, command: str) -> set[str]:
+    """Return exact existing repository paths named as validation arguments."""
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return set()
+    paths: set[str] = set()
+    for token in tokens:
+        if not token or token.startswith("-"):
+            continue
+        entry = safe_entry(repository, token)
+        if entry is None:
+            continue
+        paths.add(entry.relative_to(repository).as_posix() or ".")
+    return paths
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--assignment", required=True)
@@ -109,6 +137,8 @@ def main() -> int:
     closure_paths = {row.get("source_path", "") for row in closure} - {"", "-"}
     seed_symbols = required_symbols | closure_symbols
     seed_paths = declared_paths | closure_paths
+    validation_paths = declared_validation_paths(
+        repository, assignment.get("Focused-Validation", ""))
 
     connection = sqlite3.connect(args.database)
     connection.row_factory = sqlite3.Row
@@ -166,17 +196,25 @@ def main() -> int:
                                 row["end_line"], row["name"], row["provider"]))
         relation = "named-test-inside-assignment-boundary"
     elif args.request_kind == "BUILD_OWNER":
-        if identifier in seed_paths:
-            rows = connection.execute(
-                "SELECT DISTINCT bt.name,bt.definition_path,bt.provider FROM build_targets bt "
-                "JOIN build_target_files btf ON btf.target_id=bt.target_id "
-                "JOIN files f ON f.file_id=btf.file_id WHERE f.repository_path=? "
-                "ORDER BY bt.name", (identifier,)).fetchall()
-            for row in rows:
-                if row["definition_path"]:
-                    records.append(("BUILD_OWNER", row["definition_path"], 1, 200,
-                                    row["name"], row["provider"]))
-            relation = "build-owner-of-declared-path"
+        if identifier in seed_paths | validation_paths:
+            declared_entry = safe_entry(repository, identifier)
+            if declared_entry is None:
+                relation = "declared-build-boundary-is-absent"
+            else:
+                normalized_identifier = identifier.rstrip("/")
+                descendant_pattern = normalized_identifier + "/%"
+                rows = connection.execute(
+                    "SELECT DISTINCT bt.name,bt.definition_path,bt.provider FROM build_targets bt "
+                    "JOIN build_target_files btf ON btf.target_id=bt.target_id "
+                    "JOIN files f ON f.file_id=btf.file_id WHERE f.repository_path=? "
+                    "OR f.repository_path LIKE ? ORDER BY bt.name",
+                    (normalized_identifier, descendant_pattern),
+                ).fetchall()
+                for row in rows:
+                    if row["definition_path"]:
+                        records.append(("BUILD_OWNER", row["definition_path"], 1, 200,
+                                        row["name"], row["provider"]))
+                relation = "build-owner-of-declared-path"
     elif args.request_kind == "REPRESENTATION_WRITER":
         authorized = set(requested_ids) & seed_ids
         if authorized:

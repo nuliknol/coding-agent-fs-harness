@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import subprocess
+import sqlite3
 import tempfile
 from pathlib import Path
 import unittest
@@ -92,6 +93,30 @@ class ContextRequestTest(unittest.TestCase):
         result = self.resolve("BUILD_OWNER", "calc.c")
         self.assertEqual(0, result.returncode, result.stderr + result.stdout)
         extension = (self.root / "extension.md").read_text(encoding="utf-8")
+        self.assertIn("add_library(calc calc.c)", extension)
+
+    def test_build_owner_accepts_declared_directory_boundary(self):
+        (self.repository / "src").mkdir()
+        (self.repository / "src" / "owned.c").write_text(
+            "int owned(void) { return 1; }\n", encoding="utf-8")
+        self.assignment.write_text(
+            "Task-ID: t1\nAllowed-Scope: calc.c\nContext-Paths: calc.c\n"
+            "Required-Symbols: add\nFocused-Validation: cmake -S src -B /tmp/build\n",
+            encoding="utf-8")
+        connection = sqlite3.connect(self.database)
+        connection.execute("INSERT INTO files VALUES(2,'g','src/owned.c','c',NULL,1,0)")
+        connection.execute(
+            "INSERT INTO build_targets VALUES('owned-target','g','owned','STATIC_LIBRARY','CMakeLists.txt','cmake')")
+        connection.execute(
+            "INSERT INTO build_target_files VALUES('owned-target',2,'c','COMPILE_SOURCE',NULL,'cmake')")
+        connection.commit()
+        connection.close()
+
+        result = self.resolve("BUILD_OWNER", "src")
+
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        extension = (self.root / "extension.md").read_text(encoding="utf-8")
+        self.assertIn("Authorization-Relation: build-owner-of-declared-path", extension)
         self.assertIn("add_library(calc calc.c)", extension)
 
 
