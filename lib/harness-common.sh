@@ -567,7 +567,10 @@ load_harness_env()
 	HARNESS_MAX_MANAGER_REVIEW_ITEMS_PER_INVOCATION="${HARNESS_MAX_MANAGER_REVIEW_ITEMS_PER_INVOCATION:-14}"
 	# Replanning is also a bounded planning transaction.  A failed assignment
 	# publication must not turn into an open-ended prompt-debugging session.
-	HARNESS_MAX_MANAGER_REPLAN_ITEMS_PER_INVOCATION="${HARNESS_MAX_MANAGER_REPLAN_ITEMS_PER_INVOCATION:-14}"
+	# One authority read, one decisive inspection, one draft, and at most two
+	# publisher-directed corrections fit the manager replan's eight-action
+	# transaction contract. Extra exploration is a resource anomaly.
+	HARNESS_MAX_MANAGER_REPLAN_ITEMS_PER_INVOCATION="${HARNESS_MAX_MANAGER_REPLAN_ITEMS_PER_INVOCATION:-8}"
 	HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS="${HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS:-3}"
 	HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION="${HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION:-500000}"
 	# Model-reported input includes fixed system/tool framing that the semantic

@@ -557,6 +557,26 @@ index 9f799be..0af6d43 100644
         self.assertEqual(3, rejected.returncode)
         self.assertEqual("int add(int a, int b);\n", (self.repository / "calc.h").read_text())
 
+    def test_patch_hunk_counts_are_normalized_from_literal_body(self):
+        response = self.root / "malformed-count-response.md"
+        response.write_text("""```diff
+diff --git a/calc.c b/calc.c
+--- a/calc.c
++++ b/calc.c
+@@ -1,2 +1,2 @@
+-int add(int a, int b) { return a + b; }
++int add(int a, int b) { return (a + b); }
+```
+""", encoding="utf-8")
+        patch = self.root / "normalized-count.patch"
+        paths = self.root / "normalized-count.paths"
+        subprocess.run(["python3", str(ROOT / "tools/apply_worker_patch.py"),
+                        "--repository", str(self.repository), "--response", str(response),
+                        "--allowed-scope", "calc.c", "--patch-output", str(patch),
+                        "--paths-output", str(paths), "--max-files", "1"], check=True)
+        self.assertIn("@@ -1,1 +1,1 @@", patch.read_text())
+        self.assertIn("return (a + b)", (self.repository / "calc.c").read_text())
+
     def test_architecture_normalization_emits_maps(self):
         output = self.root / "architecture"
         subprocess.run(["python3", str(ROOT / "tools/normalize_repository_architecture.py"),

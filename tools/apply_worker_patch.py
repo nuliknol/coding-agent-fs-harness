@@ -9,6 +9,8 @@ import subprocess
 
 
 DIFF_BLOCK = re.compile(r"```(?:diff|patch)\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
+HUNK_HEADER = re.compile(
+    r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$")
 BINARY_SUFFIXES = {".a", ".bin", ".class", ".dll", ".dylib", ".exe", ".o", ".obj", ".pyc", ".so"}
 
 
@@ -33,7 +35,48 @@ def extract(response: Path) -> str:
         raise ValueError("symlink patches are prohibited")
     if not patch.startswith("diff --git "):
         raise ValueError("proposal is not a Git unified patch")
-    return patch if patch.endswith("\n") else patch + "\n"
+    return normalize_hunk_counts(patch if patch.endswith("\n") else patch + "\n")
+
+
+def normalize_hunk_counts(patch: str) -> str:
+    """Repair only unified-diff hunk cardinalities from their literal bodies.
+
+    Small models commonly emit the correct before/after lines with an off-by-one
+    count in the @@ header.  The header counts are redundant framing metadata;
+    deriving them deterministically does not invent or alter a source change.
+    Git still validates the resulting context, baseline, paths, and whitespace.
+    """
+    lines = patch.splitlines(keepends=True)
+    normalized = list(lines)
+    index = 0
+    while index < len(lines):
+        header = lines[index].rstrip("\r\n")
+        match = HUNK_HEADER.fullmatch(header)
+        if match is None:
+            index += 1
+            continue
+        end = index + 1
+        old_count = 0
+        new_count = 0
+        while end < len(lines):
+            body = lines[end]
+            if body.startswith(("@@ ", "diff --git ")):
+                break
+            if body.startswith("\\ No newline at end of file"):
+                end += 1
+                continue
+            if not body.startswith((" ", "+", "-")):
+                break
+            if body.startswith((" ", "-")):
+                old_count += 1
+            if body.startswith((" ", "+")):
+                new_count += 1
+            end += 1
+        old_start, _, new_start, _, suffix = match.groups()
+        normalized[index] = (
+            f"@@ -{old_start},{old_count} +{new_start},{new_count} @@{suffix}\n")
+        index = end
+    return "".join(normalized)
 
 
 def patch_paths(repository: Path, patch: Path) -> list[str]:

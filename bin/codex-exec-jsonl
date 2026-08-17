@@ -210,7 +210,15 @@ resource_guard_kind=""
 resource_guard_reason=""
 agent_item_count=0
 agent_last_estimated_item_count=0
-agent_estimated_processed_tokens=$(( ($(stat -c %s "$prompt" 2>/dev/null || printf 0) + 3) / 4 ))
+# The provider context contains fixed agent/system/tool instructions that are
+# not present in either the prompt file or emitted JSONL.  Include the existing
+# per-round fixed-context allowance from the first inference onward; otherwise
+# a multi-action turn can remain below the live estimate while its authoritative
+# cached-input total has already crossed the investigation fuse.
+agent_estimated_processed_tokens=$((
+	($(stat -c %s "$prompt" 2>/dev/null || printf 0) + 3) / 4 +
+	HARNESS_AGENT_BASE_CONTEXT_TOKENS_PER_ROUND
+))
 agent_max_command_output_bytes=0
 agent_command_output_limit="$HARNESS_MAX_AGENT_COMMAND_OUTPUT_BYTES"
 [[ "$role" != manager* ]] || agent_command_output_limit="$HARNESS_MAX_MANAGER_COMMAND_OUTPUT_BYTES"
@@ -432,7 +440,9 @@ while kill -0 "$pid" 2>/dev/null; do
 	if (( agent_item_count > agent_last_estimated_item_count )); then
 		context_bytes=$(( $(stat -c %s "$prompt" 2>/dev/null || printf 0) + $(stat -c %s "$json_log" 2>/dev/null || printf 0) ))
 		new_item_count=$((agent_item_count - agent_last_estimated_item_count))
-		agent_estimated_processed_tokens=$((agent_estimated_processed_tokens + new_item_count * ((context_bytes + 3) / 4) ))
+		agent_estimated_processed_tokens=$((agent_estimated_processed_tokens + new_item_count * (
+			((context_bytes + 3) / 4) + HARNESS_AGENT_BASE_CONTEXT_TOKENS_PER_ROUND
+		) ))
 		agent_last_estimated_item_count="$agent_item_count"
 	fi
 	if (( agent_estimated_processed_tokens >= resource_estimated_token_limit )); then

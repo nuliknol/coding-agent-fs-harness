@@ -129,6 +129,9 @@ python3 "$ROOT/tools/irregularity_detector.py" decomposition --dag "$dag" --comp
 grep -Fq 'HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION:-500000' "$ROOT/lib/harness-common.sh" || fail 'authoritative 500K fuse changed'
 grep -Fq 'HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION:-500000' "$ROOT/lib/harness-common.sh" || fail 'live-estimated 500K fuse changed'
 grep -Fq 'HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS:-500000' "$ROOT/lib/harness-common.sh" || fail 'cumulative worker-task 500K fuse changed'
+grep -Fq 'HARNESS_MAX_MANAGER_REPLAN_ITEMS_PER_INVOCATION:-8' "$ROOT/lib/harness-common.sh" || fail 'manager replan exceeds its eight-action contract'
+grep -Fq '((context_bytes + 3) / 4) + HARNESS_AGENT_BASE_CONTEXT_TOKENS_PER_ROUND' \
+	"$ROOT/bin/codex-exec-jsonl" || fail 'live estimate omits fixed per-round context'
 grep -Fq 'Luna-only policy requires every executable assignment to be a LOW/LUNA' "$ROOT/bin/manager-publish-task" || fail 'publisher lacks the Luna-only final route gate'
 grep -Fq '[[ "$HARNESS_MODEL_POLICY" != luna_only && "$HARNESS_ESCALATION_POLICY" == legacy ]] || return 0' \
 	"$ROOT/bin/manager-publish-task" || fail 'exhausted Luna recovery can still normalize to Terra under luna_only'
