@@ -1850,6 +1850,39 @@ test -f "$checkpoint_artifact/legacy-comma-path-artifact/manifest.txt"
 grep -q '^legacy_comma_path_repaired_by_review_sha256=' "$checkpoint_artifact/manifest.txt"
 grep -q $'^path=source.txt\ttype=file\t' "$checkpoint_artifact/manifest.txt"
 grep -q $'^path=source-two.txt\ttype=file\t' "$checkpoint_artifact/manifest.txt"
+
+# A zero-write verification leaf validates a source increment preserved by an
+# earlier attempt. Its worker budget remains zero, while the trusted final
+# acceptance transaction inherits the immutable root's cumulative file ceiling.
+cat > "$checkpoint_project/control/progress/checkpointproj-task-budget-root.root-assignment.md" <<'ROOT'
+Task-ID: budget-root
+Allowed-Scope: source.txt
+Expected-Max-Implementation-Files: 1
+ROOT
+cat > "$CHECKPOINT_ROOT/verification-budget.assignment.md" <<'ASSIGNMENT'
+Task-ID: budget-root-revision-01
+Task-Root: budget-root
+Leaf-Type: VERIFICATION_ONLY
+Allowed-Scope: source.txt
+Expected-Max-Implementation-Files: 0
+ASSIGNMENT
+cat > "$CHECKPOINT_ROOT/ordinary-zero-budget.assignment.md" <<'ASSIGNMENT'
+Task-ID: budget-root-revision-02
+Task-Root: budget-root
+Leaf-Type: DOCUMENTATION
+Allowed-Scope: source.txt
+Expected-Max-Implementation-Files: 0
+ASSIGNMENT
+(
+	source "$CHECKPOINT_ROOT/harness.env"
+	source "$HARNESS_HOME/lib/harness-common.sh"
+	source "$HARNESS_HOME/lib/harness-git-commit.sh"
+	source "$HARNESS_HOME/lib/harness-checkpoint-commit.sh"
+	[[ "$(checkpoint_effective_commit_max_files budget-root-revision-01 \
+		"$CHECKPOINT_ROOT/verification-budget.assignment.md")" == 1 ]]
+	[[ "$(checkpoint_effective_commit_max_files budget-root-revision-02 \
+		"$CHECKPOINT_ROOT/ordinary-zero-budget.assignment.md")" == 0 ]]
+)
 (
 	source "$CHECKPOINT_ROOT/harness.env"
 	source "$HARNESS_HOME/lib/harness-common.sh"

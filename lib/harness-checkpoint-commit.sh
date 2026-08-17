@@ -65,13 +65,39 @@ checkpoint_record_controlled_commit()
 
 checkpoint_effective_commit_max_files()
 {
-	local task_id="$1" assignment="$2" configured root root_assignment root_scope scope_override additional_scope entry allowance=0
+	local task_id="$1" assignment="$2" configured root root_assignment root_configured root_scope current_scope
+	local scope_override additional_scope entry allowance=0 verification_scope_within_root=1
 	local -a entries=()
 	configured="$(metadata_value "$assignment" Expected-Max-Implementation-Files)"
 	[[ "$configured" =~ ^[0-9]+$ ]] || { printf '%s\n' "$configured"; return 0; }
 	root="$(task_root_id "$task_id")"
 	root_assignment="$(task_root_assignment_file "$root")"
 	[[ -f "$root_assignment" ]] || { printf '%s\n' "$configured"; return 0; }
+	# A zero-write verification leaf may be created specifically to validate a
+	# dirty increment preserved by an earlier implementation attempt. Final
+	# acceptance owns the cumulative root transaction, so retain the immutable
+	# root's file ceiling when the verification scope remains wholly inside the
+	# root scope. The verification worker still has a zero-write budget; only the
+	# trusted acceptance commit receives this inherited allowance.
+	if [[ "$configured" == 0 && "$(metadata_value "$assignment" Leaf-Type)" == VERIFICATION_ONLY ]]; then
+		root_configured="$(metadata_value "$root_assignment" Expected-Max-Implementation-Files)"
+		root_scope="$(metadata_value "$root_assignment" Allowed-Scope)"
+		current_scope="$(metadata_value "$assignment" Allowed-Scope)"
+		if [[ "$root_configured" =~ ^[0-9]+$ && -n "$root_scope" && -n "$current_scope" ]]; then
+			IFS=',' read -r -a entries <<< "${current_scope//;/,}"
+			for entry in "${entries[@]}"; do
+				entry="$(trim_surrounding_whitespace "$entry")"
+				[[ -n "$entry" ]] || continue
+				if ! agent_commit_path_in_scope "$entry" "$root_scope"; then
+					verification_scope_within_root=0
+					break
+				fi
+			done
+			if (( verification_scope_within_root == 1 && root_configured > configured )); then
+				configured="$root_configured"
+			fi
+		fi
+	fi
 	scope_override="$(task_root_architecture_scope_override_file "$root")"
 	[[ -f "$scope_override" ]] || { printf '%s\n' "$configured"; return 0; }
 	[[ "$(kv_file_value "$scope_override" authorized_for 2>/dev/null || true)" == manager_remediation ]] ||
