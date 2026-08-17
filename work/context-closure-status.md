@@ -1,16 +1,16 @@
 # Context Closure Implementation Status
 
-Last updated (UTC): 2026-08-17T04:08:00Z
+Last updated (UTC): 2026-08-17T08:08:50Z
 
 Overall status: `COMPLETE`
 
 Active phase: `PRODUCTION ENFORCEMENT — selected active projects`
 
-Active milestone: `Rebuild selected project indexes and enforce compiled Luna contexts`
+Active milestone: `Verify a live patch-only Luna invocation after required-index rollout`
 
-Deployment state: `5.17.6 candidate; defaults remain off, selected projects are operator-promoted to required index and patch-only closure`
+Deployment state: `5.17.16 pulled to production; all five recoverable selected projects are running current production supervisors with required SCIP/Joern indexing and patch-only Luna admission; defaults remain off`
 
-Commit: `5eb60c3` (production-enforcement corrections), following the original `bba8e609f575a159e254d50f7b308dce737e87ce` implementation
+Commit: `92f6403` (patch-only scratch-worktree launch), following repository-local Context-Path enforcement in `7695b99`, required drift detection in `aff0871`, audited invalid plan-scope correction in `a89d554`, pending-remediation restart attribution in `7e58bf1`, the post-review required-index barrier in `a9a3076`, typed Context Closure evidence compilation in `3ac38c5`, Joern path normalization in `74aff98`, bounded remediation recovery in `8a31264`, the production-enforcement corrections in `5eb60c3..ce4fedb`, and the original `bba8e609f575a159e254d50f7b308dce737e87ce` implementation
 
 ## Production-enforcement corrections
 
@@ -56,6 +56,45 @@ Commit: `5eb60c3` (production-enforcement corrections), following the original `
   in immutable generation identity, and freshness checks compare source root,
   exclusion regex, timeout, and analysis classes against the published
   manifest instead of falsely reusing a generation built under old settings.
+- Normalized Joern paths relative to the configured source root before SCIP
+  identity resolution. Real CompMod and DPLM generations now retain nonzero
+  call, control-flow, data-flow, and mutation evidence instead of silently
+  discarding every Joern row whose path omitted the SCIP source-root prefix.
+- Corrected the Context Closure compiler to honor its documented typed evidence
+  classes. Documentation and verification leaves no longer receive behavioral
+  implementation expansion by default; type, interface, test, caller/callee,
+  flow, and build evidence are selected only by D/T/I/B/C/F/V authority.
+- Kept allocated architecture records complete without treating every sibling
+  interface named by a decision as a seed when the assignment already declares
+  exact required symbols. The direct-relationship limit now measures bounded
+  callers/callees rather than every heterogeneous graph edge.
+- Embedded a deterministic bounded Joern sample for explicitly requested flow
+  leaves, including control-flow, data-flow, and mutation source evidence with
+  provider provenance. Missing requested Joern evidence still fails closed.
+- Preserved manager-remediation authority across a resource-guard checkpoint
+  and recovered an exact one-file ceiling for zero-write roots only from
+  already-dirty paths inside immutable/audited remediation scope.
+- Closed the accepted/checkpoint refresh race: the persistent supervisor now
+  rechecks the durable required-index barrier immediately after result review,
+  before same-iteration replan or planning-gap publication. A new leaf cannot
+  be published several seconds before its mandatory SCIP/Joern refresh starts.
+- Made a live `needs-replan` remediation scope authoritative for resumable
+  restart attribution. Audited tracked work now survives the rejection-to-
+  replan transition without treating read-only Context-Paths as write scope.
+- Allowed an active-node architecture reassessment to remove a factually
+  invalid prior mutation path only when its resolution names that exact entry
+  in `Invalid-Allowed-Scope`, matching the existing audited correction for an
+  invalid required symbol. Unnamed authority still cannot be removed.
+- Made the required-index supervisor barrier independently detect committed
+  source-revision drift. A reviewed blocked/hard-blocked episode that preserves
+  a valid source commit can no longer publish the next leaf against the prior
+  generation merely because it did not pass an accepted/checkpointed hook.
+- Rejected absolute and parent-traversing `Context-Paths` before publication.
+  A temporary diagnostic or build directory outside the repository can no
+  longer masquerade as required closure evidence and force a false capsule.
+- Added Codex `--skip-git-repo-check` only for patch-only workers. These workers
+  deliberately run in a tool-less, non-repository scratch directory; the flag
+  allows inference to start there without restoring repository exploration.
 
 ## Completed since previous update
 
@@ -233,6 +272,8 @@ Passed:
 go test ./...
 bash tests/test-repository-index.sh
 bash tests/test-scip-importer.sh
+python3 tests/test_context_closure_tools.py
+bash tests/test-active-plan-revision.sh
 bash tests/test-decomposition-v2.sh
 bash tests/test-architecture-guards.sh
 bash tests/test-harness.sh
@@ -282,6 +323,36 @@ Two projects with the same repository revision and compilation configuration
 reuse one immutable generation. A distinct compiler configuration produces a
 distinct generation. An indexing failure preserves the prior pointer.
 
+Production-shaped CompMod measurements after typed compilation:
+
+```text
+CMCLM-002F prior closure:      NEEDS_FURTHER_DECOMPOSITION, 73 items, 111759 bytes
+CMCLM-002F corrected closure:  READY, 2 source regions, 12119 bytes
+CompMod Joern unique edges:    57789 call, 984210 control-flow,
+                              914407 data-flow, 216552 mutation
+DPLM Joern unique edges:       12753 call, 99421 control-flow,
+                              93552 data-flow, 31127 mutation
+```
+
+Live production enforcement evidence:
+
+```text
+Project/task:                     compmod-wc-4 / CMPDOM-DAG-003
+Mode/status:                      patch_only / READY
+Compiled context:                 27872 bytes / 6968 estimated tokens
+Manifest:                         7 items, 2 symbols, 2 modules, 3 tests
+Build evidence:                   1 target, 17 inputs
+Admission defects:                0 unresolved, 0 graph cuts
+Worker prompt:                    embedded the complete compiled capsule
+Model route:                      gpt-5.6-luna
+```
+
+That live task exposed the non-repository Codex trust check before inference;
+version 5.17.16 fixes that exact launch condition. The focused functional test
+and full harness suite pass. A subsequent oversized Luna candidate was rejected
+deterministically and returned for decomposition, confirming that production no
+longer substitutes fallback repository context.
+
 ## Blockers and risks
 
 - No implementation blocker remains. `scip-clang 0.4.0` can emit nonzero lint
@@ -290,18 +361,23 @@ distinct generation. An indexing failure preserves the prior pointer.
 - Suggested graph cuts identify reproducible structural seams; Sol still owns
   the semantic proof that every child preserves an independently complete
   acceptance boundary.
-- Required and patch-only modes are implemented and tested, but remain an
-  operator promotion decision. Production defaults stay `off`; real projects
-  should collect reviewed advisory samples before promotion.
-- Deployment must not stop active harnesses, rebuild active DAGs, or change
-  existing environment files. Installing disabled-by-default binaries is the
-  only rollout in this phase.
+- Required and patch-only modes are implemented and tested. Production
+  defaults stay `off`; the selected projects have been explicitly promoted to
+  `HARNESS_REPOSITORY_INDEX_MODE=required` and
+  `HARNESS_CONTEXT_CLOSURE_MODE=patch_only` by operator decision.
+- A promoted project cannot launch Luna from fallback context. A non-ready or
+  stale capsule records `CONTEXT_CLOSURE_LAUNCH_REJECTED` and returns to Sol;
+  clean stale indexes are repaired before supervisor startup, while a dirty
+  worktree remains assigned to manager review/recovery before refresh.
 
 ## Next concrete action
 
-No implementation action remains. Select new projects for advisory mode,
-collect reviewed outcomes, and use the promotion report before enabling
-required or patch-only mode.
+Continue normal event-driven execution and record the first post-5.17.16 READY
+Luna result. The `closure_mode` field in `WORKER_CONTEXT_SELECTED` is legacy
+progress-resumption state, not Context Closure admission; authoritative proof
+is the `CONTEXT_CLOSURE_PREPARED` mode/status/file record plus the embedded
+capsule in the worker prompt. Keep the story project paused until its lifecycle
+specification contradiction is resolved.
 
 ## Update history
 
@@ -322,3 +398,17 @@ required or patch-only mode.
 | 2026-08-16T21:08:08Z | Phase 10 | QUALIFIED_PENDING_DEPLOYMENT | All Go and shell suites, real SCIP/Joern/HIP integration, focused Python tests, syntax checks, and diff checks passed; production is clean and active environments inherit disabled defaults. |
 | 2026-08-16T21:09:47Z | Phase 10 | QUALIFIED_PENDING_DEPLOYMENT | Initial fast-forward exposed missing importer `--version`; added stable schema-v5 provenance output and passed Go, real-tool, lifecycle, focused, and diff checks. |
 | 2026-08-16T21:10:22Z | Phase 10 | COMPLETE | Version 5.17.1 is synchronized across development, remote main, and production; importer provenance and all four active environments verified, modes remain off, and no active supervisor or DAG was restarted. |
+| 2026-08-17T03:32:00Z | Production enforcement | COMPLETE | Version 5.17.2 bounded architecture-fit inputs, corrected SCIP ownership, structural closure, SDK evidence, and required/patch-only promotion were pushed and pulled to production. |
+| 2026-08-17T04:02:00Z | Production recovery | COMPLETE | Versions 5.17.3 through 5.17.5 made preserved reviews release-aware, accepted bounded verification increments, and moved required index refresh into the persistent supervisor. |
+| 2026-08-17T04:45:00Z | Provider provenance | COMPLETE | Version 5.17.6 added Joern source, exclusion, timeout, and analysis-class freshness/identity checks; focused repository-index and real SCIP integration tests passed. |
+| 2026-08-17T05:03:34Z | Live rollout | IN_PROGRESS | Five recoverable harnesses are stopped while required SCIP/Joern generations are rebuilt serially; promoted modes fail closed and the contradictory story specification remains paused. |
+| 2026-08-17T06:10:00Z | Real provider integration | COMPLETE | Version 5.17.7 normalized configured Joern source-root paths; rebuilt CompMod and DPLM indexes retained millions of real control/data-flow edges and hundreds of thousands of mutation edges. |
+| 2026-08-17T06:24:00Z | Recovery continuity | COMPLETE | Version 5.17.8 preserved manager-remediation mode across resource checkpoints and recovered only audited dirty-path file ceilings for zero-write roots. |
+| 2026-08-17T06:38:00Z | Typed closure compilation | QUALIFIED_PENDING_DEPLOYMENT | Version 5.17.9 makes D/T/I/B/C/F/V selection effective, embeds bounded Joern flow evidence, and reduces the production-shaped CMCLM-002F documentation capsule from 111759 bytes to a 12119-byte READY closure; focused, real-tool, and full harness suites passed. |
+| 2026-08-17T06:45:00Z | Refresh serialization | QUALIFIED_PENDING_LIVE_VERIFICATION | Version 5.17.11 rechecks a review-created required-index marker before same-iteration replanning; repository-index and full harness suites passed, development was pushed, and production fast-forwarded to `a9a3076`. |
+| 2026-08-17T06:56:00Z | Stateful restart attribution | COMPLETE | Version 5.17.12 recognizes the exact remediation scope in a live needs-replan marker, allowing DPVis to restart with its audited CMake diff while preserving the strict unrelated-drift boundary; root-liveness and full harness suites passed. |
+| 2026-08-17T07:28:00Z | Audited plan correction | COMPLETE | Version 5.17.13 permits a reassessment note to remove only explicitly named invalid prior scope entries; active-plan revision and full harness suites passed, and production fast-forwarded to `a89d554`. |
+| 2026-08-17T07:30:00Z | Required drift barrier | COMPLETE | Version 5.17.14 discovers committed source drift even after blocked outcomes, schedules the durable required-index barrier before publication, and passed repository-index plus full harness suites before production fast-forwarded to `aff0871`. |
+| 2026-08-17T07:51:45Z | Live required closure | COMPLETE | CompMod task `CMPDOM-DAG-003` compiled a 27872-byte READY capsule from indexed typed evidence, embedded it in a patch-only Luna prompt, and launched the configured Luna route without repository tools. |
+| 2026-08-17T07:55:00Z | Repository-local authority | COMPLETE | Version 5.17.15 rejects absolute and parent-traversing Context-Paths so temporary diagnostics cannot become false required closure evidence; architecture guards and the full harness suite passed before production pull. |
+| 2026-08-17T08:02:00Z | Patch-only runtime | COMPLETE | Version 5.17.16 permits Codex execution from the intentional non-repository patch-only scratch directory without restoring tool or repository access; focused runner and full harness suites passed before production pull. |
