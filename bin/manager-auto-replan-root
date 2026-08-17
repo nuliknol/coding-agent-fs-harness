@@ -93,14 +93,15 @@ elif [[ "$trigger_outcome" == LEGACY_HARD_BLOCKED ]]; then
 # An explicit architecture resolution establishes a fresh operator-reviewed
 # authority boundary. Do not reinterpret the preserved historical fingerprint
 # as proof that manager remediation or scope expansion remains authorized.
-elif (( resource_recovery == 0 )) &&
+elif (( resource_recovery == 0 && policy_migration == 0 )) &&
 	[[ "$trigger_outcome" != ARCHITECTURE_REASSESSMENT_RESOLVED ]] &&
 	root_same_blocker_without_verified_gain "$root" "$blocking_fingerprint"; then
 	recovery_mode="MANAGER_REMEDIATION"
 	recovery_reason="the same local blocker survived a bounded automatic replan without durable verified gain"
 fi
 auto_replans="$(root_auto_replans_without_verified_gain "$root")"
-if [[ "$recovery_mode" != MANAGER_REMEDIATION ]] && (( resource_recovery == 0 )) &&
+if [[ "$recovery_mode" != MANAGER_REMEDIATION ]] &&
+	(( resource_recovery == 0 && policy_migration == 0 )) &&
 	(( auto_replans >= HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN )); then
 	recovery_mode="MANAGER_REMEDIATION"
 	recovery_reason="the bounded worker strategy-change budget was exhausted without durable verified gain ($auto_replans/$HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN)"

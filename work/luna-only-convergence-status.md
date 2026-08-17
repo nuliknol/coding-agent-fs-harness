@@ -1,6 +1,6 @@
 # Luna-Only Convergence Implementation Status
 
-Last updated (UTC): 2026-08-17T15:32:00Z
+Last updated (UTC): 2026-08-17T16:02:00Z
 
 Overall status: `IN_PROGRESS`
 
@@ -268,6 +268,18 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
 - Added regression coverage for archival, typed recovery, retained historical
   counters, post-migration delta accounting, and absence of an immediate
   liveness re-pause.
+
+### 2026-08-17 — mandatory migration decomposition hardened
+
+- Production telemetry exposed a residual classification escape: the typed
+  `LUNA_ONLY_POLICY_MIGRATION` marker was initially recognized, but later
+  legacy same-blocker and exhausted-replan checks could overwrite its recovery
+  mode with `MANAGER_REMEDIATION`.
+- Both generic overrides now explicitly exclude policy migrations. Migrated
+  roots therefore retain `AUTOMATIC_REPLAN` and the mandatory child-criterion
+  decomposition instructions regardless of their preserved legacy history.
+- Added a regression invariant covering both override sites before the
+  corrected migration path is promoted again.
 
 ## Validation journal
 

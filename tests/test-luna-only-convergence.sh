@@ -126,6 +126,15 @@ epoch="$project/control/progress/lunaconvergence-task-003.liveness-epoch.env"
 grep -Fqx 'authorized_reset=1' "$epoch"
 grep -Fqx 'budget_scope=luna-only-migrated-child-boundary' "$epoch"
 grep -Fqx 'reviewed_attempts=2' "$epoch"
+
+# A policy migration is an explicit mandatory-decomposition boundary. Neither
+# historical blocker fingerprints nor an exhausted legacy automatic-replan
+# budget may silently downgrade it to manager remediation.
+grep -Fq '(( resource_recovery == 0 && policy_migration == 0 ))' \
+	"$ROOT/bin/manager-auto-replan-root"
+test "$(grep -Fc 'resource_recovery == 0 && policy_migration == 0' \
+	"$ROOT/bin/manager-auto-replan-root")" -eq 2
+
 printf 'new child rejection\n' > "$project/archive/lunaconvergence-task-003-revision-02.rejected.md"
 cat >> "$project/control/progress/lunaconvergence-task-003.replans.tsv" <<'TSV'
 2026-08-17T00:01:00Z	003-revision-02	TEST	child	decompose	-	0	fresh	-	0	0
