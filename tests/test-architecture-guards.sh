@@ -754,6 +754,16 @@ if "$HARNESS_BIN/manager-publish-task" "$MIN_ROOT/harness.env" 001 \
 fi
 grep -Fq 'Context-Paths must cover every Allowed-Scope path' \
 	"$MIN_ROOT/missing-edit-context.err"
+sed 's|Context-Paths: tests/test_value.sh|Context-Paths: tests/test_value.sh,/tmp/generated-build|' \
+	"$MIN_ROOT/task.md" > "$MIN_ROOT/task-absolute-context.md"
+if "$HARNESS_BIN/manager-publish-task" "$MIN_ROOT/harness.env" 001 \
+	"$MIN_ROOT/task-absolute-context.md" tests \
+	>"$MIN_ROOT/absolute-context.out" 2>"$MIN_ROOT/absolute-context.err"; then
+	printf 'V2 task accepted an absolute Context-Paths entry.\n' >&2
+	exit 1
+fi
+grep -Fq 'Context-Paths must contain only comma-separated repository-relative paths or symbols' \
+	"$MIN_ROOT/absolute-context.err"
 sed 's|Context-Paths: tests/test_value.sh|Context-Paths: tests/test_value.sh,unrelated.txt|' \
 	"$MIN_ROOT/task.md" > "$MIN_ROOT/task-missing-symbol-context.md"
 if "$HARNESS_BIN/manager-publish-task" "$MIN_ROOT/harness.env" 001 \

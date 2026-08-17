@@ -1345,6 +1345,14 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 		fi
 		[[ "$leaf_context_paths" != / && "$leaf_context_paths" != . && "$leaf_context_paths" != '*' && "$leaf_context_paths" != '**' ]] ||
 			die 'Context-Paths must be a bounded path or symbol capsule, not the whole repository'
+		IFS=',' read -r -a context_path_entries <<< "$leaf_context_paths"
+		for context_path_entry in "${context_path_entries[@]}"; do
+			context_path_entry="$(trim_surrounding_whitespace "$context_path_entry")"
+			[[ -n "$context_path_entry" && "$context_path_entry" != /* &&
+				"$context_path_entry" != ../* && "$context_path_entry" != */../* &&
+				"$context_path_entry" != *$'\t'* ]] ||
+				die 'Context-Paths must contain only comma-separated repository-relative paths or symbols'
+		done
 		scope_is_within_root_authority "$goal_allowed_scope" "$leaf_context_paths" ||
 			die 'Context-Paths must cover every Allowed-Scope path so the worker capsule includes each editable file'
 		if [[ "$leaf_worker_route" == LUNA ]]; then
