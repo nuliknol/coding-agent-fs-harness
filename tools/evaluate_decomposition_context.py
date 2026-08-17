@@ -148,18 +148,21 @@ def evaluate(args: argparse.Namespace) -> int:
             status = "NEEDS_FURTHER_DECOMPOSITION"
             reasons = ",".join(value for value in (reasons if reasons != "-" else "",
                                                      f"learned-luna-p95-{learned_p95}-over-{args.max_tokens}") if value)
-        suggested = max(sum(1 for _ in (node_dir / "suggested-cuts.tsv").open(encoding="utf-8")) - 1, 0)
+        with (node_dir / "suggested-cuts.tsv").open(encoding="utf-8") as suggested_stream:
+            suggested = max(sum(1 for _ in suggested_stream) - 1, 0)
         _, node_cuts = read_tsv(node_dir / "suggested-cuts.tsv")
         for cut in node_cuts:
             aggregate_cuts.append({"node_id": node_id, **cut})
         if status != "READY":
             non_ready_luna += 1
             _, node_repairs = read_tsv(node_dir / "repair.tsv")
-            material_repairs = [row for row in node_repairs
-                                if row.get("evidence_kind", "-") != "-"]
-            for repair in material_repairs:
+            # Decomposition-compiler repairs are actionable even when they do
+            # not name one missing evidence item. Byte/module/ownership budget
+            # rows deliberately use '-' for evidence_kind and carry their
+            # graph-cut action in condition/provider/reason.
+            for repair in node_repairs:
                 aggregate_repairs.append({"node_id": node_id, **repair})
-            if not material_repairs and learned_p95 > args.max_tokens:
+            if not node_repairs and learned_p95 > args.max_tokens:
                 aggregate_repairs.append({
                     "node_id": node_id,
                     "condition": "CLOSURE_BUDGET_EXCEEDED",

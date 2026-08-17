@@ -662,6 +662,8 @@ for argument in "$@"; do
 	[[ "$argument" != --output-last-message ]] || take_last=1
 done
 grep -Fq 'Read exactly one named repair source per shell action' <<< "$prompt"
+grep -Fq 'use one pipeline exactly' <<< "$prompt"
+grep -Fq 'Never invoke both heads separately' <<< "$prompt"
 grep -Fq 'Never concatenate, loop over, or combine repair sources' <<< "$prompt"
 grep -Fq 'Query exact diagnostic node IDs' <<< "$prompt"
 count=0
@@ -728,6 +730,8 @@ for argument in "$@"; do
 	[[ "$argument" != --output-last-message ]] || take_last=1
 done
 grep -Fq 'Read exactly one named candidate source per shell action' <<< "$prompt"
+grep -Fq 'use one pipeline exactly' <<< "$prompt"
+grep -Fq 'Never invoke both heads separately' <<< "$prompt"
 grep -Fq 'Never concatenate or combine candidate files in one action' <<< "$prompt"
 grep -Fq 'without printing the rewritten file or generated patch' <<< "$prompt"
 grep -Fq 'SUBMISSION_TRANSCRIPT=' <<< "$prompt"

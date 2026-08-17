@@ -8,6 +8,7 @@ import sqlite3
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 from types import SimpleNamespace
 
 
@@ -15,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 import sys
 sys.path.insert(0, str(ROOT / "tools"))
 from context_closure import build_closure
+from evaluate_decomposition_context import evaluate as evaluate_decomposition_context
 
 
 class ContextClosureToolsTest(unittest.TestCase):
@@ -70,6 +72,56 @@ class ContextClosureToolsTest(unittest.TestCase):
             node_bindings_file=None, omissions_file=str(omissions) if omissions else None,
             overlay_file=str(overlay) if overlay else None, luna_only=luna_only)
         return build_closure(arguments), output
+
+    def test_decomposition_aggregate_keeps_provider_only_graph_cut_repair(self):
+        dag = self.root / "dag.tsv"
+        dag.write_text(
+            "node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\t"
+            "focused_validation\tallowed_paths\trequired_symbols\tleaf_type\t"
+            "complexity_class\tworker_route\n"
+            "n1\t-\t-\tBounded work.\tFocused evidence.\ttrue\tcalc.c\tadd\t"
+            "LOCAL_IMPLEMENTATION\tLOW\tLUNA\n",
+            encoding="utf-8",
+        )
+        output = self.root / "admission"
+
+        def fake_build(arguments):
+            node = Path(arguments.output)
+            (node / "quality.tsv").write_text(
+                "metric\tvalue\nstatus\tNEEDS_FURTHER_DECOMPOSITION\n"
+                "context_bytes\t40960\nestimated_tokens\t10240\n"
+                "reasons\tcontext-byte-budget-exceeded\n",
+                encoding="utf-8",
+            )
+            (node / "suggested-cuts.tsv").write_text(
+                "cut_id\tseam_kind\tcohesive_key\trequired_symbols\tallowed_paths\t"
+                "acceptance_hint\troute_hint\testimated_source_bytes\trationale\n",
+                encoding="utf-8",
+            )
+            (node / "repair.tsv").write_text(
+                "condition\trepair_action\tprovider\tevidence_kind\tidentifier\treason\n"
+                "CLOSURE_BUDGET_EXCEEDED\tGRAFT_GRAPH_CUTS\tdecomposition-compiler\t"
+                "-\t-\tcontext-byte-budget-exceeded\n",
+                encoding="utf-8",
+            )
+            return "NEEDS_FURTHER_DECOMPOSITION"
+
+        arguments = SimpleNamespace(
+            dag=str(dag), coverage=None, architecture=None, predictions=None,
+            database=str(self.database), repository=str(self.repository), generation="g",
+            output=str(output), max_bytes=32768, max_symbols=32, max_modules=4,
+            max_ownership_boundaries=2, max_direct_relationships=8, max_tests=4,
+            max_build_targets=4, max_tokens=10000, obligations_file=None,
+            relations_file=None, omissions_file=None, enforce=True,
+        )
+        with patch("evaluate_decomposition_context.build_closure", side_effect=fake_build):
+            self.assertEqual(3, evaluate_decomposition_context(arguments))
+        aggregate = (output / "repair.tsv").read_text(encoding="utf-8")
+        self.assertIn(
+            "n1\tCLOSURE_BUDGET_EXCEEDED\tGRAFT_GRAPH_CUTS\t"
+            "decomposition-compiler\t-\t-\tcontext-byte-budget-exceeded",
+            aggregate,
+        )
 
     def test_luna_only_budget_repair_compiles_deterministic_child_candidates(self):
         status, output = self.closure(max_bytes=32, luna_only=True)

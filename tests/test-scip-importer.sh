@@ -414,6 +414,8 @@ set -e
 test "$required_status" = 3
 grep -Eq $'^n01\tLUNA\tNEEDS_FURTHER_DECOMPOSITION\t' \
 	"$TEST_ROOT/context-admission-required/admission.tsv"
+grep -Fq $'n01\tCLOSURE_BUDGET_EXCEEDED\tGRAFT_GRAPH_CUTS\tdecomposition-compiler\t-\t-\tcontext-byte-budget-exceeded' \
+	"$TEST_ROOT/context-admission-required/repair.tsv"
 
 sed 's/context_add/symbol_that_does_not_exist/g' "$TEST_ROOT/candidate-dag.tsv" > \
 	"$TEST_ROOT/missing-candidate-dag.tsv"
