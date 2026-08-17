@@ -139,6 +139,7 @@ if [[ "$mode" == --reset-orphaned ]]; then
 			mv "$ready" "$preserved"
 			: > "$dir/control/$ready_base.recovery-retired"
 			chmod 600 "$dir/control/$ready_base.recovery-retired"
+			goal_record_manager_decision "$ready_task" MIGRATED
 			printf 'RESURRECTED_TYPED_READY_ARCHIVED task=%s trigger=%s file=%s\n' \
 				"$ready_task" "$trigger_task" "$preserved"
 			recovered=$((recovered + 1))
@@ -189,6 +190,7 @@ if [[ "$mode" == --reset-orphaned ]]; then
 		if (( typed_internal_transition == 1 )); then
 			: > "$dir/control/$base.recovery-retired"
 			chmod 600 "$dir/control/$base.recovery-retired"
+			goal_record_manager_decision "$task_id" MIGRATED
 			printf 'TYPED_INTERNAL_ASSIGNMENT_RETIRED task=%s\n' "$task_id"
 			recovered=$((recovered + 1))
 			continue
@@ -226,8 +228,23 @@ for file in "$dir/tasks/"*.tmp.* "$dir/results/"*.tmp.* "$dir/control/"*.tmp.*; 
 	mtime="$(stat -c '%Y' "$file")"
 	age=$(( $(epoch_now) - mtime ))
 	if (( age > HARNESS_STALE_SECONDS )); then
-		printf 'STALE_TEMP file=%s age=%ss\n' "$file" "$age"
-		problems=$((problems + 1))
+		if [[ "$mode" == --reset-orphaned ]]; then
+			stale_dir="$dir/archive/crash-recovery/stale-temp"
+			mkdir -p "$stale_dir"
+			chmod 700 "$stale_dir"
+			parent="${file%/*}"
+			parent="${parent##*/}"
+			preserved="$stale_dir/$parent.${file##*/}"
+			if [[ -e "$preserved" ]]; then
+				preserved="$preserved.$(timestamp_compact_utc)"
+			fi
+			mv "$file" "$preserved"
+			printf 'STALE_TEMP_ARCHIVED file=%s age=%ss archive=%s\n' "$file" "$age" "$preserved"
+			recovered=$((recovered + 1))
+		else
+			printf 'STALE_TEMP file=%s age=%ss\n' "$file" "$age"
+			problems=$((problems + 1))
+		fi
 	fi
 done
 

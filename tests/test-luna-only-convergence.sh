@@ -169,6 +169,16 @@ grep -Fq 'TYPED_INTERNAL_ASSIGNMENT_RETIRED task=001' <<< "$recovery_output"
 test -f "$project/control/lunaconvergence-task-001.recovery-retired"
 test -f "$project/control/lunaconvergence-task-002.recovery-retired"
 test ! -e "$project/tasks/lunaconvergence-task-001.ready.md"
+
+# Reset-mode recovery removes stale transaction scratch files from the hot
+# control directory while retaining them in the crash-recovery archive.
+stale_tmp="$project/control/project-plan.tsv.tmp.12345"
+printf 'stale transaction scratch\n' > "$stale_tmp"
+touch -d '2 hours ago' "$stale_tmp"
+recovery_output="$("$ROOT/bin/harness-recover" "$TMP/harness.env" --reset-orphaned)"
+grep -Fq 'STALE_TEMP_ARCHIVED' <<< "$recovery_output"
+test ! -e "$stale_tmp"
+test -f "$project/archive/crash-recovery/stale-temp/control.project-plan.tsv.tmp.12345"
 test ! -e "$project/tasks/lunaconvergence-task-002.ready.md"
 test ! -e "$project/tasks/lunaconvergence-task-004.ready.md"
 

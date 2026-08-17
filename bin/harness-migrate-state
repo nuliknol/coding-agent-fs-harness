@@ -52,6 +52,7 @@ if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
 		mark_root_needs_replan "$task_id" \
 			"The unreviewed result came from a pre-policy manager-remediation assignment. Retain its workspace delta only as unaccepted tracked-overlay evidence, then verify it through closed Luna-sized child criteria." \
 			LUNA_ONLY_POLICY_MIGRATION >/dev/null
+		goal_record_manager_decision "$task_id" MIGRATED
 		clear_worker_thread_for_root "$root" luna-only-policy-migration
 		rm -f \
 			"$dir/control/$base.reviewed-event" \
@@ -81,6 +82,7 @@ if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
 		mark_root_needs_replan "$task_id" \
 			"The installed assignment used a pre-policy Terra/manager route. Preserve its root authority and verified checkpoints, then split the first unmet criterion into Luna-sized children." \
 			LUNA_ONLY_POLICY_MIGRATION >/dev/null
+		goal_record_manager_decision "$task_id" MIGRATED
 		clear_worker_thread_for_root "$root" luna-only-policy-migration
 		log_event "LUNA_ONLY_READY_TASK_MIGRATED task=$task_id root=$root previous_route=${route:--} archive=$archive"
 		migrated_ready=$((migrated_ready + 1))

@@ -1,6 +1,6 @@
 # Luna-Only Convergence Implementation Status
 
-Last updated (UTC): 2026-08-17T16:58:00Z
+Last updated (UTC): 2026-08-17T17:08:00Z
 
 Overall status: `IN_PROGRESS`
 
@@ -311,6 +311,11 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   stale replan marker; an equal/newer typed marker archives an older
   resurrected ready assignment. This establishes exactly one live transition
   per root before supervisors start.
+- Migrated goal records now enter terminal `MIGRATED` state instead of
+  remaining false-positive orphan goals. Reset-mode recovery also moves stale
+  transaction scratch files out of hot control/task directories into the
+  crash-recovery archive. This removes repeated scanning and hundreds of noisy
+  startup diagnostics without deleting forensic evidence.
 
 ## Validation journal
 
