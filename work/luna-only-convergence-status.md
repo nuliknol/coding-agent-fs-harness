@@ -529,6 +529,24 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   deterministic decomposition, patch repair limits, and zero-file trusted
   validation remain in place to prevent fuse breaches without weakening their
   investigative function.
+- Production was fast-forwarded to `1a0d91c`. Effective configuration was
+  evaluated for `compmod-wc-2`, `compmod-wc-3`, `compmod-wc-4`,
+  `dplm-final-v2`, and `dpvis-w2-a2`; all five resolve each per-invocation
+  authoritative limit, per-invocation live-estimate limit, and cumulative
+  worker-task limit to exactly 500,000 tokens.
+- The temporary verified-criterion epoch had overwritten `compmod-wc-4`'s
+  legitimate policy-migration baseline. Its exact archived migration counters
+  were restored (8 reviews, 8 criterionless reviews, 7 replans, 21,628 seconds,
+  zero recorded processed tokens). The corrected monotonic calculation then
+  stopped the root with `TOTAL_ROOT_REPLANS` at 11 post-migration replans versus
+  the configured limit of 8. This investigation fuse was not resolved or
+  bypassed.
+- The one manager replan that predated deployment was terminated and only its
+  induced local recovery-failure suppression record was cleared. Supervisors
+  were restarted without changing task/fuse history; `dplm-final-v2` resumed a
+  fresh manager replan under the corrected code. At the deployment check,
+  `compmod-wc-2`, `compmod-wc-3`, `dplm-final-v2`, and `dpvis-w2-a2` were
+  running, while `compmod-wc-4` was correctly paused for investigation.
 
 ## Validation journal
 
