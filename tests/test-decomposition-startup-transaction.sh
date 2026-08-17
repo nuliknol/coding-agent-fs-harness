@@ -366,6 +366,11 @@ grep -Fq 'leaf_type INTEGRATION, complexity_class HIGH, worker_route TERRA, and 
 grep -Fq 'NR>1 && $19=="OVER_BUDGET"' "$HARNESS_BIN/manager-decomposition-dag-repair"
 grep -Fq '"$complexity_report"' "$HARNESS_BIN/manager-decomposition-dag-repair"
 ! grep -Fq '"$allowed"' "$HARNESS_BIN/manager-decomposition-dag-repair"
+# A failed/recoverable schema-repair turn must not advance the deterministic
+# no-progress counter. Its state commit follows the agent invocation.
+repair_call_line="$(grep -n '\"\$HARNESS_BIN/manager-decomposition-repair\"' "$HARNESS_BIN/harness-start" | head -n1 | cut -d: -f1)"
+repair_counter_commit_line="$(grep -n '> \"\$diagnostic_state.tmp.\$\$\"' "$HARNESS_BIN/harness-start" | head -n1 | cut -d: -f1)"
+(( repair_counter_commit_line > repair_call_line ))
 set +e
 "$HARNESS_BIN/manager-stage-decomposition-dag" "$env_file" "$TEST_ROOT/over-budget-dag.tsv" "$TEST_ROOT/over-budget-coverage.tsv" >/dev/null 2>&1
 complexity_status=$?

@@ -264,18 +264,23 @@ while ! project_plan_exists; do
 			else
 				diagnostic_count=1
 			fi
+			(( diagnostic_count < 2 )) ||
+				die "decomposition repair diagnostic repeated without deterministic progress ($diagnostic_count): $full_rejection_log"
+			printf 'Repairing the durably rejected decomposition candidate before launching another global Sol turn.\n'
+			diagnostic_candidate="$(decomposition_candidate_state_value directory)"
+			"$HARNESS_BIN/manager-decomposition-repair" "$HARNESS_ENV_FILE"
+			# Count only a completed repair turn. Provider/resource failures and
+			# recoverable output guards leave the prior counter untouched so a
+			# restart can resume instead of being mislabeled as deterministic
+			# no-progress.
 			{
 				printf 'fingerprint=%s\n' "$diagnostic_fingerprint"
 				printf 'count=%s\n' "$diagnostic_count"
-				printf 'candidate=%s\n' "$(decomposition_candidate_state_value directory)"
+				printf 'candidate=%s\n' "$diagnostic_candidate"
 				printf 'updated_at=%s\n' "$(timestamp_utc)"
 			} > "$diagnostic_state.tmp.$$"
 			chmod 600 "$diagnostic_state.tmp.$$"
 			mv "$diagnostic_state.tmp.$$" "$diagnostic_state"
-			(( diagnostic_count < 2 )) ||
-				die "decomposition repair diagnostic repeated without deterministic progress ($diagnostic_count): $full_rejection_log"
-			printf 'Repairing the durably rejected decomposition candidate before launching another global Sol turn.\n'
-			"$HARNESS_BIN/manager-decomposition-repair" "$HARNESS_ENV_FILE"
 			continue
 		fi
 		if decomposition_dag_candidate_matches_current_inputs &&

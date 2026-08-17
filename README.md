@@ -290,6 +290,8 @@ output. Its output-limit checkpoint preserves the rejected candidate and also
 refuses an unchanged replay until the harness or accepted inputs change.
 Semantic DAG/coverage repair uses targeted diagnostic identifiers under the
 same policy; its recoverable checkpoint resumes from the rejected staged DAG.
+No-progress fingerprints are committed only after a repair turn completes, so
+a provider failure or resource guard cannot poison the next startup resume.
 
 Before DAG registration, this dedicated Sol critic performs an evidence-backed
 architecture-fit review. If the accepted feature necessarily conflicts with a
