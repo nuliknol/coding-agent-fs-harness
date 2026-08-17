@@ -73,8 +73,11 @@ limits and do not change immutable generation identity.
 Published generations receive an integrity marker after SQLite
 `integrity_check` succeeds. Routine status and Context Closure freshness checks
 validate that marker against immutable artifact metadata instead of rescanning
-the complete database. A generation created by an older harness is checked once
-with `quick_check` under a per-generation lock and upgraded in place.
+the complete database. A markerless generation created by an older harness
+inherits the `integrity_check` that gated its atomic READY publication after a
+schema-header probe under a per-generation lock. If an enrolled artifact's
+metadata later changes, verification requires `quick_check` before accepting
+the new metadata.
 
 Resource boundaries:
 

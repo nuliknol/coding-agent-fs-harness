@@ -153,10 +153,10 @@ ready_status="$($HARNESS_BIN/harness-index-status "$env_a" --details)"
 grep -Fqx $'status\tREADY' <<< "$ready_status"
 grep -Fqx $'schema_version\t5' <<< "$ready_status"
 
-# Existing installations acquire the publication marker lazily.  Even though
-# index status verifies the generation twice (directly and through pointer
-# freshness), only the first call may scan SQLite; later calls use immutable
-# artifact metadata and do not reopen the database.
+# Existing installations acquire the publication marker lazily. Their READY
+# manifest inherits the integrity_check that gated atomic publication, so
+# enrollment opens only the schema header; later calls use immutable artifact
+# metadata and do not reopen the database.
 mkdir -p "$TEST_ROOT/sqlite-probe"
 cat > "$TEST_ROOT/sqlite-probe/sqlite3" <<'SH'
 #!/usr/bin/env bash
@@ -168,13 +168,23 @@ rm -f "$generation_dir_a/integrity.env" "$generation_dir_a/.integrity.lock"
 sqlite_probe_log="$TEST_ROOT/sqlite-probe.log"
 PATH="$TEST_ROOT/sqlite-probe:$PATH" SQLITE_PROBE_LOG="$sqlite_probe_log" \
 	"$HARNESS_BIN/harness-index-status" "$env_a" >/dev/null
-test "$(wc -l < "$sqlite_probe_log")" = 2
+test "$(wc -l < "$sqlite_probe_log")" = 1
 grep -Fqx 'PRAGMA user_version;' "$sqlite_probe_log"
-grep -Fqx 'PRAGMA quick_check;' "$sqlite_probe_log"
+! grep -Fqx 'PRAGMA quick_check;' "$sqlite_probe_log"
 PATH="$TEST_ROOT/sqlite-probe:$PATH" SQLITE_PROBE_LOG="$sqlite_probe_log" \
 	"$HARNESS_BIN/harness-index-status" "$env_a" >/dev/null
-test "$(wc -l < "$sqlite_probe_log")" = 2
+test "$(wc -l < "$sqlite_probe_log")" = 1
 test -s "$generation_dir_a/integrity.env"
+
+# If an enrolled marker no longer matches the artifacts, the cheap path is not
+# trusted: verification must re-open the schema and run quick_check before
+# recording the changed metadata.
+sed -i 's/^artifact_fingerprint=.*/artifact_fingerprint=changed/' \
+	"$generation_dir_a/integrity.env"
+PATH="$TEST_ROOT/sqlite-probe:$PATH" SQLITE_PROBE_LOG="$sqlite_probe_log" \
+	"$HARNESS_BIN/harness-index-status" "$env_a" >/dev/null
+test "$(wc -l < "$sqlite_probe_log")" = 3
+test "$(grep -Fxc 'PRAGMA quick_check;' "$sqlite_probe_log")" = 1
 
 # Every Joern input that affects the immutable graph/import must participate in
 # live freshness, not only generation construction. This also upgrades older

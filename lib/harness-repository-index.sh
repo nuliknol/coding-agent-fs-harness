@@ -364,6 +364,7 @@ repository_index_write_verification_marker()
 repository_index_verify_generation()
 {
 	local generation_dir="$1" manifest database generation status manifest_schema schema_version verification_fd
+	local had_marker=0 check_kind=legacy_publication_integrity_check
 	manifest="$generation_dir/manifest.env"
 	database="$generation_dir/architecture.sqlite"
 	[[ -f "$manifest" && -s "$generation_dir/index.scip" && -f "$database" ]] || return 1
@@ -372,12 +373,16 @@ repository_index_verify_generation()
 	[[ "$generation" == "${generation_dir##*/}" && "$status" == READY ]] || return 1
 	manifest_schema="$(kv_file_value "$manifest" schema_version 2>/dev/null || true)"
 	[[ "$manifest_schema" == "$HARNESS_REPOSITORY_INDEX_SCHEMA_VERSION" ]] || return 1
+	[[ ! -f "$generation_dir/integrity.env" ]] || had_marker=1
 	if repository_index_verification_marker_is_current "$generation_dir"; then
 		return 0
 	fi
-	# Older generations do not have the publication marker.  Serialize their
-	# one-time migration check so simultaneous status/closure callers cannot all
-	# launch the same expensive SQLite scan.
+	# Older generations do not have the publication marker. Serialize enrollment
+	# so simultaneous status/closure callers cannot repeat even the cheap schema
+	# probe. Every READY legacy generation was already gated by integrity_check
+	# before atomic publication, so it can inherit that durable result. A stale
+	# or changed existing marker is different: re-run quick_check before trusting
+	# the new artifact metadata.
 	exec {verification_fd}> "$generation_dir/.integrity.lock" || return 1
 	flock -x "$verification_fd" || { exec {verification_fd}>&-; return 1; }
 	if repository_index_verification_marker_is_current "$generation_dir"; then
@@ -386,13 +391,20 @@ repository_index_verify_generation()
 		return 0
 	fi
 	schema_version="$(sqlite3 "$database" 'PRAGMA user_version;' 2>/dev/null || true)"
-	if [[ "$schema_version" != "$HARNESS_REPOSITORY_INDEX_SCHEMA_VERSION" ]] ||
-		[[ "$(sqlite3 "$database" 'PRAGMA quick_check;' 2>/dev/null || true)" != ok ]]; then
+	if [[ "$schema_version" != "$HARNESS_REPOSITORY_INDEX_SCHEMA_VERSION" ]]; then
 		flock -u "$verification_fd"
 		exec {verification_fd}>&-
 		return 1
 	fi
-	repository_index_write_verification_marker "$generation_dir" quick_check || {
+	if (( had_marker == 1 )); then
+		if [[ "$(sqlite3 "$database" 'PRAGMA quick_check;' 2>/dev/null || true)" != ok ]]; then
+			flock -u "$verification_fd"
+			exec {verification_fd}>&-
+			return 1
+		fi
+		check_kind=quick_check
+	fi
+	repository_index_write_verification_marker "$generation_dir" "$check_kind" || {
 		flock -u "$verification_fd"
 		exec {verification_fd}>&-
 		return 1
