@@ -1,6 +1,6 @@
 # Context Closure Implementation Status
 
-Last updated (UTC): 2026-08-17T03:44:25Z
+Last updated (UTC): 2026-08-17T03:54:21Z
 
 Overall status: `COMPLETE`
 
@@ -10,7 +10,7 @@ Active milestone: `Rebuild selected project indexes and enforce compiled Luna co
 
 Deployment state: `5.17.2 candidate; defaults remain off, selected projects are operator-promoted to required index and patch-only closure`
 
-Commit: `pending` (production-enforcement corrections), following the original `bba8e609f575a159e254d50f7b308dce737e87ce` implementation
+Commit: `5eb60c3` (production-enforcement corrections), following the original `bba8e609f575a159e254d50f7b308dce737e87ce` implementation
 
 ## Production-enforcement corrections
 
