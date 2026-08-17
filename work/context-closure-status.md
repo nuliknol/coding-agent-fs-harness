@@ -8,7 +8,7 @@ Active phase: `PRODUCTION ENFORCEMENT — selected active projects`
 
 Active milestone: `Rebuild selected project indexes and enforce compiled Luna contexts`
 
-Deployment state: `5.17.5 candidate; defaults remain off, selected projects are operator-promoted to required index and patch-only closure`
+Deployment state: `5.17.6 candidate; defaults remain off, selected projects are operator-promoted to required index and patch-only closure`
 
 Commit: `5eb60c3` (production-enforcement corrections), following the original `bba8e609f575a159e254d50f7b308dce737e87ce` implementation
 
@@ -52,6 +52,10 @@ Commit: `5eb60c3` (production-enforcement corrections), following the original `
   and into the persistent supervisor. The durable refresh marker blocks the
   next planning turn until SCIP/Joern publish the new generation, and explicit
   restart repairs clean stale required indexes before supervisors launch.
+- Completed Joern configuration provenance: analysis classes now participate
+  in immutable generation identity, and freshness checks compare source root,
+  exclusion regex, timeout, and analysis classes against the published
+  manifest instead of falsely reusing a generation built under old settings.
 
 ## Completed since previous update
 

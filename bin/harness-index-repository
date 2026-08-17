@@ -303,6 +303,7 @@ printf 'metric\tvalue\nscip_index_bytes\t%s\ncompile_commands\t%s\nfiles\t%s\nsy
 	printf 'joern_source_root=%s\n' "$HARNESS_JOERN_SOURCE_ROOT"
 	printf 'joern_exclude_regex=%s\n' "$HARNESS_JOERN_EXCLUDE_REGEX"
 	printf 'joern_timeout_seconds=%s\n' "$HARNESS_JOERN_TIMEOUT_SECONDS"
+	printf 'joern_analysis_classes=%s\n' "$HARNESS_JOERN_ANALYSIS_CLASSES"
 	printf 'joern_status=%s\n' "$joern_status"
 	printf 'recoll_enabled=%s\n' "$HARNESS_RECOLL_ENABLED"
 	printf 'recoll_fingerprint=%s\n' "$REPOSITORY_INDEX_RECOLL_FINGERPRINT"

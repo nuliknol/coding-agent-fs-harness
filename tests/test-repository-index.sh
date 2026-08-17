@@ -152,6 +152,18 @@ ready_status="$($HARNESS_BIN/harness-index-status "$env_a" --details)"
 grep -Fqx $'status\tREADY' <<< "$ready_status"
 grep -Fqx $'schema_version\t5' <<< "$ready_status"
 
+# Every Joern input that affects the immutable graph/import must participate in
+# live freshness, not only generation construction. This also upgrades older
+# manifests that did not persist the selected analysis-class set.
+cp "$env_a" "$TEST_ROOT/index-joern-config-changed.env"
+printf 'export HARNESS_JOERN_TIMEOUT_SECONDS="901"\n' >> \
+	"$TEST_ROOT/index-joern-config-changed.env"
+chmod 600 "$TEST_ROOT/index-joern-config-changed.env"
+joern_config_stale_status="$($HARNESS_BIN/harness-index-status \
+	"$TEST_ROOT/index-joern-config-changed.env")"
+grep -Fqx $'status\tSTALE' <<< "$joern_config_stale_status"
+grep -Fqx $'reason\tjoern-configuration-changed' <<< "$joern_config_stale_status"
+
 # Importer semantics participate in both immutable identity and live freshness.
 sed 's#HARNESS_SCIP_IMPORTER_BIN="/bin/true"#HARNESS_SCIP_IMPORTER_BIN="/bin/false"#' \
 	"$env_a" > "$TEST_ROOT/index-importer-changed.env"

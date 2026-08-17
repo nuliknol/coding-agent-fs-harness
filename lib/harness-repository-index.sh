@@ -226,6 +226,7 @@ joern=$REPOSITORY_INDEX_JOERN_FINGERPRINT
 joern_source_root=$HARNESS_JOERN_SOURCE_ROOT
 joern_exclude_regex=$HARNESS_JOERN_EXCLUDE_REGEX
 joern_timeout_seconds=$HARNESS_JOERN_TIMEOUT_SECONDS
+joern_analysis_classes=$HARNESS_JOERN_ANALYSIS_CLASSES
 recoll=$REPOSITORY_INDEX_RECOLL_FINGERPRINT
 providers=$REPOSITORY_INDEX_PROVIDER_FINGERPRINT
 schema=$REPOSITORY_INDEX_SCHEMA_SHA256"
@@ -427,6 +428,13 @@ repository_index_project_pointer_is_current()
 	fi
 	if [[ "$current_joern" != "$(kv_file_value "$manifest" joern_fingerprint 2>/dev/null || true)" ]]; then
 		REPOSITORY_INDEX_POINTER_REASON=joern-toolchain-changed
+		return 1
+	fi
+	if [[ "$HARNESS_JOERN_SOURCE_ROOT" != "$(kv_file_value "$manifest" joern_source_root 2>/dev/null || true)" ||
+		"$HARNESS_JOERN_EXCLUDE_REGEX" != "$(kv_file_value "$manifest" joern_exclude_regex 2>/dev/null || true)" ||
+		"$HARNESS_JOERN_TIMEOUT_SECONDS" != "$(kv_file_value "$manifest" joern_timeout_seconds 2>/dev/null || true)" ||
+		"$HARNESS_JOERN_ANALYSIS_CLASSES" != "$(kv_file_value "$manifest" joern_analysis_classes 2>/dev/null || true)" ]]; then
+		REPOSITORY_INDEX_POINTER_REASON=joern-configuration-changed
 		return 1
 	fi
 	if [[ "$current_recoll" != "$(kv_file_value "$manifest" recoll_fingerprint 2>/dev/null || true)" ]]; then
