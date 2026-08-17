@@ -21,7 +21,8 @@ Updated: 2026-08-17
   Context Closure, startup transaction, leaf-goal, repository index,
   specification review, supervisor barrier, SCIP importer, architecture,
   dependency, active-revision, and manager-context regression suites.
-- [ ] Push development, pull production, and verify live adoption.
+- [x] Pushed commit `8f9c1e7`, fast-forwarded production, stopped old-code
+  supervisors, and restarted the runnable projects on the deployed code.
 
 ## Current implementation notes
 
@@ -34,6 +35,17 @@ Updated: 2026-08-17
 - Existing roots acquire convergence baselines lazily. Newly initialized roots
   establish the baseline before their first worker episode.
 - No new agent retry or stronger-model fallback was introduced.
+
+## Production adoption
+
+- `compmod-wc-2` and `compmod-wc-3` restarted with new manager/worker
+  supervisors and are performing fresh Luna-only replans.
+- The installed HIGH/TERRA documentation assignment in `compmod-wc-3` was
+  retired before worker launch and queued for LOW/LUNA re-decomposition.
+- `compmod-wc-4`, `dplm-final-v2`, and `dpvis-w2-a2` remain stopped at their
+  durable `ARCHITECTURE_REASSESSMENT_REQUIRED` boundaries; their evidence and
+  counters were not reset.
+- Live status exposes convergence efficiency and all three irregularity counts.
 
 ## Safety constraints
 
