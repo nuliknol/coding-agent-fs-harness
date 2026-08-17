@@ -212,6 +212,14 @@ if [[ -n "$root_assignment" ]]; then
 		normalize_metadata "$publish_file" "$field" "$value"
 	done
 	root_validation="$(metadata_value "$root_assignment" Focused-Validation)"
+	if validation_redirects_diagnostics "$root_validation"; then
+		legacy_root_validation="$root_validation"
+		root_validation="$(validation_without_external_capture "$root_validation")"
+		validation_is_executable_command "$root_validation" &&
+			! validation_redirects_diagnostics "$root_validation" ||
+			die 'legacy root Focused-Validation could not be normalized to harness-owned diagnostic capture'
+		log_event "LEGACY_ROOT_VALIDATION_CAPTURE_NORMALIZED root=$active_root task=$task_id previous=$(printf '%q' "$legacy_root_validation") current=$(printf '%q' "$root_validation")"
+	fi
 	candidate_validation="$(metadata_value "$publish_file" Focused-Validation)"
 	explicit_validation="$(metadata_value "$publish_file" Validation-Command)"
 	if validation_is_review_descriptor "$root_validation" &&

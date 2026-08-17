@@ -113,6 +113,16 @@ process_tasks()
 			} > "$tmp"
 			chmod 600 "$tmp"
 			mv "$tmp" "$alert"
+			# A terminal invoker exit while ownership is still live is an
+			# interrupted transaction, not an active worker.  Surface it as a
+			# durable integrity pause so status cannot report a dead .running
+			# artifact as useful activity and no other agent races the orphan.
+			if [[ -f "$dir/running/$base.running.md" || -f "$dir/control/$base.lease" ]]; then
+				integrity_marker="$(mark_project_integrity_anomaly WORKER_TRANSACTION_ORPHANED "$task_id" \
+					'terminal worker invocation exited while its running assignment or lease remained live' \
+					"exit_status=$status alert=$alert running=$dir/running/$base.running.md lease=$dir/control/$base.lease")"
+				log_event "WORKER_TRANSACTION_ORPHANED task=$task_id status=$status alert=$alert marker=$integrity_marker"
+			fi
 			printf 'Worker invocation failed for task %s; see %s\n' "$task_id" "$alert" >&2
 		fi
 	done

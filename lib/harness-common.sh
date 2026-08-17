@@ -25,6 +25,26 @@ validation_is_executable_command()
 	architecture_validation_is_command_shaped "$validation"
 }
 
+validation_redirects_diagnostics()
+{
+	grep -Eq '(^|[[:space:];&|])([0-9]*>|&>)[[:space:]]*[^&|;]*|[0-9]+>&[0-9]+' <<< "$1"
+}
+
+validation_without_external_capture()
+{
+	local validation="$1"
+	# Older accepted roots frequently redirected focused diagnostics into /tmp
+	# before harness-run-assigned-validation became the sole capture owner.
+	# Remove only those shell capture suffixes.  The executable validation
+	# pipeline remains unchanged and is validated again by the publisher.
+	printf '%s\n' "$validation" | sed -E \
+		-e 's/[[:space:]]+2>\&1[[:space:]]*\|[[:space:]]*tee([[:space:]]+-a)?[[:space:]]+[^;&|[:space:]]+//g' \
+		-e 's/[[:space:]]*\|[[:space:]]*tee([[:space:]]+-a)?[[:space:]]+[^;&|[:space:]]+//g' \
+		-e 's/[[:space:]]+([0-9]*>|\&>)[[:space:]]*[^;&|[:space:]]+//g' \
+		-e 's/[[:space:]]+[0-9]+>\&[0-9]+//g' \
+		-e 's/[[:space:]]+$//'
+}
+
 timestamp_utc()
 {
 	date -u '+%Y-%m-%dT%H:%M:%SZ'

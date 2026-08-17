@@ -237,4 +237,34 @@ done
 [[ -e "$TEST_ROOT/manager-called-005" ]]
 "$HARNESS_BIN/harness-supervisor-stop" "$TEST_ROOT/harness.env" >/dev/null
 
+# A terminal worker-invoker exit must not leave a dead running assignment
+# presented as useful worker activity. Preserve the transaction artifacts and
+# raise the project-integrity fuse until the local defect is investigated.
+cat > "$TEST_ROOT/orphan-worker-invoker" <<SCRIPT
+#!/usr/bin/env bash
+set -Eeuo pipefail
+session="\$("$HARNESS_BIN/harness-new-session" "\$1" worker)"
+"$HARNESS_BIN/worker-claim-task" "\$1" "\$2" "\$session" >/dev/null
+exit 17
+SCRIPT
+chmod 700 "$TEST_ROOT/orphan-worker-invoker"
+printf 'export HARNESS_WORKER_INVOKER="%s"\n' "$TEST_ROOT/orphan-worker-invoker" >> "$TEST_ROOT/harness.env"
+cat > "$project/tasks/raceproj-task-orphan.ready.md" <<'ASSIGNMENT'
+# Task Assignment
+
+Task-ID: orphan
+Task-Root: orphan
+ASSIGNMENT
+"$HARNESS_BIN/worker-supervisor-start" "$TEST_ROOT/harness.env" >/dev/null
+for _ in $(seq 1 100); do
+	[[ -e "$project/control/project-integrity-anomaly.md" ]] && break
+	sleep 0.05
+done
+[[ -f "$project/running/raceproj-task-orphan.running.md" ]]
+[[ -f "$project/control/raceproj-task-orphan.worker-supervisor-failed.md" ]]
+grep -Fqx 'Category: WORKER_TRANSACTION_ORPHANED' \
+	"$project/control/project-integrity-anomaly.md"
+grep -Fq 'WORKER_TRANSACTION_ORPHANED task=orphan status=17' "$project/logs/events.log"
+"$HARNESS_BIN/worker-supervisor-stop" "$TEST_ROOT/harness.env" >/dev/null
+
 printf 'supervisor result barrier tests passed.\n'

@@ -172,10 +172,16 @@ grep -Fq 'planned Allowed-Scope exceeds immutable root authority' "$TEST_ROOT/br
 sed \
 	-e 's/^Task-ID: contract$/Task-ID: invented-task-name/' \
 	-e 's/^Project-Plan-Item-ID: contract$/Project-Plan-Item-ID: invented-node/' \
+	-e 's#^Focused-Validation: ./focused-smoke --runtime$#Focused-Validation: FOCUSED: run the focused API smoke#' \
 	-e 's/^Worker-Route: TERRA$/Worker-Route: LUNA/' \
 	-e 's/^Architecture-Decisions: NONE$/Architecture-Decisions: -/' \
 	-e 's/^Mandatory-Git-Refs: -$/Mandatory-Git-Refs: none/' \
 	"$TEST_ROOT/revised-root.md" > "$TEST_ROOT/planned-revision.md"
+# A legacy accepted root may predate harness-owned diagnostic capture.  Its
+# immutable behavioral command is retained while only external redirection is
+# removed, allowing a current planner to publish without weakening the guard.
+sed -i 's#^Focused-Validation: ./focused-smoke --runtime$#Focused-Validation: ./focused-smoke --runtime > /tmp/revision-runtime.log 2>\&1#' \
+	"$project/control/progress/revisionproj-task-contract.root-assignment.md"
 printf '# stale planning marker\n' > "$project/control/manager-plan-stalled.md"
 "$HARNESS_BIN/manager-publish-planned-task" "$TEST_ROOT/harness.env" \
 	"$TEST_ROOT/planned-revision.md" >/dev/null
@@ -187,6 +193,9 @@ grep -Fqx 'Worker-Route: TERRA' "$planned"
 grep -Fqx 'Leaf-Type: FOCUSED_BUG' "$planned"
 grep -Fqx 'Architecture-Decisions: NONE' "$planned"
 grep -Fqx 'Mandatory-Git-Refs: -' "$planned"
+grep -Fqx 'Focused-Validation: ./focused-smoke --runtime' "$planned"
+grep -Fq 'LEGACY_ROOT_VALIDATION_CAPTURE_NORMALIZED root=contract task=contract-revision-01' \
+	"$project/logs/events.log"
 [[ ! -e "$project/control/manager-plan-stalled.md" ]]
 
 printf 'active plan node revision tests passed\n'

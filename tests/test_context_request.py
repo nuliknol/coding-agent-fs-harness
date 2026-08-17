@@ -95,6 +95,14 @@ class ContextRequestTest(unittest.TestCase):
         extension = (self.root / "extension.md").read_text(encoding="utf-8")
         self.assertIn("add_library(calc calc.c)", extension)
 
+    def test_representation_writer_accepts_exact_declared_path_complement(self):
+        result = self.resolve("REPRESENTATION_WRITER", "calc.c")
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        extension = (self.root / "extension.md").read_text(encoding="utf-8")
+        self.assertIn("Authorization-Relation: exact-declared-path-complement", extension)
+        self.assertIn("int caller(void)", extension)
+        self.assertIn("Provider: `declared-context-tail`", extension)
+
     def test_build_owner_accepts_declared_directory_boundary(self):
         (self.repository / "src").mkdir()
         (self.repository / "src" / "owned.c").write_text(

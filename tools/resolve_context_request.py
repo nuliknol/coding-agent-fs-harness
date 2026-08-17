@@ -97,6 +97,31 @@ def source_excerpt(repository: Path, path: str, start: int, end: int,
     return encoded.decode("utf-8", errors="ignore")
 
 
+def tail_window(repository: Path, path: str, maximum: int) -> tuple[int, int] | None:
+    """Return the largest line-aligned tail that fits a bounded extension.
+
+    A declared file can already be present in the initial closure while its
+    rendered excerpt is necessarily truncated.  An exact path request asks
+    for the complementary tail, not an unrelated repository search.
+    """
+    source = safe_path(repository, path)
+    if source is None:
+        return None
+    lines = source.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
+    if not lines:
+        return (1, 1)
+    used = 0
+    start = len(lines)
+    budget = max(1, maximum - 1024)
+    while start > 0:
+        encoded = lines[start - 1].encode("utf-8")
+        if used and used + len(encoded) > budget:
+            break
+        used += len(encoded)
+        start -= 1
+    return start + 1, len(lines)
+
+
 def exact_symbols(connection: sqlite3.Connection, identifier: str) -> list[sqlite3.Row]:
     return connection.execute(
         "SELECT symbol_id,display_name,provider FROM symbols "
@@ -270,8 +295,16 @@ def main() -> int:
                                         row["name"], row["provider"]))
                 relation = "build-owner-of-declared-path"
     elif args.request_kind == "REPRESENTATION_WRITER":
+        normalized_identifier = identifier.split("#", 1)[0].rstrip("/")
+        if normalized_identifier in seed_paths and safe_path(repository, normalized_identifier):
+            window = tail_window(repository, normalized_identifier, args.max_bytes)
+            if window:
+                records.append(("REPRESENTATION_WRITER", normalized_identifier,
+                                window[0], window[1], identifier,
+                                "declared-context-tail"))
+                relation = "exact-declared-path-complement"
         authorized = set(requested_ids) & seed_ids
-        if authorized:
+        if authorized and not records:
             marks = ",".join("?" for _ in authorized)
             writers = connection.execute(
                 f"SELECT DISTINCT source_symbol_id FROM mutation_edges WHERE "

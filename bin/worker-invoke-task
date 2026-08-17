@@ -949,7 +949,23 @@ while true; do
 				printf '\n<!-- Harness patch-only validation: PASS; patch=%s -->\n' "$patch_file" >> "$last_message"
 				log_event "PATCH_ONLY_APPLIED task=$task_id patch=$patch_file paths=$patch_paths_file validation_round=$patch_validation_round"
 			else
-				git -C "$REPOSITORY" apply -R --whitespace=nowarn "$patch_file"
+				# The trusted applicator permits uniquely anchored zero-context
+				# replacements with --unidiff-zero.  Rollback must use the same
+				# grammar and prove that the complete workspace returned to the
+				# pre-invocation fingerprint before another Luna turn can start.
+				rollback_status=0
+				set +e
+				git -C "$REPOSITORY" apply -R --whitespace=nowarn --unidiff-zero "$patch_file"
+				rollback_status=$?
+				set -e
+				rollback_fingerprint="$($HARNESS_BIN/harness-workspace-fingerprint "$HARNESS_ENV_FILE")"
+				if (( rollback_status != 0 )) || [[ "$rollback_fingerprint" != "$patch_only_baseline" ]]; then
+					mark_project_integrity_anomaly PATCH_ROLLBACK_FAILURE "$task_id" \
+						'failed patch-only validation did not restore the exact pre-worker workspace' \
+						"patch=$patch_file rollback_status=$rollback_status expected=$patch_only_baseline actual=$rollback_fingerprint" >/dev/null
+					die 'patch-only rollback failed workspace-integrity verification'
+				fi
+				log_event "PATCH_ONLY_ROLLED_BACK task=$task_id patch=$patch_file validation_round=$patch_validation_round fingerprint=$rollback_fingerprint"
 				patch_diagnostics="$(sed -n 's/^VALIDATION_DIAGNOSTICS records=[^ ]* file=\([^ ]*\) full_log_sha256=.*/\1/p' "$patch_validation_capture" | tail -n 1)"
 				patch_diagnostic_fingerprint=""
 				# Compare semantic failure identity only. Occurrence counts and the raw
