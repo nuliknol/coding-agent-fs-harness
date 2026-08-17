@@ -52,7 +52,11 @@ rm -rf -- "$repair_dir"
 mkdir -p "$repair_dir"
 install -m 600 "$candidate_dir/dag.tsv" "$repair_dir/dag.tsv"
 install -m 600 "$candidate_dir/coverage.tsv" "$repair_dir/coverage.tsv"
-[[ ! -f "$candidate_dir/complexity.tsv" ]] || install -m 600 "$candidate_dir/complexity.tsv" "$repair_dir/complexity.tsv"
+complexity_report='-'
+if [[ -f "$candidate_dir/complexity.tsv" ]]; then
+	complexity_report="$repair_dir/complexity.tsv"
+	install -m 600 "$candidate_dir/complexity.tsv" "$complexity_report"
+fi
 context_admission='-'
 context_suggested_cuts='-'
 if [[ -s "$candidate_dir/context-admission/admission.tsv" ]]; then
@@ -104,7 +108,7 @@ if grep -Eq 'CONTEXT_CLOSURE_OVER_BUDGET.*status=OVER_BUDGET' "$rejection_log"; 
 elif grep -Eq 'LUNA_COMPLEXITY_OVER_BUDGET.*status=OVER_BUDGET' "$rejection_log"; then
 	complexity_repair=1
 	repair_phase=decomposition
-	complexity_report="$candidate_dir/complexity.tsv"
+	complexity_report="$repair_dir/complexity.tsv"
 	[[ -s "$complexity_report" ]] || die 'complexity rejection has no measured complexity report'
 	complexity_excess="$(awk -F '\t' '
 		NR>1 && $19!="READY" {n=split($20,v,";"); for(i=1;i<=n;i++) if(match(v[i],/=[0-9]+>[0-9]+/)){s=substr(v[i],RSTART+1,RLENGTH-1); split(s,a,">"); excess+=a[1]-a[2]}}
@@ -248,7 +252,7 @@ NORMALIZED_OBLIGATION_COUNT=$obligation_count
 DAG_FILE=$repair_dir/dag.tsv
 SPECIFICATION_COVERAGE_FILE=$repair_dir/coverage.tsv
 VALIDATOR_DIAGNOSTICS=$rejection_log
-COMPLEXITY_REPORT=$repair_dir/complexity.tsv
+COMPLEXITY_REPORT=$complexity_report
 CONTEXT_ADMISSION_REPORT=$context_admission
 CONTEXT_SUGGESTED_CUTS=$context_suggested_cuts
 SPECIFICATION_OBLIGATIONS_FILE=$(specification_obligations_file)

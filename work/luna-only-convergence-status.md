@@ -652,3 +652,6 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   architecture resolution. Context Closure condition/action/provider fields
   and `LUNA_ONLY_POLICY_MIGRATION` are now captured in the pause record and
   restored verbatim rather than downgraded to a generic replan.
+- Pre-complexity Context Closure repair now publishes `COMPLEXITY_REPORT=-`
+  instead of a plausible but nonexistent path, so bounded planners do not
+  waste an action probing evidence that admission has not measured yet.
