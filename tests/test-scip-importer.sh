@@ -129,6 +129,7 @@ architecture_slice="$TEST_ROOT/repository-architecture-slice.md"
 grep -Fq '`context_calc_cpp` (CMAKE_COMPILE_TARGET)' "$architecture_slice"
 grep -Fq '## Public interface candidates' "$architecture_slice"
 grep -Fq '`context_scale` — `include/calc.hpp`' "$architecture_slice"
+test "$(wc -c < "$architecture_slice")" -le 32768
 
 # Compile a deterministic Context Closure from authoritative structural seeds.
 cat > "$TEST_ROOT/context-assignment.md" <<'ASSIGNMENT'

@@ -21,7 +21,7 @@ output="$(realpath -m "$output")"
 temporary="$output.tmp.$$"
 python3 "$HARNESS_HOME/tools/export_architecture_slice.py" \
 	--database "$generation_dir/architecture.sqlite" --generation "$generation" \
-	--output "$temporary"
+	--max-bytes "$HARNESS_CONTEXT_CLOSURE_MAX_BYTES" --output "$temporary"
 chmod 600 "$temporary"
 mv "$temporary" "$output"
 printf '%s\n' "$output"

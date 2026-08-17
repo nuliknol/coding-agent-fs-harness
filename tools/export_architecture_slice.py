@@ -11,12 +11,41 @@ def rows(connection: sqlite3.Connection, query: str) -> list[sqlite3.Row]:
     return connection.execute(query).fetchall()
 
 
+def clip_text(value: object, maximum_bytes: int) -> str:
+    text = str(value or "-")
+    encoded = text.encode("utf-8")
+    if len(encoded) <= maximum_bytes:
+        return text
+    suffix = "..."
+    return encoded[: maximum_bytes - len(suffix)].decode("utf-8", errors="ignore") + suffix
+
+
+def bounded_lines(lines: list[str], maximum_bytes: int) -> list[str]:
+    result: list[str] = []
+    used = 0
+    marker = "[Architecture slice truncated at configured Context Closure byte budget.]"
+    for line in lines:
+        line = clip_text(line, 1024)
+        line_bytes = len(line.encode("utf-8")) + 1
+        if used + line_bytes > maximum_bytes:
+            marker_bytes = len(marker.encode("utf-8")) + 1
+            if used + marker_bytes <= maximum_bytes:
+                result.append(marker)
+            break
+        result.append(line)
+        used += line_bytes
+    return result
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--database", required=True)
     parser.add_argument("--generation", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument("--max-bytes", type=int, default=32768)
     args = parser.parse_args()
+    if args.max_bytes < 1024:
+        raise ValueError("--max-bytes must be at least 1024")
     connection = sqlite3.connect(args.database)
     connection.row_factory = sqlite3.Row
     counts = {
@@ -37,7 +66,7 @@ def main() -> None:
         LEFT JOIN build_target_files btf ON btf.target_id=bt.target_id
         LEFT JOIN files f ON f.file_id=btf.file_id
         GROUP BY bt.target_id
-        ORDER BY bt.name LIMIT 128
+        ORDER BY bt.name LIMIT 24
     """)
     roots = rows(connection, """
         SELECT CASE WHEN instr(repository_path, '/') > 0
@@ -55,7 +84,7 @@ def main() -> None:
         LEFT JOIN source_regions r ON r.region_id=d.region_id
         LEFT JOIN files f ON f.file_id=r.file_id
         GROUP BY s.symbol_id
-        ORDER BY outgoing_edges DESC, s.display_name LIMIT 24
+        ORDER BY outgoing_edges DESC, s.display_name LIMIT 16
     """)
     interfaces = rows(connection, """
         SELECT DISTINCT display_name, repository_path FROM (
@@ -74,7 +103,7 @@ def main() -> None:
             WHERE f.repository_path LIKE 'include/%' OR f.repository_path LIKE '%/include/%'
         )
         WHERE display_name GLOB '*[A-Za-z_]*' AND display_name NOT LIKE '<file>%'
-        ORDER BY repository_path, display_name LIMIT 64
+        ORDER BY repository_path, display_name LIMIT 32
     """)
     tests = rows(connection, """
         SELECT t.name, COALESCE(t.build_target, '-') AS build_target,
@@ -84,23 +113,23 @@ def main() -> None:
         LEFT JOIN files f ON f.file_id=t.file_id
         LEFT JOIN test_symbol_edges x ON x.test_id=t.test_id
         GROUP BY t.test_id
-        ORDER BY covered_symbols DESC, t.name LIMIT 64
+        ORDER BY covered_symbols DESC, t.name LIMIT 32
     """)
     modules = rows(connection, """
         SELECT m.name,m.module_kind,COALESCE(m.root_path,'-') root_path,m.authority,
                count(DISTINCT e.target_module_id) fanout
         FROM modules m LEFT JOIN module_edges e ON e.source_module_id=m.module_id
-        GROUP BY m.module_id ORDER BY fanout DESC,m.name LIMIT 64
+        GROUP BY m.module_id ORDER BY fanout DESC,m.name LIMIT 32
     """)
     module_edges = rows(connection, """
         SELECT s.name source,t.name target,e.edge_kind,e.evidence_count,e.provider
         FROM module_edges e JOIN modules s ON s.module_id=e.source_module_id
         JOIN modules t ON t.module_id=e.target_module_id
-        ORDER BY e.evidence_count DESC,s.name,t.name LIMIT 96
+        ORDER BY e.evidence_count DESC,s.name,t.name LIMIT 32
     """)
     findings = rows(connection, """
         SELECT finding_kind,severity,subject_id,evidence,authority,provider
-        FROM architecture_findings ORDER BY severity,finding_kind,subject_id LIMIT 64
+        FROM architecture_findings ORDER BY severity,finding_kind,subject_id LIMIT 32
     """)
     providers = rows(connection, """
         SELECT provider,status,provider_version FROM provider_runs ORDER BY provider
@@ -116,7 +145,7 @@ def main() -> None:
         for row in targets:
             lines.append(
                 f"- `{row['name']}` ({row['target_kind']}), definition `{row['definition_path']}`, "
-                f"sources={row['source_count']}: {row['sources'] or '-'}")
+                f"sources={row['source_count']}: {clip_text(row['sources'], 256)}")
     else:
         lines.append("- No build targets were inferred from the selected compilation database.")
     lines.extend(("", "## Derived module graph", ""))
@@ -150,7 +179,7 @@ def main() -> None:
     if not tests:
         lines.append("- NONE")
     lines.extend(("", "## Architecture findings requiring targeted verification", ""))
-    lines.extend(f"- [{row['severity']}] {row['finding_kind']} `{row['subject_id']}`: {row['evidence']} ({row['authority']}, {row['provider']})"
+    lines.extend(f"- [{row['severity']}] {row['finding_kind']} `{row['subject_id']}`: {clip_text(row['evidence'], 256)} ({row['authority']}, {row['provider']})"
                  for row in findings)
     if not findings:
         lines.append("- NONE")
@@ -159,7 +188,7 @@ def main() -> None:
     if not providers:
         lines.append("- NONE")
     lines.append("")
-    Path(args.output).write_text("\n".join(lines), encoding="utf-8")
+    Path(args.output).write_text("\n".join(bounded_lines(lines, args.max_bytes)) + "\n", encoding="utf-8")
     connection.close()
 
 
