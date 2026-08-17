@@ -286,6 +286,27 @@ test ! -f "$refresh_project/control/repository-index-refresh.pending.env"
 grep -q 'REPOSITORY_INDEX_REFRESHED task=fixture-task outcome=ACCEPTED.*owner=supervisor' \
 	"$refresh_project/logs/events.log"
 
+# Required mode must also discover a committed source increment when a blocked
+# terminal review preserved it without invoking an outcome-specific scheduler.
+printf '\n/* unscheduled blocked-result increment */\n' >> "$TEST_ROOT/repo/src/calc.c"
+git -C "$TEST_ROOT/repo" add src/calc.c
+git -C "$TEST_ROOT/repo" -c user.name=test -c user.email=test@example.invalid \
+	commit -qm 'advance unscheduled refresh fixture'
+test ! -f "$refresh_project/control/repository-index-refresh.pending.env"
+"$HARNESS_BIN/harness-supervisor-start" "$env_refresh" >/dev/null
+for _ in $(seq 1 200); do
+	grep -Fqx $'status\tREADY' < <("$HARNESS_BIN/harness-index-status" "$env_refresh") &&
+		grep -q 'REPOSITORY_INDEX_REFRESHED task=supervisor outcome=REQUIRED_BARRIER.*owner=supervisor' \
+			"$refresh_project/logs/events.log" && break
+	sleep 0.05
+done
+"$HARNESS_BIN/harness-supervisor-stop" "$env_refresh" >/dev/null
+grep -q 'REPOSITORY_INDEX_REFRESH_SCHEDULED task=supervisor outcome=REQUIRED_BARRIER' \
+	"$refresh_project/logs/events.log"
+grep -q 'REPOSITORY_INDEX_REFRESHED task=supervisor outcome=REQUIRED_BARRIER.*owner=supervisor' \
+	"$refresh_project/logs/events.log"
+grep -Fqx $'status\tREADY' < <("$HARNESS_BIN/harness-index-status" "$env_refresh")
+
 # A review can create the refresh marker after the loop's initial refresh
 # check. The supervisor must cross the barrier again before either recovery or
 # ordinary planning can publish the next task in that same iteration.

@@ -79,9 +79,23 @@ fingerprint()
 
 process_repository_index_refresh()
 {
-	local pending failed task_id outcome reason current status log tmp
+	local pending failed task_id outcome reason current status log tmp pointer recorded_revision source_revision
 	pending="$dir/control/repository-index-refresh.pending.env"
 	failed="$dir/control/repository-index-refresh.failed.md"
+	# A reviewed BLOCKED/HARD_BLOCKED episode can preserve and commit a valid
+	# source increment without passing through the accepted/checkpointed hooks
+	# that normally create the refresh marker. Detect committed source drift at
+	# every safe supervisor boundary so required mode cannot publish the next
+	# leaf against the previous generation.
+	if [[ ! -f "$pending" && "$HARNESS_REPOSITORY_INDEX_MODE" == required ]]; then
+		pointer="$(repository_index_project_pointer_file)"
+		recorded_revision="$(kv_file_value "$pointer" source_revision 2>/dev/null || true)"
+		source_revision="$(repository_index_source_revision 2>/dev/null || true)"
+		if [[ -z "$recorded_revision" || -z "$source_revision" ||
+			"$recorded_revision" != "$source_revision" ]]; then
+			repository_index_refresh_at_safe_boundary supervisor REQUIRED_BARRIER
+		fi
+	fi
 	[[ -f "$pending" ]] || return 0
 	if repository_index_project_pointer_is_current; then
 		rm -f "$pending" "$failed"
