@@ -171,6 +171,29 @@ test -f "$project/control/lunaconvergence-task-002.recovery-retired"
 test ! -e "$project/tasks/lunaconvergence-task-001.ready.md"
 test ! -e "$project/tasks/lunaconvergence-task-002.ready.md"
 test ! -e "$project/tasks/lunaconvergence-task-004.ready.md"
+
+# Reconcile both possible halves of an interrupted internal transition: a
+# newer published child wins over an older marker, while a typed marker wins
+# over an equal/older resurrected ready assignment.
+cat > "$project/tasks/lunaconvergence-task-002-revision-01.ready.md" <<'TASK'
+# Newer child
+
+Task-ID: 002-revision-01
+Worker-Route: LUNA
+Allowed-Scope: target.c
+Context-Paths: target.c
+Required-Symbols: target
+TASK
+cp "$project/archive/lunaconvergence-task-001.assignment.md" \
+	"$project/tasks/lunaconvergence-task-001.ready.md"
+recovery_output="$("$ROOT/bin/harness-recover" "$TMP/harness.env" --reset-orphaned)"
+grep -Fq 'STALE_REPLAN_MARKER_ARCHIVED root=002 ready=002-revision-01 trigger=002' \
+	<<< "$recovery_output"
+grep -Fq 'RESURRECTED_TYPED_READY_ARCHIVED task=001 trigger=001' \
+	<<< "$recovery_output"
+test -f "$project/tasks/lunaconvergence-task-002-revision-01.ready.md"
+test ! -e "$project/control/progress/lunaconvergence-task-002.needs-replan.md"
+test ! -e "$project/tasks/lunaconvergence-task-001.ready.md"
 test ! -e "$project/control/progress/lunaconvergence-task-003.architecture-reassessment-required.md"
 test "$(find "$project/archive/luna-only-migrations" -type f -name '*task-003*.migrated' | wc -l)" -eq 1
 grep -Fqx 'Trigger-Outcome: LUNA_ONLY_POLICY_MIGRATION' \

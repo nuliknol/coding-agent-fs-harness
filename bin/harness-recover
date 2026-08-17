@@ -21,6 +21,16 @@ shopt -s nullglob
 problems=0
 recovered=0
 
+task_revision_index()
+{
+	local task="$1"
+	if [[ "$task" =~ -revision-([0-9]+)$ ]]; then
+		printf '%s\n' "$((10#${BASH_REMATCH[1]}))"
+	else
+		printf '0\n'
+	fi
+}
+
 if [[ "$mode" == --reset-orphaned ]] && env_has_running_processes; then
 	die 'cannot reset orphaned crash state while harness processes still reference this environment'
 fi
@@ -94,6 +104,47 @@ for file in "$dir/running/$PROJECT-task-"*.running.md; do
 done
 
 if [[ "$mode" == --reset-orphaned ]]; then
+	# A crash between internal retirement, publication, and supervisor
+	# reconciliation can leave both one ready assignment and one root replan
+	# marker. Revision order identifies the committed side of the transaction:
+	# a newer ready child supersedes an older marker, while a typed marker at or
+	# beyond the ready revision proves that the ready assignment was resurrected.
+	for ready in "$dir/tasks/$PROJECT-task-"*.ready.md; do
+		[[ -f "$ready" ]] || continue
+		ready_task="$(task_id_from_filename "$ready")"
+		ready_base="$(task_base "$ready_task")"
+		root="$(task_root_id "$ready_task")"
+		replan_file="$(task_root_replan_file "$root")"
+		[[ -f "$replan_file" ]] || continue
+		trigger_task="$(metadata_value "$replan_file" Triggered-By)"
+		[[ "$(task_root_id "$trigger_task")" == "$root" ]] || continue
+		ready_revision="$(task_revision_index "$ready_task")"
+		trigger_revision="$(task_revision_index "$trigger_task")"
+		recovery_dir="$dir/archive/crash-recovery"
+		mkdir -p "$recovery_dir"
+		chmod 700 "$recovery_dir"
+		if (( ready_revision > trigger_revision )); then
+			preserved="$recovery_dir/${replan_file##*/}.$(timestamp_compact_utc).stale"
+			mv "$replan_file" "$preserved"
+			printf 'STALE_REPLAN_MARKER_ARCHIVED root=%s ready=%s trigger=%s file=%s\n' \
+				"$root" "$ready_task" "$trigger_task" "$preserved"
+			recovered=$((recovered + 1))
+			continue
+		fi
+		replan_outcome="$(metadata_value "$replan_file" Trigger-Outcome)"
+		if [[ "$replan_outcome" =~ ^(LUNA_ONLY_POLICY_MIGRATION|CONTEXT_CLOSURE_REPAIR)$ ]] ||
+			[[ -f "$dir/control/$ready_base.context-closure-repair.env" ||
+				-f "$dir/control/$ready_base.recovery-retired" ]]; then
+			preserved="$recovery_dir/$ready_base.resurrected-ready.$(timestamp_compact_utc).md"
+			mv "$ready" "$preserved"
+			: > "$dir/control/$ready_base.recovery-retired"
+			chmod 600 "$dir/control/$ready_base.recovery-retired"
+			printf 'RESURRECTED_TYPED_READY_ARCHIVED task=%s trigger=%s file=%s\n' \
+				"$ready_task" "$trigger_task" "$preserved"
+			recovered=$((recovered + 1))
+		fi
+	done
+
 	for assignment in "$dir/archive/$PROJECT-task-"*.assignment.md; do
 		[[ -f "$assignment" ]] || continue
 		task_id="${assignment##*/}"

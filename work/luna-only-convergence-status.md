@@ -1,6 +1,6 @@
 # Luna-Only Convergence Implementation Status
 
-Last updated (UTC): 2026-08-17T16:48:00Z
+Last updated (UTC): 2026-08-17T16:58:00Z
 
 Overall status: `IN_PROGRESS`
 
@@ -306,6 +306,11 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   internal transition from being recreated as a ready task after its root has
   already advanced, and therefore prevents concurrent worker/replanner state
   on the same root.
+- Crash recovery also reconciles the two partial-order states left by an
+  interrupted historical transition. A newer ready revision archives an older
+  stale replan marker; an equal/newer typed marker archives an older
+  resurrected ready assignment. This establishes exactly one live transition
+  per root before supervisors start.
 
 ## Validation journal
 
