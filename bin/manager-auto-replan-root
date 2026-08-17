@@ -484,6 +484,16 @@ write; and the bounded publisher/correction calls. Use the exact case-sensitive
 section headings embedded in the packet. This override is final wherever an
 earlier compatibility instruction conflicts with it.
 PROMPT
+if [[ "$trigger_outcome" == MANAGER_REMEDIATION_CONTEXT_INCOMPLETE ]]; then
+	cat >> "$prompt_file.tmp.$$" <<PROMPT
+
+CONTEXT-INCOMPLETE AUTHORITY: Remediation-Scope and Allowed-Scope must remain
+exactly '$trigger_remediation_scope'. The newly added evidence belongs only in
+Context-Paths/Required-Symbols and is read-only. The publisher restores this
+machine-owned mutation boundary deterministically; do not describe the added
+context as edit authority.
+PROMPT
+fi
 if codex_model_requires_narrow_prompt "$MANAGER_MODEL"; then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
 

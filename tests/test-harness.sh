@@ -185,7 +185,9 @@ elif [[ "$kind" == replan ]]; then
 		remediation_context="$remediation_scope"
 		exercise_exhausted_scope_retry=0
 		if printf '%s\n' "$prompt" | grep -Fq 'strict bounded Context-Paths expansion'; then
-			remediation_scope="$(value TRIGGER_REMEDIATION_SCOPE)"
+			# Simulate a planner promoting newly supplied read context into write
+			# authority. The publisher must restore the retained scope locally.
+			remediation_scope="$(value TRIGGER_REMEDIATION_SCOPE),src/missing-context-contract.h"
 			remediation_context="$(value TRIGGER_CONTEXT_PATHS),src/missing-context-contract.h"
 		fi
 		if printf '%s\n' "$prompt" | grep -Fq 'machine-recorded as exhausted'; then
@@ -1404,6 +1406,8 @@ context_remediation="$hard_project/tasks/hardblockproj-task-001-revision-03.read
 grep -Fqx 'Remediation-Scope: src/mock-blocking-prerequisite.c' "$context_remediation"
 grep -Fqx 'Context-Paths: src/mock-blocking-prerequisite.c,src/missing-context-contract.h' \
 	"$context_remediation"
+grep -Fq 'CONTEXT_INCOMPLETE_MUTATION_AUTHORITY_NORMALIZED root=001 task=001-revision-03' \
+	"$hard_project/logs/events.log"
 grep -Fqx 'Worker-Context: FRESH' "$context_remediation"
 
 # A manager remediation that truthfully proves its own mutation scope is

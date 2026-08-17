@@ -1435,6 +1435,40 @@ normalize_recovery_context_paths()
 
 normalize_recovery_context_paths
 
+normalize_context_incomplete_remediation_authority()
+{
+	local outcome retained requested_remediation requested_allowed normalized tmp
+	(( recovery_publish == 1 && manager_remediation == 1 )) || return 0
+	outcome="$(metadata_value "$(task_root_replan_file "$root")" Trigger-Outcome)"
+	[[ "$outcome" == MANAGER_REMEDIATION_CONTEXT_INCOMPLETE ]] || return 0
+	retained="$(metadata_value "$(task_root_replan_file "$root")" Remediation-Scope)"
+	[[ -n "$retained" ]] || die 'context-incomplete remediation marker is missing retained scope'
+	normalized="$(canonical_scope_path_set "$retained")"
+	requested_remediation="$(metadata_value "$task_file" Remediation-Scope)"
+	requested_allowed="$(metadata_value "$task_file" Allowed-Scope)"
+	if [[ "$(canonical_scope_path_set "$requested_remediation")" == "$normalized" ]] &&
+		{ [[ -z "$requested_allowed" ]] ||
+			[[ "$(canonical_scope_path_set "$requested_allowed")" == "$normalized" ]]; }; then
+		return 0
+	fi
+
+	# CONTEXT_INCOMPLETE authorizes a larger read capsule, never a larger write
+	# boundary. Restore both mutation fields deterministically after generic
+	# Context-Paths normalization so newly supplied evidence cannot become edit
+	# authority through planner transcription.
+	tmp="$task_file.context-incomplete-authority.$$"
+	HARNESS_RETAINED_REMEDIATION_SCOPE="$normalized" awk -F': ' '
+		$1 == "Remediation-Scope" {print "Remediation-Scope: " ENVIRON["HARNESS_RETAINED_REMEDIATION_SCOPE"]; next}
+		$1 == "Allowed-Scope" {print "Allowed-Scope: " ENVIRON["HARNESS_RETAINED_REMEDIATION_SCOPE"]; next}
+		{print}
+	' "$task_file" > "$tmp"
+	chmod --reference="$task_file" "$tmp"
+	mv "$tmp" "$task_file"
+	log_event "CONTEXT_INCOMPLETE_MUTATION_AUTHORITY_NORMALIZED root=$root task=$task_id requested_remediation=$(printf '%q' "$requested_remediation") requested_allowed=$(printf '%q' "${requested_allowed:--}") retained=$(printf '%q' "$normalized")"
+}
+
+normalize_context_incomplete_remediation_authority
+
 normalize_exhausted_luna_recovery_route()
 {
 	local requested_route requested_leaf luna_failures requested_exception tmp
