@@ -837,6 +837,17 @@ def build_closure(args: argparse.Namespace) -> str:
             WHERE repository_path=? OR repository_path LIKE ?
             ORDER BY repository_path LIMIT 64
             """, (normalized, normalized + "/%")).fetchall()
+        if not file_rows and "/" in normalized:
+            basename = normalized.rsplit("/", 1)[-1]
+            basename_rows = connection.execute(
+                "SELECT repository_path FROM files WHERE repository_path=? OR "
+                "repository_path LIKE ? ORDER BY repository_path LIMIT 2",
+                (basename, "%/" + basename)).fetchall()
+            if len(basename_rows) == 1:
+                relocated = basename_rows[0]["repository_path"]
+                if safe_source_path(repository, relocated) is not None:
+                    normalized = relocated
+                    file_rows = basename_rows
         if not file_rows:
             source = safe_source_path(repository, normalized)
             if source is None:

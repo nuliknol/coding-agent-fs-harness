@@ -380,6 +380,22 @@ class ContextClosureToolsTest(unittest.TestCase):
         self.assertIn("\tBOUNDED_SOURCE_EVIDENCE\tcalc.c\t", closure)
         self.assertIn("\tdeclared-context-selector\n", closure)
 
+    def test_unique_indexed_basename_repairs_misspelled_context_path(self):
+        connection = sqlite3.connect(self.database)
+        connection.execute("INSERT INTO files VALUES(2,'g','calc.h','c',NULL,1,0)")
+        connection.commit()
+        connection.close()
+
+        status, output = self.closure(
+            context_paths="include/calculator/calc.h", allowed_scope="calc.c",
+            required_symbols="add")
+
+        self.assertEqual("READY", status)
+        self.assertNotIn("CONTEXT_PATH\tinclude/calculator/calc.h",
+                         (output / "unresolved.tsv").read_text())
+        self.assertIn("\tDECLARED_CONTEXT\tcalc.h\t",
+                      (output / "closure.tsv").read_text())
+
     def test_required_symbol_build_target_alias_uses_indexed_validation_boundary(self):
         connection = sqlite3.connect(self.database)
         connection.execute(

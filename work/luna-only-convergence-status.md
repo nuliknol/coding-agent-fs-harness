@@ -899,3 +899,10 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   immutable mutation authority into `DECLARED_CONTEXT` evidence. A broad
   directory mutation scope remains incomplete and must still be decomposed.
   The closure suite now has 32 passing cases.
+- DPVIS revision 60 then supplied the misspelled read-only path
+  `include/dpv/render_compile.h`; the repository index contains exactly one
+  matching tracked basename at `include/dpvis/render_compile.h`. Missing
+  repository-like Context-Paths now relocate only when the current index has
+  one unique exact basename and that file exists in the live repository.
+  Ambiguous or absent paths still fail closed. The closure suite now has 33
+  passing cases.
