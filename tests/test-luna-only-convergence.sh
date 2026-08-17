@@ -5,6 +5,14 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP="$(mktemp -d /tmp/luna-only-convergence-test.XXXXXX)"
 trap 'rm -rf "$TMP"' EXIT
 
+# A published continuation may cross worker admission and enter its next typed
+# repair before the manager wrapper observes the ready file. Keep that durable
+# successor transition in the committed-publication predicate.
+grep -Fq 'successor_trigger="$(metadata_value "$successor_marker" Triggered-By)"' \
+	"$ROOT/bin/manager-auto-replan-root"
+grep -Fq '[[ "$successor_trigger" == "$expected_task_id" ]]' \
+	"$ROOT/bin/manager-auto-replan-root"
+
 mkdir -p "$TMP/repo" "$TMP/codex-home"
 printf 'test specification\n' > "$TMP/repo/spec.md"
 printf 'int target(void) { return 0; }\n' > "$TMP/repo/target.c"

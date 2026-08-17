@@ -153,6 +153,26 @@ class ContextClosureToolsTest(unittest.TestCase):
         self.assertNotIn("test-4", context)
         self.assertNotIn("test-budget-exceeded", (output / "manifest.env").read_text())
 
+    def test_ambiguous_display_name_prefers_definition_inside_declared_boundary(self):
+        connection = sqlite3.connect(self.database)
+        connection.execute("INSERT INTO files VALUES(2,'g','src/other.c','c',NULL,1,0)")
+        connection.execute(
+            "INSERT INTO source_regions VALUES(2,2,'symbol_definition','add',1,0,1,40,NULL,'scip-clang')")
+        connection.execute(
+            "INSERT INTO symbols VALUES('other-add','g','add','Function','c','-','scip-clang')")
+        connection.execute(
+            "INSERT INTO symbol_definitions VALUES('other-add',2,'definition','scip-clang')")
+        connection.commit()
+        connection.close()
+
+        status, output = self.closure()
+
+        self.assertEqual("READY", status)
+        closure = (output / "closure.tsv").read_text()
+        self.assertIn("\tcalc.c\t", closure)
+        self.assertNotIn("\tsrc/other.c\t", closure)
+        self.assertIn("modules\t1\n", (output / "quality.tsv").read_text())
+
     def test_pure_missing_evidence_still_requests_provider_refresh(self):
         status, output = self.closure(required_symbols="missing")
 

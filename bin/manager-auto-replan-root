@@ -359,15 +359,27 @@ mv "$prompt_file.tmp.$$" "$prompt_file"
 
 task_published()
 {
-	local base
+	local base successor_marker successor_trigger
 	base="$(task_base "$expected_task_id")"
-	[[ -f "$project_path/tasks/$base.ready.md" ||
+	if [[ -f "$project_path/tasks/$base.ready.md" ||
 		-f "$project_path/running/$base.running.md" ||
 		-f "$project_path/results/$base.result.md" ||
 		-f "$project_path/archive/$base.accepted.md" ||
 		-f "$project_path/archive/$base.checkpointed.md" ||
 		-f "$project_path/archive/$base.rejected.md" ||
-		-f "$(task_root_architecture_reassessment_file "$root")" ]]
+		-f "$(task_root_architecture_reassessment_file "$root")" ]]; then
+		return 0
+	fi
+	# A fast worker admission failure can archive the newly published assignment
+	# and queue its next typed repair before this manager process observes the
+	# ready file. That is a committed publication, not a false-success retry.
+	# Require both durable artifacts and an exact trigger match so an unrelated
+	# historical assignment cannot satisfy the check.
+	successor_marker="$(task_root_replan_file "$root")"
+	[[ -f "$project_path/archive/$base.assignment.md" && -f "$successor_marker" ]] ||
+		return 1
+	successor_trigger="$(metadata_value "$successor_marker" Triggered-By)"
+	[[ "$successor_trigger" == "$expected_task_id" ]]
 }
 
 manager_remediation_candidate_exceeds_authority()

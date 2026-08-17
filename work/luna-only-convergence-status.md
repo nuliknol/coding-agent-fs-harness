@@ -1,6 +1,6 @@
 # Luna-Only Convergence Implementation Status
 
-Last updated (UTC): 2026-08-17T16:22:11Z
+Last updated (UTC): 2026-08-17T16:32:24Z
 
 Overall status: `IN_PROGRESS`
 
@@ -363,6 +363,28 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   kind-specific byte windows. Explicit named tests remain required. This
   removes irrelevant multi-megabyte test aggregation from otherwise focused
   Luna capsules without weakening provider freshness or exact-symbol checks.
+- Production then completed the first intended convergence transition:
+  compmod-wc-3 decomposed its 93.6 KiB rejected parent into revision 23, whose
+  compiled capsule was `READY` at 12,306 bytes (3,077 estimated tokens), and
+  only then launched a `gpt-5.6-luna` worker. No fallback context or repository
+  exploration permission was used.
+- Four other published children immediately entered another typed closure
+  repair. This exposed a fast-transition race: the manager wrapper saw no ready
+  file after worker admission had already archived the assignment and queued
+  the exact successor marker, and falsely reported publication failure.
+- Publication commit detection now accepts that state only when the archived
+  expected assignment and a successor marker whose `Triggered-By` exactly
+  equals that expected revision both exist. This makes the next repair durable
+  without a correction turn or supervisor restart.
+- Supplemental callers, references, discovered tests, and flow records are now
+  packed deterministically into half the total capsule byte budget after every
+  required record. Omitted neighbors remain available through the typed
+  one-request extension protocol. Ambiguous display-name matches prefer exact
+  definitions inside declared Context-Paths/Allowed-Scope, and accepted
+  decision provenance is no longer redundantly dumped beside its compiled
+  authority record.
+- Luna-only publication telemetry now reports the enforced Luna model instead
+  of retaining a stale Sol decomposition label from an immutable legacy DAG.
 
 ## Validation journal
 
@@ -404,7 +426,7 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   `tests/test-decomposition-v2.sh`, and
   `tests/test-luna-only-convergence.sh` — PASS.
 - Combined Python suite — PASS, 24 tests.
-- Context Closure and graft tool suites — PASS, 22 tests after adding
+- Context Closure and graft tool suites — PASS, 23 tests after adding
   mixed-defect routing, write-scope conservation, bounded discovered-test
   evidence, and pure-evidence-refresh coverage.
 - Post-classifier regression: Luna-only convergence, SCIP importer,

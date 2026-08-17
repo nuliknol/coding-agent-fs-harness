@@ -332,8 +332,10 @@ def build_closure(args: argparse.Namespace) -> str:
                 evidence = record.get("evidence", "")
                 if evidence and evidence not in ("-", "NONE"):
                     evidence = evidence.removeprefix("operator-worktree:")
-                    if safe_repository_path(repository, evidence) is not None:
-                        path_seeds.setdefault(evidence, f"evidence for decision {identifier}")
+                    # The accepted decision record is the compiled authority.
+                    # Its provenance path remains in authority.tsv, but dumping
+                    # that complete design document would duplicate the record
+                    # and consume a Luna capsule with non-executable prose.
             elif authority_kind == "EDGE_CONTRACT":
                 producer = record.get("producer_node", "-") or "-"
                 consumer = record.get("consumer_node", "-") or "-"
@@ -378,6 +380,15 @@ def build_closure(args: argparse.Namespace) -> str:
                 unresolved.append(("REQUIRED_SYMBOL", requested, "no exact SCIP or worktree-overlay definition"))
             continue
         definitions = [row for row in rows if row["repository_path"] is not None]
+        definition_boundaries = sorted(set(path_seeds) | set(allowed_scopes))
+        scoped_definitions = [
+            row for row in definitions
+            if path_is_allowed(row["repository_path"], definition_boundaries)
+        ]
+        if scoped_definitions:
+            scoped_symbol_ids = {row["symbol_id"] for row in scoped_definitions}
+            definitions = scoped_definitions
+            rows = [row for row in rows if row["symbol_id"] in scoped_symbol_ids]
         if "D" in requested_classes and not definitions:
             unresolved.append(("REQUIRED_DEFINITION", requested, "symbol exists but has no indexed definition"))
         if "D" in requested_classes:
@@ -441,7 +452,7 @@ def build_closure(args: argparse.Namespace) -> str:
                     add_item(items, kind="FOCUSED_TEST", path=test["repository_path"],
                              start=test["start_line"], end=test["end_line"],
                              symbol=test["name"], why=f"indexed test covering {requested}",
-                             required=True, provider="scip-clang")
+                             required=False, provider="scip-clang")
 
             relation_rows = connection.execute(
                 """
@@ -757,6 +768,31 @@ def build_closure(args: argparse.Namespace) -> str:
     ordered_items = sorted(items.values(), key=lambda row: (
         0 if row["required"] == "REQUIRED" else 1,
         row["path"], row["start"], row["kind"], row["symbol"]))
+    # Required exact definitions and declared authority always survive. Pack
+    # supplemental callers, references, discovered tests, and flow evidence
+    # into a deterministic fraction of the complete capsule budget. A worker
+    # can request one typed extension later if an omitted direct neighbor is
+    # decisive; it must not receive every discoverable neighbor up front.
+    supporting_evidence_budget = max(4096, args.max_bytes // 2)
+    required_items = [row for row in ordered_items if row["required"] == "REQUIRED"]
+    supporting_items = [row for row in ordered_items if row["required"] != "REQUIRED"]
+    packed_items = list(required_items)
+    packed_source_bytes = 0
+    for row in required_items:
+        source = safe_source_path(repository, row["path"])
+        if source:
+            packed_source_bytes += len(item_excerpt(source, row).encode("utf-8"))
+    bounded_supporting_items_omitted = 0
+    for row in supporting_items:
+        source = safe_source_path(repository, row["path"])
+        evidence_bytes = len(item_excerpt(source, row).encode("utf-8")) if source else 0
+        if packed_source_bytes + evidence_bytes > supporting_evidence_budget:
+            bounded_supporting_items_omitted += 1
+            continue
+        packed_items.append(row)
+        packed_source_bytes += evidence_bytes
+    ordered_items = packed_items
+    selected_tests = {row["symbol"] for row in ordered_items if row["kind"] == "FOCUSED_TEST"}
     selected_paths = sorted({row["path"] for row in ordered_items})
     build_targets: dict[str, dict[str, str]] = {}
     build_targets_by_path: dict[str, set[str]] = {}
@@ -1195,6 +1231,7 @@ def build_closure(args: argparse.Namespace) -> str:
         stream.write(f"joern_mutations\t{joern_mutations}\n")
         stream.write(f"tests\t{len(selected_tests)}\n")
         stream.write(f"bounded_test_candidates_omitted\t{bounded_test_candidates_omitted}\n")
+        stream.write(f"bounded_supporting_items_omitted\t{bounded_supporting_items_omitted}\n")
         stream.write(f"build_targets\t{len(build_targets)}\n")
         stream.write(f"build_inputs\t{len(build_inputs)}\n")
         stream.write(f"unresolved\t{len(unresolved)}\n")
