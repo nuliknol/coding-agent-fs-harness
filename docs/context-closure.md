@@ -57,9 +57,24 @@ export HARNESS_JOERN_ANALYSIS_CLASSES="call,control-flow,data-flow,mutation"
 export HARNESS_JOERN_SOURCE_ROOT="."
 export HARNESS_JOERN_EXCLUDE_REGEX='(^|/)(\.git|build)($|/)'
 export HARNESS_JOERN_TIMEOUT_SECONDS="900"
+export HARNESS_JOERN_MAX_HEAP_MB="12288"
+export HARNESS_JOERN_MAX_CPUS="2"
+export HARNESS_JOERN_NICE_LEVEL="10"
 export HARNESS_RECOLL_BIN="recollq"
 export HARNESS_RECOLL_ENABLED="0"
 ```
+
+Joern parse, export, and GraphML import are admitted through one global lock
+under `HARNESS_REPOSITORY_INDEX_ROOT`, even when several projects refresh at
+once. The heap and processor settings are passed to Joern and its frontend JVMs;
+the nice level also applies to GraphML import. These are execution-resource
+limits and do not change immutable generation identity.
+
+Published generations receive an integrity marker after SQLite
+`integrity_check` succeeds. Routine status and Context Closure freshness checks
+validate that marker against immutable artifact metadata instead of rescanning
+the complete database. A generation created by an older harness is checked once
+with `quick_check` under a per-generation lock and upgraded in place.
 
 Resource boundaries:
 
@@ -74,7 +89,12 @@ export HARNESS_CONTEXT_CLOSURE_MAX_BUILD_TARGETS="4"
 export HARNESS_CONTEXT_CLOSURE_MAX_ESTIMATED_TOKENS="250000"
 export HARNESS_REPOSITORY_INDEX_RETENTION="3"
 export HARNESS_REPOSITORY_INDEX_REFRESH_ACCEPTED_LEAVES="4"
+export HARNESS_AGENT_ITEM_HEADROOM="6"
 ```
+
+`HARNESS_AGENT_ITEM_HEADROOM` covers bounded JSONL planning and finalization
+items in addition to Sol's predicted semantic actions. The global
+`HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION` fuse remains authoritative.
 
 Promotion policy:
 

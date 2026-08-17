@@ -144,6 +144,7 @@ generation_a="$(awk -F= '$1=="generation" {print $2}' "$pointer_a")"
 generation_dir_a="$(awk -F= '$1=="generation_dir" {print $2}' "$pointer_a")"
 test -s "$generation_dir_a/index.scip"
 test -s "$generation_dir_a/architecture.sqlite"
+test -s "$generation_dir_a/integrity.env"
 test "$(sqlite3 "$generation_dir_a/architecture.sqlite" 'PRAGMA user_version;')" = 5
 test "$(sqlite3 "$generation_dir_a/architecture.sqlite" 'SELECT count(*) FROM index_generations;')" = 1
 test "$(sqlite3 "$generation_dir_a/architecture.sqlite" "SELECT count(*) FROM sqlite_master WHERE name='lexical_documents';")" = 1
@@ -151,6 +152,29 @@ test "$(sqlite3 "$generation_dir_a/architecture.sqlite" "SELECT count(*) FROM sq
 ready_status="$($HARNESS_BIN/harness-index-status "$env_a" --details)"
 grep -Fqx $'status\tREADY' <<< "$ready_status"
 grep -Fqx $'schema_version\t5' <<< "$ready_status"
+
+# Existing installations acquire the publication marker lazily.  Even though
+# index status verifies the generation twice (directly and through pointer
+# freshness), only the first call may scan SQLite; later calls use immutable
+# artifact metadata and do not reopen the database.
+mkdir -p "$TEST_ROOT/sqlite-probe"
+cat > "$TEST_ROOT/sqlite-probe/sqlite3" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "${*: -1}" >> "${SQLITE_PROBE_LOG:?}"
+exec /usr/bin/sqlite3 "$@"
+SH
+chmod +x "$TEST_ROOT/sqlite-probe/sqlite3"
+rm -f "$generation_dir_a/integrity.env" "$generation_dir_a/.integrity.lock"
+sqlite_probe_log="$TEST_ROOT/sqlite-probe.log"
+PATH="$TEST_ROOT/sqlite-probe:$PATH" SQLITE_PROBE_LOG="$sqlite_probe_log" \
+	"$HARNESS_BIN/harness-index-status" "$env_a" >/dev/null
+test "$(wc -l < "$sqlite_probe_log")" = 2
+grep -Fqx 'PRAGMA user_version;' "$sqlite_probe_log"
+grep -Fqx 'PRAGMA quick_check;' "$sqlite_probe_log"
+PATH="$TEST_ROOT/sqlite-probe:$PATH" SQLITE_PROBE_LOG="$sqlite_probe_log" \
+	"$HARNESS_BIN/harness-index-status" "$env_a" >/dev/null
+test "$(wc -l < "$sqlite_probe_log")" = 2
+test -s "$generation_dir_a/integrity.env"
 
 # Every Joern input that affects the immutable graph/import must participate in
 # live freshness, not only generation construction. This also upgrades older

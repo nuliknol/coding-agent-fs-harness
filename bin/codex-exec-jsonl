@@ -249,17 +249,16 @@ if [[ "$role" =~ ^worker || "$role" == manager_remediation ]] &&
 fi
 if [[ "$role" =~ ^worker || "$role" == manager_remediation ]] &&
 	[[ "$resource_expected_actions" =~ ^[1-9][0-9]*$ ]] &&
-	(( resource_expected_actions + 2 < resource_item_limit )); then
-	# Two completion items beyond the predicted work let a bounded worker apply
-	# its final edit and run focused validation. The watcher trips only after an
-	# invocation exceeds this allowance, so the item exactly at the boundary is
-	# allowed to complete instead of being killed mid-edit.
-	resource_item_limit=$((resource_expected_actions + 2))
+	(( resource_expected_actions + HARNESS_AGENT_ITEM_HEADROOM < resource_item_limit )); then
+	# Predicted actions describe semantic work, while JSONL item starts also
+	# include model planning and finalization. Preserve a bounded allowance for
+	# those protocol items; the project-wide hard ceiling still wins.
+	resource_item_limit=$((resource_expected_actions + HARNESS_AGENT_ITEM_HEADROOM))
 fi
 if [[ "$role" =~ ^worker || "$role" == manager_remediation ]] &&
 	[[ "$resource_expected_actions" =~ ^[1-9][0-9]*$ ]] &&
 	(( HARNESS_AGENT_BASE_CONTEXT_TOKENS_PER_ROUND > 0 )); then
-	resource_context_rounds=$((resource_expected_actions + 2))
+	resource_context_rounds=$((resource_expected_actions + HARNESS_AGENT_ITEM_HEADROOM))
 	resource_runtime_p95_floor=$(((HARNESS_AGENT_BASE_CONTEXT_TOKENS_PER_ROUND +
 		resource_prompt_tokens) * resource_context_rounds))
 	if [[ ! "$resource_effective_p95" =~ ^[1-9][0-9]*$ ]] ||

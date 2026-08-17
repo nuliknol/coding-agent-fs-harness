@@ -315,18 +315,91 @@ repository_index_sql_quote()
 	printf "'%s'" "$value"
 }
 
+repository_index_generation_artifact_fingerprint()
+{
+	local generation_dir="$1" database scip
+	database="$generation_dir/architecture.sqlite"
+	scip="$generation_dir/index.scip"
+	[[ -f "$database" && -s "$scip" ]] || return 1
+	# Published generations are immutable.  Size, inode, and nanosecond mtime /
+	# ctime metadata therefore provide a cheap invalidation key for the durable
+	# integrity result without rereading a multi-gigabyte SQLite database on
+	# every context-closure or status request.
+	{
+		stat -Lc $'%s\t%y\t%z\t%i' "$database"
+		stat -Lc $'%s\t%y\t%z\t%i' "$scip"
+	} | sha256sum | awk '{print $1}'
+}
+
+repository_index_verification_marker_is_current()
+{
+	local generation_dir="$1" marker artifact_fingerprint marker_schema marker_fingerprint
+	marker="$generation_dir/integrity.env"
+	[[ -f "$marker" ]] || return 1
+	[[ "$(kv_file_value "$marker" status 2>/dev/null || true)" == READY ]] || return 1
+	marker_schema="$(kv_file_value "$marker" schema_version 2>/dev/null || true)"
+	[[ "$marker_schema" == "$HARNESS_REPOSITORY_INDEX_SCHEMA_VERSION" ]] || return 1
+	artifact_fingerprint="$(repository_index_generation_artifact_fingerprint "$generation_dir" 2>/dev/null || true)"
+	marker_fingerprint="$(kv_file_value "$marker" artifact_fingerprint 2>/dev/null || true)"
+	[[ -n "$artifact_fingerprint" && "$artifact_fingerprint" == "$marker_fingerprint" ]]
+}
+
+repository_index_write_verification_marker()
+{
+	local generation_dir="$1" check_kind="$2" marker tmp artifact_fingerprint
+	marker="$generation_dir/integrity.env"
+	tmp="$marker.tmp.$$.$RANDOM"
+	artifact_fingerprint="$(repository_index_generation_artifact_fingerprint "$generation_dir")" || return 1
+	{
+		printf 'status=READY\n'
+		printf 'schema_version=%s\n' "$HARNESS_REPOSITORY_INDEX_SCHEMA_VERSION"
+		printf 'artifact_fingerprint=%s\n' "$artifact_fingerprint"
+		printf 'check=%s\n' "$check_kind"
+		printf 'verified_at=%s\n' "$(timestamp_utc)"
+	} > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$marker"
+}
+
 repository_index_verify_generation()
 {
-	local generation_dir="$1" manifest database generation status schema_version
+	local generation_dir="$1" manifest database generation status manifest_schema schema_version verification_fd
 	manifest="$generation_dir/manifest.env"
 	database="$generation_dir/architecture.sqlite"
 	[[ -f "$manifest" && -s "$generation_dir/index.scip" && -f "$database" ]] || return 1
 	generation="$(kv_file_value "$manifest" generation 2>/dev/null || true)"
 	status="$(kv_file_value "$manifest" status 2>/dev/null || true)"
 	[[ "$generation" == "${generation_dir##*/}" && "$status" == READY ]] || return 1
+	manifest_schema="$(kv_file_value "$manifest" schema_version 2>/dev/null || true)"
+	[[ "$manifest_schema" == "$HARNESS_REPOSITORY_INDEX_SCHEMA_VERSION" ]] || return 1
+	if repository_index_verification_marker_is_current "$generation_dir"; then
+		return 0
+	fi
+	# Older generations do not have the publication marker.  Serialize their
+	# one-time migration check so simultaneous status/closure callers cannot all
+	# launch the same expensive SQLite scan.
+	exec {verification_fd}> "$generation_dir/.integrity.lock" || return 1
+	flock -x "$verification_fd" || { exec {verification_fd}>&-; return 1; }
+	if repository_index_verification_marker_is_current "$generation_dir"; then
+		flock -u "$verification_fd"
+		exec {verification_fd}>&-
+		return 0
+	fi
 	schema_version="$(sqlite3 "$database" 'PRAGMA user_version;' 2>/dev/null || true)"
-	[[ "$schema_version" == "$HARNESS_REPOSITORY_INDEX_SCHEMA_VERSION" ]] || return 1
-	[[ "$(sqlite3 "$database" 'PRAGMA quick_check;' 2>/dev/null || true)" == ok ]]
+	if [[ "$schema_version" != "$HARNESS_REPOSITORY_INDEX_SCHEMA_VERSION" ]] ||
+		[[ "$(sqlite3 "$database" 'PRAGMA quick_check;' 2>/dev/null || true)" != ok ]]; then
+		flock -u "$verification_fd"
+		exec {verification_fd}>&-
+		return 1
+	fi
+	repository_index_write_verification_marker "$generation_dir" quick_check || {
+		flock -u "$verification_fd"
+		exec {verification_fd}>&-
+		return 1
+	}
+	flock -u "$verification_fd"
+	exec {verification_fd}>&-
+	return 0
 }
 
 # Verify that the project pointer names an intact generation for the exact

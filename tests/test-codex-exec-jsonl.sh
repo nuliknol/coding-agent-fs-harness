@@ -44,7 +44,7 @@ case "${MOCK_MODE:?}" in
  network_stderr) printf 'stream disconnected: connection reset by peer\n' >&2; exit 1 ;;
  auth_code) printf '{"type":"turn.failed","error":{"code":"invalid_api_key","message":"bad credentials"}}\n'; exit 1 ;;
  success_warning) printf 'network error recovered\n' >&2; printf 'done\n' > "$last"; printf '{"type":"turn.completed"}\n' ;;
-	item_loop) for i in $(seq 1 10); do printf '{"type":"item.started","item":{"id":"%s"}}\n' "$i"; done; sleep 5 ;;
+	item_loop) for i in $(seq 1 20); do printf '{"type":"item.started","item":{"id":"%s"}}\n' "$i"; done; sleep 5 ;;
 	command_output_heavy) printf '{"type":"item.completed","item":{"id":"cmd-1","type":"command_execution","aggregated_output":"%040d","exit_code":0,"status":"completed"}}\n' 0; sleep 5 ;;
 	command_output_completed) printf 'done\n' > "$last"; printf '{"type":"item.completed","item":{"id":"cmd-1","type":"command_execution","aggregated_output":"%040d","exit_code":0,"status":"completed"}}\n{"type":"turn.completed"}\n' 0 ;;
 	repeated_read_once) printf 'done\n' > "$last"; printf '{"type":"item.started","item":{"id":"cmd-1","type":"command_execution","command":"/bin/bash -lc '\''rg -n target_symbol src/a.c | head -c 4096'\''"}}\n{"type":"turn.completed"}\n' ;;
@@ -197,8 +197,8 @@ grep -q 'agent invocation resource circuit breaker: live item-start budget reach
 	"$TMP/state/projects/jsonltest/control/progress/jsonltest-task-resource-root.needs-human.md"
 
 # A measured leaf tightens the global action ceiling to its own Sol-authored
-# upper bound. Two predicted actions receive two completion/finalization items
-# of headroom and stop only after that measured allowance is exceeded.
+# upper bound. Predicted semantic actions receive bounded JSONL protocol
+# headroom and stop only after that measured allowance is exceeded.
 cp "$TMP/env" "$TMP/env-measured-leaf"
 printf 'export HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION="100"\n' >> "$TMP/env-measured-leaf"
 measured_prompt="$TMP/measured-leaf-prompt"
@@ -210,7 +210,7 @@ measured_item_status=$?
 set -e
 (( measured_item_status != 0 ))
 grep -q '^classification=agent_item_budget_exceeded$' "$TMP/measured-item-loop.classification"
-grep -q '^item_limit=4$' "$TMP/measured-item-loop.classification"
+grep -q '^item_limit=8$' "$TMP/measured-item-loop.classification"
 rm -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-measured-root.needs-human.md" \
 	"$TMP/state/projects/jsonltest/control/progress/jsonltest-task-measured-root.token-usage-anomaly.md"
 
@@ -230,7 +230,7 @@ set -e
 (( manager_remediation_status != 0 ))
 grep -q '^classification=agent_item_budget_exceeded$' \
 	"$TMP/manager-remediation-item-loop.classification"
-grep -q '^item_limit=8$' "$TMP/manager-remediation-item-loop.classification"
+grep -q '^item_limit=12$' "$TMP/manager-remediation-item-loop.classification"
 grep -q '^processed_token_limit=150000$' \
 	"$TMP/manager-remediation-item-loop.classification"
 [[ ! -e "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-manager-remediation-root.needs-human.md" ]]
@@ -425,7 +425,7 @@ runtime_floor="$(awk -F= '$1=="runtime_p95_floor" {print $2}' "$TMP/runtime-floo
 runtime_limit="$(awk -F= '$1=="processed_token_limit" {print $2}' "$TMP/runtime-floor.classification")"
 (( runtime_floor > 70 ))
 (( runtime_limit > 105 && runtime_limit <= 500000 ))
-grep -q '^context_rounds=10$' "$TMP/runtime-floor.classification"
+grep -q '^context_rounds=14$' "$TMP/runtime-floor.classification"
 
 # The named specification-normalization phase has a separate bounded allowance
 # while ordinary manager/worker turns retain the lower default limit.

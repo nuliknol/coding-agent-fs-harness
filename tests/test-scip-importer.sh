@@ -278,6 +278,9 @@ printf 'export PROJECT="scip-e2e-joern"\nexport HARNESS_JOERN_ENABLED="1"\nexpor
 "$HARNESS_HOME/bin/harness-index-repository" "$TEST_ROOT/e2e-joern.env" >/dev/null
 joern_pointer="$TEST_ROOT/state/projects/scip-e2e-joern/control/repository-index.env"
 joern_dir="$(awk -F= '$1=="generation_dir" {print $2}' "$joern_pointer")"
+grep -Fqx 'joern_max_heap_mb=12288' "$joern_dir/manifest.env"
+grep -Fqx 'joern_max_cpus=2' "$joern_dir/manifest.env"
+grep -Fqx 'joern_nice_level=10' "$joern_dir/manifest.env"
 test "$(sqlite3 "$joern_dir/architecture.sqlite" "SELECT status FROM provider_runs WHERE provider='joern';")" = READY
 test "$(sqlite3 "$joern_dir/architecture.sqlite" 'SELECT count(*) FROM control_flow_edges;')" -ge 1
 test "$(sqlite3 "$joern_dir/architecture.sqlite" 'SELECT count(*) FROM data_flow_edges;')" -ge 1

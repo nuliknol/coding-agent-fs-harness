@@ -177,6 +177,12 @@ python3 "$HARNESS_HOME/tools/import_index_diagnostics.py" \
 
 joern_status=UNAVAILABLE
 if (( HARNESS_JOERN_ENABLED == 1 )); then
+	# Joern is deliberately global rather than repository-scoped: otherwise
+	# unrelated harnesses can each admit a large JVM at the same time.  Keep the
+	# lock through GraphML import so the memory-heavy export is fully consumed
+	# before another refresh starts producing one.
+	exec {joern_lock_fd}> "$HARNESS_REPOSITORY_INDEX_ROOT/.joern.lock"
+	flock -x "$joern_lock_fd"
 	joern_source="$(realpath -m "$REPOSITORY/$HARNESS_JOERN_SOURCE_ROOT")"
 	case "$joern_source" in "$REPOSITORY"|"$REPOSITORY"/*) ;; *) die 'Joern source root escapes the repository' ;; esac
 	[[ -d "$joern_source" ]] || die "Joern source root is not a directory: $joern_source"
@@ -189,13 +195,19 @@ if (( HARNESS_JOERN_ENABLED == 1 )); then
 	if [[ -n "$HARNESS_JOERN_EXCLUDE_REGEX" ]]; then
 		joern_frontend_args+=(--exclude-regex "$HARNESS_JOERN_EXCLUDE_REGEX")
 	fi
+	joern_java_opts="${JAVA_OPTS:-}"
+	joern_java_opts="${joern_java_opts:+$joern_java_opts }-Xmx${HARNESS_JOERN_MAX_HEAP_MB}m -XX:ActiveProcessorCount=${HARNESS_JOERN_MAX_CPUS}"
 	set +e
-	timeout "$HARNESS_JOERN_TIMEOUT_SECONDS" "$joern_parse" --language c --output "$tmp_generation/joern/cpg.bin" "$joern_source" \
+	env JAVA_OPTS="$joern_java_opts" nice -n "$HARNESS_JOERN_NICE_LEVEL" \
+		timeout --signal=TERM --kill-after=30 "$HARNESS_JOERN_TIMEOUT_SECONDS" \
+		"$joern_parse" --language c --output "$tmp_generation/joern/cpg.bin" "$joern_source" \
 		--frontend-args "${joern_frontend_args[@]}" \
 		> "$tmp_generation/reports/joern-parse.log" 2>&1
 	joern_parse_status=$?
 	if (( joern_parse_status == 0 )); then
-		timeout "$HARNESS_JOERN_TIMEOUT_SECONDS" "$joern_export" --repr cpg --format graphml --out "$tmp_generation/joern/export/cpg" \
+		env JAVA_OPTS="$joern_java_opts" nice -n "$HARNESS_JOERN_NICE_LEVEL" \
+			timeout --signal=TERM --kill-after=30 "$HARNESS_JOERN_TIMEOUT_SECONDS" \
+			"$joern_export" --repr cpg --format graphml --out "$tmp_generation/joern/export/cpg" \
 			"$tmp_generation/joern/cpg.bin" > "$tmp_generation/reports/joern-export.log" 2>&1
 		joern_export_status=$?
 	else
@@ -203,7 +215,7 @@ if (( HARNESS_JOERN_ENABLED == 1 )); then
 	fi
 	set -e
 	if (( joern_parse_status == 0 && joern_export_status == 0 )); then
-		python3 "$HARNESS_HOME/tools/import_joern_graphml.py" \
+		nice -n "$HARNESS_JOERN_NICE_LEVEL" python3 "$HARNESS_HOME/tools/import_joern_graphml.py" \
 			--database "$tmp_generation/architecture.sqlite" --generation "$REPOSITORY_INDEX_GENERATION" \
 			--repository "$REPOSITORY" --source-root "$HARNESS_JOERN_SOURCE_ROOT" \
 			--export "$tmp_generation/joern/export/cpg" --classes "$HARNESS_JOERN_ANALYSIS_CLASSES" \
@@ -225,6 +237,8 @@ if (( HARNESS_JOERN_ENABLED == 1 )); then
 		joern_fingerprint_q="$(repository_index_sql_quote "$REPOSITORY_INDEX_JOERN_FINGERPRINT")"
 		sqlite3 "$tmp_generation/architecture.sqlite" "INSERT OR REPLACE INTO provider_runs VALUES('joern',$generation_q,$joern_version_q,$joern_fingerprint_q,'DEGRADED','reports/joern-parse.log',datetime('now'));"
 	fi
+	flock -u "$joern_lock_fd"
+	exec {joern_lock_fd}>&-
 fi
 
 python3 "$HARNESS_HOME/tools/normalize_repository_architecture.py" normalize \
@@ -305,6 +319,9 @@ printf 'metric\tvalue\nscip_index_bytes\t%s\ncompile_commands\t%s\nfiles\t%s\nsy
 	printf 'joern_exclude_regex=%s\n' "$HARNESS_JOERN_EXCLUDE_REGEX"
 	printf 'joern_timeout_seconds=%s\n' "$HARNESS_JOERN_TIMEOUT_SECONDS"
 	printf 'joern_analysis_classes=%s\n' "$HARNESS_JOERN_ANALYSIS_CLASSES"
+	printf 'joern_max_heap_mb=%s\n' "$HARNESS_JOERN_MAX_HEAP_MB"
+	printf 'joern_max_cpus=%s\n' "$HARNESS_JOERN_MAX_CPUS"
+	printf 'joern_nice_level=%s\n' "$HARNESS_JOERN_NICE_LEVEL"
 	printf 'joern_status=%s\n' "$joern_status"
 	printf 'recoll_enabled=%s\n' "$HARNESS_RECOLL_ENABLED"
 	printf 'recoll_fingerprint=%s\n' "$REPOSITORY_INDEX_RECOLL_FINGERPRINT"
@@ -315,6 +332,8 @@ printf 'metric\tvalue\nscip_index_bytes\t%s\ncompile_commands\t%s\nfiles\t%s\nsy
 } > "$tmp_generation/manifest.env"
 
 find "$tmp_generation" -type f -exec chmod 600 {} +
+repository_index_write_verification_marker "$tmp_generation" integrity_check ||
+	die 'could not record repository-index publication integrity marker'
 mv "$tmp_generation" "$REPOSITORY_INDEX_GENERATION_DIR"
 tmp_generation=
 repository_index_verify_generation "$REPOSITORY_INDEX_GENERATION_DIR" ||
