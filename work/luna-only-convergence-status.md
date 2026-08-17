@@ -734,3 +734,39 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   rejection line. The live story restart now runs the recursive decomposition
   phase with the exact six rejected node IDs, seven repair rows, and compiled
   cut seams. No startup evidence or accepted specification state was reset.
+
+### 2026-08-17 20:08 UTC — investigation-fuse repairs
+
+- DPVIS reached its monotonic replan fuse after Luna emitted the same correct
+  one-line change three times with off-by-one unified-diff hunk counts. Commit
+  `70b4ffd` derives those redundant counts from the literal patch body before
+  the unchanged Git syntax, baseline, scope, whitespace, focused-validation,
+  and commit gates. The root was rearmed through an audited fix-commit epoch;
+  revision 56 now has a validated 24,205-byte capsule and is running on Luna.
+- COMP2's manager-replan episode correctly tripped the authoritative 500,000
+  token fuse at 761,831 processed tokens. The live estimator had reported only
+  418,612 because it omitted fixed system/tool context on every inference
+  round. Commit `70b4ffd` includes the existing 20,000-token per-round
+  allowance in the live estimate and aligns manager replans with their stated
+  eight-action transaction ceiling. All three 500,000-token investigation
+  fuses remain unchanged. The amplified thread was rotated and the exact
+  query-stage prerequisite received separately audited scope authority.
+- DPLM's N04 fuse recorded eighteen consecutive Context Closure repairs. The
+  accepted architecture decision was present as compact normative authority,
+  but its complete `affected_interfaces` inventory was also expanded into raw
+  source, inflating the exact revision-54 capsule to 82,469 bytes. Commit
+  `a2c7969` keeps decisions, invariants, edges, and gates as compiled authority
+  and admits raw source only from explicit leaf paths/symbols and indexed
+  relations. Recompiling the same assignment/index/overlay now returns
+  `READY` at 20,438 bytes (5,110 estimated tokens); DPLM was rearmed against
+  that exact evidence and is running.
+- The story recursive repair expanded four rejected nodes into ordered Luna
+  leaves and reached `ready=94 non_ready=0`. Startup then advanced into the
+  architecture-binding critic. Its manager/worker supervisors remain stopped
+  only because the startup transaction is still active; it is not stalled or
+  paused.
+- Active configured production projects currently have no architecture,
+  token-usage, integrity, or human-dependency blocker markers. COMP2, COMP3,
+  COMP4, DPLM, and DPVIS are in active manager/worker transactions; completed
+  projects remain untouched. No harness-owned Java, Joern, or SQLite CPU load
+  was present during verification.

@@ -67,6 +67,15 @@ recovery_mode="AUTOMATIC_REPLAN"
 recovery_reason="bounded strategy change remains available"
 if (( closure_repair == 1 )); then
 	recovery_reason="typed Context Closure repair $trigger_closure_repair_action is required for $trigger_closure_condition through $trigger_closure_repair_provider"
+	# A Context Closure rejection occurs before the executable leaf launches.
+	# Preserve manager-remediation authority across that internal transition;
+	# downgrading its successor to an ordinary replan discards the separately
+	# audited prerequisite scope before any Luna worker can use it.
+	if [[ -f "$trigger_assignment" &&
+		"$(metadata_value "$trigger_assignment" Manager-Remediation)" == 1 ]]; then
+		recovery_mode="MANAGER_REMEDIATION"
+		recovery_reason="typed Context Closure repair must retain the triggering manager-remediation prerequisite authority"
+	fi
 elif (( policy_migration == 1 )); then
 	recovery_reason="an installed pre-policy Terra assignment must be recursively decomposed into Luna-only child criteria without discarding verified state"
 elif (( resource_progress_verification == 1 )); then

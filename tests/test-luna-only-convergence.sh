@@ -20,6 +20,10 @@ grep -Fq 'attempt >= patch_only_attempt_limit' "$ROOT/bin/worker-invoke-task"
 grep -Fq 'PATCH_ONLY_ZERO_FILE_VERIFICATION_PASSED' "$ROOT/bin/worker-invoke-task"
 grep -Fq 'PATCH_ONLY_ZERO_FILE_VERIFICATION_FAILED' "$ROOT/bin/worker-invoke-task"
 grep -Fq 'WORKER_PATCH_FORMAT_REPAIR_RESUMING' "$ROOT/bin/worker-invoke-task"
+grep -Fq '"$(metadata_value "$trigger_assignment" Manager-Remediation)" == 1' \
+	"$ROOT/bin/manager-auto-replan-root"
+grep -Fq 'typed Context Closure repair must retain the triggering manager-remediation prerequisite authority' \
+	"$ROOT/bin/manager-auto-replan-root"
 
 mkdir -p "$TMP/repo" "$TMP/codex-home"
 printf 'test specification\n' > "$TMP/repo/spec.md"
