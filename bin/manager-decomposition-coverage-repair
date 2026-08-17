@@ -29,13 +29,43 @@ uncovered="$repair_dir/uncovered.txt"
 rows="$repair_dir/uncovered-rows.tsv"
 neighborhood="$repair_dir/dependency-neighborhood.tsv"
 mapping="$repair_dir/mapping.tsv"
+candidate_obligation_ids="$repair_dir/candidate-obligation-ids.txt"
+candidate_obligations="$repair_dir/candidate-obligations.tsv"
+candidate_relations="$repair_dir/candidate-relations.tsv"
+coverage_capsule="$repair_dir/coverage-repair-capsule.md"
 awk -F '\t' 'NR==FNR {if(FNR>1){n=split($2,a,",");for(i=1;i<=n;i++) covered[a[i]]=1};next} FNR>1 && !($1 in covered){print $1}' \
 	"$coverage_source" "$dag_source" | sort -u > "$uncovered"
 awk -F '\t' 'NR==FNR {wanted[$1]=1;next} FNR==1 || ($1 in wanted)' "$uncovered" "$dag_source" > "$rows"
 awk -F '\t' 'NR==FNR {wanted[$1]=1;next} FNR==1 {print;next} {include=($1 in wanted)||($2 in wanted);n=split($3,a,",");for(i=1;i<=n;i++)if(a[i] in wanted)include=1;if(include)print}' \
 	"$uncovered" "$dag_source" > "$neighborhood"
 printf 'node_id\tobligation_ids\n' > "$mapping"
-chmod 600 "$uncovered" "$rows" "$neighborhood" "$mapping"
+# Compile the exact normalized authority referenced by the uncovered rows.
+# Coverage repair is a critic of this capsule; it must never rediscover the
+# global IR through a multi-file shell dump.
+grep -Eo '[A-Z][A-Z0-9]*(-[A-Z0-9]+)+-[0-9]{3}' "$rows" | sort -u > "$candidate_obligation_ids"
+[[ -s "$candidate_obligation_ids" ]] ||
+	die 'uncovered DAG rows contain no exact normalized obligation identifiers'
+awk -F '\t' 'NR==FNR {wanted[$1]=1; next} FNR==1 || ($1 in wanted)' \
+	"$candidate_obligation_ids" "$(specification_obligations_file)" > "$candidate_obligations"
+awk -F '\t' 'NR==FNR {wanted[$1]=1; next} FNR==1 || ($3 in wanted) || ($4 in wanted)' \
+	"$candidate_obligation_ids" "$(specification_relations_file)" > "$candidate_relations"
+{
+	printf '# Compiled Decomposition Coverage Repair Capsule\n\n'
+	printf 'Every uncovered node below must map to one or at most two exact obligations from this capsule.\n\n'
+	printf '## Uncovered executable DAG rows\n\n```tsv\n'
+	cat "$rows"
+	printf '```\n\n## Exact normalized obligations referenced by those rows\n\n```tsv\n'
+	cat "$candidate_obligations"
+	printf '```\n\n## Typed relations touching those obligations\n\n```tsv\n'
+	cat "$candidate_relations"
+	printf '```\n'
+} > "$coverage_capsule"
+coverage_capsule_bytes="$(wc -c < "$coverage_capsule")"
+(( coverage_capsule_bytes <= 28672 )) ||
+	die "compiled coverage-repair capsule exceeds bounded command output ($coverage_capsule_bytes/28672 bytes)"
+chmod 600 "$uncovered" "$rows" "$neighborhood" "$mapping" \
+	"$candidate_obligation_ids" "$candidate_obligations" "$candidate_relations" "$coverage_capsule"
+log_event "DECOMPOSITION_COVERAGE_REPAIR_CAPSULE candidate=${candidate_dir##*/} uncovered=$(wc -l < "$uncovered") bytes=$coverage_capsule_bytes capsule=$coverage_capsule"
 
 prompt="$dir/control/manager-decomposition-coverage-repair.prompt.md"
 cat > "$prompt.tmp.$$" <<PROMPT
@@ -44,21 +74,16 @@ You are a fresh, bounded Sol decomposition-coverage repair agent. Do not edit th
 ENV_FILE=$HARNESS_ENV_FILE
 HARNESS_BIN=$HARNESS_BIN
 PROJECT=$PROJECT
-UNCOVERED_NODE_IDS=$uncovered
-UNCOVERED_DAG_ROWS=$rows
-DEPENDENCY_NEIGHBORHOOD=$neighborhood
-CURRENT_COVERAGE=$coverage_source
-NORMALIZED_OBLIGATIONS=$(specification_obligations_file)
-NORMALIZED_RELATIONS=$(specification_relations_file)
+COVERAGE_REPAIR_CAPSULE=$coverage_capsule
 COVERAGE_MAPPING_FILE=$mapping
 
-Every uncovered DAG row is executable work created during decomposition and must be justified by normalized obligations. Read only the listed bounded files. For every ID in UNCOVERED_NODE_IDS, append exactly one mapping row to COVERAGE_MAPPING_FILE. Map it to one or at most two semantically exact obligation IDs. Use deliverable, acceptance evidence, dependency neighborhood, normalized statement, and typed relations—not incidental node names or broad evidence prose. Do not map a local leaf to a broad integration obligation merely because it is downstream. Do not omit, rename, merge, or invent nodes or obligations.
+Read COVERAGE_REPAIR_CAPSULE exactly once in one bounded command. Do not read any other source, IR, DAG, coverage, repository, or log file. The capsule contains every uncovered executable row and its exact normalized obligation/typed-relation authority. For every uncovered node ID, append exactly one mapping row to COVERAGE_MAPPING_FILE. Map it to one or at most two semantically exact obligation IDs. Use deliverable, acceptance evidence, normalized statement, and typed relations—not incidental node names or broad evidence prose. Do not map a local leaf to a broad integration obligation merely because it is downstream. Do not omit, rename, merge, or invent nodes or obligations.
 
 Submit exactly once with:
 
 $HARNESS_BIN/manager-stage-decomposition-coverage-patch "$HARNESS_ENV_FILE" "$mapping"
 
-If deterministic validation rejects the patch, read only its new rejection log, correct COVERAGE_MAPPING_FILE once, submit once more, and terminate.
+If deterministic validation rejects the patch, treat its bounded diagnostic as complete correction authority, correct COVERAGE_MAPPING_FILE once, submit once more, and terminate. Never concatenate or dump multiple evidence sources in one command.
 PROMPT
 chmod 600 "$prompt.tmp.$$"
 mv "$prompt.tmp.$$" "$prompt"
@@ -83,4 +108,3 @@ if (( status == 0 )) && [[ "$new_candidate_dir" != - && "$new_candidate_dir" != 
 fi
 (( status == 0 )) && die 'coverage repair exited without staging a durable candidate'
 die "coverage repair failed with status $status; see $json"
-

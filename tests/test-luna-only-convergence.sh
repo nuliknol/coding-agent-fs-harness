@@ -23,6 +23,10 @@ grep -Fq 'git -C "$REPOSITORY" apply -R --whitespace=nowarn --unidiff-zero' \
 	"$ROOT/bin/worker-invoke-task"
 grep -Fq 'PATCH_ROLLBACK_FAILURE' "$ROOT/bin/worker-invoke-task"
 grep -Fq 'WORKER_TRANSACTION_ORPHANED' "$ROOT/bin/worker-supervisor"
+grep -Fq 'DECOMPOSITION_COVERAGE_REPAIR_CAPSULE' \
+	"$ROOT/bin/manager-decomposition-coverage-repair"
+grep -Fq 'Read COVERAGE_REPAIR_CAPSULE exactly once in one bounded command.' \
+	"$ROOT/bin/manager-decomposition-coverage-repair"
 grep -Fq 'WORKER_PATCH_FORMAT_REPAIR_RESUMING' "$ROOT/bin/worker-invoke-task"
 grep -Fq '"$(metadata_value "$trigger_assignment" Manager-Remediation)" == 1' \
 	"$ROOT/bin/manager-auto-replan-root"
