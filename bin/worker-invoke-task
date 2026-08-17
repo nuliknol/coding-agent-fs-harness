@@ -416,7 +416,7 @@ if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 		printf '\n## Embedded bounded context capsule\n\n'
 		cat "$context_capsule_file"
 		if [[ -n "$compiled_context_closure_file" ]]; then
-			printf '\n## Embedded compiled Context Closure (advisory)\n\n'
+			printf '\n## Embedded compiled Context Closure (%s)\n\n' "$HARNESS_CONTEXT_CLOSURE_MODE"
 			cat "$compiled_context_closure_file"
 		fi
 		printf '\n## End embedded worker context\n'

@@ -105,6 +105,8 @@ test "$(sqlite3 "$e2e_generation_dir/architecture.sqlite" 'SELECT count(*) FROM 
 test "$(sqlite3 "$e2e_generation_dir/architecture.sqlite" "SELECT count(*) FROM build_inputs WHERE input_kind='GENERATED_HEADER' AND absolute_path LIKE '%/generated/context_generated.hpp';")" = 1
 test "$(sqlite3 "$e2e_generation_dir/architecture.sqlite" "SELECT count(*) FROM build_targets WHERE name='context_calc' AND definition_path='CMakeLists.txt';")" = 1
 test "$(sqlite3 "$e2e_generation_dir/architecture.sqlite" "SELECT count(*) FROM tests WHERE build_target='context_calc_test';")" -ge 1
+test "$(sqlite3 "$e2e_generation_dir/architecture.sqlite" 'SELECT count(*) FROM tests;')" -le 2
+test "$(sqlite3 "$e2e_generation_dir/architecture.sqlite" "SELECT count(*) FROM tests WHERE name LIKE 'local %';")" = 0
 test -s "$e2e_generation_dir/reports/scip-import.tsv"
 grep -Eq $'^build_targets\t6$' "$e2e_generation_dir/reports/build-target-import.tsv"
 grep -Eq $'^build_target_inputs\t2$' "$e2e_generation_dir/reports/build-target-import.tsv"

@@ -51,6 +51,12 @@ def sha256(path: Path | None) -> str:
     return digest.hexdigest()
 
 
+def optional_path(value: str | None) -> Path | None:
+    if not value or value in ("-", "NONE"):
+        return None
+    return Path(value)
+
+
 def one_line(value: object, maximum: int = 240) -> str:
     text = " ".join(str(value or "-").replace("\t", " ").split()) or "-"
     encoded = text.encode("utf-8")
@@ -69,7 +75,9 @@ def read_tsv(path: Path, required: set[str]) -> list[dict[str, str]]:
         return list(reader)
 
 
-def review_excerpt(path: Path) -> list[str]:
+def review_excerpt(path: Path | None) -> list[str]:
+    if path is None:
+        return []
     selected: list[str] = []
     active = False
     for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
@@ -216,10 +224,10 @@ def main() -> None:
         raise ValueError("--max-bytes must be at least 8192")
 
     repository = Path(args.repository)
-    report_path = Path(args.review_report)
-    facts_path = Path(args.facts)
-    obligations_path = Path(args.obligations)
-    relations_path = Path(args.relations)
+    report_path = optional_path(args.review_report)
+    facts_path = optional_path(args.facts)
+    obligations_path = optional_path(args.obligations)
+    relations_path = optional_path(args.relations)
     slice_path = Path(args.architecture_slice) if args.architecture_slice else None
     authority_paths = [Path(value) for value in args.authority_file]
     dag_path = Path(args.dag) if args.dag else None
@@ -230,13 +238,13 @@ def main() -> None:
     obligations = read_tsv(obligations_path, {
         "obligation_id", "authority", "source_requirement", "source_location",
         "obligation_type", "statement", "observable_outcome", "acceptance_authority",
-    })
+    }) if obligations_path is not None else []
     relations = read_tsv(relations_path, {
         "relation_id", "relation_type", "subject", "object", "authority", "evidence",
-    })
+    }) if relations_path is not None else []
     facts = read_tsv(facts_path, {
         "fact_id", "kind", "subject", "value", "evidence", "authority", "confidence",
-    })
+    }) if facts_path is not None else []
     obligations.sort(key=lambda row: row["obligation_id"])
     relations.sort(key=lambda row: row["relation_id"])
     facts.sort(key=lambda row: row["fact_id"])

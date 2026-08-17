@@ -102,3 +102,24 @@ func TestExpandStructuralRangeMacro(t *testing.T) {
 		t.Fatalf("macro boundary is incorrect: %q", text)
 	}
 }
+
+func TestTestDefinitionRejectsLocalAndNonCallableSymbols(t *testing.T) {
+	if isTestDefinition("tests/test_calc.c", "local 0", nil) {
+		t.Fatal("local definition was classified as a test")
+	}
+	variable := &scip.SymbolInformation{Kind: scip.SymbolInformation_Variable}
+	if isTestDefinition("tests/test_calc.c", "scip symbol variable.", variable) {
+		t.Fatal("test-file variable was classified as a test")
+	}
+	function := &scip.SymbolInformation{Kind: scip.SymbolInformation_Function}
+	if !isTestDefinition("tests/test_calc.c", "scip symbol main().", function) {
+		t.Fatal("test function was not classified as a test")
+	}
+	if isTestDefinition("src/calc.c", "scip symbol main().", function) {
+		t.Fatal("ordinary source function was classified as a test")
+	}
+	unspecified := &scip.SymbolInformation{}
+	if !isTestDefinition("tests/test_calc.c", "main", unspecified) {
+		t.Fatal("test main with an omitted SCIP kind was not classified as a test")
+	}
+}

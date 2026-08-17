@@ -115,6 +115,12 @@ shared by projects with the same identity. Project-local normative projections,
 Recoll candidate overlays, benchmarks, closures, and scorecards never mutate
 the shared database.
 
+Generated project headers are embedded as read-only prerequisites. External
+SDK/toolchain headers are retained by exact path, content hash, and provider
+fingerprint but their recursive contents are not copied into every closure;
+otherwise a single HIP include can consume the complete worker budget before
+any project evidence is supplied.
+
 Run representative navigation benchmarks:
 
 ```bash

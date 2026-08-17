@@ -229,7 +229,9 @@ func (i *importer) consumeDocument(document *scip.Document) error {
 		if occurrence.GetSymbol() == "" {
 			continue
 		}
-		if err := i.importOccurrence(fileID, relPath, content, occurrence, definitions); err != nil {
+		canonical := canonicalSymbol(relPath, occurrence.GetSymbol())
+		if err := i.importOccurrence(fileID, relPath, content, occurrence, definitions,
+			infoBySymbol[canonical]); err != nil {
 			return fmt.Errorf("import occurrence in %q: %w", relPath, err)
 		}
 	}
@@ -304,7 +306,8 @@ func (i *importer) upsertSymbol(documentPath, language, raw string, info *scip.S
 }
 
 func (i *importer) importOccurrence(fileID int64, documentPath string, content []byte,
-	occurrence *scip.Occurrence, definitions []definitionRange) error {
+	occurrence *scip.Occurrence, definitions []definitionRange,
+	info *scip.SymbolInformation) error {
 	range_, ok := occurrence.SourceRange()
 	if !ok {
 		return nil
@@ -345,7 +348,7 @@ func (i *importer) importOccurrence(fileID int64, documentPath string, content [
 			}
 			i.counts.lexicalUnits++
 		}
-		if isTestPath(documentPath) {
+		if isTestDefinition(documentPath, occurrence.GetSymbol(), info) {
 			testID := stableID("test", documentPath, symbol)
 			if _, err := i.tx.ExecContext(i.ctx,
 				"INSERT OR IGNORE INTO tests(test_id, generation_id, name, file_id, region_id, provider) VALUES(?, ?, ?, ?, ?, 'scip-clang')",
@@ -828,6 +831,36 @@ func isTestPath(path string) bool {
 	base := strings.ToLower(filepath.Base(lower))
 	return strings.Contains(lower, "/tests/") || strings.Contains(lower, "/test/") ||
 		strings.HasPrefix(base, "test_") || strings.Contains(base, "_test.")
+}
+
+// Test source files contain many definitions that are fixtures, local variables,
+// types, constants, and helper data rather than independently runnable tests.
+// Only callable, non-local definitions may own test-to-symbol edges. Treating
+// every definition in a test translation unit as a test turns one large smoke
+// file into thousands of tests and makes every otherwise bounded closure fail
+// its test and byte budgets.
+func isTestDefinition(path, rawSymbol string, info *scip.SymbolInformation) bool {
+	if !isTestPath(path) || strings.HasPrefix(rawSymbol, "local ") ||
+		strings.Contains(rawSymbol, "`<file>") {
+		return false
+	}
+	if info != nil {
+		switch info.GetKind().String() {
+		case "Function", "Method", "Constructor":
+			return true
+		case "UnspecifiedKind", "UNSPECIFIED_KIND", "":
+			// Continue into the conservative name fallback. scip-clang 0.4.0
+			// commonly omits callable kinds for C/C++ definitions.
+		default:
+			return false
+		}
+	}
+	// A producer may omit SymbolInformation for a definition. Keep the fallback
+	// deliberately narrow and deterministic rather than reintroducing the
+	// test-file-wide classification bug.
+	name := strings.ToLower(displayName(rawSymbol, nil))
+	return name == "main" || strings.HasPrefix(name, "test_") ||
+		strings.HasSuffix(name, "_test") || strings.Contains(name, "_smoke")
 }
 
 func stableID(parts ...string) string {

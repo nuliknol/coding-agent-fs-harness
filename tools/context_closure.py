@@ -63,6 +63,15 @@ def safe_source_path(repository: Path, relative: str) -> Path | None:
     return candidate if candidate.is_file() else None
 
 
+def safe_repository_path(repository: Path, relative: str) -> Path | None:
+    candidate = (repository / relative).resolve()
+    try:
+        candidate.relative_to(repository)
+    except ValueError:
+        return None
+    return candidate if candidate.exists() else None
+
+
 def excerpt(path: Path, start: int, end: int, maximum: int = 16384) -> str:
     try:
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
@@ -133,6 +142,7 @@ def build_closure(args: argparse.Namespace) -> str:
     authority_records: list[tuple[str, str, str, dict[str, str]]] = []
     ownership_boundaries: set[tuple[str, str, str, str]] = set()
     selected_tests: set[str] = set()
+    requested_classes = set(split_list(values.get("Required-Dependency-Classes", "D,T,I,B,C,V")))
 
     configuration_rows = connection.execute(
         "SELECT configuration_id FROM build_configurations WHERE generation_id=? ORDER BY configuration_id",
@@ -188,14 +198,20 @@ def build_closure(args: argparse.Namespace) -> str:
                 selected_obligations.add(identifier)
             elif authority_kind == "ARCHITECTURE_INVARIANT":
                 for path in split_list(record.get("scope", "")):
-                    path_seeds.setdefault(path, f"scope of invariant {identifier}")
+                    # Architecture scope is commonly a semantic phrase (for
+                    # example, "Query plan wire ABI"), not a filesystem path.
+                    # It remains present in authority.tsv/context.md, but only
+                    # an actual repository path is a structural path seed.
+                    if safe_repository_path(repository, path) is not None:
+                        path_seeds.setdefault(path, f"scope of invariant {identifier}")
             elif authority_kind == "ARCHITECTURE_DECISION":
                 for symbol in split_list(record.get("affected_interfaces", "")):
                     symbol_seeds.setdefault(symbol, f"interface governed by decision {identifier}")
                 evidence = record.get("evidence", "")
                 if evidence and evidence not in ("-", "NONE"):
                     evidence = evidence.removeprefix("operator-worktree:")
-                    path_seeds.setdefault(evidence, f"evidence for decision {identifier}")
+                    if safe_repository_path(repository, evidence) is not None:
+                        path_seeds.setdefault(evidence, f"evidence for decision {identifier}")
             elif authority_kind == "EDGE_CONTRACT":
                 producer = record.get("producer_node", "-") or "-"
                 consumer = record.get("consumer_node", "-") or "-"
@@ -279,7 +295,7 @@ def build_closure(args: argparse.Namespace) -> str:
                 LEFT JOIN symbol_definitions d ON d.symbol_id=t.symbol_id
                 LEFT JOIN source_regions r ON r.region_id=d.region_id
                 LEFT JOIN files f ON f.file_id=r.file_id
-                WHERE e.source_symbol_id=?
+                WHERE e.source_symbol_id=? AND e.edge_kind != 'REFERENCES'
                 ORDER BY e.edge_kind, f.repository_path, r.start_line LIMIT 17
                 """, (row["symbol_id"],)).fetchall()
             if len(relation_rows) > 16:
@@ -295,7 +311,9 @@ def build_closure(args: argparse.Namespace) -> str:
                              why=f"{relation['edge_kind']} dependency of {requested}",
                              required=True, provider="scip-clang")
 
-            call_rows = connection.execute(
+            call_rows = []
+            if "C" in requested_classes:
+                call_rows = connection.execute(
                 """SELECT 'CALLEE' direction,t.symbol_id,t.display_name,f.repository_path,r.start_line,r.end_line,c.provider
                    FROM call_edges c JOIN symbols t ON t.symbol_id=c.callee_symbol_id
                    LEFT JOIN symbol_definitions d ON d.symbol_id=t.symbol_id
@@ -307,7 +325,7 @@ def build_closure(args: argparse.Namespace) -> str:
                    LEFT JOIN symbol_definitions d ON d.symbol_id=s.symbol_id
                    LEFT JOIN source_regions r ON r.region_id=d.region_id LEFT JOIN files f ON f.file_id=r.file_id
                    WHERE c.callee_symbol_id=? ORDER BY direction,repository_path,start_line LIMIT ?""",
-                (row["symbol_id"], row["symbol_id"], args.max_direct_relationships + 1)).fetchall()
+                    (row["symbol_id"], row["symbol_id"], args.max_direct_relationships + 1)).fetchall()
             if len(call_rows) > args.max_direct_relationships:
                 graph_cuts.append((row["symbol_id"], "call-fanout",
                                    "caller/callee evidence exceeds the direct relationship budget"))
@@ -319,7 +337,6 @@ def build_closure(args: argparse.Namespace) -> str:
                              symbol=call["display_name"], why=f"direct {call['direction'].lower()} of {requested}",
                              required=False, provider=call["provider"])
 
-    requested_classes = set(split_list(values.get("Required-Dependency-Classes", "D,T,I,B,C,V")))
     if "F" in requested_classes:
         provider = connection.execute(
             "SELECT status FROM provider_runs WHERE generation_id=? AND provider='joern'",
@@ -408,6 +425,17 @@ def build_closure(args: argparse.Namespace) -> str:
 
     for requested_path, seed_reason in sorted(path_seeds.items()):
         normalized = requested_path.rstrip("/")
+        repository_path = safe_repository_path(repository, normalized)
+        if repository_path is not None and repository_path.is_dir():
+            # A directory is an evidence boundary, not an instruction to dump
+            # every descendant file. Exact symbol/file seeds must select the
+            # structural regions inside it.
+            prefix = normalized + "/"
+            if not any(item["path"] == normalized or item["path"].startswith(prefix)
+                       for item in items.values()):
+                unresolved.append(("CONTEXT_PATH", normalized,
+                                   "directory path has no exact required symbol or file evidence seed"))
+            continue
         file_rows = connection.execute(
             """
             SELECT repository_path FROM files
@@ -455,14 +483,6 @@ def build_closure(args: argparse.Namespace) -> str:
         0 if row["required"] == "REQUIRED" else 1,
         row["path"], row["start"], row["kind"], row["symbol"]))
     selected_paths = sorted({row["path"] for row in ordered_items})
-    for path in selected_paths:
-        for test in connection.execute(
-                """
-                SELECT DISTINCT t.name FROM tests t
-                JOIN files f ON f.file_id=t.file_id
-                WHERE f.repository_path=? ORDER BY t.name
-                """, (path,)).fetchall():
-            selected_tests.add(test["name"])
     build_targets: dict[str, dict[str, str]] = {}
     build_targets_by_path: dict[str, set[str]] = {}
     for path in selected_paths:
@@ -520,7 +540,11 @@ def build_closure(args: argparse.Namespace) -> str:
             build_inputs[row["input_id"]] = record
             build_input_bytes_by_source[record["source_path"]] = \
                 build_input_bytes_by_source.get(record["source_path"], 0) + input_bytes
-            if input_bytes > args.max_bytes:
+            # Generated project inputs must be self-contained because they may
+            # not exist in Git or SCIP. Toolchain/SDK headers are immutable
+            # provider prerequisites: retain their hashes and provenance, but
+            # do not make every leaf embed an entire recursive system SDK.
+            if record["input_kind"] == "GENERATED_HEADER" and input_bytes > args.max_bytes:
                 graph_cuts.append((record["absolute_path"], "build-input-size",
                                    "generated/external build input exceeds the complete context byte budget"))
 
@@ -656,6 +680,13 @@ def build_closure(args: argparse.Namespace) -> str:
     if build_inputs:
         context_lines.extend(("", "### Generated/external compilation inputs", ""))
         for _, record in sorted(build_inputs.items(), key=lambda entry: entry[1]["absolute_path"]):
+            if record["input_kind"] == "EXTERNAL_HEADER":
+                context_lines.append(
+                    f"- External prerequisite `{record['include_literal']}` at "
+                    f"`{record['absolute_path']}`; sha256 `{record['content_sha256']}`; "
+                    f"included by `{record['source_path']}`. Content is represented by "
+                    "the indexed toolchain fingerprint and is not embedded.")
+                continue
             input_path = Path(record["absolute_path"])
             try:
                 input_text = input_path.read_text(encoding="utf-8", errors="replace")

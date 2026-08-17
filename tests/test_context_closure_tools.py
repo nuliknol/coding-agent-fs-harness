@@ -25,6 +25,8 @@ class ContextClosureToolsTest(unittest.TestCase):
         subprocess.run(["git", "init", "-q", str(self.repository)], check=True)
         (self.repository / "calc.c").write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
         (self.repository / "calc.h").write_text("int add(int a, int b);\n", encoding="utf-8")
+        (self.repository / "src").mkdir()
+        (self.repository / "src" / "other.c").write_text("int other(void) { return 1; }\n", encoding="utf-8")
         subprocess.run(["git", "-C", str(self.repository), "add", "."], check=True)
         subprocess.run(["git", "-C", str(self.repository), "-c", "user.name=test", "-c",
                         "user.email=test@example.invalid", "commit", "-qm", "seed"], check=True)
@@ -73,6 +75,63 @@ class ContextClosureToolsTest(unittest.TestCase):
         status, output = self.closure("Required-Dependency-Classes: D,F\n")
         self.assertEqual("INCOMPLETE", status)
         self.assertIn("Joern flow evidence was requested", (output / "unresolved.tsv").read_text())
+
+    def test_descriptive_architecture_scope_is_not_a_missing_path(self):
+        registry = self.root / "registry-descriptive"
+        registry.mkdir()
+        invariants = registry / "invariants.tsv"
+        invariants.write_text(
+            "invariant_id\tcategory\tauthority\tseverity\tstatement\tscope\tsource_requirement\tvalidation_kind\tvalidation_ref\taffected_nodes\n"
+            "INV-add\tCONTRACT\tSPECIFICATION\tHIGH\tAddition remains public.\tQuery plan wire ABI\tREQ-1\tCOMMAND\tcc -c calc.c\tn1\n",
+            encoding="utf-8")
+        assignment = self.root / "assignment.md"
+        assignment.write_text(
+            "Task-ID: t1\nPlan-Node: n1\nWorker-Route: LUNA\nAllowed-Scope: calc.c\n"
+            "Context-Paths: calc.c\nRequired-Symbols: add\nAffected-Invariants: INV-add\n",
+            encoding="utf-8")
+        output = self.root / "closure-descriptive-scope"
+        arguments = SimpleNamespace(
+            assignment=str(assignment), database=str(self.database), repository=str(self.repository),
+            generation="g", output=str(output), max_bytes=32768, max_symbols=32, max_modules=4,
+            max_ownership_boundaries=2, max_direct_relationships=8, max_tests=4,
+            max_build_targets=4, max_tokens=10000, obligations_file=None, relations_file=None,
+            invariants_file=str(invariants), decisions_file=None, edges_file=None,
+            health_gates_file=None, node_bindings_file=None, omissions_file=None)
+        self.assertEqual("READY", build_closure(arguments))
+        self.assertNotIn("Query plan wire ABI", (output / "unresolved.tsv").read_text())
+
+    def test_directory_context_requires_exact_structural_seed(self):
+        assignment = self.root / "assignment.md"
+        assignment.write_text(
+            "Task-ID: t-dir\nPlan-Node: n1\nWorker-Route: LUNA\nAllowed-Scope: src\n"
+            "Context-Paths: src\nRequired-Symbols: -\n", encoding="utf-8")
+        output = self.root / "closure-directory"
+        arguments = SimpleNamespace(
+            assignment=str(assignment), database=str(self.database), repository=str(self.repository),
+            generation="g", output=str(output), max_bytes=32768, max_symbols=32, max_modules=4,
+            max_ownership_boundaries=2, max_direct_relationships=8, max_tests=4,
+            max_build_targets=4, max_tokens=10000, obligations_file=None, relations_file=None,
+            invariants_file=None, decisions_file=None, edges_file=None, health_gates_file=None,
+            node_bindings_file=None, omissions_file=None)
+        self.assertEqual("INCOMPLETE", build_closure(arguments))
+        self.assertIn("directory path has no exact required symbol", (output / "unresolved.tsv").read_text())
+
+    def test_external_sdk_input_is_hashed_but_not_embedded(self):
+        external = self.root / "sdk.h"
+        external.write_text("SDK_INTERNAL " + ("x" * 40000), encoding="utf-8")
+        connection = sqlite3.connect(self.database)
+        connection.execute("INSERT INTO build_targets VALUES('target','g','calc','CMAKE_COMPILE_TARGET','CMakeLists.txt','test')")
+        connection.execute("INSERT INTO build_target_files VALUES('target',1,'c','COMPILE_SOURCE','calc.o','test')")
+        connection.execute("INSERT INTO build_inputs VALUES('input','g',?,'hash','EXTERNAL_HEADER','test')", (str(external),))
+        connection.execute("INSERT INTO build_target_inputs VALUES('target','input','calc.c','sdk.h','calc.c','test')")
+        connection.commit()
+        connection.close()
+        status, output = self.closure()
+        self.assertEqual("READY", status)
+        context = (output / "context.md").read_text()
+        self.assertIn("External prerequisite `sdk.h`", context)
+        self.assertNotIn("SDK_INTERNAL", context)
+        self.assertIn("EXTERNAL_HEADER", (output / "build-inputs.tsv").read_text())
 
     def test_reviewed_systematic_omission_routes_to_remediation(self):
         omissions = self.root / "omissions.tsv"

@@ -1,16 +1,45 @@
 # Context Closure Implementation Status
 
-Last updated (UTC): 2026-08-16T21:10:22Z
+Last updated (UTC): 2026-08-17T03:44:25Z
 
 Overall status: `COMPLETE`
 
-Active phase: `COMPLETE — production qualification and disabled-by-default rollout`
+Active phase: `PRODUCTION ENFORCEMENT — selected active projects`
 
-Active milestone: `None; operator may select advisory projects`
+Active milestone: `Rebuild selected project indexes and enforce compiled Luna contexts`
 
-Deployment state: `5.17.1 deployed to production; repository intelligence and Context Closure default off`
+Deployment state: `5.17.2 candidate; defaults remain off, selected projects are operator-promoted to required index and patch-only closure`
 
-Commit: `bba8e609f575a159e254d50f7b308dce737e87ce` (implementation), followed by this status record
+Commit: `pending` (production-enforcement corrections), following the original `bba8e609f575a159e254d50f7b308dce737e87ce` implementation
+
+## Production-enforcement corrections
+
+- Corrected SCIP test ownership so only callable non-local definitions in test
+  translation units become tests. Local variables, fixtures, constants, and
+  type definitions can no longer inflate one source file into thousands of
+  independent tests.
+- Corrected normative architecture projection so descriptive invariant scopes
+  remain authority text instead of becoming false missing filesystem paths.
+- Made directory context entries bounded evidence scopes: an exact symbol or
+  file seed must select structural evidence inside the directory; the compiler
+  no longer dumps every descendant file.
+- Stopped generic SCIP references from becoming required structural
+  dependencies. Required type/interface edges still close to a fixed point,
+  while direct Joern callers/callees remain bounded supporting evidence.
+- Kept external SDK/toolchain headers hash-addressed in closure provenance
+  without embedding recursive SDK contents in every worker prompt. Generated
+  project headers remain embedded and fail closed when they exceed the route
+  budget.
+- Added real-tool and focused regression coverage for test cardinality,
+  descriptive architecture scopes, bounded directory seeds, and external SDK
+  prerequisites.
+- Restored legacy/spec-review-disabled decomposition capsule construction by
+  treating `-` authority placeholders as absent inputs rather than filenames.
+- Escaped literal bounded-read examples in all interpolated Sol/reviewer
+  prompts so prompt construction cannot execute `head` and wait on stdin.
+- Selected running projects are intentionally promoted by the operator after
+  deployment. Non-ready Luna leaves must return to deterministic Sol
+  decomposition; they must not fall back to repository exploration.
 
 ## Completed since previous update
 
