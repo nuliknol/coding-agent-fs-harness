@@ -917,3 +917,19 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   the full file is not subsequently duplicated. The fuse remains enforced and
   will be resolved only after the archived revision recompiles within budget.
   The closure suite now has 34 passing cases.
+- With the 96-line cap deployed, the exact archived COMP4 revision 34 compiles
+  `READY` at 30,692 bytes and 7,673 estimated tokens with no unresolved rows.
+  The 8/8 marker was resolved through the audited
+  `REARM_AFTER_HARNESS_BUG` path tied to commit `79db684`; no limit was raised.
+  COMP4 restarted successfully and is running a fresh Luna remediation turn
+  from the preserved typed closure boundary.
+- The compact review packet is now proven in production: COMP3 revision 48's
+  packet is 21,520 bytes, 57 lines, mode 0600, and Luna read it with exactly
+  one `head -c 32768` command before the bounded review diff. No component
+  discovery or line-range packet read occurred.
+- Repeated CPU inspection found no harness-owned Joern, SCIP, Java, or SQLite
+  workload. Additional `resys_knowledge_fixed_point_smoke` process groups were
+  launched by a separate long-lived interactive Codex session in
+  `/home/mf/mf-kss-refactor/resys`, outside every configured harness. Their
+  exact process groups were terminated without stopping that unrelated Codex
+  session; they are not Context Closure activity.
