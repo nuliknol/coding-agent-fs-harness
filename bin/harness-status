@@ -708,13 +708,13 @@ if [[ -n "$active_status_root" ]]; then
 		"$verified_items" "$replans_without_gain"
 	printf 'Active root progress: %s%% (%s verified item(s)).\n' \
 		"$(task_progress_percent "$active_status_root")" "$verified_items"
-	printf 'Root liveness (lifetime boundary): reviews=%s/%s replans=%s/%s children=%s/%s depth=%s/%s age=%ss/%ss tokens=%s/%s\n' \
-		"$(root_reviewed_attempt_count "$active_status_root")" "$HARNESS_MAX_TOTAL_ROOT_REVIEWS" \
-		"$(root_total_replan_count "$active_status_root")" "$HARNESS_MAX_TOTAL_ROOT_REPLANS" \
+	printf 'Root liveness (active bounded epoch; raw history preserved): reviews=%s/%s replans=%s/%s children=%s/%s depth=%s/%s age=%ss/%ss tokens=%s/%s\n' \
+		"$(root_liveness_epoch_delta "$active_status_root" reviewed_attempts "$(root_reviewed_attempt_count "$active_status_root")")" "$HARNESS_MAX_TOTAL_ROOT_REVIEWS" \
+		"$(root_liveness_epoch_delta "$active_status_root" total_replans "$(root_total_replan_count "$active_status_root")")" "$HARNESS_MAX_TOTAL_ROOT_REPLANS" \
 		"$(root_child_criterion_count "$active_status_root")" "$HARNESS_MAX_ROOT_CHILD_CRITERIA" \
 		"$(root_criterion_max_depth "$active_status_root")" "$HARNESS_MAX_CRITERION_DEPTH" \
-		"$(root_lifetime_seconds "$active_status_root")" "$HARNESS_MAX_ROOT_LIFETIME_SECONDS" \
-		"$(root_processed_token_count "$active_status_root")" "$HARNESS_MAX_ROOT_PROCESSED_TOKENS"
+		"$(root_liveness_epoch_delta "$active_status_root" lifetime_seconds "$(root_lifetime_seconds "$active_status_root")")" "$HARNESS_MAX_ROOT_LIFETIME_SECONDS" \
+		"$(root_liveness_epoch_delta "$active_status_root" processed_tokens "$(root_processed_token_count "$active_status_root")")" "$HARNESS_MAX_ROOT_PROCESSED_TOKENS"
 	efficiency_file="$(task_root_efficiency_metrics_file "$active_status_root")"
 	if [[ -f "$efficiency_file" ]]; then
 		printf 'Convergence efficiency: active-root=%s processed tokens per verified facet; since last verified boundary tokens=%s episodes=%s.\n' \

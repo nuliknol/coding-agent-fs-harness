@@ -643,3 +643,8 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   resource fuses, Context Closure shell tools, supervisor result barrier,
   decomposition v2, repository index, and the complete v4.4 harness suite.
 - Deployment and audited production pause resolution are the remaining steps.
+- Added an explicit `REARM_AFTER_HARNESS_BUG` liveness resolution for roots
+  whose investigation fuse exposed a now-fixed harness loop. It requires an
+  installed ancestor commit, refuses reuse of the same fix for the same root,
+  preserves raw counters, and starts a new bounded fuse epoch. Normal incident
+  resolution still cannot reset liveness.

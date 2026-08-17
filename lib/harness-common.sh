@@ -3456,13 +3456,16 @@ root_liveness_epoch_delta()
 	[[ "$current" =~ ^[0-9]+$ ]] || current=0
 	epoch="$(task_root_liveness_epoch_file "$root")"
 	# Ordinary context rotation, incident resolution, or active-node repair must
-	# never erase history. The sole reset authority is the recorded Luna-only
-	# migration from an exhausted broad boundary to mandatory append-only child
-	# criteria. The old totals remain in the epoch for audit and status output.
+	# never erase history. A new bounded epoch requires either the recorded
+	# Luna-only migration or an operator-audited, installed harness-bug fix. The
+	# old totals remain in the epoch and append-only ledgers for audit.
 	if [[ -f "$epoch" ]] &&
 		[[ "$(kv_file_value "$epoch" authorized_reset 2>/dev/null || true)" == 1 ]] &&
-		[[ "$(kv_file_value "$epoch" budget_scope 2>/dev/null || true)" == luna-only-migrated-child-boundary ]] &&
-		[[ "$(kv_file_value "$epoch" source 2>/dev/null || true)" == luna-only-policy-migration ]]; then
+		{ { [[ "$(kv_file_value "$epoch" budget_scope 2>/dev/null || true)" == luna-only-migrated-child-boundary ]] &&
+			[[ "$(kv_file_value "$epoch" source 2>/dev/null || true)" == luna-only-policy-migration ]]; } ||
+		  { [[ "$(kv_file_value "$epoch" budget_scope 2>/dev/null || true)" == harness-bug-corrected-boundary ]] &&
+			[[ "$(kv_file_value "$epoch" source 2>/dev/null || true)" == harness-bug-correction ]] &&
+			[[ "$(kv_file_value "$epoch" fix_commit 2>/dev/null || true)" =~ ^[0-9a-f]{7,64}$ ]]; }; }; then
 		baseline="$(kv_file_value "$epoch" "$key" 2>/dev/null || printf 0)"
 		[[ "$baseline" =~ ^[0-9]+$ ]] || baseline=0
 		(( current >= baseline )) || baseline="$current"
@@ -3474,7 +3477,7 @@ root_liveness_epoch_delta()
 
 record_root_liveness_epoch()
 {
-	local root="$1" source="${2:-explicit-architecture-resolution}" epoch tmp
+	local root="$1" source="${2:-explicit-architecture-resolution}" fix_commit="${3:-}" epoch tmp
 	epoch="$(task_root_liveness_epoch_file "$root")"
 	tmp="$epoch.tmp.$$"
 	{
@@ -3482,6 +3485,12 @@ record_root_liveness_epoch()
 			printf 'snapshot_only=0\n'
 			printf 'authorized_reset=1\n'
 			printf 'budget_scope=luna-only-migrated-child-boundary\n'
+		elif [[ "$source" == harness-bug-correction ]]; then
+			[[ "$fix_commit" =~ ^[0-9a-f]{7,64}$ ]] || die 'harness-bug liveness epoch requires an exact fix commit'
+			printf 'snapshot_only=0\n'
+			printf 'authorized_reset=1\n'
+			printf 'budget_scope=harness-bug-corrected-boundary\n'
+			printf 'fix_commit=%s\n' "$fix_commit"
 		else
 			printf 'snapshot_only=1\n'
 			printf 'authorized_reset=0\n'

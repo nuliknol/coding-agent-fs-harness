@@ -245,6 +245,55 @@ fi
 grep -Fq 'incident resolution cannot reset unchanged liveness' \
 	"$TEST_ROOT/liveness-resolution.err"
 [[ -f "$reassessment" ]]
+
+# A confirmed harness defect may be rearmed only through an installed,
+# operator-audited fix commit. Raw histories stay in place while the active
+# bounded epoch restarts at their current values.
+bug_root=bugroot
+for revision in 01 02; do
+	cat > "$project/archive/livenessproj-task-$bug_root-revision-$revision.accepted.md" <<MD
+Task-ID: $bug_root-revision-$revision
+Task-Root: $bug_root
+MD
+done
+bug_marker="$project/control/progress/livenessproj-task-$bug_root.architecture-reassessment-required.md"
+cat > "$bug_marker" <<MD
+# Architecture Reassessment Required
+
+Project: livenessproj
+Task-Root: $bug_root
+Triggered-By: $bug_root-revision-02
+Category: TOTAL_ROOT_REVIEWS
+MD
+harness_fix_commit="$(git -C "$HARNESS_HOME" rev-parse HEAD)"
+cat > "$TEST_ROOT/bug-resolution.md" <<MD
+Resolution-Action: REARM_AFTER_HARNESS_BUG
+Harness-Fix-Commit: $harness_fix_commit
+
+The bounded retry loop was caused by the installed harness defect and the fix
+was regression-tested before this explicit rearm.
+MD
+"$HARNESS_BIN/harness-resolve-architecture-reassessment" \
+	"$TEST_ROOT/harness.env" "$bug_root" "$TEST_ROOT/bug-resolution.md" >/dev/null
+bug_epoch="$project/control/progress/livenessproj-task-$bug_root.liveness-epoch.env"
+grep -Fqx 'authorized_reset=1' "$bug_epoch"
+grep -Fqx 'budget_scope=harness-bug-corrected-boundary' "$bug_epoch"
+grep -Fqx "fix_commit=$harness_fix_commit" "$bug_epoch"
+[[ "$(bash -c 'source "$1/lib/harness-common.sh"; load_harness_env "$2"; root_liveness_epoch_delta "$3" reviewed_attempts "$(root_reviewed_attempt_count "$3")"' _ "$HARNESS_HOME" "$TEST_ROOT/harness.env" "$bug_root")" == 0 ]]
+cat > "$bug_marker" <<MD
+# Architecture Reassessment Required
+
+Project: livenessproj
+Task-Root: $bug_root
+Triggered-By: $bug_root-revision-02
+Category: TOTAL_ROOT_REVIEWS
+MD
+if "$HARNESS_BIN/harness-resolve-architecture-reassessment" \
+	"$TEST_ROOT/harness.env" "$bug_root" "$TEST_ROOT/bug-resolution.md" >/dev/null 2>&1; then
+	printf 'the same harness fix commit rearmed one root twice\n' >&2
+	exit 1
+fi
+rm -f "$bug_marker"
 # Raising a governing lifetime limit is explicit operator authority; unlike an
 # epoch subtraction, it remains visible in configuration and status.
 sed -i 's/HARNESS_MAX_TOTAL_ROOT_REVIEWS="2"/HARNESS_MAX_TOTAL_ROOT_REVIEWS="3"/' \

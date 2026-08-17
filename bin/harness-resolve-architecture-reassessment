@@ -32,18 +32,37 @@ pending_replan_remediation_scope="$(metadata_value "$marker" Pending-Replan-Reme
 pending_replan_context_paths="$(metadata_value "$marker" Pending-Replan-Context-Paths)"
 additional_scope="$(metadata_value "$note_file" Authorized-Additional-Scope)"
 resolution_action="$(metadata_value "$note_file" Resolution-Action)"
+harness_fix_commit="$(metadata_value "$note_file" Harness-Fix-Commit)"
 case "$category" in
 	NO_CRITERION_PROGRESS|TOTAL_ROOT_REVIEWS|TOTAL_ROOT_REPLANS|ROOT_LIFETIME|ROOT_TOKENS)
-		if liveness_reason="$(root_liveness_violation_reason "$root" 2>/dev/null)"; then
+		if [[ "$resolution_action" != REARM_AFTER_HARNESS_BUG ]] &&
+			liveness_reason="$(root_liveness_violation_reason "$root" 2>/dev/null)"; then
 			die "root remains beyond its lifetime acceptance-boundary budget: $liveness_reason; incident resolution cannot reset unchanged liveness—replace the acceptance boundary, apply a direct operator correction, or explicitly raise the governing limit"
 		fi
 		;;
 esac
 if [[ -n "$resolution_action" ]]; then
-	[[ "$resolution_action" == VERIFY_PRESERVED_WORKSPACE ]] ||
-		die "unsupported architecture Resolution-Action: $resolution_action"
-	[[ "$category" == REPEATED_RESOURCE_DECOMPOSITION_FAILURE ]] ||
-		die 'VERIFY_PRESERVED_WORKSPACE is valid only for repeated resource-decomposition reassessment'
+	case "$resolution_action" in
+		VERIFY_PRESERVED_WORKSPACE)
+			[[ "$category" == REPEATED_RESOURCE_DECOMPOSITION_FAILURE ]] ||
+				die 'VERIFY_PRESERVED_WORKSPACE is valid only for repeated resource-decomposition reassessment'
+			;;
+		REARM_AFTER_HARNESS_BUG)
+			[[ "$category" =~ ^(NO_CRITERION_PROGRESS|TOTAL_ROOT_REVIEWS|TOTAL_ROOT_REPLANS|ROOT_LIFETIME|ROOT_TOKENS)$ ]] ||
+				die 'REARM_AFTER_HARNESS_BUG is valid only after a liveness investigation fuse'
+			[[ "$harness_fix_commit" =~ ^[0-9a-f]{7,64}$ ]] ||
+				die 'REARM_AFTER_HARNESS_BUG requires Harness-Fix-Commit'
+			git -C "$HARNESS_HOME" cat-file -e "$harness_fix_commit^{commit}" 2>/dev/null ||
+				die "Harness-Fix-Commit is not installed in the harness repository: $harness_fix_commit"
+			git -C "$HARNESS_HOME" merge-base --is-ancestor "$harness_fix_commit" HEAD ||
+				die "Harness-Fix-Commit is not an ancestor of the deployed harness HEAD: $harness_fix_commit"
+			epoch="$(task_root_liveness_epoch_file "$root")"
+			if [[ -f "$epoch" && "$(kv_file_value "$epoch" fix_commit 2>/dev/null || true)" == "$harness_fix_commit" ]]; then
+				die "the same harness fix commit already rearmed this root: $harness_fix_commit"
+			fi
+			;;
+		*) die "unsupported architecture Resolution-Action: $resolution_action" ;;
+	esac
 fi
 if [[ -n "$additional_scope" ]]; then
 	[[ "$category" == MANAGER_REMEDIATION_SCOPE_EXPANSION ]] ||
@@ -96,6 +115,12 @@ if [[ -d "$(plan_dependency_invalidation_dir)" ]]; then
 		[[ "$(metadata_value "$invalidation" Consumer-Root)" == "$root" ]] || continue
 		mv "$invalidation" "$invalid_archive/${invalidation##*/}.$stamp.resolved"
 	done < <(find "$(plan_dependency_invalidation_dir)" -maxdepth 1 -type f -name '*.invalidated.md' -print)
+fi
+if [[ "$resolution_action" == REARM_AFTER_HARNESS_BUG ]]; then
+	record_root_liveness_epoch "$root" harness-bug-correction "$harness_fix_commit"
+	if liveness_reason="$(root_liveness_violation_reason "$root" 2>/dev/null)"; then
+		die "harness-bug correction failed to establish a fresh bounded liveness epoch: $liveness_reason"
+	fi
 fi
 rm -f "$marker"
 
