@@ -512,7 +512,11 @@ load_harness_env()
 	# off otherwise bounded edit+validation turns at item nine.  Keep explicit
 	# headroom below the global hard ceiling instead of turning a p95 estimate
 	# into a brittle exact limit.
-	HARNESS_AGENT_ITEM_HEADROOM="${HARNESS_AGENT_ITEM_HEADROOM:-6}"
+	# A source-changing turn has protocol items for initial planning, each
+	# semantic action, tool-result transitions, and finalization. Production
+	# traces show the final result starts on semantic-actions + 7; +6 stops the
+	# turn one JSONL item before it can publish the result.
+	HARNESS_AGENT_ITEM_HEADROOM="${HARNESS_AGENT_ITEM_HEADROOM:-7}"
 	# Reviews are bounded verification transactions, not exploratory coding.
 	HARNESS_MAX_MANAGER_REVIEW_ITEMS_PER_INVOCATION="${HARNESS_MAX_MANAGER_REVIEW_ITEMS_PER_INVOCATION:-14}"
 	# Replanning is also a bounded planning transaction.  A failed assignment

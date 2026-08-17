@@ -95,11 +95,11 @@ export HARNESS_CONTEXT_CLOSURE_MAX_BUILD_TARGETS="4"
 export HARNESS_CONTEXT_CLOSURE_MAX_ESTIMATED_TOKENS="250000"
 export HARNESS_REPOSITORY_INDEX_RETENTION="3"
 export HARNESS_REPOSITORY_INDEX_REFRESH_ACCEPTED_LEAVES="4"
-export HARNESS_AGENT_ITEM_HEADROOM="6"
+export HARNESS_AGENT_ITEM_HEADROOM="7"
 ```
 
-`HARNESS_AGENT_ITEM_HEADROOM` covers bounded JSONL planning and finalization
-items in addition to Sol's predicted semantic actions. The global
+`HARNESS_AGENT_ITEM_HEADROOM` covers bounded JSONL planning, tool-transition,
+and finalization items in addition to Sol's predicted semantic actions. The global
 `HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION` fuse remains authoritative.
 
 Promotion policy:

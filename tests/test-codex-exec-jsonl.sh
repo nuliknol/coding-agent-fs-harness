@@ -210,7 +210,7 @@ measured_item_status=$?
 set -e
 (( measured_item_status != 0 ))
 grep -q '^classification=agent_item_budget_exceeded$' "$TMP/measured-item-loop.classification"
-grep -q '^item_limit=8$' "$TMP/measured-item-loop.classification"
+grep -q '^item_limit=9$' "$TMP/measured-item-loop.classification"
 rm -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-measured-root.needs-human.md" \
 	"$TMP/state/projects/jsonltest/control/progress/jsonltest-task-measured-root.token-usage-anomaly.md"
 
@@ -230,7 +230,7 @@ set -e
 (( manager_remediation_status != 0 ))
 grep -q '^classification=agent_item_budget_exceeded$' \
 	"$TMP/manager-remediation-item-loop.classification"
-grep -q '^item_limit=12$' "$TMP/manager-remediation-item-loop.classification"
+grep -q '^item_limit=13$' "$TMP/manager-remediation-item-loop.classification"
 grep -q '^processed_token_limit=150000$' \
 	"$TMP/manager-remediation-item-loop.classification"
 [[ ! -e "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-manager-remediation-root.needs-human.md" ]]
