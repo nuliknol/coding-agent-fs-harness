@@ -564,7 +564,7 @@ grep -Fq "WORKER_EVIDENCE_DIGEST_FILE=$review_digest" "$review_prompt"
 grep -Fq "REVIEW_CONTEXT_CAPSULE_FILE=$review_context" "$review_prompt"
 grep -Fq "REVIEW_PACKET_FILE=$review_packet" "$review_prompt"
 grep -Fq 'COMPILED REVIEW OVERRIDE: REVIEW_PACKET_FILE' "$review_prompt"
-grep -Fq 'Read exactly REVIEW_PACKET_FILE once as the only evidence-file read.' "$review_prompt"
+grep -Fq 'Read the complete packet in exactly one command: head -c 32768' "$review_prompt"
 grep -Fq 'The capsule is authoritative and complete for plan, DAG, IR, and architecture context' "$review_prompt"
 grep -Fq 'never omit a CMake --target, replace it with an all-target build' "$review_prompt"
 grep -Fq 'REMAINING_LEAF_CRITERIA=1' "$review_prompt"
@@ -578,6 +578,7 @@ grep -Fqx '## Exact reviewed assignment' "$review_packet"
 grep -Fqx '## Bounded worker episode and terminal result evidence' "$review_packet"
 grep -Fqx '## Final accept schema' "$review_packet"
 grep -Fqx '## Reject schema' "$review_packet"
+grep -Fq 'Content-Escaped: # Manager Review Record\n' "$review_packet"
 grep -Fq "ACCEPT_REVIEW_TEMPLATE_FILE=$accept_template" "$review_prompt"
 grep -Fq "CHECKPOINT_REVIEW_TEMPLATE_FILE=$checkpoint_template" "$review_prompt"
 grep -Fq "CHECKPOINT_INCREMENT_REVIEW_TEMPLATE_FILE=$checkpoint_template" "$review_prompt"
@@ -588,6 +589,7 @@ grep -Fq 'Verified-Criterion:' "$checkpoint_criterion_template"
 (( $(stat -c %s "$review_digest") <= 32768 ))
 (( $(stat -c %s "$review_context") <= 65536 ))
 (( $(stat -c %s "$review_packet") <= 32768 ))
+(( $(wc -l < "$review_packet") <= 200 ))
 plan_prompt="$TEST_ROOT/state/projects/testproj/control/manager-plan-next-task.prompt.md"
 plan_context="$TEST_ROOT/state/projects/testproj/control/manager-plan-next-task.context.md"
 [[ -f "$plan_prompt" && -f "$plan_context" ]]

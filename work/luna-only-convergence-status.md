@@ -884,3 +884,10 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   selects up to four exact identifier windows when the test importer omitted
   the selector. The archived request now compiles a 9,647-byte trusted
   extension from `render_compile_tests.hip`; all six resolver tests pass.
+- Live manager-review verification showed that the first packet format met the
+  32 KiB byte cap but exceeded the 200-line policy, so Luna split COMP3's
+  23,867-byte packet into three `sed` reads. Embedded packet components are now
+  newline/tab/carriage-return/backslash escaped onto one content line each.
+  Packet construction enforces both byte and line caps, and the prompt supplies
+  one exact `head -c` command while forbidding line-range reads. Full harness
+  regression passes with the compact packet and asserts both limits.
