@@ -292,6 +292,9 @@ Semantic DAG/coverage repair uses targeted diagnostic identifiers under the
 same policy; its recoverable checkpoint resumes from the rejected staged DAG.
 No-progress fingerprints are committed only after a repair turn completes, so
 a provider failure or resource guard cannot poison the next startup resume.
+Submission diagnostics are captured to a file and only a bounded tail is
+returned to Sol. A newly staged candidate remains durable progress even if the
+enclosing agent wrapper is interrupted immediately after submission.
 
 Before DAG registration, this dedicated Sol critic performs an evidence-backed
 architecture-fit review. If the accepted feature necessarily conflicts with a

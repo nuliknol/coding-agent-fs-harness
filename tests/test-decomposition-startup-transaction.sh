@@ -690,6 +690,8 @@ done
 grep -Fq 'Read exactly one named candidate source per shell action' <<< "$prompt"
 grep -Fq 'Never concatenate or combine candidate files in one action' <<< "$prompt"
 grep -Fq 'without printing the rewritten file or generated patch' <<< "$prompt"
+grep -Fq 'SUBMISSION_TRANSCRIPT=' <<< "$prompt"
+grep -Fq 'tail -n 200 "$SUBMISSION_TRANSCRIPT" | head -c 32768' <<< "$prompt"
 count=0
 [[ ! -f "$REPAIR_GUARD_COUNT" ]] || count="$(<"$REPAIR_GUARD_COUNT")"
 printf '%s\n' "$((count + 1))" > "$REPAIR_GUARD_COUNT"
