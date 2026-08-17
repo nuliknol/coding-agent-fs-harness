@@ -284,6 +284,11 @@ that the fixed DAG contradicts governing ownership or dependency architecture,
 its diagnostic becomes a durable DAG rejection and startup enters the bounded
 DAG-repair loop rather than reporting a generic failure.
 
+The candidate schema-repair turn follows the same one-source bounded-read
+policy and never emits a whole-file rewrite or generated patch into command
+output. Its output-limit checkpoint preserves the rejected candidate and also
+refuses an unchanged replay until the harness or accepted inputs change.
+
 Before DAG registration, this dedicated Sol critic performs an evidence-backed
 architecture-fit review. If the accepted feature necessarily conflicts with a
 foundational ownership, transaction, migration, dependency-direction,

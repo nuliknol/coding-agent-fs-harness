@@ -613,6 +613,61 @@ rejection_log="$(awk -F= '$1=="rejection_log" {print $2}' "$project_dir/control/
 test -s "$rejection_log"
 grep -Eq 'coverage|obligation|mapped' "$rejection_log"
 
+# Schema-repair reads obey the same bounded policy, and an output-limit hit is
+# a recoverable rejected-candidate checkpoint rather than STARTUP_FAILED.
+repair_guard_mock="$TEST_ROOT/repair-guard-codex"
+repair_guard_env="$TEST_ROOT/configs/startup-repair-guard.env"
+repair_guard_count="$TEST_ROOT/repair-guard-count"
+cat > "$repair_guard_mock" <<'MOCK'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+prompt="$(cat)"
+last_message=""
+take_last=0
+for argument in "$@"; do
+	if (( take_last )); then last_message="$argument"; take_last=0; continue; fi
+	[[ "$argument" != --output-last-message ]] || take_last=1
+done
+grep -Fq 'Read exactly one named candidate source per shell action' <<< "$prompt"
+grep -Fq 'Never concatenate or combine candidate files in one action' <<< "$prompt"
+grep -Fq 'without printing the rewritten file or generated patch' <<< "$prompt"
+count=0
+[[ ! -f "$REPAIR_GUARD_COUNT" ]] || count="$(<"$REPAIR_GUARD_COUNT")"
+printf '%s\n' "$((count + 1))" > "$REPAIR_GUARD_COUNT"
+printf 'guarded\n' > "$last_message"
+printf '%s\n' '{"type":"thread.started","thread_id":"repair-guard"}'
+printf '{"type":"item.completed","item":{"type":"command_execution","command":"generated-patch","aggregated_output":"'
+printf '%32769s' ''
+printf '%s\n' '"}}'
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
+MOCK
+chmod +x "$repair_guard_mock"
+sed "s#export MANAGER_CODEX_BIN=\"/bin/false\"#export MANAGER_CODEX_BIN=\"$repair_guard_mock\"#" \
+	"$env_file" > "$repair_guard_env"
+printf 'export REPAIR_GUARD_COUNT="%s"\n' "$repair_guard_count" >> "$repair_guard_env"
+chmod 600 "$repair_guard_env"
+set +e
+"$HARNESS_BIN/manager-decomposition-repair" "$repair_guard_env" \
+	> "$TEST_ROOT/repair-guard.out" 2> "$TEST_ROOT/repair-guard.err"
+repair_guard_status=$?
+set -e
+(( repair_guard_status == 7 ))
+grep -Fq 'paused recoverably after a command-output limit hit' "$TEST_ROOT/repair-guard.err"
+recovery_marker="$project_dir/control/startup-recoverable.env"
+grep -Fqx 'state=RECOVERABLE' "$recovery_marker"
+grep -Fqx 'stage=decomposition_repair' "$recovery_marker"
+grep -Fqx 'resume_from=rejected_decomposition_candidate' "$recovery_marker"
+grep -Fqx 'status=REJECTED' "$project_dir/control/decomposition-candidate.env"
+set +e
+"$HARNESS_BIN/manager-decomposition-repair" "$repair_guard_env" \
+	> "$TEST_ROOT/repair-guard-replay.out" 2> "$TEST_ROOT/repair-guard-replay.err"
+repair_guard_replay_status=$?
+set -e
+(( repair_guard_replay_status == 7 ))
+grep -Fq 'refusing to replay the unchanged failed input' "$TEST_ROOT/repair-guard-replay.err"
+grep -Fqx '1' "$repair_guard_count"
+rm -f "$recovery_marker"
+
 # A killed submission may leave a complete staged candidate before plan
 # installation. Startup must report the failure, then recover it without a new
 # model invocation.
