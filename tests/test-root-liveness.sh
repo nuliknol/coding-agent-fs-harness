@@ -306,6 +306,57 @@ grep -Fqx 'Trigger-Outcome: MANAGER_REMEDIATION_SCOPE_EXHAUSTED' \
 	"$project/control/progress/livenessproj-task-consumer.needs-replan.md"
 grep -Fqx 'Remediation-Scope: src/exhausted-provider.c' \
 	"$project/control/progress/livenessproj-task-consumer.needs-replan.md"
+
+# Typed closure and Luna-policy transitions retain their complete recovery
+# authority across a liveness investigation instead of becoming generic
+# ARCHITECTURE_REASSESSMENT_RESOLVED replans.
+for typed_root in closureroot migrationroot; do
+	sed "s/consumer/$typed_root/g" \
+		"$project/control/progress/livenessproj-task-consumer.root-assignment.md" > \
+		"$project/control/progress/livenessproj-task-$typed_root.root-assignment.md"
+done
+sed -i 's/CONSUMER\tACTIVE\tconsumer/CONSUMER\tACTIVE\tclosureroot/' \
+	"$project/control/project-plan-state.tsv"
+closure_marker="$project/control/progress/livenessproj-task-closureroot.architecture-reassessment-required.md"
+cat > "$closure_marker" <<'MD'
+# Architecture Reassessment Required
+
+Project: livenessproj
+Task-Root: closureroot
+Triggered-By: closureroot-revision-02
+Category: STATE_OSCILLATION
+Pending-Replan-Trigger: CONTEXT_CLOSURE_REPAIR
+Pending-Replan-Triggered-By: closureroot-revision-01
+Pending-Replan-Closure-Condition: INDEX_EVIDENCE_MISSING
+Pending-Replan-Closure-Repair-Action: REFRESH_INDEX_OR_OVERLAY
+Pending-Replan-Closure-Repair-Provider: scip
+MD
+"$HARNESS_BIN/harness-resolve-architecture-reassessment" \
+	"$TEST_ROOT/harness.env" closureroot "$TEST_ROOT/resolution.md" >/dev/null
+closure_replan="$project/control/progress/livenessproj-task-closureroot.needs-replan.md"
+grep -Fqx 'Trigger-Outcome: CONTEXT_CLOSURE_REPAIR' "$closure_replan"
+grep -Fqx 'Closure-Condition: INDEX_EVIDENCE_MISSING' "$closure_replan"
+grep -Fqx 'Closure-Repair-Action: REFRESH_INDEX_OR_OVERLAY' "$closure_replan"
+grep -Fqx 'Closure-Repair-Provider: scip' "$closure_replan"
+sed -i 's/CONSUMER\tACTIVE\tclosureroot/CONSUMER\tACTIVE\tmigrationroot/' \
+	"$project/control/project-plan-state.tsv"
+migration_marker="$project/control/progress/livenessproj-task-migrationroot.architecture-reassessment-required.md"
+cat > "$migration_marker" <<'MD'
+# Architecture Reassessment Required
+
+Project: livenessproj
+Task-Root: migrationroot
+Triggered-By: migrationroot-revision-02
+Category: STATE_OSCILLATION
+Pending-Replan-Trigger: LUNA_ONLY_POLICY_MIGRATION
+Pending-Replan-Triggered-By: migrationroot-revision-01
+MD
+"$HARNESS_BIN/harness-resolve-architecture-reassessment" \
+	"$TEST_ROOT/harness.env" migrationroot "$TEST_ROOT/resolution.md" >/dev/null
+grep -Fqx 'Trigger-Outcome: LUNA_ONLY_POLICY_MIGRATION' \
+	"$project/control/progress/livenessproj-task-migrationroot.needs-replan.md"
+sed -i 's/CONSUMER\tACTIVE\tmigrationroot/CONSUMER\tACTIVE\tconsumer/' \
+	"$project/control/project-plan-state.tsv"
 (
 	source "$TEST_ROOT/harness.env"
 	source "$HARNESS_HOME/lib/harness-common.sh"

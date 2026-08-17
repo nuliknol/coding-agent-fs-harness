@@ -648,3 +648,7 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   installed ancestor commit, refuses reuse of the same fix for the same root,
   preserves raw counters, and starts a new bounded fuse epoch. Normal incident
   resolution still cannot reset liveness.
+- Live recovery exposed and corrected loss of typed pending transitions during
+  architecture resolution. Context Closure condition/action/provider fields
+  and `LUNA_ONLY_POLICY_MIGRATION` are now captured in the pause record and
+  restored verbatim rather than downgraded to a generic replan.

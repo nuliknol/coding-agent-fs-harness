@@ -30,6 +30,9 @@ pending_replan_task="$(metadata_value "$marker" Pending-Replan-Triggered-By)"
 pending_replan_blocker_class="$(metadata_value "$marker" Pending-Replan-Blocker-Class)"
 pending_replan_remediation_scope="$(metadata_value "$marker" Pending-Replan-Remediation-Scope)"
 pending_replan_context_paths="$(metadata_value "$marker" Pending-Replan-Context-Paths)"
+pending_replan_closure_condition="$(metadata_value "$marker" Pending-Replan-Closure-Condition)"
+pending_replan_closure_action="$(metadata_value "$marker" Pending-Replan-Closure-Repair-Action)"
+pending_replan_closure_provider="$(metadata_value "$marker" Pending-Replan-Closure-Repair-Provider)"
 additional_scope="$(metadata_value "$note_file" Authorized-Additional-Scope)"
 resolution_action="$(metadata_value "$note_file" Resolution-Action)"
 harness_fix_commit="$(metadata_value "$note_file" Harness-Fix-Commit)"
@@ -145,7 +148,20 @@ plan_item="$(project_plan_item_for_root "$root")"
 replan_restored=0
 if [[ -n "$plan_item" && "$(project_plan_item_status "$plan_item")" == ACTIVE ]] &&
 	(( root_has_live_artifact == 0 )); then
-	if [[ "$pending_replan_trigger" == MANAGER_REMEDIATION_SCOPE_EXHAUSTED ]]; then
+	if [[ "$pending_replan_trigger" == CONTEXT_CLOSURE_REPAIR ]]; then
+		[[ -n "$pending_replan_closure_condition" && -n "$pending_replan_closure_action" &&
+			-n "$pending_replan_closure_provider" ]] ||
+			die 'preserved Context Closure transition is missing its typed condition, action, or provider'
+		mark_root_needs_replan "${pending_replan_task:-$trigger_task}" \
+			"architecture liveness reassessment was explicitly resolved; preserve the compiled Context Closure repair transaction" \
+			CONTEXT_CLOSURE_REPAIR "" "" "" \
+			"$pending_replan_closure_condition" "$pending_replan_closure_action" \
+			"$pending_replan_closure_provider" >/dev/null
+	elif [[ "$pending_replan_trigger" == LUNA_ONLY_POLICY_MIGRATION ]]; then
+		mark_root_needs_replan "${pending_replan_task:-$trigger_task}" \
+			"architecture liveness reassessment was explicitly resolved; preserve mandatory Luna-only decomposition of the retired legacy boundary" \
+			LUNA_ONLY_POLICY_MIGRATION >/dev/null
+	elif [[ "$pending_replan_trigger" == MANAGER_REMEDIATION_SCOPE_EXHAUSTED ]]; then
 		[[ -n "$pending_replan_remediation_scope" ]] ||
 			die 'preserved exhausted remediation transition is missing its path set'
 		mark_root_needs_replan "${pending_replan_task:-$trigger_task}" \

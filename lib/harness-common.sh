@@ -3536,6 +3536,7 @@ mark_root_architecture_reassessment()
 	local task_id="$1" category="$2" reason="$3" evidence="${4:--}"
 	local root marker tmp alarm created=0 pending_replan pending_trigger pending_trigger_task
 	local pending_blocker_class pending_remediation_scope pending_context_paths
+	local pending_closure_condition pending_closure_action pending_closure_provider
 	root="$(task_root_id "$task_id")"
 	marker="$(task_root_architecture_reassessment_file "$root")"
 	pending_replan="$(task_root_replan_file "$root")"
@@ -3544,12 +3545,18 @@ mark_root_architecture_reassessment()
 	pending_blocker_class=""
 	pending_remediation_scope=""
 	pending_context_paths=""
+	pending_closure_condition=""
+	pending_closure_action=""
+	pending_closure_provider=""
 	if [[ -f "$pending_replan" ]]; then
 		pending_trigger="$(metadata_value "$pending_replan" Trigger-Outcome)"
 		pending_trigger_task="$(metadata_value "$pending_replan" Triggered-By)"
 		pending_blocker_class="$(metadata_value "$pending_replan" Blocker-Class)"
 		pending_remediation_scope="$(metadata_value "$pending_replan" Remediation-Scope)"
 		pending_context_paths="$(metadata_value "$pending_replan" Context-Paths)"
+		pending_closure_condition="$(metadata_value "$pending_replan" Closure-Condition)"
+		pending_closure_action="$(metadata_value "$pending_replan" Closure-Repair-Action)"
+		pending_closure_provider="$(metadata_value "$pending_replan" Closure-Repair-Provider)"
 	fi
 	if [[ ! -f "$marker" ]]; then
 		tmp="$marker.tmp.$$"
@@ -3571,6 +3578,12 @@ mark_root_architecture_reassessment()
 					printf 'Pending-Replan-Remediation-Scope: %s\n' "$pending_remediation_scope"
 				[[ -z "$pending_context_paths" ]] ||
 					printf 'Pending-Replan-Context-Paths: %s\n' "$pending_context_paths"
+				[[ -z "$pending_closure_condition" ]] ||
+					printf 'Pending-Replan-Closure-Condition: %s\n' "$pending_closure_condition"
+				[[ -z "$pending_closure_action" ]] ||
+					printf 'Pending-Replan-Closure-Repair-Action: %s\n' "$pending_closure_action"
+				[[ -z "$pending_closure_provider" ]] ||
+					printf 'Pending-Replan-Closure-Repair-Provider: %s\n' "$pending_closure_provider"
 				printf '\n'
 			fi
 			printf 'Total-Root-Reviews: %s\n' "$(root_reviewed_attempt_count "$root")"
