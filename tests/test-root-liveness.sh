@@ -643,15 +643,19 @@ Triggered-By: scopeexp-revision-01
 Category: MANAGER_REMEDIATION_SCOPE_EXPANSION
 MD
 cat > "$TEST_ROOT/scope-resolution.md" <<'MD'
-Authorized-Additional-Scope: src/companion.c
+Authorized-Additional-Scope: remediation.c
 
 The companion implementation is the audited owner of the already-authorized public header contract.
 MD
 "$HARNESS_BIN/harness-resolve-architecture-reassessment" \
 	"$TEST_ROOT/harness.env" "$scope_root" "$TEST_ROOT/scope-resolution.md" >/dev/null
 scope_override="$project/control/progress/livenessproj-task-$scope_root.architecture-scope-override.env"
-grep -Fqx 'additional_scope=src/companion.c' "$scope_override"
+grep -Fqx 'additional_scope=remediation.c' "$scope_override"
 grep -Fqx 'authorized_for=manager_remediation' "$scope_override"
+# The exact preserved tracked change is now attributable on restart even after
+# the reassessment marker itself has been archived.
+bash -c 'source "$1/lib/harness-common.sh"; load_harness_env "$2"; require_resumable_repository_start_state' \
+	_ "$HARNESS_HOME" "$TEST_ROOT/harness.env"
 
 # The same audited extra mutation authority must expand the controlled-commit
 # ceiling. Otherwise review succeeds but the commit transaction is impossible.
@@ -665,7 +669,7 @@ cat > "$TEST_ROOT/scope-remediation-assignment.md" <<'MD'
 Task-ID: scopeexp-revision-02
 Task-Root: scopeexp
 Manager-Remediation: 1
-Allowed-Scope: src/root.c,src/companion.c
+Allowed-Scope: src/root.c,remediation.c
 Expected-Max-Implementation-Files: 1
 MD
 effective_files="$(bash -c '

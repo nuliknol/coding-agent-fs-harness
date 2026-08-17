@@ -2206,6 +2206,13 @@ repository_path_is_in_registered_plan_scope()
 		for artifact in "$dir/control/progress/$PROJECT-task-"*.needs-replan.md; do
 			metadata_value "$artifact" Remediation-Scope
 		done
+		# Explicit architecture resolutions persist exact manager-remediation
+		# mutation authority in a root-level override. It must remain valid restart
+		# attribution after the triggering reassessment marker is archived; otherwise
+		# the harness rejects the preserved file it previously authorized.
+		for artifact in "$dir/control/progress/$PROJECT-task-"*.architecture-scope-override.env; do
+			kv_file_value "$artifact" additional_scope 2>/dev/null || true
+		done
 		shopt -u nullglob
 	)
 	return 1
