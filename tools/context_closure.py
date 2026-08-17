@@ -778,6 +778,20 @@ def build_closure(args: argparse.Namespace) -> str:
 
     for requested_path, seed_reason in sorted(path_seeds.items()):
         normalized = requested_path.rstrip("/")
+        if "#" in normalized:
+            selected_path, selected_symbol = normalized.rsplit("#", 1)
+            selected_source = safe_source_path(repository, selected_path)
+            if selected_path and selected_symbol and selected_source is not None:
+                window = live_symbol_window(selected_source, selected_symbol)
+                if window:
+                    add_item(items, kind="BOUNDED_SOURCE_EVIDENCE", path=selected_path,
+                             start=window[0], end=window[1], symbol=selected_symbol,
+                             why=f"{seed_reason}: exact file#symbol selector",
+                             required=True, provider="declared-context-selector")
+                else:
+                    unresolved.append(("CONTEXT_SELECTOR", normalized,
+                                       "declared file exists but selector symbol was not found"))
+                continue
         repository_path = safe_repository_path(repository, normalized)
         if repository_path is not None and repository_path.is_dir():
             # A directory is an evidence boundary, not an instruction to dump

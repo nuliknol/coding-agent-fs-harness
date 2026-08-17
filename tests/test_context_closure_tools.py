@@ -354,6 +354,17 @@ class ContextClosureToolsTest(unittest.TestCase):
         self.assertNotIn("CONTEXT_PATH\ttests", (output / "unresolved.tsv").read_text())
         self.assertNotIn("tests/unrelated.c", (output / "closure.tsv").read_text())
 
+    def test_context_file_symbol_selector_embeds_bounded_window(self):
+        status, output = self.closure(
+            context_paths="calc.c#add", allowed_scope="calc.c",
+            required_symbols="add")
+
+        self.assertEqual("READY", status)
+        self.assertNotIn("CONTEXT_PATH\tcalc.c#add", (output / "unresolved.tsv").read_text())
+        closure = (output / "closure.tsv").read_text()
+        self.assertIn("\tBOUNDED_SOURCE_EVIDENCE\tcalc.c\t", closure)
+        self.assertIn("\tdeclared-context-selector\n", closure)
+
     def test_required_symbol_build_target_alias_uses_indexed_validation_boundary(self):
         connection = sqlite3.connect(self.database)
         connection.execute(

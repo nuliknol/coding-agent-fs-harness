@@ -867,3 +867,10 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   an otherwise unused read-only evidence boundary (which contributes zero
   evidence and is not missing evidence). The 30-test closure suite covers both
   cases and passes.
+- COMP3 revision 45 exposed another deterministic selector mismatch:
+  `resys/include/rs_computing.h#rs_computing_supersede_normalized_acquisition`
+  is an exact bounded source selector, but the compiler had treated the full
+  string as a filesystem path. Context Closure now resolves a repository-local
+  `file#symbol` selector to one bounded live symbol window and reports a typed
+  `CONTEXT_SELECTOR` omission only when the file exists but the symbol does
+  not. The closure suite now has 31 passing tests.
