@@ -1447,6 +1447,14 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 			die "invalid Leaf-Type: $leaf_type"
 		[[ "$leaf_complexity" =~ ^(LOW|MEDIUM|HIGH)$ ]] || die "invalid Complexity-Class: $leaf_complexity"
 		[[ "$leaf_worker_route" =~ ^(LUNA|TERRA)$ ]] || die "invalid Worker-Route: $leaf_worker_route"
+		if [[ "$HARNESS_MODEL_POLICY" == luna_only ]] &&
+			[[ "$leaf_worker_route" != LUNA || "$leaf_complexity" != LOW || "$leaf_terra_exception" != - ||
+			! "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY)$ ]]; then
+			mark_efficiency_warning MODEL_POLICY_VIOLATION "$task_id" \
+				'Luna-only publisher rejected a non-Luna executable assignment before installation' \
+				"route=$leaf_worker_route complexity=$leaf_complexity leaf_type=$leaf_type terra_exception=$leaf_terra_exception candidate=$task_file"
+			die 'Luna-only policy requires every executable assignment to be a LOW/LUNA implementation, test, mechanical API, focused bug, documentation, or verification leaf with Terra-Exception: -'
+		fi
 		[[ "$leaf_validation_class" =~ ^(FOCUSED|INCREMENTAL|CLEAN_GLOBAL)$ ]] || die "invalid Validation-Class: $leaf_validation_class"
 		if [[ "$leaf_validation_class" == FOCUSED ]]; then
 			validate_focused_validation_boundary "$goal_focused_validation"

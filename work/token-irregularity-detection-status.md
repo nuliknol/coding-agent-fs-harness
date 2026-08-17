@@ -42,6 +42,10 @@ Updated: 2026-08-17
   supervisors and are performing fresh Luna-only replans.
 - The installed HIGH/TERRA documentation assignment in `compmod-wc-3` was
   retired before worker launch and queued for LOW/LUNA re-decomposition.
+- Live enforcement then caught a second HIGH/TERRA recovery draft before its
+  worker launched. The final publisher boundary now rejects every non-LOW/LUNA
+  executable draft in `luna_only` mode, allowing the same bounded planning turn
+  to correct it instead of installing another policy-violating task.
 - `compmod-wc-4`, `dplm-final-v2`, and `dpvis-w2-a2` remain stopped at their
   durable `ARCHITECTURE_REASSESSMENT_REQUIRED` boundaries; their evidence and
   counters were not reset.

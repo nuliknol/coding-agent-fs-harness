@@ -111,5 +111,6 @@ python3 "$ROOT/tools/irregularity_detector.py" decomposition --dag "$dag" --comp
 grep -Fq 'HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION:-500000' "$ROOT/lib/harness-common.sh" || fail 'authoritative 500K fuse changed'
 grep -Fq 'HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION:-500000' "$ROOT/lib/harness-common.sh" || fail 'live-estimated 500K fuse changed'
 grep -Fq 'HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS:-500000' "$ROOT/lib/harness-common.sh" || fail 'cumulative worker-task 500K fuse changed'
+grep -Fq 'Luna-only policy requires every executable assignment to be a LOW/LUNA' "$ROOT/bin/manager-publish-task" || fail 'publisher lacks the Luna-only final route gate'
 
 printf 'Irregularity detection tests passed.\n'
