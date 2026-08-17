@@ -1756,12 +1756,18 @@ if (( recovery_publish == 1 )); then
 		resource_progress_verification=0
 		[[ "$replan_trigger_outcome" != RESOURCE_PROGRESS_NEEDS_VERIFICATION ]] || resource_progress_verification=1
 		resource_recovery=$((resource_decomposition || resource_progress_verification))
+		typed_boundary_repair=0
+		case "$replan_trigger_outcome" in
+			LUNA_ONLY_POLICY_MIGRATION|CONTEXT_CLOSURE_REPAIR)
+				typed_boundary_repair=1
+				;;
+		esac
 		auto_replans="$(root_auto_replans_without_verified_gain "$root")"
-		if (( fresh_resolution == 0 && resource_recovery == 0 )); then
+		if (( fresh_resolution == 0 && resource_recovery == 0 && typed_boundary_repair == 0 )); then
 			(( auto_replans < HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN )) ||
 				die "automatic replan budget is exhausted without durable verified gain: $auto_replans/$HARNESS_MAX_AUTO_REPLANS_WITHOUT_VERIFIED_GAIN"
 		fi
-		if (( fresh_resolution == 0 && resource_recovery == 0 )) &&
+		if (( fresh_resolution == 0 && resource_recovery == 0 && typed_boundary_repair == 0 )) &&
 			root_same_blocker_without_verified_gain "$root" "$blocking_fingerprint"; then
 			die "same blocking fingerprint survived the prior bounded replan without durable verified gain: $blocking_fingerprint"
 		fi

@@ -1,6 +1,6 @@
 # Luna-Only Convergence Implementation Status
 
-Last updated (UTC): 2026-08-17T16:22:00Z
+Last updated (UTC): 2026-08-17T16:32:00Z
 
 Overall status: `IN_PROGRESS`
 
@@ -294,6 +294,11 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
 - Policy migration writes a terminal transaction marker beside its archived
   assignment. Crash reconciliation recognizes the marker and cannot resurrect
   that intentionally retired assignment as an interrupted worker completion.
+- The assignment publisher now recognizes the same two typed repair
+  boundaries. Historical automatic-replan counts and blocker fingerprints
+  remain durable, but they cannot veto the first explicitly authorized
+  `LUNA_ONLY_POLICY_MIGRATION` or `CONTEXT_CLOSURE_REPAIR` publication. Normal
+  continuations still enforce both budgets unchanged.
 
 ## Validation journal
 

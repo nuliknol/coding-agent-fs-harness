@@ -177,6 +177,14 @@ grep -Fq 'resource_recovery == 0 && policy_migration == 0 && closure_repair == 0
 test "$(grep -Fc 'closure_repair == 0' \
 	"$ROOT/bin/manager-auto-replan-root")" -eq 2
 
+# Publication observes the same typed boundary. The old automatic-replan
+# count remains durable, but cannot veto the explicitly authorized migration
+# or closure graft before the new child boundary has executed once.
+grep -Fq 'LUNA_ONLY_POLICY_MIGRATION|CONTEXT_CLOSURE_REPAIR' \
+	"$ROOT/bin/manager-publish-task"
+test "$(grep -Fc 'typed_boundary_repair == 0' \
+	"$ROOT/bin/manager-publish-task")" -eq 2
+
 printf 'new child rejection\n' > "$project/archive/lunaconvergence-task-003-revision-02.rejected.md"
 cat >> "$project/control/progress/lunaconvergence-task-003.replans.tsv" <<'TSV'
 2026-08-17T00:01:00Z	003-revision-02	TEST	child	decompose	-	0	fresh	-	0	0
