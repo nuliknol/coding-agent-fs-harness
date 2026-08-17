@@ -204,9 +204,11 @@ def main() -> None:
     parser.add_argument("--obligations", required=True)
     parser.add_argument("--relations", required=True)
     parser.add_argument("--architecture-slice")
-    parser.add_argument("--purpose", choices=("architecture-fit", "decomposition"),
+    parser.add_argument("--purpose", choices=("architecture-fit", "decomposition", "architecture-binding"),
                         default="architecture-fit")
     parser.add_argument("--authority-file", action="append", default=[])
+    parser.add_argument("--dag")
+    parser.add_argument("--coverage")
     parser.add_argument("--output", required=True)
     parser.add_argument("--max-bytes", required=True, type=int)
     args = parser.parse_args()
@@ -220,6 +222,11 @@ def main() -> None:
     relations_path = Path(args.relations)
     slice_path = Path(args.architecture_slice) if args.architecture_slice else None
     authority_paths = [Path(value) for value in args.authority_file]
+    dag_path = Path(args.dag) if args.dag else None
+    coverage_path = Path(args.coverage) if args.coverage else None
+    if args.purpose == "architecture-binding" and (
+            dag_path is None or coverage_path is None or not dag_path.is_file() or not coverage_path.is_file()):
+        raise ValueError("architecture-binding purpose requires existing --dag and --coverage files")
     obligations = read_tsv(obligations_path, {
         "obligation_id", "authority", "source_requirement", "source_location",
         "obligation_type", "statement", "observable_outcome", "acceptance_authority",
@@ -242,8 +249,11 @@ def main() -> None:
     selected_relations = [row for row in relations if row.get("relation_type") in BOUNDARY_RELATIONS]
     selected_facts = [row for row in facts if row.get("kind") in BOUNDARY_FACT_KINDS]
 
-    capsule_title = ("# Deterministic Architecture-Fit Capsule" if args.purpose == "architecture-fit"
-                     else "# Deterministic Decomposition Capsule")
+    capsule_title = {
+        "architecture-fit": "# Deterministic Architecture-Fit Capsule",
+        "decomposition": "# Deterministic Decomposition Capsule",
+        "architecture-binding": "# Deterministic Architecture-Binding Capsule",
+    }[args.purpose]
     lines = [
         capsule_title, "",
         f"Project: {one_line(args.project, 160)}",
@@ -255,6 +265,8 @@ def main() -> None:
         f"Obligations-SHA256: {sha256(obligations_path)}",
         f"Relations-SHA256: {sha256(relations_path)}",
         f"Architecture-Slice-SHA256: {sha256(slice_path)}", "",
+        f"DAG-SHA256: {sha256(dag_path)}",
+        f"Coverage-SHA256: {sha256(coverage_path)}", "",
         f"Purpose: {args.purpose}",
         "This capsule is compiled evidence. Specification authority outranks "
         "observed and derived repository evidence. Absence from an inferred index is UNKNOWN, not proof of absence.",
@@ -281,7 +293,7 @@ def main() -> None:
     lines.extend(mandatory)
 
     relation_counts = Counter(row["relation_type"] for row in relations)
-    if args.purpose == "decomposition":
+    if args.purpose in {"decomposition", "architecture-binding"}:
         complete_relations = section("## Complete normalized typed relation projection", [
             f"- `{one_line(row['relation_id'], 90)}` | {one_line(row['relation_type'], 40)} | "
             f"`{one_line(row['subject'], 90)}` -> `{one_line(row['object'], 120)}` | "
@@ -306,6 +318,19 @@ def main() -> None:
             ],
         ], 3000)
         append_bounded(lines, detail, args.max_bytes, "architecture relation projection")
+    if args.purpose == "architecture-binding":
+        fixed_graph = section("## Complete fixed decomposition DAG", [
+            "```tsv", *dag_path.read_text(encoding="utf-8", errors="replace").splitlines(), "```",
+            "", "## Complete fixed specification coverage", "",
+            "```tsv", *coverage_path.read_text(encoding="utf-8", errors="replace").splitlines(), "```",
+        ])
+        fixed_bytes = len("\n".join([*lines, *fixed_graph, ""]).encode("utf-8"))
+        if fixed_bytes > args.max_bytes - 10000:
+            raise ValueError(
+                f"complete fixed DAG/coverage leaves less than 10000 bytes for architecture evidence "
+                f"({fixed_bytes}/{args.max_bytes})"
+            )
+        lines.extend(fixed_graph)
     detail = bounded_section("## Accepted repository facts", [
         f"- `{one_line(row['fact_id'], 100)}` [{one_line(row['kind'], 40)}/{one_line(row['authority'], 40)}]: "
         f"{one_line(row['subject'], 140)} = {one_line(row['value'], 260)}; evidence={one_line(row['evidence'], 180)}"
@@ -326,12 +351,12 @@ def main() -> None:
     output = Path(args.output)
     output.write_text("\n".join(lines) + "\n", encoding="utf-8")
     if output.stat().st_size > args.max_bytes:
-        raise AssertionError("architecture-fit capsule exceeded its byte ceiling")
+        raise AssertionError("compiled evidence capsule exceeded its byte ceiling")
 
 
 if __name__ == "__main__":
     try:
         main()
     except (OSError, ValueError) as error:
-        print(f"architecture-fit capsule: {error}", file=__import__("sys").stderr)
+        print(f"compiled evidence capsule: {error}", file=__import__("sys").stderr)
         raise SystemExit(2)

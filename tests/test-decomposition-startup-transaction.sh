@@ -500,6 +500,74 @@ grep -Fqx 'status=STAGED' "$project_dir/control/decomposition-dag-candidate.env"
 staged_dag="$(awk -F= '$1=="dag" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
 cmp -s "$TEST_ROOT/dag.tsv" "$staged_dag"
 
+# Architecture binding receives the complete fixed DAG/coverage inside one
+# compiled capsule and preserves that staged checkpoint on an output guard.
+binding_guard_mock="$TEST_ROOT/binding-guard-codex"
+binding_guard_env="$TEST_ROOT/configs/startup-binding-guard.env"
+binding_guard_count="$TEST_ROOT/binding-guard-count"
+cat > "$binding_guard_mock" <<'MOCK'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+prompt="$(cat)"
+last_message=""
+take_last=0
+for argument in "$@"; do
+	if (( take_last )); then last_message="$argument"; take_last=0; continue; fi
+	[[ "$argument" != --output-last-message ]] || take_last=1
+done
+grep -Fq '## Embedded deterministic architecture-binding capsule' <<< "$prompt"
+grep -Fq '# Deterministic Architecture-Binding Capsule' <<< "$prompt"
+grep -Fq '## Complete fixed decomposition DAG' <<< "$prompt"
+grep -Fq '## Complete fixed specification coverage' <<< "$prompt"
+grep -Fq 'Every shell read has one content source only' <<< "$prompt"
+grep -Fq 'Never use cat for source or document inspection' <<< "$prompt"
+if grep -Eq '^(DAG_FILE|SPECIFICATION_COVERAGE_FILE|ARCHITECTURE_FIT_REPORT|SPECIFICATION_OBLIGATIONS_FILE|SPECIFICATION_RELATIONS_FILE|REPOSITORY_FACTS_FILE)=' <<< "$prompt"; then
+	printf 'architecture-binding prompt exposed raw global inputs\n' >&2
+	exit 90
+fi
+count=0
+[[ ! -f "$BINDING_GUARD_COUNT" ]] || count="$(<"$BINDING_GUARD_COUNT")"
+printf '%s\n' "$((count + 1))" > "$BINDING_GUARD_COUNT"
+printf 'guarded\n' > "$last_message"
+printf '%s\n' '{"type":"thread.started","thread_id":"binding-guard"}'
+printf '{"type":"item.completed","item":{"type":"command_execution","command":"unbounded-read","aggregated_output":"'
+printf '%32769s' ''
+printf '%s\n' '"}}'
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
+MOCK
+chmod +x "$binding_guard_mock"
+sed "s#export MANAGER_CODEX_BIN=\"/bin/false\"#export MANAGER_CODEX_BIN=\"$binding_guard_mock\"#" \
+	"$env_file" > "$binding_guard_env"
+printf 'export BINDING_GUARD_COUNT="%s"\n' "$binding_guard_count" >> "$binding_guard_env"
+chmod 600 "$binding_guard_env"
+set +e
+"$HARNESS_BIN/manager-architecture-binding-critic" "$binding_guard_env" \
+	> "$TEST_ROOT/binding-guard.out" 2> "$TEST_ROOT/binding-guard.err"
+binding_guard_status=$?
+set -e
+(( binding_guard_status == 7 ))
+grep -Fq 'paused recoverably after a command-output limit hit' "$TEST_ROOT/binding-guard.err"
+recovery_marker="$project_dir/control/startup-recoverable.env"
+grep -Fqx 'state=RECOVERABLE' "$recovery_marker"
+grep -Fqx 'stage=architecture_binding' "$recovery_marker"
+grep -Fqx 'resume_from=staged_decomposition_dag' "$recovery_marker"
+grep -Fqx 'classification=agent_command_output_budget_exceeded' "$recovery_marker"
+grep -Fqx 'status=STAGED' "$project_dir/control/decomposition-dag-candidate.env"
+binding_capsule="$project_dir/control/manager-architecture-binding.context.md"
+test -s "$binding_capsule"
+(( $(stat -c %s "$binding_capsule") <= 98304 ))
+cp "$binding_capsule" "$TEST_ROOT/binding-capsule-first.md"
+set +e
+"$HARNESS_BIN/manager-architecture-binding-critic" "$binding_guard_env" \
+	> "$TEST_ROOT/binding-guard-replay.out" 2> "$TEST_ROOT/binding-guard-replay.err"
+binding_guard_replay_status=$?
+set -e
+(( binding_guard_replay_status == 7 ))
+grep -Fq 'refusing to replay the unchanged failed input' "$TEST_ROOT/binding-guard-replay.err"
+grep -Fqx '1' "$binding_guard_count"
+cmp -s "$binding_capsule" "$TEST_ROOT/binding-capsule-first.md"
+rm -f "$recovery_marker"
+
 # Deterministic rejection must retain exact diagnostics so startup can repair
 # the staged artifact without another global decomposition pass.
 set +e

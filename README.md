@@ -275,6 +275,12 @@ evidence. It follows the same one-source bounded fallback policy. A
 command-output limit at this stage is also `RECOVERABLE`, with accepted
 architecture fit retained as its resume checkpoint.
 
+The architecture-binding Sol turn likewise receives one deterministic capsule:
+the complete fixed DAG and coverage, normalized authority projections, selected
+repository/index evidence, and the accepted architecture-fit decision. It may
+not reopen those global files. A binding-stage output-limit hit preserves the
+staged DAG as a `RECOVERABLE` resume checkpoint.
+
 Before DAG registration, this dedicated Sol critic performs an evidence-backed
 architecture-fit review. If the accepted feature necessarily conflicts with a
 foundational ownership, transaction, migration, dependency-direction,

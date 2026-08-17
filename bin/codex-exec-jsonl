@@ -141,6 +141,7 @@ for context_key in \
 	ARCHITECTURE_RESOLUTION_FILE \
 	ARCHITECTURE_FIT_CAPSULE_FILE \
 	DECOMPOSITION_CAPSULE_FILE \
+	ARCHITECTURE_BINDING_CAPSULE_FILE \
 	SPECIFICATION_OBLIGATIONS_FILE SPECIFICATION_RELATIONS_FILE \
 	REPOSITORY_FACTS_FILE REPOSITORY_INVENTORY_FILE REPOSITORY_ARCHITECTURE_SLICE; do
 	context_value="$(prompt_value "$context_key")"
@@ -214,7 +215,7 @@ fi
 resource_task_id="$(prompt_value TASK_ID)"
 resource_task_root="$(prompt_value TASK_ROOT)"
 resource_agent_phase="$(prompt_value AGENT_PHASE)"
-if [[ "$resource_agent_phase" =~ ^(specification_review|architecture_fit)$ ]] &&
+if [[ "$resource_agent_phase" =~ ^(specification_review|architecture_fit|architecture_binding)$ ]] &&
 	(( HARNESS_VALIDATION_OUTPUT_MAX_BYTES < agent_command_output_limit )); then
 	agent_command_output_limit="$HARNESS_VALIDATION_OUTPUT_MAX_BYTES"
 fi

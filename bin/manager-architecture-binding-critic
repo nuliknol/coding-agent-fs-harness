@@ -23,8 +23,57 @@ coverage="$(decomposition_dag_candidate_state_value coverage)"
 prompt="$dir/control/manager-architecture-binding-critic.prompt.md"
 fit_report="$(architecture_fit_state_value report force-waiver)"
 [[ "$fit_report" == /* ]] || fit_report="$REPOSITORY/$fit_report"
+binding_capsule="$dir/control/manager-architecture-binding.context.md"
+binding_slice_args=()
+[[ ! -s "$dir/control/repository-architecture-slice.md" ]] ||
+	binding_slice_args=(--architecture-slice "$dir/control/repository-architecture-slice.md")
+binding_authority_args=()
+[[ ! -f "$fit_report" ]] || binding_authority_args+=(--authority-file "$fit_report")
+python3 "$HARNESS_HOME/tools/build_architecture_fit_capsule.py" \
+	--purpose architecture-binding \
+	--project "$PROJECT" \
+	--specification-sha256 "$(specification_sha256)" \
+	--repository-baseline "$(specification_review_repository_baseline)" \
+	--domain-profiles-sha256 "$(domain_profiles_sha256)" \
+	--repository "$REPOSITORY" \
+	--review-report "$REPOSITORY/$(specification_review_state_value report)" \
+	--facts "$REPOSITORY/$(specification_review_state_value facts)" \
+	--obligations "$(specification_obligations_file)" \
+	--relations "$(specification_relations_file)" \
+	--dag "$dag" \
+	--coverage "$coverage" \
+	"${binding_slice_args[@]}" \
+	"${binding_authority_args[@]}" \
+	--max-bytes "$HARNESS_ARCHITECTURE_BINDING_CAPSULE_MAX_BYTES" \
+	--output "$binding_capsule.tmp.$$"
+chmod 600 "$binding_capsule.tmp.$$"
+mv "$binding_capsule.tmp.$$" "$binding_capsule"
+binding_capsule_sha="$(sha256sum "$binding_capsule" | awk '{print $1}')"
+binding_implementation_sha="$({
+	sha256sum "$0" "$HARNESS_HOME/tools/build_architecture_fit_capsule.py" "$HARNESS_BIN/codex-exec-jsonl"
+	printf 'read_lines=%s\nread_bytes=%s\ncommand_bytes=%s\n' \
+		"$HARNESS_VALIDATION_OUTPUT_MAX_LINES" "$HARNESS_VALIDATION_OUTPUT_MAX_BYTES" \
+		"$HARNESS_MAX_AGENT_COMMAND_OUTPUT_BYTES"
+} | sha256sum | awk '{print $1}')"
+recovery_marker="$dir/control/startup-recoverable.env"
+if [[ -f "$recovery_marker" ]] &&
+	[[ "$(kv_file_value "$recovery_marker" state)" == RECOVERABLE ]] &&
+	[[ "$(kv_file_value "$recovery_marker" stage)" == architecture_binding ]] &&
+	[[ "$(kv_file_value "$recovery_marker" specification_sha256)" == "$(specification_sha256)" ]] &&
+	[[ "$(kv_file_value "$recovery_marker" repository_baseline)" == "$(specification_review_repository_baseline)" ]] &&
+	[[ "$(kv_file_value "$recovery_marker" domain_profiles_sha256)" == "$(domain_profiles_sha256)" ]] &&
+	[[ "$(kv_file_value "$recovery_marker" input_sha256)" == "$binding_capsule_sha" ]] &&
+	[[ "$(kv_file_value "$recovery_marker" harness_implementation_sha256)" == "$binding_implementation_sha" ]]; then
+	printf 'Architecture-binding startup remains recoverable; refusing to replay the unchanged failed input. Fix or update the harness, then restart: %s\n' "$recovery_marker" >&2
+	exit 7
+elif [[ -f "$recovery_marker" ]]; then
+	resolved_marker="$dir/logs/startup-recovery-resumed-$(timestamp_compact_utc)-$$.env"
+	mv "$recovery_marker" "$resolved_marker"
+	log_event "STARTUP_RECOVERY_RESUMED stage=architecture_binding prior=$resolved_marker resume_from=staged_decomposition_dag input=$binding_capsule"
+fi
 
-cat > "$prompt.tmp.$$" <<PROMPT
+{
+cat <<PROMPT
 You are a fresh Sol architecture-binding planner for a filesystem-backed coding harness. Do not edit the repository and do not redesign or re-decompose the fixed DAG.
 
 ENV_FILE=$HARNESS_ENV_FILE
@@ -33,15 +82,15 @@ PROJECT=$PROJECT
 REPOSITORY=$REPOSITORY
 PROJECT_TMP_DIR=$PROJECT_TMP_DIR
 AGENT_PHASE=architecture_binding
-DAG_FILE=$dag
-SPECIFICATION_COVERAGE_FILE=$coverage
-ARCHITECTURE_FIT_REPORT=$fit_report
-SPECIFICATION_OBLIGATIONS_FILE=$(specification_obligations_file)
-SPECIFICATION_RELATIONS_FILE=$(specification_relations_file)
-REPOSITORY_FACTS_FILE=$REPOSITORY/$(specification_review_state_value facts)
+ARCHITECTURE_BINDING_CAPSULE_FILE=$binding_capsule
+ARCHITECTURE_BINDING_CAPSULE_SHA256=$binding_capsule_sha
 ARCHITECTURE_GUARDS=$HARNESS_ARCHITECTURE_GUARDS
+REVIEW_READ_MAX_LINES=$HARNESS_VALIDATION_OUTPUT_MAX_LINES
+REVIEW_READ_MAX_BYTES=$HARNESS_VALIDATION_OUTPUT_MAX_BYTES
 
-The architecture-fit decision and DAG/coverage are durable and authoritative. Read those bounded files. Do not change DAG_FILE or SPECIFICATION_COVERAGE_FILE. Do not inspect the complete repository inventory, development policy, harness source, unrelated Git history, prior agent logs, or broad source trees. Search only exact repository paths or symbols already named by the DAG when a validation binding requires confirmation. Retain verbose output in files and return bounded excerpts.
+The architecture-fit decision and fixed DAG/coverage are durable and authoritative in the deterministic capsule embedded below. Do not open or reread ARCHITECTURE_BINDING_CAPSULE_FILE through shell commands. Do not open the human specification, specification review report, facts/obligations/relations/inventory files, domain profiles, complete architecture slice, architecture-fit report, standalone DAG/coverage files, development policy, harness source, unrelated Git history, prior agent logs, or broad source trees. Do not change the fixed DAG or coverage.
+
+Only when the capsule leaves one exact validation binding unresolved may you inspect repository source. Inspect exactly one source file and one exact source window in that action, only at a path already named by the capsule. Every shell read has one content source only and must end with both `head -n $HARNESS_VALIDATION_OUTPUT_MAX_LINES` and `head -c $HARNESS_VALIDATION_OUTPUT_MAX_BYTES`. Never use cat for source or document inspection. Never use unbounded sed, awk, rg, grep, find, git diff, compiler output, or test output. Never concatenate, loop over, or combine multiple source/document reads in one action. Every shell action has one aggregate hard transcript budget of REVIEW_READ_MAX_LINES lines and REVIEW_READ_MAX_BYTES bytes across stdout and stderr. If one bounded excerpt cannot close the binding, terminate with the exact unresolved fixed-DAG seam; do not explore interactively.
 
 Audit component ownership before binding the fixed DAG. For each contract, architecture, producer, adopter, or delivery node, use its covered obligation source locations to check any specification-declared component owner and principal source path. A node bound to a downstream facade, compiler, transport, or presentation file cannot stand in for a separately named producer/adopter component. If the fixed DAG contradicts that governing ownership, do not manufacture architecture bindings that make it appear consistent; terminate with a concise diagnostic so the DAG is repaired before submission.
 
@@ -77,18 +126,11 @@ $HARNESS_BIN/manager-submit-decomposition "$HARNESS_ENV_FILE" "$dag" "$coverage"
 
 Pass '-' instead of ARCH_DIR only for the deterministic single-test profile described above. If deterministic validation rejects the candidate, terminate immediately; harness-start will preserve it and invoke a bounded repair-only turn. Do not repair schema inside this global architecture-binding turn. After success, terminate. Never publish work or run implementation tests.
 PROMPT
+printf '\n## Embedded deterministic architecture-binding capsule\n\n'
+cat "$binding_capsule"
+} > "$prompt.tmp.$$"
 chmod 600 "$prompt.tmp.$$"
 mv "$prompt.tmp.$$" "$prompt"
-
-# Make bounded prompt paths directly usable by agent shell commands. These are
-# invocation-local values, not persistent harness configuration.
-export DAG_FILE="$dag"
-export SPECIFICATION_COVERAGE_FILE="$coverage"
-export ARCHITECTURE_FIT_REPORT="$fit_report"
-export SPECIFICATION_OBLIGATIONS_FILE="$(specification_obligations_file)"
-export SPECIFICATION_RELATIONS_FILE="$(specification_relations_file)"
-export REPOSITORY_FACTS_FILE="$REPOSITORY/$(specification_review_state_value facts)"
-export ARCHITECTURE_GUARDS="$HARNESS_ARCHITECTURE_GUARDS"
 
 attempt=1
 while true; do
@@ -112,6 +154,33 @@ while true; do
 		exit 0
 	fi
 	classification="$(kv_file_value "${json%.jsonl}.classification" classification 2>/dev/null || true)"
+	if [[ "$classification" == agent_command_output_budget_exceeded ]]; then
+		classification_file="${json%.jsonl}.classification"
+		{
+			printf 'state=RECOVERABLE\n'
+			printf 'stage=architecture_binding\n'
+			printf 'resume_from=staged_decomposition_dag\n'
+			printf 'classification=%s\n' "$classification"
+			printf 'offending_input=%s\n' "$binding_capsule"
+			printf 'input_sha256=%s\n' "$binding_capsule_sha"
+			printf 'prompt=%s\n' "$prompt"
+			printf 'prompt_sha256=%s\n' "$(sha256sum "$prompt" | awk '{print $1}')"
+			printf 'classification_file=%s\n' "$classification_file"
+			printf 'jsonl=%s\n' "$json"
+			printf 'specification_review_report=%s\n' "$(specification_review_report_relative_path)"
+			printf 'architecture_fit_report=%s\n' "$(architecture_fit_state_value report force-waiver)"
+			printf 'specification_sha256=%s\n' "$(specification_sha256)"
+			printf 'repository_baseline=%s\n' "$(specification_review_repository_baseline)"
+			printf 'domain_profiles_sha256=%s\n' "$(domain_profiles_sha256)"
+			printf 'harness_implementation_sha256=%s\n' "$binding_implementation_sha"
+			printf 'recorded_at=%s\n' "$(timestamp_utc)"
+		} > "$recovery_marker.tmp.$$"
+		chmod 600 "$recovery_marker.tmp.$$"
+		mv "$recovery_marker.tmp.$$" "$recovery_marker"
+		log_event "STARTUP_RECOVERABLE stage=architecture_binding classification=$classification input=$binding_capsule input_sha256=$binding_capsule_sha classification_file=$classification_file resume_from=staged_decomposition_dag"
+		printf 'Architecture-binding startup paused recoverably after a command-output limit hit; staged DAG is preserved: %s\n' "$recovery_marker" >&2
+		exit 7
+	fi
 	retry_kind="$(codex_provider_retry_kind "$classification" 2>/dev/null || true)"
 	if [[ -n "$retry_kind" ]]; then
 		delay="$(codex_provider_retry_delay "$classification")"
