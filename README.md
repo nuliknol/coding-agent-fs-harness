@@ -279,7 +279,10 @@ The architecture-binding Sol turn likewise receives one deterministic capsule:
 the complete fixed DAG and coverage, normalized authority projections, selected
 repository/index evidence, and the accepted architecture-fit decision. It may
 not reopen those global files. A binding-stage output-limit hit preserves the
-staged DAG as a `RECOVERABLE` resume checkpoint.
+staged DAG as a `RECOVERABLE` resume checkpoint. If the critic instead finds
+that the fixed DAG contradicts governing ownership or dependency architecture,
+its diagnostic becomes a durable DAG rejection and startup enters the bounded
+DAG-repair loop rather than reporting a generic failure.
 
 Before DAG registration, this dedicated Sol critic performs an evidence-backed
 architecture-fit review. If the accepted feature necessarily conflicts with a

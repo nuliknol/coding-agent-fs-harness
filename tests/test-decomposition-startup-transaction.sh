@@ -568,6 +568,39 @@ grep -Fqx '1' "$binding_guard_count"
 cmp -s "$binding_capsule" "$TEST_ROOT/binding-capsule-first.md"
 rm -f "$recovery_marker"
 
+# A clean architecture-binding refusal is a semantic rejection of the fixed
+# DAG, not a generic startup failure. Preserve its diagnostic and hand it to
+# the existing bounded DAG-repair loop.
+binding_reject_mock="$TEST_ROOT/binding-reject-codex"
+binding_reject_env="$TEST_ROOT/configs/startup-binding-reject.env"
+cat > "$binding_reject_mock" <<'MOCK'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+last_message=""
+take_last=0
+for argument in "$@"; do
+	if (( take_last )); then last_message="$argument"; take_last=0; continue; fi
+	[[ "$argument" != --output-last-message ]] || take_last=1
+done
+cat >/dev/null
+printf '%s\n' 'Architecture binding terminated without submission: the fixed DAG omits the governing producer dependency.' > "$last_message"
+printf '%s\n' '{"type":"thread.started","thread_id":"binding-reject"}'
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
+MOCK
+chmod +x "$binding_reject_mock"
+sed "s#export MANAGER_CODEX_BIN=\"/bin/false\"#export MANAGER_CODEX_BIN=\"$binding_reject_mock\"#" \
+	"$env_file" > "$binding_reject_env"
+chmod 600 "$binding_reject_env"
+"$HARNESS_BIN/manager-architecture-binding-critic" "$binding_reject_env" \
+	> "$TEST_ROOT/binding-reject.out" 2> "$TEST_ROOT/binding-reject.err"
+grep -Fqx 'status=REJECTED' "$project_dir/control/decomposition-dag-candidate.env"
+grep -Fqx 'rejection_stage=architecture_binding' "$project_dir/control/decomposition-dag-candidate.env"
+binding_rejection_log="$(awk -F= '$1=="rejection_log" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
+test -s "$binding_rejection_log"
+grep -Fq 'ERROR: architecture-binding critic rejected the fixed DAG/coverage' "$binding_rejection_log"
+grep -Fq 'omits the governing producer dependency' "$binding_rejection_log"
+grep -Fq 'diagnostic preserved for bounded repair' "$TEST_ROOT/binding-reject.out"
+
 # Deterministic rejection must retain exact diagnostics so startup can repair
 # the staged artifact without another global decomposition pass.
 set +e

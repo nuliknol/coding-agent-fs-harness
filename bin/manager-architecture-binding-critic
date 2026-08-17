@@ -189,6 +189,30 @@ while true; do
 		attempt=$((attempt + 1))
 		continue
 	fi
-	(( status == 0 )) && die 'architecture-binding critic exited without submitting a candidate'
+	if (( status == 0 )); then
+		# The prompt explicitly permits a clean exit when the fixed DAG or its
+		# coverage contradicts governing architecture ownership. Preserve that
+		# critic decision as the staged DAG's rejection diagnostic so the normal
+		# bounded DAG-repair loop can correct it. Previously this valid critic
+		# outcome was collapsed into a generic startup failure.
+		[[ -s "$message" ]] || die 'architecture-binding critic exited without submitting a candidate or diagnostic'
+		candidate_dir="$(decomposition_dag_candidate_state_value directory)"
+		rejection_log="$candidate_dir/architecture-binding-rejection.md"
+		{
+			printf 'ERROR: architecture-binding critic rejected the fixed DAG/coverage\n\n'
+			cat "$message"
+		} > "$rejection_log.tmp.$$"
+		chmod 600 "$rejection_log.tmp.$$"
+		mv "$rejection_log.tmp.$$" "$rejection_log"
+		candidate_state="$(decomposition_dag_candidate_state_file)"
+		sed -i 's/^status=.*/status=REJECTED/' "$candidate_state"
+		sed -i '/^rejection_stage=/d; /^rejection_log=/d; /^rejected_at=/d' "$candidate_state"
+		printf 'rejection_stage=architecture_binding\n' >> "$candidate_state"
+		printf 'rejection_log=%s\n' "$rejection_log" >> "$candidate_state"
+		printf 'rejected_at=%s\n' "$(timestamp_utc)" >> "$candidate_state"
+		log_event "ARCHITECTURE_BINDING_DAG_REJECTED attempts=$attempt diagnostic=$rejection_log"
+		printf 'Architecture binding rejected the fixed DAG; diagnostic preserved for bounded repair: %s\n' "$rejection_log"
+		exit 0
+	fi
 	die "architecture-binding critic failed with status $status; see $json"
 done
