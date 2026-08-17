@@ -509,15 +509,23 @@ sed \
 	-e 's/^Goal-ID: n1.goal$/Goal-ID: n1.cut.goal/' \
 	-e 's/^Root-Criterion: broad.parent$/Root-Criterion: broad.parent/' \
 	-e 's/^Target-Criterion: broad.parent$/Target-Criterion: broad.parent.leaf/' \
-	-e 's/^Goal-Success-Evidence:.*$/Goal-Success-Evidence: compiled cut validation passes/' \
-	-e '/^Target-Criterion:/a Context-Closure-Cut: CCR-cut001' \
-	-e '/^Task-Root:/a Manager-Remediation: 1\nBlocker-Class: LOCAL_CODE_PREREQUISITE\nRemediation-Scope: src/a.c' \
+	-e 's/^Goal-Success-Evidence:.*$/Goal-Success-Evidence: stale planner evidence/' \
+	-e 's/^Focused-Validation:.*$/Focused-Validation: printf stale/' \
+	-e 's/^Allowed-Scope:.*$/Allowed-Scope: include\/a.h/' \
+	-e 's/^Context-Paths:.*$/Context-Paths: include\/a.h/' \
+	-e 's/^Required-Symbols:.*$/Required-Symbols: stale_symbol/' \
+	-e '/^Task-Root:/a Manager-Remediation: 1\nBlocker-Class: LOCAL_CODE_PREREQUISITE\nRemediation-Scope: include/a.h' \
 	-e '/^Root-Criterion:/a Replan-Strategy-ID: cut.strategy.1\nStrategy-Change: REPAIR_PREREQUISITE\nSupersedes-Task: 001' \
 	"$TEST_ROOT/cut-root-task.md" > "$TEST_ROOT/cut-recovery-task.md"
 "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/cut-harness.env" 001-revision-01 \
 	"$TEST_ROOT/cut-recovery-task.md" --manager-remediation >/dev/null
 cut_ready="$cut_project/tasks/decompcut-task-001-revision-01.ready.md"
 grep -Fqx 'Context-Closure-Cut: CCR-cut001' "$cut_ready"
+grep -Fqx 'Allowed-Scope: src/a.c' "$cut_ready"
+grep -Fqx 'Goal-Success-Evidence: compiled cut validation passes' "$cut_ready"
+grep -Fqx 'Focused-Validation: test "$(./focused-smoke)" = 1' "$cut_ready"
+grep -Fq 'DETERMINISTIC_CLOSURE_CUT_NORMALIZED root=001 task=001-revision-01' \
+	"$cut_project/logs/events.log"
 grep -Fq 'DETERMINISTIC_CLOSURE_CUT_VALIDATED root=001 task=001-revision-01' \
 	"$cut_project/logs/events.log"
 

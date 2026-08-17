@@ -1,6 +1,6 @@
 # Luna-Only Convergence Implementation Status
 
-Last updated (UTC): 2026-08-17T22:11:38Z
+Last updated (UTC): 2026-08-17T22:14:27Z
 
 Overall status: `IN_PROGRESS`
 
@@ -1031,3 +1031,11 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   Allowed-Scope and Remediation-Scope to the selected exact evidence files. It
   never restores a directory dump. The decomposition and root-liveness suites
   pass with an exact-file directory-scope regression.
+- The COMP2 canary also proved that asking a recovery model to transcribe a
+  compiled cut still spends correction actions on mechanically knowable fields.
+  At a saturated criterion fuse, the publisher now normalizes the cut ID,
+  allowed/context paths, required symbols, success evidence, focused validation,
+  and remediation scope directly from the first ordered trusted cut before
+  validating them. This preserves the structural fuses and removes model-driven
+  transcription retries; the regression deliberately submits stale fields and
+  verifies the exact compiled task.
