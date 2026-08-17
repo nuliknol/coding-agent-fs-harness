@@ -280,6 +280,7 @@ joern_pointer="$TEST_ROOT/state/projects/scip-e2e-joern/control/repository-index
 joern_dir="$(awk -F= '$1=="generation_dir" {print $2}' "$joern_pointer")"
 grep -Fqx 'joern_max_heap_mb=12288' "$joern_dir/manifest.env"
 grep -Fqx 'joern_max_cpus=2' "$joern_dir/manifest.env"
+grep -Eq '^joern_cpu_affinity=[0-9]+,[0-9]+$' "$joern_dir/manifest.env"
 grep -Fqx 'joern_nice_level=10' "$joern_dir/manifest.env"
 test "$(sqlite3 "$joern_dir/architecture.sqlite" "SELECT status FROM provider_runs WHERE provider='joern';")" = READY
 test "$(sqlite3 "$joern_dir/architecture.sqlite" 'SELECT count(*) FROM control_flow_edges;')" -ge 1

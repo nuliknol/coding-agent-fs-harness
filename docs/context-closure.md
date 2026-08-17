@@ -66,9 +66,12 @@ export HARNESS_RECOLL_ENABLED="0"
 
 Joern parse, export, and GraphML import are admitted through one global lock
 under `HARNESS_REPOSITORY_INDEX_ROOT`, even when several projects refresh at
-once. The heap and processor settings are passed to Joern and its frontend JVMs;
-the nice level also applies to GraphML import. These are execution-resource
-limits and do not change immutable generation identity.
+once. The heap and processor settings are passed to Joern and its frontend JVMs.
+The entire descendant process tree is also restricted to the first
+`HARNESS_JOERN_MAX_CPUS` CPUs in the harness process's current affinity mask,
+because `ActiveProcessorCount` alone is not a hard scheduler limit when Joern
+forks a language frontend. The nice level also applies to GraphML import. These
+are execution-resource limits and do not change immutable generation identity.
 
 Published generations receive an integrity marker after SQLite
 `integrity_check` succeeds. Routine status and Context Closure freshness checks

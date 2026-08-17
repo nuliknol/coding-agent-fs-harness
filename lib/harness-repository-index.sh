@@ -37,6 +37,36 @@ repository_index_command_path()
 	printf '%s\n' "$resolved"
 }
 
+# Return the first requested CPUs from the caller's current Linux affinity
+# mask. Joern launches frontend JVMs beneath wrapper processes, so JVM
+# ActiveProcessorCount is only a scheduling hint; an inherited taskset mask is
+# the enforceable bound for the complete descendant tree.
+repository_index_cpu_affinity_list()
+{
+	local requested="$1" allowed part start end cpu selected="" count=0
+	[[ "$requested" =~ ^[1-9][0-9]*$ ]] || return 1
+	allowed="$(awk '$1 == "Cpus_allowed_list:" {print $2; exit}' /proc/self/status 2>/dev/null || true)"
+	[[ -n "$allowed" ]] || return 1
+	local IFS=,
+	for part in $allowed; do
+		if [[ "$part" == *-* ]]; then
+			start="${part%-*}"
+			end="${part#*-}"
+		else
+			start="$part"
+			end="$part"
+		fi
+		[[ "$start" =~ ^[0-9]+$ && "$end" =~ ^[0-9]+$ && "$start" -le "$end" ]] || return 1
+		for (( cpu=start; cpu<=end && count<requested; cpu++ )); do
+			selected="${selected:+$selected,}$cpu"
+			count=$((count + 1))
+		done
+		(( count < requested )) || break
+	done
+	(( count > 0 )) || return 1
+	printf '%s\n' "$selected"
+}
+
 repository_index_repository_id()
 {
 	local identity common_dir
