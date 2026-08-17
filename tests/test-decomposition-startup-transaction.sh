@@ -382,6 +382,7 @@ grep -Fq 'COMPLEXITY_REPORT=$complexity_report' \
 	"$HARNESS_BIN/manager-decomposition-dag-repair"
 grep -Fq 'manager-repair-decomposition-terra-exceptions' "$HARNESS_BIN/harness-start"
 grep -Fq 'manager-route-decomposition-complexity-repair' "$HARNESS_BIN/harness-start"
+grep -Fq 'manager-route-decomposition-context-repair' "$HARNESS_BIN/harness-start"
 grep -Fq 'Recovering an interrupted decomposition submission with no completed rejection diagnostic.' \
 	"$HARNESS_BIN/harness-start"
 grep -Fq 'decision .* evidence path is outside producer .* allowed_paths' \
@@ -530,6 +531,36 @@ bad_dag_status=$?
 set -e
 (( bad_dag_status != 0 ))
 grep -Fqx 'status=REJECTED' "$project_dir/control/decomposition-dag-candidate.env"
+
+# Architecture-bound Context Closure rejection is not sent to schema-only
+# repair. Its typed reports are projected onto the rejected DAG transaction so
+# recursive decomposition can split the named nodes before architecture binds
+# again.
+full_context_candidate="$(awk -F= '$1=="directory" {print $2}' "$project_dir/control/decomposition-candidate.env" | tail -1)"
+mkdir -p "$full_context_candidate/context-admission"
+cat > "$full_context_candidate/context-admission/admission.tsv" <<'TSV'
+node_id	worker_route	status
+n01	LUNA	NEEDS_FURTHER_DECOMPOSITION
+TSV
+cat > "$full_context_candidate/context-admission/repair.tsv" <<'TSV'
+node_id	condition	repair_action	provider	evidence_kind	identifier	reason
+n01	CLOSURE_BUDGET_EXCEEDED	GRAFT_GRAPH_CUTS	decomposition-compiler	-	-	ownership-boundary-budget-exceeded
+TSV
+printf 'node_id\tcut_id\tseam_kind\tcohesive_key\trequired_symbols\tallowed_paths\tacceptance_hint\troute_hint\testimated_source_bytes\trationale\n' \
+	> "$full_context_candidate/context-admission/suggested-cuts.tsv"
+printf 'luna_nodes=1\nready=0\nnon_ready=1\n' > "$full_context_candidate/context-admission/summary.env"
+sed -i 's/^status=.*/status=REJECTED/' "$project_dir/control/decomposition-candidate.env"
+sed -i '/^rejection_stage=/d; /^rejection_log=/d; /^repair_route=/d; /^repair_routed_at=/d' \
+	"$project_dir/control/decomposition-candidate.env"
+printf 'rejection_stage=context_closure\nrejection_log=%s\n' \
+	"$full_context_candidate/context-admission/repair.tsv" >> "$project_dir/control/decomposition-candidate.env"
+"$HARNESS_BIN/manager-route-decomposition-context-repair" "$env_file" >/dev/null 2>&1
+grep -Fqx 'status=REPAIR_ROUTED' "$project_dir/control/decomposition-candidate.env"
+grep -Fqx 'repair_route=recursive_context_closure' "$project_dir/control/decomposition-candidate.env"
+grep -Fqx 'status=REJECTED' "$project_dir/control/decomposition-dag-candidate.env"
+context_dag_candidate="$(awk -F= '$1=="directory" {print $2}' "$project_dir/control/decomposition-dag-candidate.env" | tail -1)"
+cmp -s "$full_context_candidate/context-admission/repair.tsv" \
+	"$context_dag_candidate/context-admission/repair.tsv"
 dag_rejection_log="$(awk -F= '$1=="rejection_log" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
 test -s "$dag_rejection_log"
 

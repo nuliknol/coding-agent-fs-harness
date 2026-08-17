@@ -218,6 +218,12 @@ while ! project_plan_exists; do
 		if decomposition_candidate_matches_current_inputs &&
 			[[ "$(decomposition_candidate_state_value status)" == REJECTED ]]; then
 			full_rejection_log="$(decomposition_candidate_state_value rejection_log "$(decomposition_candidate_state_value directory)/rejection.log")"
+			if [[ "$(decomposition_candidate_state_value rejection_stage -)" == context_closure ]] &&
+				[[ -s "$(decomposition_candidate_state_value directory)/context-admission/repair.tsv" ]]; then
+				printf 'Routing architecture-bound Context Closure rejection back to recursive DAG decomposition.\n'
+				"$HARNESS_BIN/manager-route-decomposition-context-repair" "$HARNESS_ENV_FILE"
+				continue
+			fi
 			if [[ ! -s "$full_rejection_log" ]]; then
 				printf 'Recovering an interrupted decomposition submission with no completed rejection diagnostic.\n'
 				if "$HARNESS_BIN/manager-submit-decomposition" --recover "$HARNESS_ENV_FILE"; then

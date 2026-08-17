@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 1 ]] || { printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+require_manager_configuration
+project_plan_exists && { printf 'Decomposition DAG already exists.\n'; exit 0; }
+decomposition_candidate_matches_current_inputs || die 'no current full decomposition candidate exists'
+[[ "$(decomposition_candidate_state_value status)" == REJECTED ]] ||
+	die 'Context Closure routing requires a rejected full candidate'
+[[ "$(decomposition_candidate_state_value rejection_stage -)" == context_closure ]] ||
+	die 'candidate rejection is not an architecture-bound Context Closure rejection'
+
+candidate_dir="$(decomposition_candidate_state_value directory)"
+context_dir="$candidate_dir/context-admission"
+[[ -s "$context_dir/repair.tsv" ]] || die 'candidate has no typed Context Closure repair report'
+awk -F '\t' 'NR>1 {found=1} END {exit !found}' "$context_dir/repair.tsv" ||
+	die 'candidate Context Closure repair report has no rejected leaves'
+
+# Re-stage the exact bound DAG/coverage through the pre-binding transaction.
+# Architecture binding can introduce additional ownership seams, so a DAG that
+# is READY without architecture is still replaced below by the exact rejected
+# architecture-bound admission evidence.
+set +e
+"$HARNESS_BIN/manager-stage-decomposition-dag" "$HARNESS_ENV_FILE" \
+	"$candidate_dir/dag.tsv" "$candidate_dir/coverage.tsv"
+stage_status=$?
+set -e
+decomposition_dag_candidate_matches_current_inputs ||
+	die 'Context Closure routing did not create a current DAG candidate'
+
+dag_candidate_dir="$(decomposition_dag_candidate_state_value directory)"
+dag_context_dir="$dag_candidate_dir/context-admission"
+rm -rf -- "$dag_context_dir"
+mkdir -p "$dag_context_dir"
+for name in admission repair suggested-cuts summary; do
+	source_file="$context_dir/$name.tsv"
+	[[ "$name" != summary ]] || source_file="$context_dir/summary.env"
+	[[ -f "$source_file" ]] || continue
+	install -m 600 "$source_file" "$dag_context_dir/${source_file##*/}"
+done
+
+dag_state="$(decomposition_dag_candidate_state_file)"
+dag_state_tmp="$dag_state.tmp.$$"
+awk -F= '$1!="status" && $1!="rejection_stage" && $1!="rejection_log" {print}' \
+	"$dag_state" > "$dag_state_tmp"
+{
+	printf 'status=REJECTED\n'
+	printf 'rejection_stage=context_closure\n'
+	printf 'rejection_log=%s\n' "$dag_context_dir/repair.tsv"
+} >> "$dag_state_tmp"
+chmod 600 "$dag_state_tmp"
+mv "$dag_state_tmp" "$dag_state"
+
+state="$(decomposition_candidate_state_file)"
+state_tmp="$state.tmp.$$"
+awk -F= '$1!="status" && $1!="repair_route" && $1!="repair_routed_at" {print}' \
+	"$state" > "$state_tmp"
+{
+	printf 'status=REPAIR_ROUTED\n'
+	printf 'repair_route=recursive_context_closure\n'
+	printf 'repair_routed_at=%s\n' "$(timestamp_utc)"
+} >> "$state_tmp"
+chmod 600 "$state_tmp"
+mv "$state_tmp" "$state"
+
+log_event "DECOMPOSITION_CONTEXT_REPAIR_ROUTED full_candidate=$candidate_dir dag_candidate=$dag_candidate_dir stage_status=$stage_status repair=$dag_context_dir/repair.tsv"
+printf 'Architecture-bound Context Closure rejection routed to bounded recursive DAG repair.\n'
