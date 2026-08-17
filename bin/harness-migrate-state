@@ -18,6 +18,36 @@ migrated="$(migrate_legacy_token_limit_human_markers)"
 printf 'Legacy token-limit markers migrated: %s\n' "$migrated"
 
 if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
+	luna_only_assignment_is_executable()
+	{
+		local assignment="$1" route leaf complexity exception validation files turns actions p95 score
+		route="$(metadata_value "$assignment" Worker-Route)"
+		[[ "$route" == LUNA ]] || return 1
+		assignment_is_manager_remediation "$assignment" || return 0
+		# Manager-Remediation is an authority classification, not a model route.
+		# Under luna_only worker-invoke-task executes it through the configured
+		# Luna binary/model. Preserve a publisher-validated bounded assignment;
+		# only legacy broad/incomplete remediation metadata needs migration.
+		leaf="$(metadata_value "$assignment" Leaf-Type)"
+		complexity="$(metadata_value "$assignment" Complexity-Class)"
+		exception="$(metadata_value "$assignment" Terra-Exception)"
+		validation="$(metadata_value "$assignment" Validation-Class)"
+		files="$(metadata_value "$assignment" Expected-Max-Implementation-Files)"
+		turns="$(metadata_value "$assignment" Expected-Max-Worker-Turns)"
+		actions="$(metadata_value "$assignment" Expected-Max-Agent-Actions)"
+		p95="$(metadata_value "$assignment" Effective-P95-Tokens)"
+		score="$(metadata_value "$assignment" Complexity-Score)"
+		[[ "$leaf" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY)$ ]] || return 1
+		[[ "$complexity" == LOW && "$exception" == - && "$validation" != CLEAN_GLOBAL ]] || return 1
+		[[ "$files" =~ ^[0-9]+$ && "$turns" =~ ^[1-9][0-9]*$ ]] || return 1
+		(( files <= HARNESS_MAX_LUNA_IMPLEMENTATION_FILES && turns <= 3 )) || return 1
+		[[ "$actions" =~ ^[1-9][0-9]*$ && "$p95" =~ ^[1-9][0-9]*$ && "$score" =~ ^[1-9][0-9]*$ ]] || return 1
+		(( actions <= HARNESS_MAX_LUNA_PREDICTED_ACTIONS &&
+			p95 <= HARNESS_MAX_LUNA_PREDICTED_P95_TOKENS &&
+			score <= HARNESS_MAX_LUNA_COMPLEXITY_SCORE )) || return 1
+		return 0
+	}
+
 	dir="$(project_dir)"
 	for supervisor_file in "$dir/control/supervisor.pid" "$dir/control/worker-supervisor.pid"; do
 		if [[ -f "$supervisor_file" ]]; then
@@ -30,13 +60,57 @@ if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
 	if compgen -G "$dir/running/$PROJECT-task-*.running.md" >/dev/null; then
 		die 'Luna-only migration requires a safe task boundary; a worker assignment is still running'
 	fi
+	restored_safe_remediations=0
+	shopt -s nullglob
+	for migrated_marker in "$dir/control/$PROJECT-task-"*.policy-migrated; do
+		base="${migrated_marker##*/}"
+		base="${base%.policy-migrated}"
+		task_id="${base#"$PROJECT-task-"}"
+		validate_task_id "$task_id"
+		assignment="$dir/archive/$base.assignment.md"
+		[[ -f "$assignment" ]] || continue
+		assignment_is_manager_remediation "$assignment" || continue
+		luna_only_assignment_is_executable "$assignment" || continue
+		root="$(task_root_id "$task_id")"
+		replan_marker="$(task_root_replan_file "$root")"
+		[[ -f "$replan_marker" ]] || continue
+		[[ "$(metadata_value "$replan_marker" Trigger-Outcome)" == LUNA_ONLY_POLICY_MIGRATION ]] || continue
+		[[ "$(metadata_value "$replan_marker" Triggered-By)" == "$task_id" ]] || continue
+		active_root_artifact=0
+		for artifact in "$dir/tasks/$PROJECT-task-"*.ready.md \
+			"$dir/results/$PROJECT-task-"*.result.md; do
+			[[ -f "$artifact" ]] || continue
+			artifact_task="$(task_id_from_filename "$artifact")"
+			if [[ "$(task_root_id "$artifact_task")" == "$root" ]]; then
+				active_root_artifact=1
+				break
+			fi
+		done
+		(( active_root_artifact == 0 )) || continue
+		ready="$dir/tasks/$base.ready.md"
+		mv "$assignment" "$ready"
+		chmod 600 "$ready"
+		rm -f "$migrated_marker" "$dir/control/$base.recovery-retired" "$replan_marker"
+		if [[ -f "$(goal_state_file "$task_id")" ]]; then
+			goal_state_set "$(goal_state_file "$task_id")" state READY
+			goal_state_set "$(goal_state_file "$task_id")" active_session ""
+			goal_state_set "$(goal_state_file "$task_id")" thread_id ""
+			goal_state_set "$(goal_state_file "$task_id")" thread_context safe-luna-remediation-restored
+			goal_state_set "$(goal_state_file "$task_id")" updated_at "$(timestamp_utc)"
+			goal_thread_store "$task_id" "" safe-luna-remediation-restored
+		fi
+		log_event "LUNA_ONLY_SAFE_REMEDIATION_MIGRATION_REVERSED task=$task_id root=$root ready=$ready"
+		restored_safe_remediations=$((restored_safe_remediations + 1))
+	done
+	shopt -u nullglob
 	migrated_results=0
 	shopt -s nullglob
 	for result in "$dir/results/$PROJECT-task-"*.result.md; do
 		task_id="$(task_id_from_filename "$result")"
 		base="$(task_base "$task_id")"
 		assignment="$dir/archive/$base.assignment.md"
-		if ! assignment_is_manager_remediation "$assignment"; then
+		if ! assignment_is_manager_remediation "$assignment" ||
+			luna_only_assignment_is_executable "$assignment"; then
 			continue
 		fi
 		root="$(task_root_id "$task_id")"
@@ -67,7 +141,7 @@ if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
 	for ready in "$dir/tasks/$PROJECT-task-"*.ready.md; do
 		task_id="$(task_id_from_filename "$ready")"
 		route="$(metadata_value "$ready" Worker-Route)"
-		if [[ "$route" != TERRA ]] && ! assignment_is_manager_remediation "$ready"; then
+		if luna_only_assignment_is_executable "$ready"; then
 			continue
 		fi
 		root="$(task_root_id "$task_id")"
@@ -146,13 +220,14 @@ if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
 		printf 'migrated_pending_results=%s\n' "$migrated_results"
 		printf 'migrated_ready_tasks=%s\n' "$migrated_ready"
 		printf 'migrated_liveness_roots=%s\n' "$migrated_liveness"
+		printf 'restored_safe_remediations=%s\n' "$restored_safe_remediations"
 		printf 'installed_terra_nodes=%s\n' "$pending_terra"
 		printf 'pending_node_policy=recursive_root_criteria\n'
 		printf 'migrated_at=%s\n' "$(timestamp_utc)"
 	} > "$migration_state.tmp.$$"
 	chmod 600 "$migration_state.tmp.$$"
 	mv "$migration_state.tmp.$$" "$migration_state"
-	log_event "LUNA_ONLY_STATE_MIGRATION_READY migrated_results=$migrated_results migrated_ready=$migrated_ready installed_terra_nodes=$pending_terra state=$migration_state"
-	printf 'Luna-only state migration: pending-results=%s ready-tasks=%s liveness-roots=%s installed-Terra-nodes=%s (decomposed in place at activation)\n' \
-		"$migrated_results" "$migrated_ready" "$migrated_liveness" "$pending_terra"
+	log_event "LUNA_ONLY_STATE_MIGRATION_READY migrated_results=$migrated_results migrated_ready=$migrated_ready restored_safe_remediations=$restored_safe_remediations installed_terra_nodes=$pending_terra state=$migration_state"
+	printf 'Luna-only state migration: pending-results=%s ready-tasks=%s liveness-roots=%s restored-safe-remediations=%s installed-Terra-nodes=%s (decomposed in place at activation)\n' \
+		"$migrated_results" "$migrated_ready" "$migrated_liveness" "$restored_safe_remediations" "$pending_terra"
 fi

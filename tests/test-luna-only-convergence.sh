@@ -109,6 +109,54 @@ chmod 600 "$legacy_ready"
 bash -c 'source "$1/lib/harness-common.sh"; load_harness_env "$2"; initialize_task_progress 002 "$3"' \
 	_ "$ROOT" "$TMP/harness.env" "$legacy_ready"
 
+# Manager remediation is authority, not a stronger model route. A task already
+# validated against the bounded Luna leaf contract must survive restart-time
+# migration and execute with the effective Luna-only model.
+bounded_remediation_ready="$project/tasks/lunaconvergence-task-005.ready.md"
+cat > "$bounded_remediation_ready" <<'TASK'
+# Bounded Luna-only manager remediation
+
+Task-ID: 005
+Worker-Route: LUNA
+Manager-Remediation: 1
+Leaf-Type: LOCAL_IMPLEMENTATION
+Complexity-Class: LOW
+Terra-Exception: -
+Validation-Class: FOCUSED
+Allowed-Scope: target.c
+Context-Paths: target.c
+Required-Symbols: target
+Expected-Max-Implementation-Files: 1
+Expected-Max-Worker-Turns: 1
+Expected-Max-Agent-Actions: 4
+Effective-P95-Tokens: 100000
+Complexity-Score: 8
+TASK
+chmod 600 "$bounded_remediation_ready"
+
+# Upgrade recovery reverses the exact bad state emitted by the old migration:
+# a publisher-validated Luna remediation archived solely for its authority tag.
+reversible_assignment="$project/archive/lunaconvergence-task-006.assignment.md"
+cp "$bounded_remediation_ready" "$reversible_assignment"
+sed -i 's/Task-ID: 005/Task-ID: 006/' "$reversible_assignment"
+touch "$project/control/lunaconvergence-task-006.policy-migrated" \
+	"$project/control/lunaconvergence-task-006.recovery-retired"
+cat > "$project/control/progress/lunaconvergence-task-006.needs-replan.md" <<'MARKER'
+# Root Task Needs Replanning
+
+Project: lunaconvergence
+
+Task-Root: 006
+
+Triggered-By: 006
+
+Trigger-Outcome: LUNA_ONLY_POLICY_MIGRATION
+MARKER
+chmod 600 "$reversible_assignment" \
+	"$project/control/lunaconvergence-task-006.policy-migrated" \
+	"$project/control/lunaconvergence-task-006.recovery-retired" \
+	"$project/control/progress/lunaconvergence-task-006.needs-replan.md"
+
 # An unreviewed result from a pre-policy manager-remediation assignment is not
 # accepted during migration. Its workspace is retained as tracked-overlay
 # evidence, while the result itself is archived with explicit unaccepted
@@ -168,6 +216,14 @@ migration_marker="$project/control/progress/lunaconvergence-task-002.needs-repla
 grep -Fqx 'Trigger-Outcome: LUNA_ONLY_POLICY_MIGRATION' "$migration_marker"
 grep -Fqx 'status=READY' "$project/control/luna-only-migration.env"
 grep -Fqx 'migrated_ready_tasks=1' "$project/control/luna-only-migration.env"
+test -f "$bounded_remediation_ready"
+test ! -e "$project/archive/lunaconvergence-task-005.assignment.md"
+test -f "$project/tasks/lunaconvergence-task-006.ready.md"
+test ! -e "$reversible_assignment"
+test ! -e "$project/control/lunaconvergence-task-006.policy-migrated"
+test ! -e "$project/control/lunaconvergence-task-006.recovery-retired"
+test ! -e "$project/control/progress/lunaconvergence-task-006.needs-replan.md"
+grep -Fqx 'restored_safe_remediations=1' "$project/control/luna-only-migration.env"
 grep -Fqx 'migrated_pending_results=1' "$project/control/luna-only-migration.env"
 grep -Fqx 'migrated_liveness_roots=1' "$project/control/luna-only-migration.env"
 test ! -e "$project/results/lunaconvergence-task-004.result.md"
@@ -178,6 +234,10 @@ grep -Fqx 'Trigger-Outcome: LUNA_ONLY_POLICY_MIGRATION' \
 	"$project/control/progress/lunaconvergence-task-004.needs-replan.md"
 test -f "$project/control/lunaconvergence-task-002.policy-migrated"
 test -f "$project/control/lunaconvergence-task-002.recovery-retired"
+
+# Keep the following recovery fixture focused on the deliberately migrated
+# tasks rather than the preserved executable boundary above.
+rm -f "$bounded_remediation_ready" "$project/tasks/lunaconvergence-task-006.ready.md"
 
 # Crash recovery must not reinterpret an intentionally archived migration
 # or Context Closure repair assignment as an interrupted worker completion and

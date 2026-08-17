@@ -800,3 +800,17 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   authoritative-per-invocation, live-estimated-per-invocation, and cumulative
   worker-task limits remain exactly 500,000 tokens; the manager replan ceiling
   remains eight item starts.
+- The first COMP4 restart exposed a restart-time policy migration defect:
+  `Manager-Remediation: 1` was treated as proof of a stronger-model route even
+  when the assignment was already a publisher-validated LOW/LUNA bounded leaf
+  and the effective manager model under `luna_only` was Luna. Startup archived
+  revision 33 and began an unnecessary replan; that process group was stopped
+  before it could publish another assignment.
+- Luna-only migration now distinguishes remediation authority from execution
+  model. It preserves manager-remediation assignments only when all executable
+  leaf limits (route, type, complexity, validation, files, turns, actions, p95,
+  score, and Terra exception) satisfy the Luna contract. Legacy broad or
+  incomplete manager assignments still migrate. Upgrade recovery also reverses
+  the exact false-migration state atomically when no newer root artifact exists,
+  restoring the archived safe assignment and clearing only its matching policy
+  marker. A focused regression covers both preservation and reversal.
