@@ -1,6 +1,6 @@
 # Luna-Only Convergence Implementation Status
 
-Last updated (UTC): 2026-08-17T19:50:00Z
+Last updated (UTC): 2026-08-17T19:56:00Z
 
 Overall status: `IN_PROGRESS`
 
@@ -722,3 +722,15 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   rejected leaves; observed repair commands use one source and remain at or
   below 32,768 bytes. The other resumable projects have no current blocking
   marker and remain active under Luna-only execution.
+- The first bounded submission exposed a routing mismatch rather than another
+  output failure: architecture-bound `GRAFT_GRAPH_CUTS` rows were entering the
+  schema-only full-candidate repair contract, which forbids re-decomposition.
+  Commit `ac619d1` adds a durable `recursive_context_closure` route that
+  projects the exact bound admission, repair, and cut reports onto the staged
+  pre-binding DAG checkpoint, marks the full candidate `REPAIR_ROUTED`, and
+  requires recursive DAG repair before architecture binds again.
+- Commit `91f41cd` preserves `CONTEXT_CLOSURE_REPAIR=1` from the typed durable
+  `rejection_stage`, instead of inferring the phase from an obsolete prose
+  rejection line. The live story restart now runs the recursive decomposition
+  phase with the exact six rejected node IDs, seven repair rows, and compiled
+  cut seams. No startup evidence or accepted specification state was reset.
