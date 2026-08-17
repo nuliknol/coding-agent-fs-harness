@@ -954,3 +954,20 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   validation unchanged. Regression coverage deliberately emits title-case
   variants and proves they publish through the canonical schema. The 8-action,
   two-publication-attempt, and all 500,000-token fuses remain unchanged.
+- Live DPLM recovery confirms the compiled path: revision 66 used five items,
+  began with exactly one 20,516-byte packet read, published on its bounded
+  second validator attempt, compiled a 21,592-byte `READY` Context Closure
+  capsule, and launched Luna without fallback repository context.
+- DPVIS then reached the intentional `TOKENS_WITHOUT_VERIFIED_GAIN` fuse after
+  17 paid episodes and 564,590 processed tokens without a new facet. The final
+  three attempts all proposed the same exact one-line source correction, but
+  format repair reduced the patch to a zero-context hunk whose stale line
+  number made plain `git apply` reject it. This was patch framing failure, not
+  another semantic exploration failure.
+- The trusted patch runner now admits a zero-context replacement only when its
+  complete removed-line sequence occurs exactly once in the current allowed
+  source file. Only after that live uniqueness proof does it use Git's explicit
+  `--unidiff-zero` mode for check and apply. Zero-context additions, missing
+  anchors, ambiguous anchors, out-of-scope paths, binaries, generated paths,
+  and whitespace errors still fail closed. The closure/tool suite now has 36
+  passing cases, including stale-line relocation and ambiguous-anchor rejection.

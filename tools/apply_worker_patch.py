@@ -103,6 +103,63 @@ def patch_paths(repository: Path, patch: Path) -> list[str]:
     return sorted(set(paths))
 
 
+def validate_zero_context_hunks(repository: Path, patch: str) -> bool:
+    """Permit a zero-context replacement only with one exact source anchor.
+
+    Git rejects zero-context unified hunks unless --unidiff-zero is explicit.
+    Small models often reduce a one-line correction to that valid form while
+    retaining the exact old line.  Enabling the flag unconditionally would also
+    admit unanchored insertions or ambiguous replacements, so prove every such
+    hunk against the live tracked file first.
+    """
+    lines = patch.splitlines(keepends=True)
+    current_path: str | None = None
+    needs_unidiff_zero = False
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        if line.startswith("+++ b/"):
+            current_path = line[6:].rstrip("\r\n")
+            index += 1
+            continue
+        if HUNK_HEADER.fullmatch(line.rstrip("\r\n")) is None:
+            index += 1
+            continue
+        end = index + 1
+        context_count = 0
+        removed: list[str] = []
+        while end < len(lines):
+            body = lines[end]
+            if body.startswith(("@@ ", "diff --git ")):
+                break
+            if body.startswith("\\ No newline at end of file"):
+                end += 1
+                continue
+            if not body.startswith((" ", "+", "-")):
+                break
+            if body.startswith(" "):
+                context_count += 1
+            elif body.startswith("-"):
+                removed.append(body[1:].rstrip("\r\n"))
+            end += 1
+        if context_count == 0:
+            needs_unidiff_zero = True
+            if current_path is None or not removed:
+                raise ValueError(
+                    "zero-context patch hunk requires at least one exact removed source line")
+            source = (repository / current_path).read_text(
+                encoding="utf-8", errors="replace").splitlines()
+            width = len(removed)
+            matches = sum(source[offset:offset + width] == removed
+                          for offset in range(0, len(source) - width + 1))
+            if matches != 1:
+                raise ValueError(
+                    "zero-context patch hunk must have exactly one live source anchor: "
+                    f"{current_path} matches={matches}")
+        index = end
+    return needs_unidiff_zero
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repository", required=True)
@@ -126,12 +183,16 @@ def main() -> None:
             raise ValueError(f"binary/object path is prohibited: {path}")
         if path.startswith(("build/", ".git/")) or "/build/" in path:
             raise ValueError(f"generated/build path is prohibited: {path}")
+    needs_unidiff_zero = validate_zero_context_hunks(repository, patch_output.read_text(
+        encoding="utf-8", errors="replace"))
+    unidiff_args = ["--unidiff-zero"] if needs_unidiff_zero else []
     check = subprocess.run(["git", "-C", str(repository), "apply", "--check", "--whitespace=error-all",
-                            str(patch_output)], check=False, text=True,
+                            *unidiff_args, str(patch_output)], check=False, text=True,
                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if check.returncode:
         raise ValueError("patch does not apply cleanly: " + check.stderr.strip())
-    subprocess.run(["git", "-C", str(repository), "apply", "--whitespace=nowarn", str(patch_output)], check=True)
+    subprocess.run(["git", "-C", str(repository), "apply", "--whitespace=nowarn",
+                    *unidiff_args, str(patch_output)], check=True)
     Path(args.paths_output).write_text("\n".join(paths) + "\n", encoding="utf-8")
 
 

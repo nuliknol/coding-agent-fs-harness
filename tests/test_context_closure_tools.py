@@ -672,6 +672,49 @@ diff --git a/calc.c b/calc.c
         self.assertIn("@@ -1,1 +1,1 @@", patch.read_text())
         self.assertIn("return (a + b)", (self.repository / "calc.c").read_text())
 
+    def test_unique_zero_context_replacement_is_relocated_safely(self):
+        response = self.root / "zero-context-response.md"
+        response.write_text("""```diff
+diff --git a/calc.c b/calc.c
+--- a/calc.c
++++ b/calc.c
+@@ -99,1 +99,1 @@
+-int add(int a, int b) { return a + b; }
++int add(int a, int b) { return (a + b); }
+```
+""", encoding="utf-8")
+        patch = self.root / "zero-context.patch"
+        paths = self.root / "zero-context.paths"
+        subprocess.run(["python3", str(ROOT / "tools/apply_worker_patch.py"),
+                        "--repository", str(self.repository), "--response", str(response),
+                        "--allowed-scope", "calc.c", "--patch-output", str(patch),
+                        "--paths-output", str(paths), "--max-files", "1"], check=True)
+        self.assertIn("return (a + b)", (self.repository / "calc.c").read_text())
+
+    def test_ambiguous_zero_context_replacement_is_rejected(self):
+        (self.repository / "calc.c").write_text(
+            "int value = 1;\nint value = 1;\n", encoding="utf-8")
+        response = self.root / "ambiguous-zero-context-response.md"
+        response.write_text("""```diff
+diff --git a/calc.c b/calc.c
+--- a/calc.c
++++ b/calc.c
+@@ -99,1 +99,1 @@
+-int value = 1;
++int value = 2;
+```
+""", encoding="utf-8")
+        rejected = subprocess.run(
+            ["python3", str(ROOT / "tools/apply_worker_patch.py"),
+             "--repository", str(self.repository), "--response", str(response),
+             "--allowed-scope", "calc.c", "--patch-output", str(self.root / "ambiguous.patch"),
+             "--paths-output", str(self.root / "ambiguous.paths"), "--max-files", "1"],
+            check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertEqual(3, rejected.returncode)
+        self.assertIn("matches=2", rejected.stderr)
+        self.assertEqual("int value = 1;\nint value = 1;\n",
+                         (self.repository / "calc.c").read_text())
+
     def test_architecture_normalization_emits_maps(self):
         output = self.root / "architecture"
         subprocess.run(["python3", str(ROOT / "tools/normalize_repository_architecture.py"),
