@@ -374,6 +374,8 @@ grep -Fq "if grep -Eq 'CONTEXT_CLOSURE_OVER_BUDGET.*status=OVER_BUDGET'" \
 	"$HARNESS_BIN/manager-decomposition-dag-repair"
 grep -Fq 'CONTEXT_CLOSURE_REPAIR=$context_closure_repair' \
 	"$HARNESS_BIN/manager-decomposition-dag-repair"
+grep -Fq 'CONTEXT_REPAIR_REPORT=$context_repair_report' \
+	"$HARNESS_BIN/manager-decomposition-dag-repair"
 grep -Fq 'COMPLEXITY_REPORT=$complexity_report' \
 	"$HARNESS_BIN/manager-decomposition-dag-repair"
 ! grep -Fq "(LUNA_COMPLEXITY_OVER_BUDGET|CONTEXT_CLOSURE_OVER_BUDGET)" \

@@ -655,3 +655,6 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
 - Pre-complexity Context Closure repair now publishes `COMPLEXITY_REPORT=-`
   instead of a plausible but nonexistent path, so bounded planners do not
   waste an action probing evidence that admission has not measured yet.
+- Decomposition admission now aggregates every non-ready node's exact closure
+  repair row into `context-admission/repair.tsv`; bounded DAG repair receives
+  that compiled report directly alongside admission measurements and cuts.

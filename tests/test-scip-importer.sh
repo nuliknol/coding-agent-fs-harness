@@ -415,6 +415,18 @@ test "$required_status" = 3
 grep -Eq $'^n01\tLUNA\tNEEDS_FURTHER_DECOMPOSITION\t' \
 	"$TEST_ROOT/context-admission-required/admission.tsv"
 
+sed 's/context_add/symbol_that_does_not_exist/g' "$TEST_ROOT/candidate-dag.tsv" > \
+	"$TEST_ROOT/missing-candidate-dag.tsv"
+set +e
+"$HARNESS_HOME/bin/harness-evaluate-decomposition-context" "$TEST_ROOT/e2e-required.env" \
+	"$TEST_ROOT/missing-candidate-dag.tsv" "$TEST_ROOT/candidate-coverage.tsv" - \
+	"$TEST_ROOT/context-admission-missing" --enforce >/dev/null
+missing_candidate_status=$?
+set -e
+test "$missing_candidate_status" = 3
+grep -Fq $'n01\tINDEX_EVIDENCE_MISSING\tREFRESH_INDEX_OR_OVERLAY\tscip\tREQUIRED_SYMBOL\tsymbol_that_does_not_exist\tno exact SCIP or worktree-overlay definition' \
+	"$TEST_ROOT/context-admission-missing/repair.tsv"
+
 # Missing structural authority fails closed instead of accepting lexical recall.
 sed 's/Required-Symbols: context_add/Required-Symbols: symbol_that_does_not_exist/' \
 	"$TEST_ROOT/context-assignment.md" > "$TEST_ROOT/missing-assignment.md"

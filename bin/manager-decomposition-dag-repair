@@ -59,6 +59,7 @@ if [[ -f "$candidate_dir/complexity.tsv" ]]; then
 fi
 context_admission='-'
 context_suggested_cuts='-'
+context_repair_report='-'
 if [[ -s "$candidate_dir/context-admission/admission.tsv" ]]; then
 	context_admission="$repair_dir/context-admission.tsv"
 	install -m 600 "$candidate_dir/context-admission/admission.tsv" "$context_admission"
@@ -67,12 +68,17 @@ if [[ -s "$candidate_dir/context-admission/suggested-cuts.tsv" ]]; then
 	context_suggested_cuts="$repair_dir/context-suggested-cuts.tsv"
 	install -m 600 "$candidate_dir/context-admission/suggested-cuts.tsv" "$context_suggested_cuts"
 fi
+if [[ -s "$candidate_dir/context-admission/repair.tsv" ]]; then
+	context_repair_report="$repair_dir/context-repair.tsv"
+	install -m 600 "$candidate_dir/context-admission/repair.tsv" "$context_repair_report"
+fi
 
 repair_input_sha="$({
 	sha256sum "$repair_dir/dag.tsv" "$repair_dir/coverage.tsv" "$rejection_log"
 	[[ ! -s "$repair_dir/complexity.tsv" ]] || sha256sum "$repair_dir/complexity.tsv"
 	[[ "$context_admission" == - ]] || sha256sum "$context_admission"
 	[[ "$context_suggested_cuts" == - ]] || sha256sum "$context_suggested_cuts"
+	[[ "$context_repair_report" == - ]] || sha256sum "$context_repair_report"
 } | sha256sum | awk '{print $1}')"
 repair_implementation_sha="$({
 	sha256sum "$0" "$HARNESS_BIN/codex-exec-jsonl"
@@ -104,7 +110,7 @@ complexity_context='Correct only the reported deterministic DAG/coverage defect.
 if grep -Eq 'CONTEXT_CLOSURE_OVER_BUDGET.*status=OVER_BUDGET' "$rejection_log"; then
 	context_closure_repair=1
 	repair_phase=decomposition
-	complexity_context="Context Closure admission rejected specific DAG nodes before complexity measurement. Read VALIDATOR_DIAGNOSTICS, CONTEXT_ADMISSION_REPORT, and CONTEXT_SUGGESTED_CUTS. Split or narrow only the reported over-budget nodes along those compiled source/build-target seams. Preserve every normalized obligation and dependency, keep every executable child LOW/LUNA under luna_only policy, and do not require or invent a complexity report for this pre-complexity rejection."
+	complexity_context="Context Closure admission rejected specific DAG nodes before complexity measurement. Read VALIDATOR_DIAGNOSTICS, CONTEXT_ADMISSION_REPORT, CONTEXT_REPAIR_REPORT, and CONTEXT_SUGGESTED_CUTS. CONTEXT_REPAIR_REPORT is the exact compiled identifier/path diagnostic for every non-ready node; correct those rows rather than guessing from a count. Split or narrow only the reported over-budget nodes along compiled source/build-target seams. Preserve every normalized obligation and dependency, keep every executable child LOW/LUNA under luna_only policy, and do not require or invent a complexity report for this pre-complexity rejection."
 elif grep -Eq 'LUNA_COMPLEXITY_OVER_BUDGET.*status=OVER_BUDGET' "$rejection_log"; then
 	complexity_repair=1
 	repair_phase=decomposition
@@ -255,6 +261,7 @@ VALIDATOR_DIAGNOSTICS=$rejection_log
 COMPLEXITY_REPORT=$complexity_report
 CONTEXT_ADMISSION_REPORT=$context_admission
 CONTEXT_SUGGESTED_CUTS=$context_suggested_cuts
+CONTEXT_REPAIR_REPORT=$context_repair_report
 SPECIFICATION_OBLIGATIONS_FILE=$(specification_obligations_file)
 SPECIFICATION_RELATIONS_FILE=$(specification_relations_file)
 REJECTED_DAG_ROWS=${split_rows:--}

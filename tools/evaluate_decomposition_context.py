@@ -111,6 +111,7 @@ def evaluate(args: argparse.Namespace) -> int:
     learned_bounds = learned_upper_bounds(Path(args.predictions) if args.predictions else None)
     admission_rows: list[dict[str, str]] = []
     aggregate_cuts: list[dict[str, str]] = []
+    aggregate_repairs: list[dict[str, str]] = []
     non_ready_luna = 0
     for node in nodes:
         node_id = node.get("node_id", "")
@@ -153,6 +154,21 @@ def evaluate(args: argparse.Namespace) -> int:
             aggregate_cuts.append({"node_id": node_id, **cut})
         if status != "READY":
             non_ready_luna += 1
+            _, node_repairs = read_tsv(node_dir / "repair.tsv")
+            material_repairs = [row for row in node_repairs
+                                if row.get("evidence_kind", "-") != "-"]
+            for repair in material_repairs:
+                aggregate_repairs.append({"node_id": node_id, **repair})
+            if not material_repairs and learned_p95 > args.max_tokens:
+                aggregate_repairs.append({
+                    "node_id": node_id,
+                    "condition": "CLOSURE_BUDGET_EXCEEDED",
+                    "repair_action": "GRAFT_GRAPH_CUTS",
+                    "provider": "historical-prediction",
+                    "evidence_kind": "LEARNED_LUNA_P95",
+                    "identifier": node.get("leaf_type", "-"),
+                    "reason": f"learned Luna p95 {learned_p95} exceeds {args.max_tokens}",
+                })
         admission_rows.append({
             "node_id": node_id, "worker_route": "LUNA", "status": status,
             "context_bytes": quality.get("context_bytes", "0"),
@@ -181,6 +197,12 @@ def evaluate(args: argparse.Namespace) -> int:
         writer = csv.DictWriter(stream, fieldnames=cut_columns, delimiter="\t", lineterminator="\n")
         writer.writeheader()
         writer.writerows(aggregate_cuts)
+    repair_columns = ("node_id", "condition", "repair_action", "provider",
+                      "evidence_kind", "identifier", "reason")
+    with (output / "repair.tsv").open("w", encoding="utf-8", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=repair_columns, delimiter="\t", lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(aggregate_repairs)
     ready = len(admission_rows) - non_ready_luna
     (output / "summary.env").write_text(
         f"luna_nodes={len(admission_rows)}\nready={ready}\nnon_ready={non_ready_luna}\n",
