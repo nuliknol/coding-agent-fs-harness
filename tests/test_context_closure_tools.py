@@ -52,7 +52,8 @@ class ContextClosureToolsTest(unittest.TestCase):
                 overlay: Path | None = None, max_bytes: int = 32768,
                 luna_only: bool = False, context_paths: str = "calc.c",
                 required_symbols: str = "add",
-                allowed_scope: str = "calc.c") -> tuple[str, Path]:
+                allowed_scope: str = "calc.c",
+                decisions: Path | None = None) -> tuple[str, Path]:
         assignment = self.root / "assignment.md"
         assignment.write_text(
             f"Task-ID: t1\nPlan-Node: n1\nWorker-Route: LUNA\nAllowed-Scope: {allowed_scope}\n"
@@ -64,7 +65,8 @@ class ContextClosureToolsTest(unittest.TestCase):
             generation="g", output=str(output), max_bytes=max_bytes, max_symbols=32, max_modules=4,
             max_ownership_boundaries=2, max_direct_relationships=8, max_tests=4,
             max_build_targets=4, max_tokens=10000, obligations_file=None, relations_file=None,
-            invariants_file=None, decisions_file=None, edges_file=None, health_gates_file=None,
+            invariants_file=None, decisions_file=str(decisions) if decisions else None,
+            edges_file=None, health_gates_file=None,
             node_bindings_file=None, omissions_file=str(omissions) if omissions else None,
             overlay_file=str(overlay) if overlay else None, luna_only=luna_only)
         return build_closure(arguments), output
@@ -248,6 +250,21 @@ class ContextClosureToolsTest(unittest.TestCase):
         self.assertNotIn("REQUIRED_SYMBOL\tcalc-tool", (output / "unresolved.tsv").read_text())
         self.assertIn("\tcalc-tool\tEXECUTABLE\tMakefile\t", (output / "build-targets.tsv").read_text())
         self.assertIn("`calc-tool` (EXECUTABLE)", (output / "context.md").read_text())
+
+    def test_architecture_interface_paths_are_path_evidence_not_scip_symbols(self):
+        decisions = self.root / "decisions.tsv"
+        decisions.write_text(
+            "decision_id\tstate\taffected_interfaces\tevidence\n"
+            "ADR-PATH\tACCEPTED\tcalc.h\toperator-worktree:design.md\n",
+            encoding="utf-8")
+
+        status, output = self.closure(
+            extra="Consumed-Decisions: ADR-PATH\n",
+            required_symbols="-", decisions=decisions)
+
+        self.assertEqual("READY", status)
+        self.assertNotIn("REQUIRED_SYMBOL\tcalc.h", (output / "unresolved.tsv").read_text())
+        self.assertIn("DECLARED_CONTEXT\tcalc.h", (output / "closure.tsv").read_text())
 
     def test_tracked_worktree_overlay_relocates_live_symbol_evidence(self):
         live_source = "\n".join(["/* inserted */"] * 24 +

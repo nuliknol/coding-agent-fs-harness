@@ -658,3 +658,7 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
 - Decomposition admission now aggregates every non-ready node's exact closure
   repair row into `context-admission/repair.tsv`; bounded DAG repair receives
   that compiled report directly alongside admission measurements and cuts.
+- Live DPLM repair evidence showed architecture `affected_interfaces` entries
+  containing repository paths were being treated as SCIP symbols. Existing
+  paths in decision/edge interface metadata now seed exact path evidence;
+  non-path identifiers remain symbol seeds.

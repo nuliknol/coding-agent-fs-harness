@@ -329,7 +329,10 @@ def build_closure(args: argparse.Namespace) -> str:
                 # a leaf that already declares exact Required-Symbols.
                 if "I" in requested_classes and not assigned_symbols:
                     for symbol in split_list(record.get("affected_interfaces", "")):
-                        symbol_seeds.setdefault(symbol, f"interface governed by decision {identifier}")
+                        if safe_repository_path(repository, symbol) is not None:
+                            path_seeds.setdefault(symbol, f"interface path governed by decision {identifier}")
+                        else:
+                            symbol_seeds.setdefault(symbol, f"interface governed by decision {identifier}")
                 evidence = record.get("evidence", "")
                 if evidence and evidence not in ("-", "NONE"):
                     evidence = evidence.removeprefix("operator-worktree:")
@@ -344,7 +347,10 @@ def build_closure(args: argparse.Namespace) -> str:
                 ownership_boundaries.add((identifier, producer, consumer, ownership))
                 if "I" in requested_classes and not assigned_symbols:
                     for symbol in split_list(record.get("public_symbols", "")):
-                        symbol_seeds.setdefault(symbol, f"public symbol of edge contract {identifier}")
+                        if safe_repository_path(repository, symbol) is not None:
+                            path_seeds.setdefault(symbol, f"public interface path of edge contract {identifier}")
+                        else:
+                            symbol_seeds.setdefault(symbol, f"public symbol of edge contract {identifier}")
                 for artifact in split_list(record.get("contract_artifact", "")):
                     if not artifact.startswith("decision:"):
                         path_seeds.setdefault(artifact, f"artifact of edge contract {identifier}")
