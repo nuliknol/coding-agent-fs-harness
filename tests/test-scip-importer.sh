@@ -273,7 +273,7 @@ grep -Fq '#define CONTEXT_NESTED_BASE 10' "$generated_dir/context.md"
 # Optional Joern projection supplies directional call, control/data-flow, and
 # mutation evidence on demand without becoming the authoritative symbol source.
 cp "$TEST_ROOT/e2e.env" "$TEST_ROOT/e2e-joern.env"
-printf 'export PROJECT="scip-e2e-joern"\nexport HARNESS_JOERN_ENABLED="1"\n' >> "$TEST_ROOT/e2e-joern.env"
+printf 'export PROJECT="scip-e2e-joern"\nexport HARNESS_JOERN_ENABLED="1"\nexport HARNESS_JOERN_SOURCE_ROOT="src"\n' >> "$TEST_ROOT/e2e-joern.env"
 "$HARNESS_HOME/bin/harness-init" "$TEST_ROOT/e2e-joern.env" >/dev/null
 "$HARNESS_HOME/bin/harness-index-repository" "$TEST_ROOT/e2e-joern.env" >/dev/null
 joern_pointer="$TEST_ROOT/state/projects/scip-e2e-joern/control/repository-index.env"

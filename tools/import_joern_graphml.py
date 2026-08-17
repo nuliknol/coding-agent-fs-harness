@@ -22,6 +22,27 @@ def data_map(element: ET.Element, keys: dict[str, str]) -> dict[str, str]:
             for child in element.findall("g:data", NS)}
 
 
+def repository_path(filename: str, repository: Path, source_root: str) -> str:
+    """Map Joern's source-root-relative filename to the repository namespace."""
+    if not filename or filename.startswith("<"):
+        return filename
+    path = Path(filename)
+    if path.is_absolute():
+        try:
+            return path.resolve().relative_to(repository).as_posix()
+        except ValueError:
+            return filename
+    normalized = path.as_posix()
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    normalized_root = Path(source_root).as_posix().strip("/")
+    if normalized_root in {"", "."}:
+        return normalized
+    if normalized == normalized_root or normalized.startswith(normalized_root + "/"):
+        return normalized
+    return f"{normalized_root}/{normalized}"
+
+
 def symbol_for(connection: sqlite3.Connection, generation: str, name: str,
                path: str | None = None) -> str | None:
     short = name.rsplit(".", 1)[-1].split(":", 1)[0]
@@ -60,6 +81,7 @@ def import_graphs(args: argparse.Namespace) -> dict[str, int]:
     counts = {"graphs": 0, "calls": 0, "control_flow": 0, "data_flow": 0, "mutations": 0,
               "unresolved_calls": 0}
     classes = {value.strip() for value in args.classes.split(",") if value.strip()}
+    repository = Path(args.repository).resolve()
     try:
         connection.execute("BEGIN IMMEDIATE")
         for graph_path in sorted(Path(args.export).rglob("*.xml")):
@@ -77,7 +99,7 @@ def import_graphs(args: argparse.Namespace) -> dict[str, int]:
             if not methods:
                 continue
             owner = methods[0]
-            path = owner.get("FILENAME", "")
+            path = repository_path(owner.get("FILENAME", ""), repository, args.source_root)
             owner_name = owner.get("NAME", owner.get("FULL_NAME", ""))
             owner_symbol = symbol_for(connection, args.generation, owner_name, path)
             counts["graphs"] += 1
@@ -145,6 +167,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--database", required=True)
     parser.add_argument("--generation", required=True)
+    parser.add_argument("--repository", required=True)
+    parser.add_argument("--source-root", required=True)
     parser.add_argument("--export", required=True)
     parser.add_argument("--classes", required=True)
     parser.add_argument("--version", required=True)

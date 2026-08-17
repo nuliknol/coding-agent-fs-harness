@@ -205,6 +205,7 @@ if (( HARNESS_JOERN_ENABLED == 1 )); then
 	if (( joern_parse_status == 0 && joern_export_status == 0 )); then
 		python3 "$HARNESS_HOME/tools/import_joern_graphml.py" \
 			--database "$tmp_generation/architecture.sqlite" --generation "$REPOSITORY_INDEX_GENERATION" \
+			--repository "$REPOSITORY" --source-root "$HARNESS_JOERN_SOURCE_ROOT" \
 			--export "$tmp_generation/joern/export/cpg" --classes "$HARNESS_JOERN_ANALYSIS_CLASSES" \
 			--version "$(repository_index_tool_version "$HARNESS_JOERN_BIN")" \
 			--fingerprint "$REPOSITORY_INDEX_JOERN_FINGERPRINT" \
