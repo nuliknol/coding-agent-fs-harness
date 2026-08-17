@@ -34,6 +34,8 @@ repository_baseline="$(specification_review_repository_baseline)"
 domain_profiles_sha="$(domain_profiles_sha256)"
 repository_inventory="$PROJECT_TMP_DIR/$PROJECT-repository-inventory.tsv"
 domain_manifest="$PROJECT_TMP_DIR/$PROJECT-domain-profiles.tsv"
+repository_architecture_slice="$dir/control/repository-architecture-slice.md"
+[[ -s "$repository_architecture_slice" ]] || repository_architecture_slice=-
 "$HARNESS_BIN/harness-build-repository-inventory" "$HARNESS_ENV_FILE" "$repository_inventory" >/dev/null
 {
 	printf 'profile_id\tsource\tsha256\n'
@@ -70,9 +72,16 @@ REPOSITORY_BASELINE=$repository_baseline
 DOMAIN_PROFILES_SHA256=$domain_profiles_sha
 REPOSITORY_INVENTORY=$repository_inventory
 DOMAIN_PROFILE_MANIFEST=$domain_manifest
+REPOSITORY_ARCHITECTURE_SLICE=$repository_architecture_slice
 PROJECT_TMP_DIR=$PROJECT_TMP_DIR
+REVIEW_READ_MAX_LINES=$HARNESS_VALIDATION_OUTPUT_MAX_LINES
+REVIEW_READ_MAX_BYTES=$HARNESS_VALIDATION_OUTPUT_MAX_BYTES
 
-Read the complete specification, every mandatory document it references, the applicable development policy, REPOSITORY_INVENTORY, every profile listed in DOMAIN_PROFILE_MANIFEST, and enough repository source, public interfaces, build definitions, tests, and history to establish real producers, consumers, contracts, symbols, paths, validation targets, and existing behavior. The inventory is a bounded navigation aid, not a restriction on repository or dataset inspection. Repository observations reduce the burden on the specification author but never invent product authority. Explicitly selected domain profiles are reusable human-owned authority; unselected profiles add no semantics.
+Read the complete specification and mandatory governing content, but do it through bounded logical chunks rather than document dumps. Begin with headings and stable requirement IDs, then read only the normative sections needed to establish each obligation and acceptance witness. A complete review means every normative requirement is covered; it does not mean emitting a complete file into the transcript.
+
+Every shell read has one content source only and must emit at most REVIEW_READ_MAX_LINES lines and REVIEW_READ_MAX_BYTES bytes. End every source/document inspection with both `head -n REVIEW_READ_MAX_LINES` and `head -c REVIEW_READ_MAX_BYTES`, substituting the numeric values above. Never concatenate a specification, inventory, profile, policy, architecture slice, source file, test, build file, Git output, or command output with another content source in one shell action. Never use unbounded cat, sed, awk, rg, grep, find, git diff, or compiler/test output. Do not print or dump a complete specification, inventory, profile, development policy, architecture slice, source tree, or history. Retain any necessary verbose output under PROJECT_TMP_DIR and return only a bounded excerpt.
+
+REPOSITORY_ARCHITECTURE_SLICE is the primary deterministic repository-navigation capsule when it is not '-'. Use its build ownership, public-interface candidates, module graph, focused tests, and findings to choose exact follow-up paths and symbols. Read only the relevant section in bounded form; do not dump the complete slice. REPOSITORY_INVENTORY is an exact-path/symbol lookup aid only: never read or print it completely. DOMAIN_PROFILE_MANIFEST identifies selected human-owned profiles; inspect only a selected profile and only the relevant invariant rows. Read the applicable development policy once in bounded form when it is required for a commitment decision. Repository observations reduce the burden on the specification author but never invent product authority. Explicitly selected domain profiles are reusable human-owned authority; unselected profiles add no semantics.
 
 Decide whether the specification is sufficiently precise for the harness to accept an implementation commitment. Use SPEC_CLARIFICATION_REQUIRED only for a demonstrated pre-acceptance defect in one of these classes:
 
