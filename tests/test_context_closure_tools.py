@@ -341,6 +341,27 @@ class ContextClosureToolsTest(unittest.TestCase):
         self.assertIn("semantic_gpu_architecture = \"matched\"",
                       (output / "context.md").read_text())
 
+    def test_declared_path_supplies_definition_scip_omitted(self):
+        self.repository.joinpath("fixture.c").write_text(
+            "static int hip_local_helper(void) { return 7; }\n",
+            encoding="utf-8")
+        connection = sqlite3.connect(self.database)
+        connection.execute(
+            "INSERT INTO symbols VALUES('hip-helper','g','hip_local_helper','Function','c','-','scip-clang')")
+        connection.commit()
+        connection.close()
+
+        status, output = self.closure(
+            context_paths="fixture.c", allowed_scope="fixture.c",
+            required_symbols="hip_local_helper")
+
+        self.assertEqual("READY", status)
+        self.assertNotIn("REQUIRED_DEFINITION\thip_local_helper",
+                         (output / "unresolved.tsv").read_text())
+        closure = (output / "closure.tsv").read_text()
+        self.assertIn("\tBOUNDED_SOURCE_EVIDENCE\tfixture.c\t", closure)
+        self.assertNotIn("\tDECLARED_CONTEXT\tfixture.c\t", closure)
+
     def test_unused_context_directory_is_a_boundary_not_missing_evidence(self):
         self.repository.joinpath("tests").mkdir()
         self.repository.joinpath("tests", "unrelated.c").write_text(

@@ -466,8 +466,28 @@ def build_closure(args: argparse.Namespace) -> str:
                              symbol=reference["display_name"],
                              why=f"{seed_reason}: exact declaration for {requested}",
                              required=True, provider=reference["provider"])
+        live_definition_fallback = False
         if "D" in requested_classes and not definitions and not scoped_references:
-            unresolved.append(("REQUIRED_DEFINITION", requested, "symbol exists but has no indexed definition"))
+            # SCIP can preserve a symbol identity while omitting its definition
+            # region (notably for static C++/HIP helpers and macro-generated
+            # declarations). The assignment's exact Context-Paths remain
+            # bounded source authority in that case, just as when SCIP omits
+            # the symbol entirely. Adding the window here also prevents the
+            # later path pass from embedding the complete declared file.
+            for declared_path in sorted(path_seeds):
+                source = safe_source_path(repository, declared_path)
+                window = live_symbol_window(source, requested) if source else None
+                if not window:
+                    continue
+                add_item(items, kind="BOUNDED_SOURCE_EVIDENCE", path=declared_path,
+                         start=window[0], end=window[1], symbol=requested,
+                         why=f"{seed_reason}: indexed symbol without definition fallback",
+                         required=True, provider="declared-context-path")
+                live_definition_fallback = True
+                break
+            if not live_definition_fallback:
+                unresolved.append(("REQUIRED_DEFINITION", requested,
+                                   "symbol exists but has no indexed definition"))
         if "D" in requested_classes:
             for row in definitions:
                 selected_symbol_ids.add(row["symbol_id"])
@@ -852,6 +872,8 @@ def build_closure(args: argparse.Namespace) -> str:
             source = safe_source_path(repository, normalized)
             if source is None:
                 unresolved.append(("CONTEXT_PATH", normalized, "path is absent from index and repository"))
+                continue
+            if any(item["path"] == normalized for item in items.values()):
                 continue
             with source.open(encoding="utf-8", errors="replace") as stream:
                 line_count = sum(1 for _ in stream)

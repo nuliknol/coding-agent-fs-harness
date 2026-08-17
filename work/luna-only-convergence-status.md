@@ -906,3 +906,13 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   one unique exact basename and that file exists in the live repository.
   Ambiguous or absent paths still fail closed. The closure suite now has 33
   passing cases.
+- COMP4's new 8/8 architecture-reassessment fuse was reached after revision 34
+  closure admission, not after a worker architecture decision. SCIP retained
+  the identity of `rs_sol_program_choice_evaluate_required_gpu_hip` but omitted
+  its definition region. The compiler therefore reported a missing required
+  definition and later embedded the complete declared 289-line HIP source,
+  producing a 38,707-byte capsule. Known symbols with no definition now use the
+  same exact declared-path symbol-window fallback as wholly omitted symbols;
+  the full file is not subsequently duplicated. The fuse remains enforced and
+  will be resolved only after the archived revision recompiles within budget.
+  The closure suite now has 34 passing cases.
