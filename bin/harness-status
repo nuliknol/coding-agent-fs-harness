@@ -113,12 +113,22 @@ startup_status_file="$dir/control/harness-start-background.status"
 startup_state='IDLE'
 startup_exit=''
 startup_log=''
+startup_recovery_file="$dir/control/startup-recoverable.env"
+startup_recovery_stage=''
+startup_recovery_classification=''
+startup_recovery_input=''
 manager_replan_failed=''
 if [[ -f "$startup_status_file" ]]; then
 	startup_state="$(awk -F= '$1=="state" {print $2; exit}' "$startup_status_file")"
 	[[ -n "$startup_state" ]] || startup_state=IDLE
 	startup_exit="$(awk -F= '$1=="exit_status" {print $2; exit}' "$startup_status_file")"
 	startup_log="$(awk -F= '$1=="log" {sub(/^[^=]*=/, ""); print; exit}' "$startup_status_file")"
+fi
+if [[ -f "$startup_recovery_file" ]] && [[ "$(kv_file_value "$startup_recovery_file" state)" == RECOVERABLE ]]; then
+	startup_state=RECOVERABLE
+	startup_recovery_stage="$(kv_file_value "$startup_recovery_file" stage unknown)"
+	startup_recovery_classification="$(kv_file_value "$startup_recovery_file" classification unknown)"
+	startup_recovery_input="$(kv_file_value "$startup_recovery_file" offending_input unknown)"
 fi
 manager_replan_failed="$(find "$dir/control" -maxdepth 1 -type f \
 	-name "$PROJECT-task-*.manager-replan-failed.md" -print 2>/dev/null | sort | head -n 1)"
@@ -219,8 +229,15 @@ if [[ -n "$architecture_fit_report" ]]; then
 else
 	printf 'Architecture fit: %s\n' "$architecture_fit_status"
 fi
-if [[ "$startup_state" == FAILED ]] && project_plan_exists; then
+if [[ "$startup_state" == RECOVERABLE ]] && project_plan_exists; then
+	printf 'Startup transaction: RECOVERED (historical recoverable stage=%s classification=%s log=%s)\n' \
+		"${startup_recovery_stage:-unknown}" "${startup_recovery_classification:-unknown}" "${startup_log:-unknown}"
+elif [[ "$startup_state" == FAILED ]] && project_plan_exists; then
 	printf 'Startup transaction: RECOVERED (historical failure exit=%s log=%s)\n' "${startup_exit:-unknown}" "${startup_log:-unknown}"
+elif [[ "$startup_state" == RECOVERABLE ]]; then
+	printf 'Startup transaction: RECOVERABLE stage=%s classification=%s input=%s log=%s\n' \
+		"${startup_recovery_stage:-unknown}" "${startup_recovery_classification:-unknown}" \
+		"${startup_recovery_input:-unknown}" "${startup_log:-unknown}"
 elif [[ "$startup_state" == FAILED ]]; then
 	printf 'Startup transaction: FAILED exit=%s log=%s\n' "${startup_exit:-unknown}" "${startup_log:-unknown}"
 elif [[ "$startup_state" == RUNNING ]]; then
@@ -550,6 +567,8 @@ elif [[ "$specification_review_status" == SPEC_CLARIFICATION_REQUIRED ]]; then
 	project_status_line="Project status: SPEC_CLARIFICATION_REQUIRED. Review $specification_review_report before DAG registration."
 elif [[ "$architecture_fit_status" == ARCHITECTURE_REDESIGN_REQUIRED ]]; then
 	project_status_line="Project status: ARCHITECTURE_REDESIGN_REQUIRED. Foundational architecture cannot safely support the accepted specification; review $architecture_fit_report before DAG registration."
+elif [[ "$startup_state" == RECOVERABLE && ! -f "$(project_plan_definition_file)" ]]; then
+	project_status_line="Project status: STARTUP_RECOVERABLE. The ${startup_recovery_stage:-startup} stage hit ${startup_recovery_classification:-a recoverable guard}; accepted specification review is preserved. Fix or update the harness, then restart from ${startup_recovery_input:-the recorded input}."
 elif [[ "$startup_state" == FAILED && ! -f "$(project_plan_definition_file)" ]]; then
 	project_status_line="Project status: STARTUP_FAILED. Initial review or decomposition exited with status ${startup_exit:-unknown}; inspect ${startup_log:-the background startup log}."
 elif (( token_usage_anomaly_count > 0 )); then

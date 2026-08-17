@@ -109,6 +109,91 @@ relation_count=1
 reviewed_at=2026-08-14T00:00:00Z
 EOF
 
+# Architecture fit consumes one deterministic compiled capsule. A command that
+# exceeds the hard transcript allowance pauses startup recoverably, preserves
+# specification acceptance, and cannot replay the same input under the same
+# harness implementation.
+fit_guard_mock="$TEST_ROOT/fit-guard-codex"
+fit_guard_env="$TEST_ROOT/configs/startup-fit-guard.env"
+fit_guard_count="$TEST_ROOT/fit-guard-count"
+cat > "$fit_guard_mock" <<'MOCK'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+prompt="$(cat)"
+last_message=""
+take_last=0
+for argument in "$@"; do
+	if (( take_last )); then last_message="$argument"; take_last=0; continue; fi
+	[[ "$argument" != --output-last-message ]] || take_last=1
+done
+grep -Fq '## Embedded deterministic architecture-fit capsule' <<< "$prompt"
+grep -Fq '# Deterministic Architecture-Fit Capsule' <<< "$prompt"
+grep -Fq 'Every shell read has one content source only' <<< "$prompt"
+grep -Fq 'Never use cat for source or document inspection' <<< "$prompt"
+grep -Fq 'Never concatenate, loop over, or combine multiple source/document reads' <<< "$prompt"
+if grep -Eq '^(SPECIFICATION|SPECIFICATION_REVIEW_REPORT|REPOSITORY_FACTS_FILE|SPECIFICATION_OBLIGATIONS_FILE|SPECIFICATION_RELATIONS_FILE|REPOSITORY_INVENTORY_FILE|REPOSITORY_ARCHITECTURE_SLICE)=' <<< "$prompt"; then
+	printf 'architecture-fit prompt exposed raw global inputs\n' >&2
+	exit 90
+fi
+count=0
+[[ ! -f "$FIT_GUARD_COUNT" ]] || count="$(<"$FIT_GUARD_COUNT")"
+printf '%s\n' "$((count + 1))" > "$FIT_GUARD_COUNT"
+printf 'guarded\n' > "$last_message"
+printf '%s\n' '{"type":"thread.started","thread_id":"fit-guard"}'
+printf '{"type":"item.completed","item":{"type":"command_execution","command":"unbounded-read","aggregated_output":"'
+printf '%32769s' ''
+printf '%s\n' '"}}'
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
+MOCK
+chmod +x "$fit_guard_mock"
+sed "s#export MANAGER_CODEX_BIN=\"/bin/false\"#export MANAGER_CODEX_BIN=\"$fit_guard_mock\"#" \
+	"$env_file" > "$fit_guard_env"
+printf 'export FIT_GUARD_COUNT="%s"\n' "$fit_guard_count" >> "$fit_guard_env"
+chmod 600 "$fit_guard_env"
+set +e
+"$HARNESS_BIN/manager-architecture-fit-critic" "$fit_guard_env" \
+	> "$TEST_ROOT/fit-guard.out" 2> "$TEST_ROOT/fit-guard.err"
+fit_guard_status=$?
+set -e
+(( fit_guard_status == 7 ))
+grep -Fq 'paused recoverably after a command-output limit hit' "$TEST_ROOT/fit-guard.err"
+recovery_marker="$project_dir/control/startup-recoverable.env"
+grep -Fqx 'state=RECOVERABLE' "$recovery_marker"
+grep -Fqx 'stage=architecture_fit' "$recovery_marker"
+grep -Fqx 'resume_from=accepted_specification_review' "$recovery_marker"
+grep -Fqx 'classification=agent_command_output_budget_exceeded' "$recovery_marker"
+grep -Fq "offending_input=$project_dir/control/manager-architecture-fit.context.md" "$recovery_marker"
+grep -Fqx 'status=ACCEPTED' "$project_dir/control/specification-review.env"
+capsule="$project_dir/control/manager-architecture-fit.context.md"
+test -s "$capsule"
+(( $(stat -c %s "$capsule") <= 32768 ))
+cp "$capsule" "$TEST_ROOT/fit-capsule-first.md"
+set +e
+"$HARNESS_BIN/manager-architecture-fit-critic" "$fit_guard_env" \
+	> "$TEST_ROOT/fit-guard-replay.out" 2> "$TEST_ROOT/fit-guard-replay.err"
+fit_guard_replay_status=$?
+set -e
+(( fit_guard_replay_status == 7 ))
+grep -Fq 'refusing to replay the unchanged failed input' "$TEST_ROOT/fit-guard-replay.err"
+grep -Fqx '1' "$fit_guard_count"
+cmp -s "$capsule" "$TEST_ROOT/fit-capsule-first.md"
+
+cat > "$project_dir/control/harness-start-background.status" <<EOF
+state=RECOVERABLE
+pid=999999
+started_at=2026-08-14T00:00:00Z
+finished_at=2026-08-14T00:01:00Z
+exit_status=7
+log=$project_dir/logs/harness-start-recoverable.log
+EOF
+recoverable_status="$($HARNESS_BIN/harness-status --machine "$fit_guard_env")"
+grep -Fq 'Startup transaction: RECOVERABLE stage=architecture_fit classification=agent_command_output_budget_exceeded' <<< "$recoverable_status"
+grep -Fq 'Project status: STARTUP_RECOVERABLE.' <<< "$recoverable_status"
+recoverable_watch="$(HARNESS_WATCH_COLOR=always COLUMNS=120 LINES=30 "$HARNESS_BIN/harness-watch-many" --once "$TEST_ROOT/configs")"
+grep -Eq $'^startup-split +\| *0\| \033\[31mpaused\033\[0m +\|' <<< "$recoverable_watch"
+grep -Fq 'STARTUP_RECOVERABLE:' <<< "$recoverable_watch"
+rm -f "$recovery_marker" "$project_dir/control/harness-start-background.status"
+
 fit_report="$TEST_ROOT/fit.md"
 cat > "$fit_report" <<EOF
 # Architecture Fit Review

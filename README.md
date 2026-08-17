@@ -229,8 +229,9 @@ The launcher performs the clean-repository and overlap preflight, starts a new
 session with closed standard input, redirects all startup output to a
 project-state log, writes a durable `harness-start-background.status` record,
 prints the PID/log/status paths, and returns immediately. Exit status `3` is
-recorded as `SPEC_CLARIFICATION_REQUIRED`, and exit status `6` is recorded as
-`ARCHITECTURE_REDESIGN_REQUIRED`; other nonzero exits are `FAILED`.
+recorded as `SPEC_CLARIFICATION_REQUIRED`, exit status `6` is recorded as
+`ARCHITECTURE_REDESIGN_REQUIRED`, and exit status `7` is `RECOVERABLE`;
+other nonzero exits are `FAILED`.
 Ordinary `harness-start ENV_FILE` remains synchronous for interactive use.
 
 An accepted review also installs a normalized Specification IR: independently
@@ -244,7 +245,18 @@ repository-derived facts and fallible planning hints.
 
 An independent Sol architecture-fit transaction challenges that acceptance
 before DAG construction. Its accepted verdict is durable for the specification,
-repository baseline, and domain-profile digest. A genuine unresolved product contract transitions back to
+repository baseline, and domain-profile digest. The critic reasons
+from a deterministic, byte-bounded capsule compiled from normalized IR,
+accepted repository facts, exact selected source evidence, and the indexed
+architecture slice. The capsule is embedded in the critic prompt; Sol may open
+only one exact, bounded repository source window when that compiled evidence
+leaves a decisive architecture question unresolved. A command-output limit at
+this startup stage records `control/startup-recoverable.env`, preserves the
+accepted specification review as the resume checkpoint, and refuses to replay
+the unchanged failed input until the harness implementation or accepted inputs
+change.
+
+A genuine unresolved product contract transitions back to
 `SPEC_CLARIFICATION_REQUIRED` and writes a critic report under
 `$REPOSITORY/spec-review/`. If the governing sources are clear but the generated
 facts, obligations, or relations are defective, the critic requests automatic

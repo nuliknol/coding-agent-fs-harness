@@ -331,6 +331,10 @@ while ! project_plan_exists; do
 				stall_report="$(kv_file_value "$(specification_renormalization_stall_file)" report 2>/dev/null || true)"
 				die "specification normalization stalled without convergence; inspect ${stall_report:-the architecture-fit critic logs}"
 				;;
+			7)
+				printf 'Startup paused in a recoverable architecture-fit state; the accepted specification review remains the resume checkpoint.\n'
+				exit 7
+				;;
 			6)
 				if (( force_decomposition_requested == 1 )); then
 					architecture_redesign_record_force_waiver

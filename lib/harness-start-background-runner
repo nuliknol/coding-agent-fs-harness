@@ -27,6 +27,7 @@ finish_background_start()
 		0) state=STARTED ;;
 		3) state=SPEC_CLARIFICATION_REQUIRED ;;
 		6) state=ARCHITECTURE_REDESIGN_REQUIRED ;;
+		7) state=RECOVERABLE ;;
 		*) state=FAILED ;;
 	esac
 	status_tmp="$status_file.tmp.$runner_pid"

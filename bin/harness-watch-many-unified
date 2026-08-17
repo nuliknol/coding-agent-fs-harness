@@ -302,6 +302,11 @@ while IFS= read -r -d '' env_file; do
 		completion='-'
 		architecture_report="$(awk -F'[()]' '$1 ~ /^Architecture fit: ARCHITECTURE_REDESIGN_REQUIRED / {print $2; exit}' <<< "$status_output")"
 		description="ARCHITECTURE_REDESIGN_REQUIRED: ${architecture_report:-architecture-review report}."
+	elif [[ "$project_status" == STARTUP_RECOVERABLE.* ]]; then
+		display_status=paused
+		completion='-'
+		startup_detail="$(awk -F': ' '$1=="Startup transaction" {print $2; exit}' <<< "$status_output")"
+		description="STARTUP_RECOVERABLE: ${startup_detail:-inspect harness-status}."
 	elif [[ "$project_status" == STARTUP_FAILED.* ]]; then
 		display_status=paused
 		completion='-'
