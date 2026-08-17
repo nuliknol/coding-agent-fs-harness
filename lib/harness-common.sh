@@ -394,8 +394,9 @@ load_harness_env()
 	# the harness installation.
 	HARNESS_DOMAIN_PROFILES="${HARNESS_DOMAIN_PROFILES:-}"
 	# Model policy is independent from the leaf-route preference. The legacy
-	# policy preserves existing deployments; luna_only makes every semantic role
-	# use the configured Luna model and forbids stronger-model escalation.
+	# policy preserves existing deployments; luna_only confines implementation,
+	# routine review, and local remediation to Luna while retaining the explicit
+	# global Sol decomposition/architecture critic.
 	HARNESS_MODEL_POLICY="${HARNESS_MODEL_POLICY:-legacy}"
 	if [[ -z "${HARNESS_ESCALATION_POLICY+x}" ]]; then
 		if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
@@ -675,13 +676,11 @@ load_harness_env()
 	ORACLE_REASONING_EFFORT="${ORACLE_REASONING_EFFORT:-xhigh}"
 	ORACLE_SANDBOX="${ORACLE_SANDBOX:-$MANAGER_SANDBOX}"
 	if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
-		# Normalize every inference role before callers construct an invocation.
-		# The process launcher independently verifies the requested model so a
-		# stale or external caller cannot bypass this policy.
+		# Normalize execution and local convergence roles before callers construct
+		# an invocation. DECOMPOSITION_MODEL remains the explicitly configured Sol
+		# global critic; the process launcher verifies this split independently.
 		MANAGER_MODEL="$LUNA_WORKER_MODEL"
 		MANAGER_REASONING_EFFORT="$LUNA_WORKER_REASONING_EFFORT"
-		DECOMPOSITION_MODEL="$LUNA_WORKER_MODEL"
-		DECOMPOSITION_REASONING_EFFORT="$LUNA_WORKER_REASONING_EFFORT"
 		TERRA_WORKER_MODEL="$LUNA_WORKER_MODEL"
 		TERRA_WORKER_REASONING_EFFORT="$LUNA_WORKER_REASONING_EFFORT"
 		MANAGER_FALLBACK_MODEL="$LUNA_WORKER_MODEL"

@@ -67,6 +67,10 @@ export HARNESS_AUTO_REPLAN_ENABLED="1"
 ENV
 chmod 600 "$TMP/harness.env"
 "$ROOT/bin/harness-init" "$TMP/harness.env" >/dev/null
+loaded_decomposition_model="$(bash -c 'source "$1/lib/harness-common.sh"; load_harness_env "$2"; printf "%s" "$DECOMPOSITION_MODEL"' \
+	_ "$ROOT" "$TMP/harness.env")"
+[[ "$loaded_decomposition_model" == gpt-5.6-sol ]]
+grep -Fq 'required_policy_model="$DECOMPOSITION_MODEL"' "$ROOT/bin/codex-exec-jsonl"
 
 project="$TMP/state/projects/lunaconvergence"
 ready="$project/tasks/lunaconvergence-task-001.ready.md"

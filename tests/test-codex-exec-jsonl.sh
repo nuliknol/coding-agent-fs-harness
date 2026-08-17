@@ -90,8 +90,9 @@ grep -Fqx 'Per-worker-task processed-token anomaly limit: 500000' "$TMP/defaults
 # launch cadence. A dedicated case below restores a nonzero throttle.
 printf 'export HARNESS_AGENT_MIN_INTERVAL_SECONDS="0"\n' >> "$TMP/env"
 
-# Luna-only policy normalizes every semantic role to the configured Luna model
-# and rejects stale direct callers before a provider process is launched.
+# Luna-only policy confines execution/local convergence roles to Luna while
+# retaining the configured Sol global decomposition critic. Stale direct
+# callers are rejected before a provider process is launched.
 cp "$TMP/env" "$TMP/env-luna-only"
 {
 	printf 'export HARNESS_MODEL_POLICY="luna_only"\n'
@@ -105,14 +106,18 @@ chmod 600 "$TMP/env-luna-only"
 grep -q '^Model policy: luna_only$' "$TMP/luna-only-check.out"
 grep -q '^Escalation policy: decompose$' "$TMP/luna-only-check.out"
 grep -q '^Manager model: gpt-5.6-luna (high)$' "$TMP/luna-only-check.out"
-grep -q '^Decomposition model: gpt-5.6-luna (high)$' "$TMP/luna-only-check.out"
+grep -q '^Decomposition model: gpt-5.6-sol (high)$' "$TMP/luna-only-check.out"
 grep -q '^Terra leaf route: disabled by Luna-only policy$' "$TMP/luna-only-check.out"
 MOCK_MODE=arg_capture "$ROOT/bin/codex-exec-jsonl" "$TMP/env-luna-only" manager_review \
 	gpt-5.6-luna "$prompt" "$TMP/luna-manager.jsonl" "$TMP/luna-manager.stderr" "$TMP/luna-manager.last"
 grep -Fq -- '--model gpt-5.6-luna' "$TMP/luna-manager.last"
+MOCK_MODE=arg_capture "$ROOT/bin/codex-exec-jsonl" "$TMP/env-luna-only" decomposition \
+	gpt-5.6-sol "$prompt" "$TMP/sol-decomposition.jsonl" "$TMP/sol-decomposition.stderr" \
+	"$TMP/sol-decomposition.last"
+grep -Fq -- '--model gpt-5.6-sol' "$TMP/sol-decomposition.last"
 set +e
 MOCK_MODE=success "$ROOT/bin/codex-exec-jsonl" "$TMP/env-luna-only" decomposition \
-	gpt-5.6-sol "$prompt" "$TMP/luna-reject-model.jsonl" "$TMP/luna-reject-model.stderr" \
+	gpt-5.6-luna "$prompt" "$TMP/luna-reject-model.jsonl" "$TMP/luna-reject-model.stderr" \
 	"$TMP/luna-reject-model.last" > "$TMP/luna-reject-model.out" 2>&1
 luna_reject_model_status=$?
 MOCK_MODE=success "$ROOT/bin/codex-exec-jsonl" "$TMP/env-luna-only" worker_terra \
@@ -122,8 +127,10 @@ luna_reject_role_status=$?
 set -e
 (( luna_reject_model_status != 0 ))
 (( luna_reject_role_status != 0 ))
-grep -Fq 'Luna-only policy rejected model gpt-5.6-sol' "$TMP/luna-reject-model.out"
+grep -Fq 'model policy rejected model gpt-5.6-luna for decomposition; expected gpt-5.6-sol' \
+	"$TMP/luna-reject-model.out"
 grep -Fq 'Luna-only policy rejected the worker_terra execution role' "$TMP/luna-reject-role.out"
+rm -f "$TMP/state/projects/jsonltest/control/project-integrity-anomaly.md"
 
 cp "$TMP/env-luna-only" "$TMP/env-luna-invalid-escalation"
 printf 'export HARNESS_ESCALATION_POLICY="legacy"\n' >> "$TMP/env-luna-invalid-escalation"

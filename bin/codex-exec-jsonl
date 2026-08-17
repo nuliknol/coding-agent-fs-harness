@@ -19,17 +19,29 @@ mkdir -p "$(dirname "$json_log")" "$(dirname "$stderr_log")"
 : > "$json_log"; : > "$stderr_log"
 
 if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
-	if [[ "$model" != "$LUNA_WORKER_MODEL" || "$role" == worker_terra ]]; then
+	if [[ "$role" == decomposition ]]; then
+		required_policy_model="$DECOMPOSITION_MODEL"
+	else
+		required_policy_model="$LUNA_WORKER_MODEL"
+	fi
+	if [[ "$model" != "$required_policy_model" || "$role" == worker_terra ]]; then
 		mark_project_integrity_anomaly MODEL_POLICY_VIOLATION - \
-			'Luna-only execution policy was bypassed at the final provider boundary' \
-			"role=$role requested_model=$model required_model=$LUNA_WORKER_MODEL prompt=$prompt" >/dev/null
-		if [[ "$model" != "$LUNA_WORKER_MODEL" ]]; then
-			die "Luna-only policy rejected model $model; expected $LUNA_WORKER_MODEL"
+			'Luna execution/global decomposition model policy was bypassed at the final provider boundary' \
+			"role=$role requested_model=$model required_model=$required_policy_model prompt=$prompt" >/dev/null
+		if [[ "$model" != "$required_policy_model" ]]; then
+			die "model policy rejected model $model for $role; expected $required_policy_model"
 		fi
 		die 'Luna-only policy rejected the worker_terra execution role'
 	fi
 	case "$role" in
-		manager_bootstrap|manager_review|manager_plan|manager_replan|manager_remediation|decomposition|worker|worker_luna|oracle)
+		decomposition)
+			bin="$MANAGER_CODEX_BIN"
+			home="$MANAGER_CODEX_HOME"
+			sandbox="$MANAGER_SANDBOX"
+			effort="$DECOMPOSITION_REASONING_EFFORT"
+			extras=("${MANAGER_CODEX_EXTRA_ARGS[@]}")
+			;;
+		manager_bootstrap|manager_review|manager_plan|manager_replan|manager_remediation|worker|worker_luna|oracle)
 			bin="$WORKER_CODEX_BIN"
 			home="$WORKER_CODEX_HOME"
 			sandbox="$WORKER_SANDBOX"
