@@ -263,24 +263,6 @@ grep -Fqx 'Remediation-Scope: src/exhausted-provider.c' \
 	[[ "$(root_liveness_epoch_delta consumer reviewed_attempts "$(root_reviewed_attempt_count consumer)")" == 2 ]]
 	[[ "$(root_liveness_epoch_delta consumer total_replans "$(root_total_replan_count consumer)")" == 0 ]]
 )
-# A machine-verified leaf criterion is a real acceptance-boundary transition,
-# unlike generic incident resolution. It snapshots lifetime counters and gives
-# only the next first-unmet criterion a fresh bounded allowance.
-bash -c '
-	source "$1/lib/harness-common.sh"
-	load_harness_env "$2"
-	record_root_liveness_epoch consumer verified-criterion-checkpoint
-' _ "$HARNESS_HOME" "$TEST_ROOT/harness.env"
-criterion_epoch="$project/control/progress/livenessproj-task-consumer.liveness-epoch.env"
-grep -Fqx 'authorized_reset=1' "$criterion_epoch"
-grep -Fqx 'budget_scope=verified-criterion-boundary' "$criterion_epoch"
-grep -Fqx 'source=verified-criterion-checkpoint' "$criterion_epoch"
-(
-	source "$TEST_ROOT/harness.env"
-	source "$HARNESS_HOME/lib/harness-common.sh"
-	[[ "$(root_liveness_epoch_delta consumer reviewed_attempts "$(root_reviewed_attempt_count consumer)")" == 0 ]]
-	[[ "$(root_liveness_epoch_delta consumer total_replans "$(root_total_replan_count consumer)")" == 0 ]]
-)
 "$HARNESS_BIN/harness-unblock-root" "$TEST_ROOT/harness.env" consumer >/dev/null
 find "$project/archive/architecture-reassessments" -type f -name '*.resolved.md' | grep -q .
 cat > "$TEST_ROOT/expanded-revision.md" <<'MD'

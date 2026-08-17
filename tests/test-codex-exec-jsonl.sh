@@ -83,6 +83,9 @@ grep -q '^Quota retry seconds: 300 (retries unlimited)$' "$TMP/defaults.out"
 grep -q '^Minimum interval between agent launches: 60 seconds (project-wide)$' "$TMP/defaults.out"
 grep -q '^Runtime PATH prefix: (none)$' "$TMP/defaults.out"
 grep -q '^Patch-only validation rounds: 3$' "$TMP/defaults.out"
+grep -Fqx 'Per-agent circuit breaker: 80 item starts, 500000 live-estimated tokens, 500000 authoritative processed tokens' \
+	"$TMP/defaults.out"
+grep -Fqx 'Per-worker-task processed-token anomaly limit: 500000' "$TMP/defaults.out"
 # The remaining cases exercise classification and policy, not the production
 # launch cadence. A dedicated case below restores a nonzero throttle.
 printf 'export HARNESS_AGENT_MIN_INTERVAL_SECONDS="0"\n' >> "$TMP/env"
@@ -312,8 +315,7 @@ rm -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-review-reso
 
 # Replanning has the same bounded-planning semantics as review. A replan that
 # keeps revising a rejected publication is a token anomaly, not a human product
-# decision under the balanced policy, and receives its own role-specific action
-# ceiling.
+# decision, and receives its own role-specific action ceiling.
 cp "$TMP/env" "$TMP/env-replan-items"
 printf 'export HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION="80"\n' >> "$TMP/env-replan-items"
 printf 'export HARNESS_MAX_MANAGER_REPLAN_ITEMS_PER_INVOCATION="3"\n' >> "$TMP/env-replan-items"
@@ -332,9 +334,9 @@ grep -q '^item_limit=3$' "$TMP/replan-item-loop.classification"
 [[ ! -e "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-replan-resource.needs-human.md" ]]
 rm -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-replan-resource.token-usage-anomaly.md"
 
-# Under Luna-only convergence the same guard is a local, fresh-turn planning
-# retry signal. It must not globally pause every worker and reviewer in the
-# project while the recovery owner still has a bounded correction available.
+# Model policy never weakens investigation fuses. A Luna-only manager replan
+# crossing the same resource boundary must publish the same durable anomaly
+# and suppress subsequent project agent launches.
 cp "$TMP/env-replan-items" "$TMP/env-replan-items-luna"
 printf 'export HARNESS_MODEL_POLICY="luna_only"\n' >> "$TMP/env-replan-items-luna"
 printf 'export MANAGER_MODEL="gpt-5.6-luna"\nexport DECOMPOSITION_MODEL="gpt-5.6-luna"\nexport CONVERGENCE_MODEL="gpt-5.6-luna"\nexport ORACLE_MODEL="gpt-5.6-luna"\nexport WORKER_MODEL="gpt-5.6-luna"\nexport LUNA_WORKER_MODEL="gpt-5.6-luna"\nexport TERRA_WORKER_MODEL="gpt-5.6-luna"\nexport HARNESS_ESCALATION_POLICY="decompose"\n' \
@@ -349,9 +351,17 @@ set -e
 (( luna_replan_item_status != 0 ))
 grep -q '^classification=agent_item_budget_exceeded$' \
 	"$TMP/replan-item-loop-luna.classification"
-[[ ! -e "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-replan-resource.token-usage-anomaly.md" ]]
-grep -q 'LUNA_ONLY_MANAGER_REPLAN_RESOURCE_RETRY_REQUIRED root=replan-resource.*marker=none' \
-	"$TMP/state/projects/jsonltest/logs/events.log"
+[[ -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-replan-resource.token-usage-anomaly.md" ]]
+if MOCK_MODE=success "$ROOT/bin/codex-exec-jsonl" "$TMP/env-replan-items-luna" \
+	worker gpt-5.6-luna "$prompt" "$TMP/anomaly-interlock-luna.jsonl" \
+	"$TMP/anomaly-interlock-luna.stderr" "$TMP/anomaly-interlock-luna.last" \
+	>"$TMP/anomaly-interlock-luna.out" 2>"$TMP/anomaly-interlock-luna.err"; then
+	printf 'Luna-only policy bypassed an unresolved investigation fuse\n' >&2
+	exit 1
+fi
+grep -q 'project has an unresolved TOKEN_USAGE_ANOMALY' \
+	"$TMP/anomaly-interlock-luna.err"
+rm -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-replan-resource.token-usage-anomaly.md"
 
 # A leaf-goal guard closes one semantic episode in worker-invoke-task. It must
 # not be mislabeled as a human authorization/secret/external-state dependency.

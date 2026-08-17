@@ -114,6 +114,27 @@ unique validation failures, decreasing closure excess, or newly verified
 evidence. Repeating the same state is a bug/circuit-breaker condition, not a
 reason to invoke a stronger model.
 
+### 3.4 Investigation fuses are immutable fail-stop boundaries
+
+Luna convergence must reduce usage before a fuse is reached; it must never
+reinterpret a fuse as an automatic retry allowance. The following defaults
+remain independent, hard investigation boundaries:
+
+- 500,000 authoritative processed tokens per agent invocation;
+- 500,000 live-estimated processed tokens per agent invocation;
+- 500,000 cumulative processed tokens per worker task;
+- the configured role-specific action, command-output, root review/replan,
+  root lifetime, and root processed-token limits.
+
+Crossing one of these boundaries publishes its durable anomaly or architecture
+reassessment record and suppresses further affected launches until an operator
+investigates and explicitly resolves it. Model policy cannot bypass that
+interlock. A verified criterion, ordinary checkpoint, retry, restart, or
+context refresh cannot reset monotonic fuse accounting. The only authorized
+epoch is the recorded one-time migration from an already exhausted legacy
+broad boundary to mandatory append-only Luna child criteria; its original
+counters remain preserved as the baseline.
+
 ## 4. Repairable Context Closure
 
 `INCOMPLETE` and `NEEDS_FURTHER_DECOMPOSITION` become internal compiler states,

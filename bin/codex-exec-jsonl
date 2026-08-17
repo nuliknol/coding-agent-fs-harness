@@ -306,13 +306,8 @@ require_no_project_token_usage_anomaly
 
 record_resource_guard()
 {
-	local alarm marker="-" anomaly_task local_luna_planning_guard=0
-	if [[ "$HARNESS_MODEL_POLICY" == luna_only && "$role" == manager_replan &&
-		"$resource_guard_kind" =~ ^(TOKEN_LIMIT|ESTIMATED_TOKEN_LIMIT|COMMAND_OUTPUT_LIMIT|ITEM_LIMIT)$ ]]; then
-		local_luna_planning_guard=1
-	fi
+	local alarm marker="-" anomaly_task
 	if [[ -n "$resource_task_root" && "$resource_task_root" != - ]] &&
-		(( local_luna_planning_guard == 0 )) &&
 		{ [[ "$resource_guard_kind" =~ ^(TOKEN_LIMIT|ESTIMATED_TOKEN_LIMIT|COMMAND_OUTPUT_LIMIT)$ ]] ||
 			{ [[ "$role" =~ ^manager_(review|replan)$ ]] && [[ "$resource_guard_kind" == ITEM_LIMIT ]]; }; }; then
 		anomaly_task="$resource_task_id"
@@ -340,9 +335,6 @@ record_resource_guard()
 		"$resource_guard_kind" "$resource_guard_reason" "$json_log" "$marker" >> "$alarm"
 	chmod 600 "$alarm"
 	log_event "AGENT_RESOURCE_CIRCUIT_BREAKER root=${resource_task_root:--} task=$resource_task_id role=$role kind=$resource_guard_kind reason=$(printf '%q' "$resource_guard_reason") jsonl=$json_log"
-	if (( local_luna_planning_guard == 1 )); then
-		log_event "LUNA_ONLY_MANAGER_REPLAN_RESOURCE_RETRY_REQUIRED root=${resource_task_root:--} task=$resource_task_id kind=$resource_guard_kind marker=none"
-	fi
 }
 
 process_tree_pids()

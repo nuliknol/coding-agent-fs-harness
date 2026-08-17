@@ -509,15 +509,40 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   rejected by the normal zero-file scope contract.
 - The full v4.4 suite and Luna-only convergence tests pass after this change.
 
+### Fuse-policy correction — 2026-08-17
+
+- Investigation fuses are fail-stop boundaries and must never become automatic
+  retry budgets. The 500,000-token defaults for authoritative per-invocation
+  usage, live estimated per-invocation usage, and cumulative worker-task usage
+  were audited and remain enforced through durable `TOKEN_USAGE_ANOMALY`
+  interlocks.
+- The temporary Luna-only exception for manager-replan resource guards has been
+  removed. Manager review/replan item, command-output, estimated-token, and
+  authoritative-token breaches again publish the same investigation marker and
+  suppress all later project agent launches regardless of model policy.
+- The temporary verified-criterion reset for monotonic root liveness has also
+  been removed. Total root reviews, total replans, no-criterion reviews,
+  lifetime, and root processed-token limits retain their fail-stop semantics.
+  Only the explicit one-time Luna policy migration boundary remains authorized
+  to establish its recorded child-decomposition epoch.
+- Compact compiled-evidence planning, strict Context Closure admission,
+  deterministic decomposition, patch repair limits, and zero-file trusted
+  validation remain in place to prevent fuse breaches without weakening their
+  investigative function.
+
 ## Validation journal
 
 - `tests/test-codex-exec-jsonl.sh` — PASS. Includes Luna-only normalization,
-  direct Sol rejection, Terra-role rejection, and invalid policy pairing.
+  direct Sol rejection, Terra-role rejection, invalid policy pairing, exact
+  500,000-token defaults, and Luna manager-replan anomaly interlocking.
 - `python3 -m unittest tests.test_context_closure_tools` — PASS, 23 tests.
   Includes typed build-index, Joern, and context-path repair classification.
 - `tests/test-decomposition-v2.sh` — PASS.
 - `tests/test-leaf-goal.sh` — PASS, including provider retry, continuation,
-  resource recovery, repair, and Oracle paths.
+  cumulative worker-task token-fuse publication/suppression, repair, and Oracle
+  paths.
+- `tests/test-root-liveness.sh` — PASS after restoring monotonic investigation
+  accounting without verified-criterion resets.
 - `tests/test-luna-only-convergence.sh` — PASS. Verifies internal repair state,
   assignment/lease transactionality, absence of a synthetic result, typed
   marker fields, and idempotent replay.

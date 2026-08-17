@@ -3058,16 +3058,13 @@ root_liveness_epoch_delta()
 	[[ "$current" =~ ^[0-9]+$ ]] || current=0
 	epoch="$(task_root_liveness_epoch_file "$root")"
 	# Ordinary context rotation, incident resolution, or active-node repair must
-	# never erase history. A Luna-only migration and a machine-verified criterion
-	# checkpoint are new acceptance boundaries: work on a later first-unmet
-	# criterion must not inherit the preceding criterion's replan allowance. The
-	# old totals remain in the epoch for audit and status output.
+	# never erase history. The sole reset authority is the recorded Luna-only
+	# migration from an exhausted broad boundary to mandatory append-only child
+	# criteria. The old totals remain in the epoch for audit and status output.
 	if [[ -f "$epoch" ]] &&
 		[[ "$(kv_file_value "$epoch" authorized_reset 2>/dev/null || true)" == 1 ]] &&
-		{ { [[ "$(kv_file_value "$epoch" budget_scope 2>/dev/null || true)" == luna-only-migrated-child-boundary ]] &&
-			[[ "$(kv_file_value "$epoch" source 2>/dev/null || true)" == luna-only-policy-migration ]]; } ||
-		  { [[ "$(kv_file_value "$epoch" budget_scope 2>/dev/null || true)" == verified-criterion-boundary ]] &&
-			[[ "$(kv_file_value "$epoch" source 2>/dev/null || true)" == verified-criterion-checkpoint ]]; }; }; then
+		[[ "$(kv_file_value "$epoch" budget_scope 2>/dev/null || true)" == luna-only-migrated-child-boundary ]] &&
+		[[ "$(kv_file_value "$epoch" source 2>/dev/null || true)" == luna-only-policy-migration ]]; then
 		baseline="$(kv_file_value "$epoch" "$key" 2>/dev/null || printf 0)"
 		[[ "$baseline" =~ ^[0-9]+$ ]] || baseline=0
 		(( current >= baseline )) || baseline="$current"
@@ -3087,10 +3084,6 @@ record_root_liveness_epoch()
 			printf 'snapshot_only=0\n'
 			printf 'authorized_reset=1\n'
 			printf 'budget_scope=luna-only-migrated-child-boundary\n'
-		elif [[ "$source" == verified-criterion-checkpoint ]]; then
-			printf 'snapshot_only=0\n'
-			printf 'authorized_reset=1\n'
-			printf 'budget_scope=verified-criterion-boundary\n'
 		else
 			printf 'snapshot_only=1\n'
 			printf 'authorized_reset=0\n'

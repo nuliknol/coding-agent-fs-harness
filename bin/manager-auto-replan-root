@@ -502,32 +502,6 @@ while true; do
 		attempt=$((attempt + 1))
 		continue
 	fi
-	if [[ "$HARNESS_MODEL_POLICY" == luna_only &&
-		"$classification" =~ ^agent_(item|estimated_token|token|command_output)_budget_exceeded$ ]] &&
-		(( attempt < HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS )); then
-		resource_diagnostic="$(jq -rs '
-			[.[] | select(.type == "item.completed" and .item.type == "command_execution" and
-				((.item.command // "") | contains("manager-publish-task"))) |
-				(.item.aggregated_output // "")] | last // ""
-		' "$json_log" 2>/dev/null | head -c "$HARNESS_VALIDATION_OUTPUT_MAX_BYTES")"
-		log_event "LUNA_ONLY_MANAGER_REPLAN_RESOURCE_RETRY root=$root trigger=$trigger_task attempt=$attempt classification=$classification diagnostic_bytes=${#resource_diagnostic}"
-		cat >> "$prompt_file" <<PROMPT
-
-RESOURCE-BOUNDED CORRECTION TURN: the preceding planning process was stopped
-before publication. Start fresh. Repository inspection and combined document
-reads are now forbidden. Consume only PLAN_NODE_CONTEXT_FILE,
-TRIGGER_EVIDENCE_DIGEST, and this bounded publisher diagnostic:
-
---- publisher diagnostic ---
-$resource_diagnostic
---- end diagnostic ---
-
-Write TASK_OUTPUT directly, make one publisher call, and correct only that
-call's complete diagnostic if needed. Do not repeat any preceding source read.
-PROMPT
-		attempt=$((attempt + 1))
-		continue
-	fi
 	if codex_model_requires_narrow_prompt "$current_model" && [[ "$classification" == model_refusal_or_blocked_content ]]; then
 		if (( fallback_stage == 0 )); then
 			fallback_stage=1
