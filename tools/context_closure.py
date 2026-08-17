@@ -255,6 +255,7 @@ def build_closure(args: argparse.Namespace) -> str:
     bounded_test_candidates_omitted = 0
     expanded_seed_ids: set[str] = set()
     selected_call_edges: set[tuple[str, str, str, str]] = set()
+    required_build_target_names: set[str] = set()
     remaining_calls = args.max_direct_relationships
     requested_classes = dependency_classes(values)
     invalid_classes = requested_classes.difference({"D", "T", "I", "B", "C", "F", "V"})
@@ -377,7 +378,17 @@ def build_closure(args: argparse.Namespace) -> str:
                          required=True, provider="worktree-overlay")
                 overlay_match = True
             if not overlay_match:
-                unresolved.append(("REQUIRED_SYMBOL", requested, "no exact SCIP or worktree-overlay definition"))
+                target_rows = connection.execute(
+                    "SELECT name FROM build_targets WHERE name=? COLLATE NOCASE ORDER BY name",
+                    (requested,)).fetchall()
+                if target_rows:
+                    # Some normalized specifications name an executable build
+                    # boundary in Required-Symbols. Preserve that exact seam as
+                    # validation/build evidence instead of demanding a bogus
+                    # SCIP source symbol with the same spelling.
+                    required_build_target_names.add(target_rows[0]["name"])
+                else:
+                    unresolved.append(("REQUIRED_SYMBOL", requested, "no exact SCIP or worktree-overlay definition"))
             continue
         definitions = [row for row in rows if row["repository_path"] is not None]
         definition_boundaries = sorted(set(path_seeds) | set(allowed_scopes))
@@ -843,7 +854,8 @@ def build_closure(args: argparse.Namespace) -> str:
             build_targets[row["target_id"]] = {key: str(row[key] or "-") for key in row.keys()}
             build_targets_by_path.setdefault(path, set()).add(row["name"])
 
-    requested_targets = sorted(split_list(values.get("Build-Targets", "")))
+    requested_targets = sorted(set(split_list(values.get("Build-Targets", ""))) |
+                               required_build_target_names)
     if requested_targets and "V" not in requested_classes:
         unresolved.append(("DEPENDENCY_CLASS", "V",
                            "Build-Targets requires validation prerequisite class V"))

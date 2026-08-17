@@ -95,8 +95,13 @@ fi
 
 repair_phase=decomposition_repair
 complexity_repair=0
+context_closure_repair=0
 complexity_context='Correct only the reported deterministic DAG/coverage defect. Every DAG row is executable through LUNA or TERRA; never emit SOL or grouping nodes. Routine LOCAL_IMPLEMENTATION, TEST_IMPLEMENTATION, MECHANICAL_API, FOCUSED_BUG, DOCUMENTATION, and VERIFICATION_ONLY rows remain LOW/LUNA and must be split rather than converted to Terra with an invented exception.'
-if grep -Eq '(LUNA_COMPLEXITY_OVER_BUDGET|CONTEXT_CLOSURE_OVER_BUDGET).*status=OVER_BUDGET' "$rejection_log"; then
+if grep -Eq 'CONTEXT_CLOSURE_OVER_BUDGET.*status=OVER_BUDGET' "$rejection_log"; then
+	context_closure_repair=1
+	repair_phase=decomposition
+	complexity_context="Context Closure admission rejected specific DAG nodes before complexity measurement. Read VALIDATOR_DIAGNOSTICS, CONTEXT_ADMISSION_REPORT, and CONTEXT_SUGGESTED_CUTS. Split or narrow only the reported over-budget nodes along those compiled source/build-target seams. Preserve every normalized obligation and dependency, keep every executable child LOW/LUNA under luna_only policy, and do not require or invent a complexity report for this pre-complexity rejection."
+elif grep -Eq 'LUNA_COMPLEXITY_OVER_BUDGET.*status=OVER_BUDGET' "$rejection_log"; then
 	complexity_repair=1
 	repair_phase=decomposition
 	complexity_report="$candidate_dir/complexity.tsv"
@@ -205,7 +210,7 @@ fi
 
 obligation_count="$(awk 'NR > 1 {count++} END {print count + 0}' "$(specification_obligations_file)")"
 large_ir_global_repair=0
-if (( complexity_repair == 0 && obligation_count >= HARNESS_LARGE_DECOMPOSITION_OBLIGATION_THRESHOLD )); then
+if (( complexity_repair == 0 && context_closure_repair == 0 && obligation_count >= HARNESS_LARGE_DECOMPOSITION_OBLIGATION_THRESHOLD )); then
 	large_ir_global_repair=1
 	repair_phase=decomposition
 	global_repair_key="$(printf '%s\n%s\n' "$(specification_sha256)" "$(specification_review_repository_baseline)" | sha256sum | awk '{print $1}')"
@@ -221,7 +226,13 @@ if (( complexity_repair == 0 && obligation_count >= HARNESS_LARGE_DECOMPOSITION_
 	mv "$global_repair_marker.tmp.$$" "$global_repair_marker"
 fi
 
-[[ "$complexity_repair" == 1 ]] && repair_identity='recursive complexity-decomposition agent' || repair_identity='decomposition DAG/coverage repair agent'
+if (( complexity_repair == 1 )); then
+	repair_identity='recursive complexity-decomposition agent'
+elif (( context_closure_repair == 1 )); then
+	repair_identity='Context Closure decomposition-repair agent'
+else
+	repair_identity='decomposition DAG/coverage repair agent'
+fi
 prompt="$dir/control/manager-decomposition-dag-repair.prompt.md"
 cat > "$prompt.tmp.$$" <<PROMPT
 You are a fresh, bounded $repair_identity. Do not edit the repository or perform architecture binding.
@@ -232,6 +243,7 @@ PROJECT=$PROJECT
 AGENT_PHASE=$repair_phase
 LARGE_IR_GLOBAL_REPAIR=$large_ir_global_repair
 COMPLEXITY_REPAIR=$complexity_repair
+CONTEXT_CLOSURE_REPAIR=$context_closure_repair
 NORMALIZED_OBLIGATION_COUNT=$obligation_count
 DAG_FILE=$repair_dir/dag.tsv
 SPECIFICATION_COVERAGE_FILE=$repair_dir/coverage.tsv

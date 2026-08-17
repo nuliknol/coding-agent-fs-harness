@@ -59,6 +59,8 @@ trigger_closure_repair_action="$(awk -F': ' '$1 == "Closure-Repair-Action" {prin
 trigger_closure_repair_provider="$(awk -F': ' '$1 == "Closure-Repair-Provider" {print $2; exit}' "$replan_marker")"
 trigger_closure_repair_children="$(project_dir)/control/context-closures/$(task_base "$trigger_task")/repair-children.tsv"
 [[ -s "$trigger_closure_repair_children" ]] || trigger_closure_repair_children=-
+trigger_closure_repair_report="$(project_dir)/control/context-closures/$(task_base "$trigger_task")/repair.tsv"
+[[ -s "$trigger_closure_repair_report" ]] || trigger_closure_repair_report=-
 closure_repair=0
 [[ "$trigger_outcome" != CONTEXT_CLOSURE_REPAIR ]] || closure_repair=1
 recovery_mode="AUTOMATIC_REPLAN"
@@ -265,6 +267,7 @@ CLOSURE_CONDITION=${trigger_closure_condition:--}
 CLOSURE_REPAIR_ACTION=${trigger_closure_repair_action:--}
 CLOSURE_REPAIR_PROVIDER=${trigger_closure_repair_provider:--}
 CLOSURE_REPAIR_CHILDREN_FILE=$trigger_closure_repair_children
+CLOSURE_REPAIR_REPORT_FILE=$trigger_closure_repair_report
 DETERMINISTIC_CLOSURE_GRAFT=$deterministic_closure_graft
 TRIGGER_BLOCKER_CLASS=${trigger_blocker_class:--}
 TRIGGER_REMEDIATION_SCOPE=${trigger_remediation_scope:--}
@@ -345,7 +348,7 @@ fi
 if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
 
-LUNA-ONLY POLICY OVERRIDE: Every inference and executable leaf uses $LUNA_WORKER_MODEL. Never emit Worker-Route: TERRA, a Terra-Exception, manager-model execution, or a stronger-model fallback. This instruction supersedes legacy Terra language above. When a boundary exceeds Luna limits, append independently acceptance-complete child criteria or add exact typed Context-Paths/Required-Symbols. Use Worker-Route: LUNA and Terra-Exception: - for every published leaf. If CLOSURE_REPAIR_ACTION=GRAFT_GRAPH_CUTS, read CLOSURE_REPAIR_CHILDREN_FILE as the only additional repair source and use its deterministic path/symbol seams to allocate ordered acceptance-complete children; do not clone the parent scope onto every child. If incompatible observable product outcomes are not resolved by the governing specification, request clarification; strategy exhaustion alone is always a decomposition signal.
+LUNA-ONLY POLICY OVERRIDE: Every inference and executable leaf uses $LUNA_WORKER_MODEL. Never emit Worker-Route: TERRA, a Terra-Exception, manager-model execution, or a stronger-model fallback. This instruction supersedes legacy Terra language above. When a boundary exceeds Luna limits, append independently acceptance-complete child criteria or add exact typed Context-Paths/Required-Symbols. Use Worker-Route: LUNA and Terra-Exception: - for every published leaf. For any typed Context Closure repair, read CLOSURE_REPAIR_REPORT_FILE once when it is not '-' and treat its exact condition, identifier, and detail rows as the repair authority. If CLOSURE_REPAIR_ACTION=GRAFT_GRAPH_CUTS, also read CLOSURE_REPAIR_CHILDREN_FILE and use its deterministic path/symbol seams to allocate ordered acceptance-complete children; do not clone the parent scope onto every child. If CLOSURE_REPAIR_ACTION=REFRESH_INDEX_OR_OVERLAY and the bounded provider retry returned the same exact missing evidence, correct only the invalid assignment metadata: remove an optional generated/directory Context-Paths seed, fix an exact path spelling, or represent an indexed build target as validation/build metadata rather than inventing a source symbol. Never claim a provider refresh without evidence in the repair report. If incompatible observable product outcomes are not resolved by the governing specification, request clarification; strategy exhaustion alone is always a decomposition signal.
 
 This Luna planning turn is a compiler over the supplied bounded evidence, not a
 repository explorer. Do not inspect repository source, enumerate files, open

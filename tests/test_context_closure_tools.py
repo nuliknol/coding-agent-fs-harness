@@ -235,6 +235,20 @@ class ContextClosureToolsTest(unittest.TestCase):
         self.assertIn("repair_provider=scip", manifest)
         self.assertIn("semantic_split_required=0", manifest)
 
+    def test_required_symbol_build_target_alias_uses_indexed_validation_boundary(self):
+        connection = sqlite3.connect(self.database)
+        connection.execute(
+            "INSERT INTO build_targets VALUES('target-calc','g','calc-tool','EXECUTABLE','Makefile','make')")
+        connection.commit()
+        connection.close()
+
+        status, output = self.closure(required_symbols="calc-tool")
+
+        self.assertEqual("READY", status)
+        self.assertNotIn("REQUIRED_SYMBOL\tcalc-tool", (output / "unresolved.tsv").read_text())
+        self.assertIn("\tcalc-tool\tEXECUTABLE\tMakefile\t", (output / "build-targets.tsv").read_text())
+        self.assertIn("`calc-tool` (EXECUTABLE)", (output / "context.md").read_text())
+
     def test_tracked_worktree_overlay_relocates_live_symbol_evidence(self):
         live_source = "\n".join(["/* inserted */"] * 24 +
                                 ["int add(int a, int b) { return a + b + 1; }"]) + "\n"

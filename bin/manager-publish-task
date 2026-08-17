@@ -1801,6 +1801,13 @@ if (( recovery_publish == 1 )); then
 	fi
 fi
 
+if (( recovery_publish == 1 )) &&
+	! evaluate_root_state_oscillation "$task_id" "$target_criterion" \
+		"$strategy_fingerprint" "$blocking_fingerprint" "$(task_verified_item_count "$root")"; then
+	printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
+	exit 0
+fi
+
 initialize_task_progress "$task_id" "$task_file"
 starting_progress="$(task_progress_percent "$root")"
 
@@ -2035,7 +2042,6 @@ if (( recovery_publish == 1 )); then
 		"$strategy_change" "$strategy_fingerprint" "$blocking_fingerprint" \
 		"$(task_passed_declared_criterion_count "$root")" \
 		"$(task_verified_item_count "$root")" >> "$replan_ledger"
-	evaluate_root_state_oscillation "$task_id" || true
 	if (( manager_remediation == 1 )); then
 		ensure_root_manager_remediation_ledger_schema "$root"
 		remediation_ledger="$(task_manager_remediation_ledger_file "$root")"

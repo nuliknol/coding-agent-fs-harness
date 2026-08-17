@@ -67,3 +67,13 @@ Updated: 2026-08-17
 - Detection cannot automatically resolve an anomaly or reset monotonic
   liveness/token history.
 - No detector authorizes Sol/Terra fallback or repository exploration.
+
+## 2026-08-17 state-oscillation correction
+
+- The detector now measures consecutive complete recovery-state equality, not
+  the lifetime count of a target criterion at one verified-item count.
+- Its candidate is evaluated before publication. A true anomaly remains a
+  durable investigation fuse; a materially different recovery does not create
+  a false architecture reassessment.
+- The absolute authoritative, live-estimated, and cumulative Luna task fuses
+  remain exactly 500,000 tokens.

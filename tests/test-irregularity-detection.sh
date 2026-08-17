@@ -78,6 +78,24 @@ facet_efficiency="$(project_verified_facet_efficiency_ledger_file)"
 assert_contains "$facet_efficiency" $'root\t600\t1\t600'
 assert_contains "$(project_efficiency_metrics_file)" 'tokens_per_verified_facet=600'
 
+# State oscillation means a consecutive, materially unchanged recovery state.
+# Revisiting one criterion with new strategy/blocker evidence is ordinary
+# convergence and must not be counted across the root's full history.
+replan_ledger="$(task_replan_ledger_file root)"
+printf 'replanned_at\ttask_id\ttrigger_task\ttarget_criterion\tstrategy_id\tstrategy_change\tstrategy_fingerprint\tblocking_fingerprint\tverified_criteria\tverified_items\n' > "$replan_ledger"
+printf 'now\troot-revision-1\troot\tcriterion-a\ts1\tNARROW_SCOPE\tstrategy-a\tblocker-a\t0\t1\n' >> "$replan_ledger"
+printf 'now\troot-revision-2\troot-revision-1\tcriterion-a\ts2\tNEW_EVIDENCE\tstrategy-b\tblocker-b\t0\t1\n' >> "$replan_ledger"
+rm -f "$reassessment"
+evaluate_root_state_oscillation root-revision-3 criterion-a strategy-c blocker-c 1 ||
+	fail 'materially changing recovery strategies were misclassified as state oscillation'
+[[ ! -f "$reassessment" ]] || fail 'historical criterion reuse created a false state-oscillation pause'
+printf 'now\troot-revision-3\troot-revision-2\tcriterion-a\ts3\tNEW_EVIDENCE\tstrategy-z\tblocker-z\t0\t1\n' >> "$replan_ledger"
+printf 'now\troot-revision-4\troot-revision-3\tcriterion-a\ts4\tNEW_EVIDENCE\tstrategy-z\tblocker-z\t0\t1\n' >> "$replan_ledger"
+if evaluate_root_state_oscillation root-revision-5 criterion-a strategy-z blocker-z 1; then
+	fail 'three consecutive unchanged recovery states did not trip the oscillation fuse'
+fi
+assert_contains "$reassessment" 'STATE_OSCILLATION'
+
 # Episode detector: declared/historical regression plus repeated context reads.
 observations="$tmp_root/observations.tsv"
 printf 'task_id\tmodel\tleaf_type\tclassification\tprocessed_tokens\tpredicted_p95_tokens\trepeated_source_reads\tsource_read_bytes\n' > "$observations"
@@ -118,5 +136,7 @@ grep -Fq '[[ "$HARNESS_MODEL_POLICY" != luna_only && "$leaf_worker_route" == LUN
 	"$ROOT/bin/manager-publish-task" || fail 'historical Luna failures still reject smaller Luna successors'
 grep -Fq 'HARNESS_MODEL_POLICY=luna_only requires a LOW/LUNA child; decompose it further' \
 	"$ROOT/bin/manager-publish-task" || fail 'Luna-only admission does not reject Terra executable children'
+! grep -Fq 'evaluate_root_state_oscillation "$task_id" || true' \
+	"$ROOT/bin/manager-publish-task" || fail 'state oscillation is still evaluated after publication as an ignored error'
 
 printf 'Irregularity detection tests passed.\n'

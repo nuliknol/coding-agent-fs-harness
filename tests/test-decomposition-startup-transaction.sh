@@ -368,6 +368,14 @@ grep -Fq 'leaf_type INTEGRATION, complexity_class HIGH, worker_route TERRA, and 
 grep -Fq 'NR>1 && $19=="OVER_BUDGET"' "$HARNESS_BIN/manager-decomposition-dag-repair"
 grep -Fq '"$complexity_report"' "$HARNESS_BIN/manager-decomposition-dag-repair"
 ! grep -Fq '"$allowed"' "$HARNESS_BIN/manager-decomposition-dag-repair"
+# Context admission runs before complexity measurement. Its repair route must
+# consume the compiled admission/cut reports without requiring complexity.tsv.
+grep -Fq "if grep -Eq 'CONTEXT_CLOSURE_OVER_BUDGET.*status=OVER_BUDGET'" \
+	"$HARNESS_BIN/manager-decomposition-dag-repair"
+grep -Fq 'CONTEXT_CLOSURE_REPAIR=$context_closure_repair' \
+	"$HARNESS_BIN/manager-decomposition-dag-repair"
+! grep -Fq "(LUNA_COMPLEXITY_OVER_BUDGET|CONTEXT_CLOSURE_OVER_BUDGET)" \
+	"$HARNESS_BIN/manager-decomposition-dag-repair"
 grep -Fq 'manager-repair-decomposition-terra-exceptions' "$HARNESS_BIN/harness-start"
 grep -Fq 'manager-route-decomposition-complexity-repair' "$HARNESS_BIN/harness-start"
 grep -Fq 'Recovering an interrupted decomposition submission with no completed rejection diagnostic.' \

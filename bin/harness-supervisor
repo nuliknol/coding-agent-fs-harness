@@ -539,7 +539,7 @@ process_context_closure_provider_repairs()
 		action="$(metadata_value "$marker" Closure-Repair-Action)"
 		condition="$(metadata_value "$marker" Closure-Condition)"
 		[[ "$action" == REFRESH_INDEX_OR_OVERLAY &&
-			"$condition" == CLOSURE_BUILD_UNAVAILABLE ]] || continue
+			"$condition" =~ ^(CLOSURE_BUILD_UNAVAILABLE|INDEX_EVIDENCE_MISSING)$ ]] || continue
 		trigger="$(metadata_value "$marker" Triggered-By)"
 		validate_task_id "$trigger"
 		base="$(task_base "$trigger")"

@@ -3879,19 +3879,35 @@ root_auto_replans_without_verified_gain()
 
 evaluate_root_state_oscillation()
 {
-	local task_id="$1" root ledger target verified count reason evidence marker
+	local task_id="$1" target="${2:-}" strategy_fingerprint="${3:-}" blocker_fingerprint="${4:-}"
+	local verified="${5:-}" root ledger count reason evidence marker
 	[[ "$HARNESS_IRREGULARITY_DETECTION_ENABLED" == 1 ]] || return 0
 	root="$(task_root_id "$task_id")"
 	ledger="$(task_replan_ledger_file "$root")"
 	[[ -f "$ledger" ]] || return 0
-	target="$(metadata_value "$(project_dir)/tasks/$(task_base "$task_id").ready.md" Target-Criterion 2>/dev/null || true)"
 	[[ -n "$target" ]] || target="$(awk -F '\t' 'END {print $4}' "$ledger")"
-	verified="$(task_verified_item_count "$root")"
-	count="$(awk -F '\t' -v target="$target" -v verified="$verified" \
-		'NR>1 && $4==target && $10==verified {count++} END {print count+0}' "$ledger")"
+	[[ -n "$strategy_fingerprint" ]] || strategy_fingerprint="$(awk -F '\t' 'END {print $7}' "$ledger")"
+	[[ -n "$blocker_fingerprint" ]] || blocker_fingerprint="$(awk -F '\t' 'END {print $8}' "$ledger")"
+	[[ -n "$verified" ]] || verified="$(task_verified_item_count "$root")"
+	# Oscillation is a consecutive unchanged-state condition, not a count of
+	# every historical attempt at the same criterion.  Include the candidate
+	# publication, then walk backward only while its complete material state
+	# (strategy, blocker, and verified evidence) remains identical.
+	count="$(awk -F '\t' -v target="$target" -v strategy="$strategy_fingerprint" \
+		-v blocker="$blocker_fingerprint" -v verified="$verified" '
+		NR>1 {target_by_row[NR]=$4; strategy_by_row[NR]=$7; blocker_by_row[NR]=$8; verified_by_row[NR]=$10; last=NR}
+		END {
+			count=1
+			for (row=last; row>1; row--) {
+				if (target_by_row[row]!=target || strategy_by_row[row]!=strategy ||
+				    blocker_by_row[row]!=blocker || verified_by_row[row]!=verified) break
+				count++
+			}
+			print count
+		}' "$ledger")"
 	if (( count >= HARNESS_MAX_STATE_OSCILLATIONS )); then
-		reason="root returned to the same target criterion $count times without new verified evidence"
-		evidence="target=$target verified_items=$verified ledger=$ledger limit=$HARNESS_MAX_STATE_OSCILLATIONS"
+		reason="root repeated the same material recovery state $count consecutive times without new verified evidence"
+		evidence="target=$target strategy_fingerprint=$strategy_fingerprint blocker_fingerprint=$blocker_fingerprint verified_items=$verified ledger=$ledger limit=$HARNESS_MAX_STATE_OSCILLATIONS"
 		marker="$(mark_root_architecture_reassessment "$task_id" STATE_OSCILLATION "$reason" "$evidence")"
 		record_irregularity TASK_RESOURCE_ANOMALY STATE_OSCILLATION "$task_id" "$root" "$reason" "$evidence" "$marker"
 		return 1

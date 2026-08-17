@@ -620,3 +620,26 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
 5. Promote only after production evidence meets the completion criteria in the
    implementation plan; the code path is implemented, but token/divergence
    improvement has not yet been empirically demonstrated on completed projects.
+
+## 2026-08-17 paused-project repair
+
+- Corrected `STATE_OSCILLATION` to require consecutive equality of target,
+  material strategy fingerprint, blocker fingerprint, and verified-item count.
+  Historical visits to one criterion with different evidence no longer count.
+- Moved the oscillation decision before task installation and replan-ledger
+  mutation; a real anomaly now rejects publication atomically instead of
+  publishing a runnable task and then creating a contradictory pause marker.
+- Routed exact compiled Context Closure `repair.tsv` evidence into Luna
+  recovery planning and enabled one fingerprinted provider retry for
+  `INDEX_EVIDENCE_MISSING` as well as provider-unavailable failures.
+- Recognized exact indexed build targets named in legacy `Required-Symbols` as
+  build/validation boundaries rather than nonexistent SCIP source symbols.
+- Separated Context Closure DAG admission repair from measured complexity
+  repair. Pre-complexity closure rejection now consumes admission and suggested
+  cut reports without requiring the not-yet-created `complexity.tsv`.
+- Focused tests pass: irregularity detection, 24 Python Context Closure tests,
+  decomposition startup transaction, Bash syntax, and Python compilation.
+- Broader suites pass: Luna-only convergence, root liveness, leaf goal and its
+  resource fuses, Context Closure shell tools, supervisor result barrier,
+  decomposition v2, repository index, and the complete v4.4 harness suite.
+- Deployment and audited production pause resolution are the remaining steps.
