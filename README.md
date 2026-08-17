@@ -288,6 +288,8 @@ The candidate schema-repair turn follows the same one-source bounded-read
 policy and never emits a whole-file rewrite or generated patch into command
 output. Its output-limit checkpoint preserves the rejected candidate and also
 refuses an unchanged replay until the harness or accepted inputs change.
+Semantic DAG/coverage repair uses targeted diagnostic identifiers under the
+same policy; its recoverable checkpoint resumes from the rejected staged DAG.
 
 Before DAG registration, this dedicated Sol critic performs an evidence-backed
 architecture-fit review. If the accepted feature necessarily conflicts with a

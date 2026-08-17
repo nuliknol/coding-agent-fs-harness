@@ -601,6 +601,60 @@ grep -Fq 'ERROR: architecture-binding critic rejected the fixed DAG/coverage' "$
 grep -Fq 'omits the governing producer dependency' "$binding_rejection_log"
 grep -Fq 'diagnostic preserved for bounded repair' "$TEST_ROOT/binding-reject.out"
 
+# The semantic DAG-repair turn must not rediscover its bounded inputs through a
+# combined dump, and an output guard preserves the rejected DAG checkpoint.
+dag_repair_guard_mock="$TEST_ROOT/dag-repair-guard-codex"
+dag_repair_guard_env="$TEST_ROOT/configs/startup-dag-repair-guard.env"
+dag_repair_guard_count="$TEST_ROOT/dag-repair-guard-count"
+cat > "$dag_repair_guard_mock" <<'MOCK'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+prompt="$(cat)"
+last_message=""
+take_last=0
+for argument in "$@"; do
+	if (( take_last )); then last_message="$argument"; take_last=0; continue; fi
+	[[ "$argument" != --output-last-message ]] || take_last=1
+done
+grep -Fq 'Read exactly one named repair source per shell action' <<< "$prompt"
+grep -Fq 'Never concatenate, loop over, or combine repair sources' <<< "$prompt"
+grep -Fq 'Query exact diagnostic node IDs' <<< "$prompt"
+count=0
+[[ ! -f "$DAG_REPAIR_GUARD_COUNT" ]] || count="$(<"$DAG_REPAIR_GUARD_COUNT")"
+printf '%s\n' "$((count + 1))" > "$DAG_REPAIR_GUARD_COUNT"
+printf 'guarded\n' > "$last_message"
+printf '%s\n' '{"type":"thread.started","thread_id":"dag-repair-guard"}'
+printf '{"type":"item.completed","item":{"type":"command_execution","command":"combined-dump","aggregated_output":"'
+printf '%32769s' ''
+printf '%s\n' '"}}'
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
+MOCK
+chmod +x "$dag_repair_guard_mock"
+sed "s#export MANAGER_CODEX_BIN=\"/bin/false\"#export MANAGER_CODEX_BIN=\"$dag_repair_guard_mock\"#" \
+	"$env_file" > "$dag_repair_guard_env"
+printf 'export DAG_REPAIR_GUARD_COUNT="%s"\n' "$dag_repair_guard_count" >> "$dag_repair_guard_env"
+chmod 600 "$dag_repair_guard_env"
+set +e
+"$HARNESS_BIN/manager-decomposition-dag-repair" "$dag_repair_guard_env" \
+	> "$TEST_ROOT/dag-repair-guard.out" 2> "$TEST_ROOT/dag-repair-guard.err"
+dag_repair_guard_status=$?
+set -e
+(( dag_repair_guard_status == 7 ))
+grep -Fq 'paused recoverably after a command-output limit hit' "$TEST_ROOT/dag-repair-guard.err"
+recovery_marker="$project_dir/control/startup-recoverable.env"
+grep -Fqx 'stage=decomposition_dag_repair' "$recovery_marker"
+grep -Fqx 'resume_from=rejected_decomposition_dag' "$recovery_marker"
+grep -Fqx 'status=REJECTED' "$project_dir/control/decomposition-dag-candidate.env"
+set +e
+"$HARNESS_BIN/manager-decomposition-dag-repair" "$dag_repair_guard_env" \
+	> "$TEST_ROOT/dag-repair-guard-replay.out" 2> "$TEST_ROOT/dag-repair-guard-replay.err"
+dag_repair_guard_replay_status=$?
+set -e
+(( dag_repair_guard_replay_status == 7 ))
+grep -Fq 'refusing to replay the unchanged failed input' "$TEST_ROOT/dag-repair-guard-replay.err"
+grep -Fqx '1' "$dag_repair_guard_count"
+rm -f "$recovery_marker"
+
 # Deterministic rejection must retain exact diagnostics so startup can repair
 # the staged artifact without another global decomposition pass.
 set +e

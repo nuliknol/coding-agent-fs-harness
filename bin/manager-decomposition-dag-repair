@@ -64,6 +64,35 @@ if [[ -s "$candidate_dir/context-admission/suggested-cuts.tsv" ]]; then
 	install -m 600 "$candidate_dir/context-admission/suggested-cuts.tsv" "$context_suggested_cuts"
 fi
 
+repair_input_sha="$({
+	sha256sum "$repair_dir/dag.tsv" "$repair_dir/coverage.tsv" "$rejection_log"
+	[[ ! -s "$repair_dir/complexity.tsv" ]] || sha256sum "$repair_dir/complexity.tsv"
+	[[ "$context_admission" == - ]] || sha256sum "$context_admission"
+	[[ "$context_suggested_cuts" == - ]] || sha256sum "$context_suggested_cuts"
+} | sha256sum | awk '{print $1}')"
+repair_implementation_sha="$({
+	sha256sum "$0" "$HARNESS_BIN/codex-exec-jsonl"
+	printf 'read_lines=%s\nread_bytes=%s\ncommand_bytes=%s\n' \
+		"$HARNESS_VALIDATION_OUTPUT_MAX_LINES" "$HARNESS_VALIDATION_OUTPUT_MAX_BYTES" \
+		"$HARNESS_MAX_AGENT_COMMAND_OUTPUT_BYTES"
+} | sha256sum | awk '{print $1}')"
+recovery_marker="$dir/control/startup-recoverable.env"
+if [[ -f "$recovery_marker" ]] &&
+	[[ "$(kv_file_value "$recovery_marker" state)" == RECOVERABLE ]] &&
+	[[ "$(kv_file_value "$recovery_marker" stage)" == decomposition_dag_repair ]] &&
+	[[ "$(kv_file_value "$recovery_marker" specification_sha256)" == "$(specification_sha256)" ]] &&
+	[[ "$(kv_file_value "$recovery_marker" repository_baseline)" == "$(specification_review_repository_baseline)" ]] &&
+	[[ "$(kv_file_value "$recovery_marker" domain_profiles_sha256)" == "$(domain_profiles_sha256)" ]] &&
+	[[ "$(kv_file_value "$recovery_marker" input_sha256)" == "$repair_input_sha" ]] &&
+	[[ "$(kv_file_value "$recovery_marker" harness_implementation_sha256)" == "$repair_implementation_sha" ]]; then
+	printf 'DAG-repair startup remains recoverable; refusing to replay the unchanged failed input. Fix or update the harness, then restart: %s\n' "$recovery_marker" >&2
+	exit 7
+elif [[ -f "$recovery_marker" ]]; then
+	resolved_marker="$dir/logs/startup-recovery-resumed-$(timestamp_compact_utc)-$$.env"
+	mv "$recovery_marker" "$resolved_marker"
+	log_event "STARTUP_RECOVERY_RESUMED stage=decomposition_dag_repair prior=$resolved_marker resume_from=rejected_decomposition_dag input=$rejection_log"
+fi
+
 repair_phase=decomposition_repair
 complexity_repair=0
 complexity_context='Correct only the reported deterministic DAG/coverage defect. Every DAG row is executable through LUNA or TERRA; never emit SOL or grouping nodes. Routine LOCAL_IMPLEMENTATION, TEST_IMPLEMENTATION, MECHANICAL_API, FOCUSED_BUG, DOCUMENTATION, and VERIFICATION_ONLY rows remain LOW/LUNA and must be split rather than converted to Terra with an invented exception.'
@@ -150,7 +179,7 @@ if grep -Eq '(LUNA_COMPLEXITY_OVER_BUDGET|CONTEXT_CLOSURE_OVER_BUDGET).*status=O
 fi
 
 split_context=''
-repair_read_instruction='Read VALIDATOR_DIAGNOSTICS, DAG_FILE, SPECIFICATION_COVERAGE_FILE, COMPLEXITY_REPORT, and optional Context Closure reports when their paths are not dash.'
+repair_read_instruction='Inspect VALIDATOR_DIAGNOSTICS first, then query only the exact rows needed from DAG_FILE, SPECIFICATION_COVERAGE_FILE, COMPLEXITY_REPORT, and optional Context Closure reports when their paths are not dash.'
 if (( complexity_repair == 1 )); then
 	split_rows="$repair_dir/rejected-rows.tsv"
 	split_coverage="$repair_dir/rejected-coverage.tsv"
@@ -221,6 +250,8 @@ NODE_MAPPING_FILE=${mapping:--}
 
 $repair_read_instruction Do not inspect repository files, the human specification, inventory, harness source, development policy, Git history, prior agent logs, or unrelated temporary files.
 
+Read exactly one named repair source per shell action. Every read must end with both `head -n $HARNESS_VALIDATION_OUTPUT_MAX_LINES` and `head -c $HARNESS_VALIDATION_OUTPUT_MAX_BYTES`. Never concatenate, loop over, or combine repair sources in one action. Never use cat for inspection or run unbounded sed, awk, rg, grep, diff, or patch-generation output. Every shell action has one aggregate hard transcript budget of $HARNESS_VALIDATION_OUTPUT_MAX_LINES lines and $HARNESS_VALIDATION_OUTPUT_MAX_BYTES bytes across stdout and stderr. Query exact diagnostic node IDs, obligation IDs, or row numbers instead of dumping whole TSVs. Apply file-local rewrites without printing the rewritten file or a generated patch to the transcript, then inspect only the exact bounded rows needed to verify the change. The exact staging commands below are exempt from the one-source rule; keep their output bounded.
+
 $complexity_context $split_context Preserve deliverables, routes, allowed paths, validations, and obligation meaning except where splitting requires narrower child-local values. For typed dependency violations, make the consumer's allocated nodes follow the producer's allocated nodes through explicit DAG dependencies. If that would create a cycle because the current coverage groups obligations at the wrong semantic boundary, reassign those obligations to the semantically correct existing node or split that one node into bounded ordered leaves; never add a cyclic edge, erase a relation, map everything to an integration node, or collapse unrelated work. For an unjustified node, remove or merge only that node while preserving every normalized obligation exactly once in coverage and retaining all still-justified work. Apply the same reported defect class across all affected rows before submitting. LARGE_IR_GLOBAL_REPAIR=1 means this is the single permitted global repair for a large normalized IR: resolve all diagnostics as one coherent relation-aware DAG correction, but remain confined to the supplied bounded semantic files.
 
 When COMPLEXITY_REPAIR=0, submit once with:
@@ -252,6 +283,32 @@ if (( status == 0 )) && [[ "$new_candidate_dir" != - && "$new_candidate_dir" != 
 	log_event "DECOMPOSITION_DAG_REPAIR_PROGRESS previous=$candidate_id current=${new_candidate_dir##*/} status=$(decomposition_dag_candidate_state_value status -)"
 	printf 'DAG repair produced a new durable candidate; continuing bounded validation.\n'
 	exit 0
+fi
+classification="$(kv_file_value "${json%.jsonl}.classification" classification 2>/dev/null || true)"
+if [[ "$classification" == agent_command_output_budget_exceeded ]]; then
+	classification_file="${json%.jsonl}.classification"
+	{
+		printf 'state=RECOVERABLE\n'
+		printf 'stage=decomposition_dag_repair\n'
+		printf 'resume_from=rejected_decomposition_dag\n'
+		printf 'classification=%s\n' "$classification"
+		printf 'offending_input=%s\n' "$prompt"
+		printf 'input_sha256=%s\n' "$repair_input_sha"
+		printf 'classification_file=%s\n' "$classification_file"
+		printf 'jsonl=%s\n' "$json"
+		printf 'specification_review_report=%s\n' "$(specification_review_report_relative_path)"
+		printf 'architecture_fit_report=%s\n' "$(architecture_fit_state_value report force-waiver)"
+		printf 'specification_sha256=%s\n' "$(specification_sha256)"
+		printf 'repository_baseline=%s\n' "$(specification_review_repository_baseline)"
+		printf 'domain_profiles_sha256=%s\n' "$(domain_profiles_sha256)"
+		printf 'harness_implementation_sha256=%s\n' "$repair_implementation_sha"
+		printf 'recorded_at=%s\n' "$(timestamp_utc)"
+	} > "$recovery_marker.tmp.$$"
+	chmod 600 "$recovery_marker.tmp.$$"
+	mv "$recovery_marker.tmp.$$" "$recovery_marker"
+	log_event "STARTUP_RECOVERABLE stage=decomposition_dag_repair classification=$classification input=$prompt input_sha256=$repair_input_sha classification_file=$classification_file resume_from=rejected_decomposition_dag"
+	printf 'DAG-repair startup paused recoverably after a command-output limit hit; rejected DAG is preserved: %s\n' "$recovery_marker" >&2
+	exit 7
 fi
 (( status == 0 )) && die 'DAG repair exited without staging a valid candidate'
 die "DAG repair failed with status $status; see $json"
