@@ -119,6 +119,30 @@ class ContextRequestTest(unittest.TestCase):
         self.assertIn("Authorization-Relation: build-owner-of-declared-path", extension)
         self.assertIn("add_library(calc calc.c)", extension)
 
+    def test_failing_assertion_falls_back_inside_declared_directory(self):
+        tests = self.repository / "tests"
+        tests.mkdir()
+        test_source = tests / "calc_test.c"
+        test_source.write_text(
+            "int IT_CALC_000(void) { return add((Number){1}) == 2; }\n",
+            encoding="utf-8")
+        self.assignment.write_text(
+            "Task-ID: t1\nAllowed-Scope: calc.c\nContext-Paths: calc.c,tests\n"
+            "Required-Symbols: add\n", encoding="utf-8")
+        connection = sqlite3.connect(self.database)
+        connection.execute("INSERT INTO files VALUES(2,'g','tests/calc_test.c','c',NULL,1,0)")
+        connection.commit()
+        connection.close()
+
+        result = self.resolve("FAILING_ASSERTION", "IT_CALC_000")
+
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        extension = (self.root / "extension.md").read_text(encoding="utf-8")
+        self.assertIn("Authorization-Relation: exact-test-identifier-inside-assignment-boundary",
+                      extension)
+        self.assertIn("int IT_CALC_000", extension)
+        self.assertIn("Provider: `declared-context-search`", extension)
+
 
 if __name__ == "__main__":
     unittest.main()

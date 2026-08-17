@@ -57,6 +57,32 @@ def safe_entry(repository: Path, relative: str) -> Path | None:
     return candidate if candidate.is_file() or candidate.is_dir() else None
 
 
+def inside_declared_boundary(repository: Path, path: str,
+                             boundaries: set[str]) -> bool:
+    for boundary in boundaries:
+        normalized = boundary.split("#", 1)[0].rstrip("/")
+        entry = safe_entry(repository, normalized)
+        if entry is None:
+            continue
+        if entry.is_file() and path == normalized:
+            return True
+        if entry.is_dir() and (path == normalized or path.startswith(normalized + "/")):
+            return True
+    return False
+
+
+def exact_identifier_window(repository: Path, path: str,
+                            identifier: str) -> tuple[int, int] | None:
+    source = safe_path(repository, path)
+    if source is None:
+        return None
+    lines = source.read_text(encoding="utf-8", errors="replace").splitlines()
+    for line_number, line in enumerate(lines, start=1):
+        if identifier in line:
+            return max(1, line_number - 20), min(len(lines), line_number + 20)
+    return None
+
+
 def source_excerpt(repository: Path, path: str, start: int, end: int,
                    maximum: int) -> str:
     source = safe_path(repository, path)
@@ -191,10 +217,38 @@ def main() -> int:
             (identifier, identifier),
         ).fetchall()
         for row in test_rows:
-            if row["repository_path"] in seed_paths and row["start_line"]:
+            if (row["repository_path"] and
+                    inside_declared_boundary(repository, row["repository_path"], seed_paths) and
+                    row["start_line"]):
                 records.append(("FAILING_ASSERTION", row["repository_path"], row["start_line"],
                                 row["end_line"], row["name"], row["provider"]))
         relation = "named-test-inside-assignment-boundary"
+        if not records:
+            # Some importers cannot discover framework-specific test macros or
+            # selectors. Search only indexed files inside the already declared
+            # assignment boundary, select the first exact identifier windows,
+            # and retain the same four-region/output caps as structural rows.
+            candidate_paths: set[str] = set()
+            for boundary in sorted(seed_paths):
+                normalized = boundary.split("#", 1)[0].rstrip("/")
+                entry = safe_entry(repository, normalized)
+                if entry is None:
+                    continue
+                if entry.is_file():
+                    candidate_paths.add(normalized)
+                    continue
+                rows = connection.execute(
+                    "SELECT repository_path FROM files WHERE repository_path LIKE ? "
+                    "ORDER BY repository_path LIMIT 257", (normalized + "/%",)).fetchall()
+                if len(rows) <= 256:
+                    candidate_paths.update(row["repository_path"] for row in rows)
+            for candidate_path in sorted(candidate_paths):
+                window = exact_identifier_window(repository, candidate_path, identifier)
+                if window:
+                    records.append(("FAILING_ASSERTION", candidate_path, window[0], window[1],
+                                    identifier, "declared-context-search"))
+            if records:
+                relation = "exact-test-identifier-inside-assignment-boundary"
     elif args.request_kind == "BUILD_OWNER":
         if identifier in seed_paths | validation_paths:
             declared_entry = safe_entry(repository, identifier)

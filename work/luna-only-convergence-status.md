@@ -874,3 +874,13 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   `file#symbol` selector to one bounded live symbol window and reports a typed
   `CONTEXT_SELECTOR` omission only when the file exists but the symbol does
   not. The closure suite now has 31 passing tests.
+- DPVIS revision 58 then requested the exact failing `IT-RCP-000` assertion.
+  Expansion correctly rejected it because revision 58 had removed the tests
+  boundary, but replaying the same request against revision 57's declared
+  `tests/render_compile` boundary exposed two resolver gaps: indexed test rows
+  were authorized only by exact path equality, and framework-specific tests
+  absent from the test table had no bounded fallback. The resolver now honors
+  file-or-directory containment and, only inside declared indexed files,
+  selects up to four exact identifier windows when the test importer omitted
+  the selector. The archived request now compiles a 9,647-byte trusted
+  extension from `render_compile_tests.hip`; all six resolver tests pass.
