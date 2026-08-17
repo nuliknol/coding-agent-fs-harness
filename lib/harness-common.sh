@@ -2176,6 +2176,13 @@ repository_path_is_in_registered_plan_scope()
 			metadata_value "$assignment" Allowed-Scope
 			metadata_value "$assignment" Remediation-Scope
 		done
+		# After a rejected remediation result is archived, its needs-replan
+		# marker is the live authority bridge to the next bounded continuation.
+		# Preserve only its explicit mutation scope; Context-Paths are read
+		# authority and must never become a restart write exemption.
+		for artifact in "$dir/control/progress/$PROJECT-task-"*.needs-replan.md; do
+			metadata_value "$artifact" Remediation-Scope
+		done
 		shopt -u nullglob
 	)
 	return 1

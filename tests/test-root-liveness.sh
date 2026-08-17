@@ -141,6 +141,17 @@ MD
 bash -c 'source "$1/lib/harness-common.sh"; load_harness_env "$2"; require_resumable_repository_start_state' \
 	_ "$HARNESS_HOME" "$TEST_ROOT/harness.env"
 rm -f "$project/results/livenessproj-task-consumer-revision-00.result.md"
+cat > "$project/control/progress/livenessproj-task-consumer.needs-replan.md" <<'MD'
+# Root Task Needs Replanning
+
+Task-Root: consumer
+Trigger-Outcome: MANAGER_REMEDIATION_CONTINUATION
+Remediation-Scope: remediation.c
+Context-Paths: remediation.c,unrelated-read-only.c
+MD
+bash -c 'source "$1/lib/harness-common.sh"; load_harness_env "$2"; require_resumable_repository_start_state' \
+	_ "$HARNESS_HOME" "$TEST_ROOT/harness.env"
+rm -f "$project/control/progress/livenessproj-task-consumer.needs-replan.md"
 printf 'not attributable to the DAG\n' > "$TEST_ROOT/repo/untracked-restart.txt"
 if bash -c 'source "$1/lib/harness-common.sh"; load_harness_env "$2"; require_resumable_repository_start_state' \
 	_ "$HARNESS_HOME" "$TEST_ROOT/harness.env" >"$TEST_ROOT/restart.out" 2>"$TEST_ROOT/restart.err"; then
