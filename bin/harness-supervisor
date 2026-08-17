@@ -649,6 +649,14 @@ while true; do
 	if handle_project_completion; then
 		break
 	fi
+	# A terminal review can schedule a required refresh inside process_results.
+	# Re-check the durable barrier in this same loop iteration before an auto
+	# replan or planning-gap turn can publish the next assignment against the
+	# now-stale generation.
+	if ! process_repository_index_refresh; then
+		sleep "$HARNESS_POLL_SECONDS"
+		continue
+	fi
 	reclassify_legacy_hard_block_markers
 	reclassify_legacy_convergence_human_markers
 	process_auto_replans
