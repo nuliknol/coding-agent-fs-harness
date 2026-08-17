@@ -286,4 +286,20 @@ test ! -f "$refresh_project/control/repository-index-refresh.pending.env"
 grep -q 'REPOSITORY_INDEX_REFRESHED task=fixture-task outcome=ACCEPTED.*owner=supervisor' \
 	"$refresh_project/logs/events.log"
 
+# A review can create the refresh marker after the loop's initial refresh
+# check. The supervisor must cross the barrier again before either recovery or
+# ordinary planning can publish the next task in that same iteration.
+python3 - "$HARNESS_BIN/manager-supervisor" <<'PY'
+from pathlib import Path
+import sys
+
+loop = Path(sys.argv[1]).read_text(encoding="utf-8").split("while true; do", 1)[1]
+first_refresh = loop.index("process_repository_index_refresh")
+results = loop.index("process_results", first_refresh)
+second_refresh = loop.index("process_repository_index_refresh", results)
+replans = loop.index("process_auto_replans", second_refresh)
+planning = loop.index("process_planning_gap", replans)
+assert first_refresh < results < second_refresh < replans < planning
+PY
+
 printf 'repository index tests passed\n'
