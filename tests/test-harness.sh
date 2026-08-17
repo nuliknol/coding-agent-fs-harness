@@ -139,6 +139,13 @@ elif [[ "$kind" == plan ]]; then
 elif [[ "$kind" == replan ]]; then
 	printf '%s\n' "$prompt" | grep -Fq 'one aggregate transcript budget'
 	printf '%s\n' "$prompt" | grep -Fq 'a custom literal cap greater than either configured maximum is forbidden'
+	printf '%s\n' "$prompt" | grep -Fq 'COMPILED RECOVERY OVERRIDE: RECOVERY_PACKET_FILE'
+	RECOVERY_PACKET_FILE="$(value RECOVERY_PACKET_FILE)"
+	[[ -f "$RECOVERY_PACKET_FILE" ]]
+	grep -Fqx '# Compiled Manager Recovery Packet' "$RECOVERY_PACKET_FILE"
+	grep -Fqx '## Required recovery assignment sections' "$RECOVERY_PACKET_FILE"
+	(( $(stat -c %s "$RECOVERY_PACKET_FILE") <= 32768 ))
+	(( $(wc -l < "$RECOVERY_PACKET_FILE") <= 200 ))
 	TASK_ROOT="$(value TASK_ROOT)"
 	TASK_ID="$(value EXPECTED_TASK_ID)"
 	RECOVERY_MODE="$(value RECOVERY_MODE)"
@@ -203,11 +210,11 @@ Context-Paths: ${remediation_context:--}
 
 Isolate only $target with a new focused evidence boundary.
 
-## Acceptance criteria
+## Acceptance Criteria
 
 - The focused criterion passes independently.
 
-## Validation commands
+## Validation Commands
 
 mock-focused-$count
 TASK

@@ -144,7 +144,7 @@ fi
 
 normalize_recovery_envelope()
 {
-	local marker trigger strategy count digest tmp
+	local marker trigger strategy count digest tmp heading_case_normalized=0
 	(( recovery_publish == 1 )) || return 0
 	marker="$(task_root_replan_file "$root")"
 	trigger="$(awk -F': ' '$1 == "Triggered-By" {print $2; exit}' "$marker")"
@@ -154,6 +154,11 @@ normalize_recovery_envelope()
 	if (( count != 1 )) || [[ ! "$strategy" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]]; then
 		digest="$(sha256sum "$task_file" | awk '{print substr($1, 1, 12)}')"
 		strategy="replan-$task_id-$digest"
+	fi
+	if grep -Eqi '^## (objective|acceptance criteria|validation commands)[[:space:]]*$' "$task_file" &&
+		grep -Eqv '^## (Objective|Acceptance criteria|Validation commands)[[:space:]]*$' \
+			<(grep -Ei '^## (objective|acceptance criteria|validation commands)[[:space:]]*$' "$task_file"); then
+		heading_case_normalized=1
 	fi
 	tmp="$task_file.recovery-envelope.$$"
 	awk -F': ' -v task="$task_id" -v root="$root" -v trigger="$trigger" -v strategy="$strategy" '
@@ -166,6 +171,9 @@ normalize_recovery_envelope()
 			print ""
 		}
 		$1 ~ /^(Task-ID|Task-Root|Worker-Context|Replan-Strategy-ID|Supersedes-Task)$/ {next}
+		tolower($0) == "## objective" {$0="## Objective"}
+		tolower($0) == "## acceptance criteria" {$0="## Acceptance criteria"}
+		tolower($0) == "## validation commands" {$0="## Validation commands"}
 		!emitted && /^## / {emit(); emitted=1}
 		{print}
 		END {if (!emitted) emit()}
@@ -173,6 +181,9 @@ normalize_recovery_envelope()
 	chmod --reference="$task_file" "$tmp"
 	mv "$tmp" "$task_file"
 	log_event "RECOVERY_ENVELOPE_NORMALIZED task=$task_id root=$root trigger=$trigger strategy_id=$strategy"
+	if (( heading_case_normalized == 1 )); then
+		log_event "RECOVERY_SECTION_HEADINGS_NORMALIZED task=$task_id root=$root"
+	fi
 }
 
 normalize_recovery_envelope

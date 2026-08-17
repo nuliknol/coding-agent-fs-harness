@@ -178,6 +178,83 @@ if [[ -d "$project_path/archive/architecture-reassessments" ]]; then
 fi
 [[ -n "$architecture_resolution_file" && -f "$architecture_resolution_file" ]] || architecture_resolution_file="-"
 
+# Compile the complete recovery authority into one deterministic bounded read.
+# Recovery used to advertise many control files individually. Even with prompt
+# limits, a small model could spend several actions concatenating overlapping
+# slices before it wrote a candidate. That consumed the same item budget needed
+# for bounded publisher corrections. Each source below is independently capped,
+# escaped onto one content line, and selected by recovery value rather than by
+# repository exploration.
+recovery_packet="$project_path/control/$PROJECT-task-$root.manager-recovery-packet.md"
+packet_first_unmet="$(task_first_unmet_criterion "$root" 2>/dev/null || true)"
+append_recovery_packet_component()
+{
+	local label="$1" source="$2" byte_limit="$3" mode="${4:-head}" source_bytes excerpt_command
+	printf '## %s\n\n' "$label"
+	if [[ -z "$source" || "$source" == - || ! -f "$source" ]]; then
+		printf 'NONE\n\n'
+		return 0
+	fi
+	source_bytes="$(wc -c < "$source" | tr -d '[:space:]')"
+	printf 'Source: `%s`\nSource-Bytes: %s\nExcerpt-Mode: %s\n\nContent-Escaped: ' \
+		"$source" "$source_bytes" "$mode"
+	if [[ "$mode" == tail ]]; then
+		excerpt_command=(tail -c "$byte_limit" -- "$source")
+	else
+		excerpt_command=(head -c "$byte_limit" -- "$source")
+	fi
+	"${excerpt_command[@]}" | awk 'BEGIN {ORS=""}
+		{
+			gsub(/\\/, "\\\\")
+			gsub(/\t/, "\\t")
+			gsub(/\r/, "\\r")
+			if (NR > 1) printf "\\n"
+			printf "%s", $0
+		}
+		END {printf "\n"}
+	'
+	if (( source_bytes > byte_limit )); then
+		printf 'Excerpt-Truncated: 1\n'
+	else
+		printf 'Excerpt-Truncated: 0\n'
+	fi
+	printf '\n'
+}
+{
+	printf '# Compiled Manager Recovery Packet\n\n'
+	printf 'Task-Root: %s\nExpected-Task-ID: %s\nTrigger-Task: %s\n' \
+		"$root" "$expected_task_id" "$trigger_task"
+	printf 'Recovery-Mode: %s\nRecovery-Reason: %s\nFirst-Unmet-Criterion: %s\n' \
+		"$recovery_mode" "$recovery_reason" "${packet_first_unmet:--}"
+	printf 'Trigger-Focused-Validation: %s\nClosure-Condition: %s\n' \
+		"$trigger_focused_validation" "${trigger_closure_condition:--}"
+	printf 'Closure-Repair-Action: %s\nClosure-Repair-Provider: %s\n\n' \
+		"${trigger_closure_repair_action:--}" "${trigger_closure_repair_provider:--}"
+	append_recovery_packet_component 'Development policy' "$development_policy_file" 1200
+	append_recovery_packet_component 'Compiled plan, specification, and architecture authority' "$replan_context_capsule" 7500
+	append_recovery_packet_component 'Trigger worker evidence digest' "$trigger_evidence_digest" 3000 tail
+	append_recovery_packet_component 'Operator architecture resolution' "$architecture_resolution_file" 2000 tail
+	append_recovery_packet_component 'Typed Context Closure repair' "$trigger_closure_repair_report" 1200
+	append_recovery_packet_component 'Recovery trigger' "$replan_marker" 1800
+	append_recovery_packet_component 'Immutable root assignment' "$root_assignment" 3000
+	append_recovery_packet_component 'Root progress' "$progress_file" 1800 tail
+	append_recovery_packet_component 'Criterion definition' "$criteria_definition" 1800
+	append_recovery_packet_component 'Criterion verification ledger' "$criterion_ledger" 1800 tail
+	append_recovery_packet_component 'Recent recovery strategies' "$replan_ledger" 2500 tail
+	printf '## Required recovery assignment sections\n\n'
+	printf 'Use these exact case-sensitive headings, each with nonempty content:\n'
+	printf 'Content-Escaped: ## Objective\\n\\n...\\n\\n## Acceptance criteria\\n\\n...\\n\\n## Validation commands\\n\\n...\n'
+} > "$recovery_packet.tmp.$$"
+recovery_packet_bytes="$(wc -c < "$recovery_packet.tmp.$$" | tr -d '[:space:]')"
+recovery_packet_lines="$(wc -l < "$recovery_packet.tmp.$$" | tr -d '[:space:]')"
+if (( recovery_packet_bytes > HARNESS_VALIDATION_OUTPUT_MAX_BYTES ||
+	recovery_packet_lines > HARNESS_VALIDATION_OUTPUT_MAX_LINES )); then
+	rm -f "$recovery_packet.tmp.$$"
+	die "compiled manager recovery packet exceeds the bounded read budget (bytes=$recovery_packet_bytes/$HARNESS_VALIDATION_OUTPUT_MAX_BYTES lines=$recovery_packet_lines/$HARNESS_VALIDATION_OUTPUT_MAX_LINES)"
+fi
+chmod 600 "$recovery_packet.tmp.$$"
+mv "$recovery_packet.tmp.$$" "$recovery_packet"
+
 criteria_instruction=""
 deterministic_closure_graft=0
 publish_flag="--auto-replan"
@@ -289,6 +366,7 @@ ARCHITECTURE_GUARDS=$HARNESS_ARCHITECTURE_GUARDS
 ARCHITECTURE_DIR=-
 PROJECT_DECOMPOSITION_FILE=-
 PLAN_NODE_CONTEXT_FILE=$replan_context_capsule
+RECOVERY_PACKET_FILE=$recovery_packet
 TRIGGER_EVIDENCE_DIGEST=$trigger_evidence_digest
 ARCHITECTURE_RESOLUTION_FILE=$architecture_resolution_file
 LUNA_STRATEGY_FAILURES=$(root_luna_strategy_failure_count "$root")
@@ -368,6 +446,26 @@ If those compiled inputs do not name an implementation-ready seam, decompose
 the first-unmet criterion; do not search for one.
 PROMPT
 fi
+cat >> "$prompt_file.tmp.$$" <<PROMPT
+
+COMPILED RECOVERY OVERRIDE: RECOVERY_PACKET_FILE supersedes every multi-file
+read instruction above. It contains the selected development policy, compiled
+plan/specification/architecture authority, exact recovery trigger, root and
+criterion state, typed closure repair, bounded continuity evidence, operator
+resolution, and recent strategy history. Each component is one Content-Escaped
+line. Read the complete packet in exactly one command:
+
+head -c $HARNESS_VALIDATION_OUTPUT_MAX_BYTES -- $recovery_packet
+
+Do not open, probe, count, concatenate, or search for any component file
+separately. A missing optional component is represented as NONE and must not
+trigger exploration. Complete the turn within the unchanged eight-item fuse:
+one packet read; at most one exact bounded evidence read only if the packet
+explicitly marks a decisive field truncated; one assignment/decomposition
+write; and the bounded publisher/correction calls. Use the exact case-sensitive
+section headings embedded in the packet. This override is final wherever an
+earlier compatibility instruction conflicts with it.
+PROMPT
 if codex_model_requires_narrow_prompt "$MANAGER_MODEL"; then
 	cat >> "$prompt_file.tmp.$$" <<PROMPT
 

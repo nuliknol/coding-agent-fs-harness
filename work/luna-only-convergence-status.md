@@ -933,3 +933,24 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   `/home/mf/mf-kss-refactor/resys`, outside every configured harness. Their
   exact process groups were terminated without stopping that unrelated Codex
   session; they are not Context Closure activity.
+- DPLM revision 65 exposed a manager-replan action-amplification defect. The
+  recovery turn consumed three reads of overlapping control evidence, then two
+  publisher corrections: one semantic scope/context correction and one purely
+  mechanical heading-case correction. Its third publish command became item
+  9/8 and correctly tripped the unchanged manager-replan action fuse before a
+  worker or source edit ran.
+- Manager recovery now receives one deterministic compiled packet containing
+  bounded plan/specification/architecture authority, trigger and criterion
+  state, typed closure repair, continuity evidence, operator resolution, and
+  recent strategy history. Components are individually capped, escaped onto
+  one line, permission-restricted, and the complete packet is rejected before
+  inference if it exceeds the existing 32 KiB or 200-line bounded-read policy.
+  The final prompt permits one packet read and only one additional exact read
+  when the packet explicitly marks a decisive component truncated.
+- Recovery publication now canonicalizes only case variants of the three
+  already-mandatory section headings (`Objective`, `Acceptance criteria`, and
+  `Validation commands`). This removes a no-judgment repair turn while leaving
+  scope, context, strategy, acceptance, model-policy, and publication-attempt
+  validation unchanged. Regression coverage deliberately emits title-case
+  variants and proves they publish through the canonical schema. The 8-action,
+  two-publication-attempt, and all 500,000-token fuses remain unchanged.
