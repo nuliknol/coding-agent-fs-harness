@@ -1,6 +1,6 @@
 # Luna-Only Convergence Implementation Status
 
-Last updated (UTC): 2026-08-17T16:12:00Z
+Last updated (UTC): 2026-08-17T16:22:00Z
 
 Overall status: `IN_PROGRESS`
 
@@ -286,6 +286,14 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   closure overlay, and the root receives the same mandatory decomposition
   marker. This closes the race where a turn crossed the supervisor stop
   boundary during policy promotion.
+- The same historical overrides are now forbidden for every typed Context
+  Closure repair, not only policy migration. Production proved the need when a
+  correctly rejected 43.5 KiB capsule queued `GRAFT_GRAPH_CUTS` but was then
+  reclassified as manager remediation. Graph-cut and index repair now retain
+  the automatic repair path.
+- Policy migration writes a terminal transaction marker beside its archived
+  assignment. Crash reconciliation recognizes the marker and cannot resurrect
+  that intentionally retired assignment as an interrupted worker completion.
 
 ## Validation journal
 

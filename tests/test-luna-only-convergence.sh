@@ -150,8 +150,16 @@ grep -Fqx 'migrated_pending_results=1' "$project/control/luna-only-migration.env
 grep -Fqx 'migrated_liveness_roots=1' "$project/control/luna-only-migration.env"
 test ! -e "$project/results/lunaconvergence-task-004.result.md"
 test -f "$project/archive/lunaconvergence-task-004.policy-migration-result.md"
+test -f "$project/control/lunaconvergence-task-004.policy-migrated"
 grep -Fqx 'Trigger-Outcome: LUNA_ONLY_POLICY_MIGRATION' \
 	"$project/control/progress/lunaconvergence-task-004.needs-replan.md"
+test -f "$project/control/lunaconvergence-task-002.policy-migrated"
+
+# Crash recovery must not reinterpret an intentionally archived migration
+# assignment as an interrupted worker completion and recreate the old task.
+"$ROOT/bin/harness-recover" "$TMP/harness.env" >/dev/null
+test ! -e "$project/tasks/lunaconvergence-task-002.ready.md"
+test ! -e "$project/tasks/lunaconvergence-task-004.ready.md"
 test ! -e "$project/control/progress/lunaconvergence-task-003.architecture-reassessment-required.md"
 test "$(find "$project/archive/luna-only-migrations" -type f -name '*task-003*.migrated' | wc -l)" -eq 1
 grep -Fqx 'Trigger-Outcome: LUNA_ONLY_POLICY_MIGRATION' \
@@ -164,9 +172,9 @@ grep -Fqx 'reviewed_attempts=2' "$epoch"
 # A policy migration is an explicit mandatory-decomposition boundary. Neither
 # historical blocker fingerprints nor an exhausted legacy automatic-replan
 # budget may silently downgrade it to manager remediation.
-grep -Fq '(( resource_recovery == 0 && policy_migration == 0 ))' \
+grep -Fq 'resource_recovery == 0 && policy_migration == 0 && closure_repair == 0' \
 	"$ROOT/bin/manager-auto-replan-root"
-test "$(grep -Fc 'resource_recovery == 0 && policy_migration == 0' \
+test "$(grep -Fc 'closure_repair == 0' \
 	"$ROOT/bin/manager-auto-replan-root")" -eq 2
 
 printf 'new child rejection\n' > "$project/archive/lunaconvergence-task-003-revision-02.rejected.md"
