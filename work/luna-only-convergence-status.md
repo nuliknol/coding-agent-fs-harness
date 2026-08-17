@@ -1,6 +1,6 @@
 # Luna-Only Convergence Implementation Status
 
-Last updated (UTC): 2026-08-17T17:08:00Z
+Last updated (UTC): 2026-08-17T17:18:00Z
 
 Overall status: `IN_PROGRESS`
 
@@ -316,6 +316,9 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   transaction scratch files out of hot control/task directories into the
   crash-recovery archive. This removes repeated scanning and hundreds of noisy
   startup diagnostics without deleting forensic evidence.
+- Recovery also backfills `MIGRATED` onto active goal records created by an
+  older deployment whenever their assignment already has durable repair or
+  retirement evidence, removing the last false-positive orphan-goal reports.
 
 ## Validation journal
 

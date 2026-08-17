@@ -214,6 +214,17 @@ for file in "$(goal_control_dir)"/"$PROJECT-task-"*.goal; do
 	# moved the assignment into the archive before harness-abort-task ran.
 	# Do not diagnose (or later resurrect) that goal as an orphan.
 	[[ -f "$dir/control/$base.abort.md" ]] && continue
+	# Backfill terminal goal state for migrations/repairs completed before goal
+	# retirement was part of the internal transition transaction.
+	if [[ -f "$dir/control/$base.policy-migrated" ||
+		-f "$dir/control/$base.recovery-retired" ||
+		-f "$dir/control/$base.context-closure-repair.env" ]]; then
+		goal_record_manager_decision "$task_id" MIGRATED
+		printf 'TYPED_INTERNAL_GOAL_RETIRED task=%s goal=%s\n' \
+			"$task_id" "$(kv_file_value "$file" goal_id)"
+		recovered=$((recovered + 1))
+		continue
+	fi
 	if [[ ! -f "$dir/tasks/$base.ready.md" &&
 		! -f "$dir/running/$base.running.md" &&
 		! -f "$dir/results/$base.result.md" ]]; then
