@@ -110,10 +110,7 @@ compiler_args=(
 	--max-build-targets "$HARNESS_CONTEXT_CLOSURE_MAX_BUILD_TARGETS"
 	--max-tokens "$HARNESS_CONTEXT_CLOSURE_MAX_ESTIMATED_TOKENS"
 )
-if [[ "$HARNESS_REPOSITORY_OVERLAY_MODE" == tracked ]] && {
-	! git -C "$REPOSITORY" diff --quiet --ignore-submodules -- ||
-	! git -C "$REPOSITORY" diff --cached --quiet --ignore-submodules --
-}; then
+if repository_index_tracked_overlay_required; then
 	overlay_file="$(repository_index_write_worktree_overlay)"
 	compiler_args+=(--overlay-file "$overlay_file")
 fi

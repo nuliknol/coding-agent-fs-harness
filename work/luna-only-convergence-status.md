@@ -1,6 +1,6 @@
 # Luna-Only Convergence Implementation Status
 
-Last updated (UTC): 2026-08-17T17:28:00Z
+Last updated (UTC): 2026-08-17T17:42:00Z
 
 Overall status: `IN_PROGRESS`
 
@@ -324,6 +324,15 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   invoking Luna. This closes the millisecond race between Context Closure
   assignment retirement and typed replan-marker publication without adding a
   blocking sleep or delaying event processing.
+- Tracked repository overlays now span the complete delta from the immutable
+  indexed baseline commit through current HEAD and the dirty tracked worktree.
+  Compile commands, generated inputs, index integrity, schema, and all provider
+  fingerprints must still match; otherwise admission remains fail-closed.
+- A `CLOSURE_BUILD_UNAVAILABLE` repair caused only by that source-history gap
+  deterministically requeues the same archived assignment once against the
+  compiled overlay. An exact input fingerprint suppresses identical retries.
+  This consumes no Luna/Sol/Terra turn and does not launch SCIP, Joern, Java, or
+  SQLite repeatedly.
 
 ## Validation journal
 

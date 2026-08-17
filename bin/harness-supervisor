@@ -527,6 +527,58 @@ process_auto_replans()
 	done
 }
 
+process_context_closure_provider_repairs()
+{
+	local marker outcome action condition trigger base assignment attempt_file input_fingerprint
+	local prior_fingerprint ready
+	shopt -s nullglob
+	for marker in "$dir/control/progress/$PROJECT-task-"*.needs-replan.md; do
+		[[ -f "$marker" ]] || continue
+		outcome="$(metadata_value "$marker" Trigger-Outcome)"
+		[[ "$outcome" == CONTEXT_CLOSURE_REPAIR ]] || continue
+		action="$(metadata_value "$marker" Closure-Repair-Action)"
+		condition="$(metadata_value "$marker" Closure-Condition)"
+		[[ "$action" == REFRESH_INDEX_OR_OVERLAY &&
+			"$condition" == CLOSURE_BUILD_UNAVAILABLE ]] || continue
+		trigger="$(metadata_value "$marker" Triggered-By)"
+		validate_task_id "$trigger"
+		base="$(task_base "$trigger")"
+		assignment="$dir/archive/$base.assignment.md"
+		[[ -f "$assignment" ]] || continue
+		# A tracked history overlay is a valid current view only when all other
+		# generation inputs and provider fingerprints still match. If they do
+		# not, leave the typed marker fail-closed for the ordinary provider path.
+		repository_index_project_pointer_is_current || continue
+		input_fingerprint="$({
+			sha256sum "$assignment" "$(repository_index_project_pointer_file)"
+			git -C "$REPOSITORY" rev-parse HEAD
+			git -C "$REPOSITORY" diff --binary --no-ext-diff "$(kv_file_value "$(repository_index_project_pointer_file)" source_revision)" --
+		} | sha256sum | awk '{print "sha256:" $1}')"
+		attempt_file="$dir/control/$base.context-provider-repair.env"
+		prior_fingerprint=""
+		if [[ -f "$attempt_file" ]]; then
+			prior_fingerprint="$(kv_file_value "$attempt_file" input_fingerprint)"
+		fi
+		if [[ "$prior_fingerprint" == "$input_fingerprint" ]]; then
+			log_event "CONTEXT_CLOSURE_PROVIDER_RETRY_SUPPRESSED task=$trigger condition=$condition fingerprint=$input_fingerprint reason=identical-input"
+			continue
+		fi
+		{
+			printf 'task_id=%s\n' "$trigger"
+			printf 'condition=%s\n' "$condition"
+			printf 'repair_action=%s\n' "$action"
+			printf 'input_fingerprint=%s\n' "$input_fingerprint"
+			printf 'requeued_at=%s\n' "$(timestamp_utc)"
+		} > "$attempt_file.tmp.$$"
+		chmod 600 "$attempt_file.tmp.$$"
+		mv "$attempt_file.tmp.$$" "$attempt_file"
+		ready="$($HARNESS_BIN/harness-reset-task "$HARNESS_ENV_FILE" "$trigger" --force)"
+		rm -f "$marker" "$dir/control/$base.recovery-retired" \
+			"$dir/control/$base.manager-replan-failed.md"
+		log_event "CONTEXT_CLOSURE_PROVIDER_RETRY_REQUEUED task=$trigger condition=$condition action=$action index_reason=${REPOSITORY_INDEX_POINTER_REASON:--} fingerprint=$input_fingerprint ready=$ready"
+	done
+}
+
 process_planning_gap()
 {
 	local status alert stalled tmp current previous marker candidate candidate_fingerprint
@@ -706,6 +758,7 @@ while true; do
 	fi
 	reclassify_legacy_hard_block_markers
 	reclassify_legacy_convergence_human_markers
+	process_context_closure_provider_repairs
 	process_auto_replans
 	if handle_project_completion; then
 		break

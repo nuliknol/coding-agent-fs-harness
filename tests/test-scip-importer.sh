@@ -440,6 +440,24 @@ small_output="$($HARNESS_HOME/bin/harness-build-context-closure \
 grep -Fq 'CONTEXT_CLOSURE status=NEEDS_FURTHER_DECOMPOSITION' <<< "$small_output"
 grep -Eq $'^reasons\t.*context-byte-budget-exceeded' "$closure_dir/quality.tsv"
 
+# A tracked overlay spans committed progress after the immutable indexed
+# baseline as well as dirty tracked changes. Unchanged compile/build/provider
+# fingerprints remain mandatory, while live source evidence is relocated from
+# the full baseline-to-worktree delta without another SCIP/Joern build.
+cp "$TEST_ROOT/e2e.env" "$TEST_ROOT/e2e-history-overlay.env"
+printf 'export HARNESS_REPOSITORY_OVERLAY_MODE="tracked"\n' \
+	>> "$TEST_ROOT/e2e-history-overlay.env"
+sed -i 's/return left + right;/return left + right + 0;/' "$TEST_ROOT/repo/src/calc.c"
+git -C "$TEST_ROOT/repo" add src/calc.c
+git -C "$TEST_ROOT/repo" -c user.name=test -c user.email=test@example.invalid \
+	commit -qm 'advance indexed source fixture'
+history_output="$($HARNESS_HOME/bin/harness-build-context-closure \
+	"$TEST_ROOT/e2e-history-overlay.env" "$TEST_ROOT/context-assignment.md")"
+grep -Fq 'CONTEXT_CLOSURE status=READY' <<< "$history_output"
+grep -Fq 'return left + right + 0;' "$closure_dir/context.md"
+grep -Fq $'src/calc.c\tMODIFIED\t' \
+	"$TEST_ROOT/state/projects/scip-e2e/control/repository-worktree-overlay.tsv"
+
 # Consumers fail closed when the committed index no longer describes the
 # tracked worktree.  Restore the fixture without rewriting Git history.
 cp "$TEST_ROOT/repo/src/calc.c" "$TEST_ROOT/calc.c.saved"

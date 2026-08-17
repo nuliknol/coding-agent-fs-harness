@@ -113,6 +113,13 @@ repository_index_worktree_overlay_file()
 repository_index_write_worktree_overlay()
 {
 	local output="${1:-$(repository_index_worktree_overlay_file)}" tmp relative source status digest bytes
+	local baseline=HEAD pointer recorded_revision
+	pointer="$(repository_index_project_pointer_file)"
+	recorded_revision="$(kv_file_value "$pointer" source_revision 2>/dev/null || true)"
+	if [[ -n "$recorded_revision" ]] &&
+		git -C "$REPOSITORY" cat-file -e "$recorded_revision^{commit}" 2>/dev/null; then
+		baseline="$recorded_revision"
+	fi
 	tmp="$output.tmp.$$"
 	mkdir -p "$(dirname "$output")"
 	printf 'repository_path\tstatus\tcontent_sha256\tcontent_bytes\n' > "$tmp"
@@ -129,10 +136,24 @@ repository_index_write_worktree_overlay()
 			bytes=0
 		fi
 		printf '%s\t%s\t%s\t%s\n' "$relative" "$status" "$digest" "$bytes" >> "$tmp"
-	done < <(git -C "$REPOSITORY" diff --name-only -z HEAD --)
+	done < <(git -C "$REPOSITORY" diff --name-only -z "$baseline" --)
 	chmod 600 "$tmp"
 	mv "$tmp" "$output"
 	printf '%s\n' "$output"
+}
+
+repository_index_tracked_overlay_required()
+{
+	local pointer recorded_revision current_revision
+	[[ "${HARNESS_REPOSITORY_OVERLAY_MODE:-off}" == tracked ]] || return 1
+	if ! git -C "$REPOSITORY" diff --quiet --ignore-submodules -- ||
+		! git -C "$REPOSITORY" diff --cached --quiet --ignore-submodules --; then
+		return 0
+	fi
+	pointer="$(repository_index_project_pointer_file)"
+	recorded_revision="$(kv_file_value "$pointer" source_revision 2>/dev/null || true)"
+	current_revision="$(repository_index_source_revision)"
+	[[ -n "$recorded_revision" && "$recorded_revision" != "$current_revision" ]]
 }
 
 repository_index_compile_commands_file()
@@ -486,6 +507,7 @@ repository_index_project_pointer_is_current()
 {
 	local pointer generation_dir recorded_revision recorded_compdb recorded_generated manifest normalized generated_inputs
 	local current_compdb current_generated current_scip_clang current_scip current_importer current_build_importer current_build_importer_path current_build_scanner_path current_schema current_joern current_recoll current_providers
+	local current_revision history_overlay=0
 	REPOSITORY_INDEX_POINTER_REASON=-
 	pointer="$(repository_index_project_pointer_file)"
 	if [[ ! -f "$pointer" ]]; then
@@ -503,7 +525,7 @@ repository_index_project_pointer_is_current()
 	fi
 	if ! git -C "$REPOSITORY" diff --quiet --ignore-submodules -- ||
 		! git -C "$REPOSITORY" diff --cached --quiet --ignore-submodules --; then
-		if [[ "$HARNESS_REPOSITORY_OVERLAY_MODE" == tracked ]]; then
+		if [[ "${HARNESS_REPOSITORY_OVERLAY_MODE:-off}" == tracked ]]; then
 			REPOSITORY_INDEX_POINTER_REASON=worktree-overlay
 		else
 			REPOSITORY_INDEX_POINTER_REASON=tracked-worktree-changed
@@ -511,9 +533,16 @@ repository_index_project_pointer_is_current()
 		fi
 	fi
 	recorded_revision="$(kv_file_value "$pointer" source_revision 2>/dev/null || true)"
-	if [[ "$(repository_index_source_revision)" != "$recorded_revision" ]]; then
-		REPOSITORY_INDEX_POINTER_REASON=source-revision-changed
-		return 1
+	current_revision="$(repository_index_source_revision)"
+	if [[ "$current_revision" != "$recorded_revision" ]]; then
+		if [[ "${HARNESS_REPOSITORY_OVERLAY_MODE:-off}" == tracked ]] &&
+			git -C "$REPOSITORY" cat-file -e "$recorded_revision^{commit}" 2>/dev/null; then
+			history_overlay=1
+			REPOSITORY_INDEX_POINTER_REASON=source-history-overlay
+		else
+			REPOSITORY_INDEX_POINTER_REASON=source-revision-changed
+			return 1
+		fi
 	fi
 	mkdir -p "$PROJECT_TMP_DIR"
 	normalized="$PROJECT_TMP_DIR/compile-commands.current.$$.$RANDOM.json"
@@ -598,6 +627,9 @@ repository_index_project_pointer_is_current()
 	if [[ "$current_providers" != "$(kv_file_value "$manifest" provider_fingerprint 2>/dev/null || true)" ]]; then
 		REPOSITORY_INDEX_POINTER_REASON=repository-provider-changed
 		return 1
+	fi
+	if (( history_overlay == 1 )); then
+		REPOSITORY_INDEX_POINTER_REASON=source-history-overlay
 	fi
 	return 0
 }
