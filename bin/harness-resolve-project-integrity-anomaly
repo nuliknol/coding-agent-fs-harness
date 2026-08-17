@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE RESOLUTION_NOTE_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 2 ]] || usage
+load_harness_env "$1"
+note_file="$2"
+ensure_project
+[[ -s "$note_file" ]] || die "project-integrity resolution note is missing or empty: $note_file"
+for heading in '## Cause' '## Corrective action' '## Evidence of restored integrity'; do
+	grep -Fqx -- "$heading" "$note_file" || die "resolution note is missing required heading: $heading"
+	awk -v heading="$heading" '
+		$0 == heading {inside=1; next}
+		inside && /^## / {exit}
+		inside && $0 !~ /^[[:space:]]*$/ {found=1}
+		END {exit found ? 0 : 1}
+	' "$note_file" || die "resolution section is empty: $heading"
+done
+
+acquire_project_lock
+marker="$(project_integrity_anomaly_file)"
+[[ -f "$marker" ]] || die 'project does not have an unresolved integrity anomaly'
+archive_dir="$(project_dir)/archive/project-integrity-anomalies"
+mkdir -p "$archive_dir"
+chmod 700 "$archive_dir"
+archive="$archive_dir/$PROJECT.$(timestamp_compact_utc).resolved.md"
+{
+	cat "$marker"
+	printf '\n## Operator resolution\n\n'
+	cat "$note_file"
+	printf '\n\nResolved-At: %s\n' "$(timestamp_utc)"
+	printf 'Counters-Preserved: yes\n'
+} > "$archive.tmp.$$"
+chmod 600 "$archive.tmp.$$"
+mv "$archive.tmp.$$" "$archive"
+rm -f "$marker"
+log_event "PROJECT_INTEGRITY_ANOMALY_RESOLVED archive=$archive counters_preserved=1"
+printf '%s\n' "$archive"

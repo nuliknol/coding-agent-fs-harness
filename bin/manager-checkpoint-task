@@ -452,6 +452,7 @@ done
 for increment in "${verified_increments[@]}"; do
 	printf '%s\tVERIFIED\t%s\t%s\t%s\n' "$increment" "$task_id" "$review_sha" "$(timestamp_utc)" >> "$criterion_ledger"
 done
+record_root_verified_facet_boundary "$root"
 
 checkpoint_ledger="$(task_checkpoint_ledger_file "$root")"
 if [[ ! -f "$checkpoint_ledger" ]]; then

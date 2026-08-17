@@ -15,6 +15,7 @@ usage()
 load_harness_env "$1"
 task_id="$2"
 ensure_project
+require_no_project_integrity_anomaly
 require_registered_specification_ir
 require_repository
 trace_init worker_invoke_task
@@ -71,8 +72,12 @@ else
 				execution_mode=LUNA_LEAF
 				;;
 			TERRA)
-				[[ "$HARNESS_MODEL_POLICY" != luna_only ]] ||
+				if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
+					mark_project_integrity_anomaly MODEL_POLICY_VIOLATION "$task_id" \
+						'Luna-only project published a TERRA worker assignment' \
+						"assignment=$ready route=$worker_route" >/dev/null
 					die 'Luna-only policy rejected a TERRA worker assignment; decompose it into Luna children'
+				fi
 				execution_role=worker_terra
 				execution_model="$TERRA_WORKER_MODEL"
 				execution_fallback_model="$MANAGER_FALLBACK_MODEL"
@@ -606,6 +611,18 @@ if (( luna_bounded_execution == 1 )) &&
 	exit 0
 fi
 
+# Admission above handles ordinary incomplete closures. Reaching this boundary
+# without the compiled capsule is a harness-integrity failure, not another
+# worker condition to retry.
+if (( luna_bounded_execution == 1 )) && [[ "$HARNESS_CONTEXT_CLOSURE_MODE" =~ ^(required|patch_only)$ ]] &&
+	{ [[ "$context_closure_status" != READY ]] || [[ -z "$compiled_context_closure_file" ]] ||
+		[[ ! -s "$compiled_context_closure_file" ]]; }; then
+	mark_project_integrity_anomaly CLOSURE_BYPASS "$task_id" \
+		'bounded Luna execution reached the provider boundary without a validated compiled Context Closure capsule' \
+		"mode=$HARNESS_CONTEXT_CLOSURE_MODE status=$context_closure_status file=${compiled_context_closure_file:--} manifest=${closure_manifest:--}" >/dev/null
+	die 'PROJECT_INTEGRITY_ANOMALY: refusing Luna launch without validated compiled context'
+fi
+
 publish_goal_decomposition_handoff()
 {
 	local reason="$1" concern="$2" handoff classification_file partial_edits workspace_before workspace_after
@@ -970,6 +987,15 @@ while true; do
 					followup_reason=diagnostic_repair
 					log_event "PATCH_ONLY_DIAGNOSTIC_REPAIR_READY task=$task_id patch=$patch_file validation_round=$patch_validation_round diagnostics=$patch_diagnostics diagnostic_sha256=$patch_diagnostic_fingerprint"
 				else
+					if (( patch_diagnostic_repeated == 1 )); then
+						mark_task_resource_anomaly "$task_id" REPEATED_DIAGNOSTIC \
+							'the same focused-validation failure fingerprint survived consecutive patch proposals' \
+							"round=$patch_validation_round diagnostic_sha256=${patch_diagnostic_fingerprint:--} ledger=$patch_repair_ledger" >/dev/null
+					elif (( patch_validation_round >= HARNESS_MAX_PATCH_CHURN_ROUNDS )); then
+						mark_task_resource_anomaly "$task_id" PATCH_CHURN \
+							'multiple patch proposals were applied, rejected, and reverted without acceptance progress' \
+							"rounds=$patch_validation_round limit=$HARNESS_MAX_PATCH_CHURN_ROUNDS ledger=$patch_repair_ledger" >/dev/null
+					fi
 					{
 						printf '# Worker Task Result\n\nTask-ID: %s\nStatus: COMPLETED\n' "$task_id"
 						if (( goal_mode == 1 )); then printf 'Goal-ID: %s\nGoal-Outcome: NEEDS_DECOMPOSITION\nDecomposition-Reason: VALIDATION_PREREQUISITE\n' "$goal_id"; fi
@@ -1040,8 +1066,21 @@ while true; do
 	fi
 	classification="$(kv_file_value "${json_log%.jsonl}.classification" classification 2>/dev/null || true)"
 	record_root_agent_tokens "$task_id" "$execution_role" "${json_log%.jsonl}.classification"
-		record_worker_complexity_observation "$task_id" "$plan_item_id" "$execution_role" "$current_model" \
-			"${json_log%.jsonl}.classification" "$json_log"
+	record_worker_complexity_observation "$task_id" "$plan_item_id" "$execution_role" "$current_model" \
+		"${json_log%.jsonl}.classification" "$json_log"
+	if (( luna_bounded_execution == 1 )) && [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only ]]; then
+		patch_only_tool_calls="$(jq -rs '[.[] | select(.type=="item.started" and .item.type=="command_execution")] | length' "$json_log" 2>/dev/null || printf 0)"
+		[[ "$patch_only_tool_calls" =~ ^[0-9]+$ ]] || patch_only_tool_calls=0
+		if (( patch_only_tool_calls > 0 )); then
+			mark_project_integrity_anomaly MODEL_POLICY_VIOLATION "$task_id" \
+				'patch-only Luna executed repository/shell tools despite a compiled no-tools Context Closure contract' \
+				"tool_calls=$patch_only_tool_calls jsonl=$json_log context_file=$compiled_context_closure_file" >/dev/null
+		fi
+	fi
+	episode_resource_anomaly=0
+	if evaluate_worker_episode_irregularities "$task_id"; then
+		episode_resource_anomaly=1
+	fi
 		if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == advisory && "$context_closure_status" == READY ]]; then
 			usage_log="$dir/logs/context-closure-usage-$task_id-$stamp-attempt-$attempt_label.log"
 			if "$HARNESS_BIN/harness-context-closure-usage" "$HARNESS_ENV_FILE" "$task_id" "$json_log" \
@@ -1052,6 +1091,23 @@ while true; do
 			fi
 		fi
 	resource_guard="$(kv_file_value "${json_log%.jsonl}.classification" resource_guard 2>/dev/null || printf -)"
+	if project_has_integrity_anomaly && ! completion_committed; then
+		cleanup_heartbeat
+		log_event "WORKER_PROJECT_INTEGRITY_STOP task=$task_id root=$task_root marker=$(project_integrity_anomaly_file)"
+		exit 78
+	fi
+	if (( episode_resource_anomaly == 1 )) && ! completion_committed; then
+		if (( goal_mode == 1 )) && publish_goal_decomposition_handoff \
+			"This immutable leaf was quarantined after a repeated efficiency irregularity; the current source and evidence are preserved." \
+			"Inspect $(task_resource_anomaly_file "$task_id") and publish a strictly smaller successor rather than relaunching this revision."; then
+			cleanup_heartbeat
+			log_event "WORKER_TASK_RESOURCE_ANOMALY_HANDOFF task=$task_id root=$task_root marker=$(task_resource_anomaly_file "$task_id")"
+			exit 0
+		fi
+		cleanup_heartbeat
+		log_event "WORKER_TASK_RESOURCE_ANOMALY_STOP task=$task_id root=$task_root marker=$(task_resource_anomaly_file "$task_id")"
+		exit 75
+	fi
 	worker_task_tokens="$(worker_task_processed_token_count "$task_id")"
 	[[ "$worker_task_tokens" =~ ^[0-9]+$ ]] || worker_task_tokens=0
 	if (( worker_task_tokens >= HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS )) && [[ "$resource_guard" == - ]]; then

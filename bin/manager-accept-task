@@ -229,6 +229,7 @@ if (( ${#accepted_criteria[@]} > 0 )); then
 	for criterion in "${accepted_criteria[@]}"; do
 		printf '%s\tPASSED\t%s\t%s\t%s\n' "$criterion" "$task_id" "$review_sha" "$(timestamp_utc)" >> "$criterion_ledger"
 	done
+	record_root_verified_facet_boundary "$root"
 fi
 update_task_progress "$task_id" 100 "$accept_improvement" ACCEPT "$note_file"
 complete_project_plan_item_for_task "$task_id"

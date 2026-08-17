@@ -38,6 +38,8 @@ if (( status_detail == 0 )); then
 		/^Active root evidence: / ||
 		/^Active root progress: / ||
 		/^Root liveness/ ||
+		/^Convergence efficiency: / ||
+		/^Irregularities: / ||
 		/^First unmet leaf criterion: / ||
 		/^Active worker goal: / ||
 		/^Goal task \/ target: / ||
@@ -364,6 +366,7 @@ waiting_dependency_count=0
 replanning_count=0
 architecture_reassessment_count=0
 token_usage_anomaly_count=0
+task_resource_anomaly_count=0
 manager_remediation_active_count=0
 task_rows=()
 
@@ -539,6 +542,19 @@ for file in "$dir/control/progress/$PROJECT-task-"*.token-usage-anomaly.md; do
 	task_rows+=("$task_row")
 done
 
+for file in "$dir/control/progress/$PROJECT-task-"*.task-resource-anomaly.md; do
+	found=1
+	task_resource_anomaly_count=$((task_resource_anomaly_count + 1))
+	name="${file##*/}"
+	task_id="${name#${PROJECT}-task-}"
+	task_id="${task_id%.task-resource-anomaly.md}"
+	root="$(task_root_id "$task_id")"
+	progress="$(task_progress_percent "$root")%"
+	category="$(metadata_value "$file" Category)"
+	printf -v task_row '%-32s %-12s %-13s %-10s %-28s %-10s' "$task_id" 'TASK_ANOMALY' 'DECOMPOSE' "$progress" "${category:--}" '-'
+	task_rows+=("$task_row")
+done
+
 for file in "$dir/control/progress/$PROJECT-task-"*.waiting-dependency.md; do
 	found=1
 	waiting_dependency_count=$((waiting_dependency_count + 1))
@@ -571,6 +587,8 @@ elif [[ "$startup_state" == RECOVERABLE && ! -f "$(project_plan_definition_file)
 	project_status_line="Project status: STARTUP_RECOVERABLE. The ${startup_recovery_stage:-startup} stage hit ${startup_recovery_classification:-a recoverable guard}; accepted specification review is preserved. Fix or update the harness, then restart from ${startup_recovery_input:-the recorded input}."
 elif [[ "$startup_state" == FAILED && ! -f "$(project_plan_definition_file)" ]]; then
 	project_status_line="Project status: STARTUP_FAILED. Initial review or decomposition exited with status ${startup_exit:-unknown}; inspect ${startup_log:-the background startup log}."
+elif project_has_integrity_anomaly; then
+	project_status_line='Project status: PROJECT_INTEGRITY_ANOMALY. Accounting, Context Closure, model authority, or index policy was violated; every agent launch is suppressed pending explicit corrective resolution.'
 elif (( token_usage_anomaly_count > 0 )); then
 	project_status_line='Project status: TOKEN_USAGE_ANOMALY. Irregular per-episode or cumulative leaf token consumption was detected; all further project agent launches are suppressed pending an explicit corrective resolution.'
 elif project_completion_recorded && project_plan_all_complete; then
@@ -673,6 +691,14 @@ fi
 printf 'Hard-block claims: %s occurrence(s); %s routed to manager remediation; %s confirmed human-dependent.\n' \
 	"$hard_block_claims" "$hard_blocks_routed_manager" "$hard_blocks_needing_human"
 
+project_efficiency_file="$(project_efficiency_metrics_file)"
+if [[ -f "$project_efficiency_file" ]]; then
+	printf 'Convergence efficiency: project=%s processed tokens per verified facet (%s tokens / %s facets).\n' \
+		"$(kv_file_value "$project_efficiency_file" tokens_per_verified_facet 2>/dev/null || printf UNAVAILABLE)" \
+		"$(kv_file_value "$project_efficiency_file" total_processed_tokens 2>/dev/null || printf 0)" \
+		"$(kv_file_value "$project_efficiency_file" verified_facets 2>/dev/null || printf 0)"
+fi
+
 active_status_root="$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" && $3 != "-" {print $3; exit}' "$(project_plan_state_file)" 2>/dev/null || true)"
 if [[ -n "$active_status_root" ]]; then
 	active_leaf="$(task_first_unmet_criterion "$active_status_root" 2>/dev/null || true)"
@@ -689,8 +715,30 @@ if [[ -n "$active_status_root" ]]; then
 		"$(root_criterion_max_depth "$active_status_root")" "$HARNESS_MAX_CRITERION_DEPTH" \
 		"$(root_lifetime_seconds "$active_status_root")" "$HARNESS_MAX_ROOT_LIFETIME_SECONDS" \
 		"$(root_processed_token_count "$active_status_root")" "$HARNESS_MAX_ROOT_PROCESSED_TOKENS"
+	efficiency_file="$(task_root_efficiency_metrics_file "$active_status_root")"
+	if [[ -f "$efficiency_file" ]]; then
+		printf 'Convergence efficiency: active-root=%s processed tokens per verified facet; since last verified boundary tokens=%s episodes=%s.\n' \
+			"$(kv_file_value "$efficiency_file" tokens_per_verified_facet 2>/dev/null || printf UNAVAILABLE)" \
+			"$(kv_file_value "$efficiency_file" tokens_since_verified_facet 2>/dev/null || printf 0)" \
+			"$(kv_file_value "$efficiency_file" episodes_since_verified_facet 2>/dev/null || printf 0)"
+	else
+		printf 'Convergence efficiency: active-root baseline pending next paid episode.\n'
+	fi
 	[[ -z "$active_leaf" ]] || printf 'First unmet leaf criterion: %s\n' "$active_leaf"
 fi
+
+irregularity_ledger="$(project_irregularity_ledger_file)"
+efficiency_warnings=0; recorded_task_anomalies=0; recorded_integrity_anomalies=0
+if [[ -f "$irregularity_ledger" ]]; then
+	read -r efficiency_warnings recorded_task_anomalies recorded_integrity_anomalies < <(awk -F '\t' '
+		NR>1 && $2=="EFFICIENCY_WARNING" {warning++}
+		NR>1 && $2=="TASK_RESOURCE_ANOMALY" {task++}
+		NR>1 && $2=="PROJECT_INTEGRITY_ANOMALY" {project++}
+		END {print warning+0, task+0, project+0}
+	' "$irregularity_ledger")
+fi
+printf 'Irregularities: efficiency-warnings=%s task-resource-anomalies=%s project-integrity-anomalies=%s.\n' \
+	"$efficiency_warnings" "$recorded_task_anomalies" "$recorded_integrity_anomalies"
 
 for goal_file in "$(goal_control_dir)"/"$PROJECT-task-"*.goal; do
 	[[ -f "$goal_file" ]] || continue

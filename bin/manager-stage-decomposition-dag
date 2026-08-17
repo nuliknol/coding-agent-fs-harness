@@ -99,6 +99,13 @@ set +e
 	fi
 	if [[ "$dag_header" == "$complexity_dag_header" ]]; then
 		write_decomposition_complexity_report "$candidate_dir/dag.tsv" "$candidate_dir/coverage.tsv" "$candidate_dir/complexity.tsv"
+		if ! python3 "$HARNESS_HOME/tools/irregularity_detector.py" decomposition \
+			--dag "$candidate_dir/dag.tsv" --complexity "$candidate_dir/complexity.tsv"; then
+			mark_efficiency_warning NON_SHRINKING_DECOMPOSITION - \
+				'candidate DAG contains a child that does not shrink any measured parent boundary' \
+				"candidate=$candidate_dir complexity=$candidate_dir/complexity.tsv"
+			die 'NON_SHRINKING_DECOMPOSITION: at least one child preserves or enlarges every measured parent boundary'
+		fi
 	fi
 ) > >(tee "$rejection_log") 2>&1
 validation_status=$?

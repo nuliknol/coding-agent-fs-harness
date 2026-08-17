@@ -28,7 +28,8 @@ while true; do
 		acquire_project_lock
 		while IFS= read -r candidate_name; do
 			candidate_task="$(task_id_from_filename "$candidate_name")"
-			if task_root_is_paused "$candidate_task" || project_has_token_usage_anomaly; then
+			if task_root_is_paused "$candidate_task" || task_has_resource_anomaly "$candidate_task" ||
+				project_has_token_usage_anomaly || project_has_integrity_anomaly; then
 				continue
 			fi
 			ready_name="$candidate_name"

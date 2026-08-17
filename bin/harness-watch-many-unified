@@ -312,6 +312,10 @@ while IFS= read -r -d '' env_file; do
 		completion='-'
 		startup_detail="$(awk -F': ' '$1=="Startup transaction" {print $2; exit}' <<< "$status_output")"
 		description="STARTUP_FAILED: ${startup_detail:-inspect harness-status}."
+	elif [[ "$project_status" == PROJECT_INTEGRITY_ANOMALY.* ]]; then
+		display_status=paused
+		integrity_alert="$dir/control/project-integrity-anomaly.md"
+		description="PROJECT_INTEGRITY_ANOMALY: $(markdown_summary "$integrity_alert")"
 	elif [[ "$project_status" == TOKEN_USAGE_ANOMALY.* ]]; then
 		display_status=paused
 		token_alert="$(find "$dir/control/progress" -maxdepth 1 -type f -name "$project-task-*.token-usage-anomaly.md" -print 2>/dev/null | sort | head -n 1)"

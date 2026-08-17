@@ -63,6 +63,11 @@ chmod 700 "$REPOSITORY_INDEX_REPOSITORY_ROOT" "$REPOSITORY_INDEX_REPOSITORY_ROOT
 exec 9>"$REPOSITORY_INDEX_REPOSITORY_ROOT/index.lock"
 flock -x 9
 repository_index_reconcile_interrupted_generations "$REPOSITORY_INDEX_REPOSITORY_ROOT"
+index_tool_ledger="$(project_dir)/logs/index-tool-executions.tsv"
+if [[ ! -f "$index_tool_ledger" ]]; then
+	printf 'recorded_at\tprovider\tdigest\tstate\tdetail\n' > "$index_tool_ledger"
+	chmod 600 "$index_tool_ledger"
+fi
 
 if repository_index_verify_generation "$REPOSITORY_INDEX_GENERATION_DIR"; then
 	if (( force == 1 )); then
@@ -80,6 +85,15 @@ if repository_index_verify_generation "$REPOSITORY_INDEX_GENERATION_DIR"; then
 	exit 0
 fi
 
+if awk -F '\t' -v digest="$REPOSITORY_INDEX_GENERATION" \
+	'NR>1 && $2=="scip" && $3==digest && $4=="COMPLETED" {found=1} END {exit found ? 0 : 1}' \
+	"$index_tool_ledger"; then
+	mark_project_integrity_anomaly INDEX_TOOL_OVERUSE - \
+		'repository index requested a second full SCIP build for a digest already completed successfully' \
+		"provider=scip digest=$REPOSITORY_INDEX_GENERATION generation_dir=$REPOSITORY_INDEX_GENERATION_DIR ledger=$index_tool_ledger" >/dev/null
+	die 'INDEX_TOOL_OVERUSE: refusing duplicate full SCIP rebuild for an unchanged digest'
+fi
+
 if [[ -e "$REPOSITORY_INDEX_GENERATION_DIR" ]]; then
 	quarantine="$REPOSITORY_INDEX_REPOSITORY_ROOT/quarantine/$REPOSITORY_INDEX_GENERATION-$(timestamp_compact_utc)"
 	mv "$REPOSITORY_INDEX_GENERATION_DIR" "$quarantine"
@@ -93,6 +107,8 @@ install -m 600 "$generated_inputs" "$tmp_generation/compile-inputs.tsv"
 install -m 600 "$generated_inputs_unresolved" "$tmp_generation/reports/compile-inputs-unresolved.tsv"
 
 printf 'SCIP indexing repository %s at %s\n' "$REPOSITORY" "$REPOSITORY_INDEX_SOURCE_REVISION"
+printf '%s\tscip\t%s\tSTARTED\t%s\n' "$(timestamp_utc)" "$REPOSITORY_INDEX_GENERATION" \
+	"$REPOSITORY_INDEX_SOURCE_REVISION" >> "$index_tool_ledger"
 (
 	cd "$REPOSITORY"
 	"$REPOSITORY_INDEX_SCIP_CLANG_PATH" \
@@ -387,4 +403,6 @@ repository_index_verify_generation "$REPOSITORY_INDEX_GENERATION_DIR" ||
 	die 'published repository-index generation failed verification'
 repository_index_publish_project_pointer "$REPOSITORY_INDEX_GENERATION_DIR"
 repository_index_apply_retention "$REPOSITORY_INDEX_REPOSITORY_ROOT" "$HARNESS_REPOSITORY_INDEX_RETENTION" "$REPOSITORY_INDEX_GENERATION_DIR"
+printf '%s\tscip\t%s\tCOMPLETED\t%s\n' "$(timestamp_utc)" "$REPOSITORY_INDEX_GENERATION" \
+	"$REPOSITORY_INDEX_GENERATION_DIR" >> "$index_tool_ledger"
 printf 'INDEX_READY generation=%s path=%s\n' "$REPOSITORY_INDEX_GENERATION" "$REPOSITORY_INDEX_GENERATION_DIR"

@@ -736,6 +736,10 @@ log_event "SUPERVISOR_STARTED pid=$$ env_file=$HARNESS_ENV_FILE"
 printf 'Supervisor started for %s with PID %s. No LLM is running while idle.\n' "$PROJECT" "$$"
 
 while true; do
+	if project_has_integrity_anomaly; then
+		sleep "$HARNESS_POLL_SECONDS"
+		continue
+	fi
 	process_dependency_requests
 	if ! process_repository_index_refresh; then
 		sleep "$HARNESS_POLL_SECONDS"

@@ -219,6 +219,11 @@ load_harness_env()
 	unset HARNESS_AGENT_P95_TOKEN_HEADROOM_PERCENT HARNESS_AGENT_BASE_CONTEXT_TOKENS_PER_ROUND
 	unset HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION
 	unset HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS
+	unset HARNESS_IRREGULARITY_DETECTION_ENABLED HARNESS_RELATIVE_TOKEN_REGRESSION_PERCENT
+	unset HARNESS_RELATIVE_TOKEN_HISTORY_MIN_SAMPLES HARNESS_EFFICIENCY_WARNING_REPEAT_LIMIT
+	unset HARNESS_MAX_EPISODES_WITHOUT_VERIFIED_FACET HARNESS_MAX_TOKENS_WITHOUT_VERIFIED_FACET
+	unset HARNESS_TOKEN_ACCOUNTING_MISMATCH_PERCENT HARNESS_TOKEN_ACCOUNTING_MISMATCH_MIN_TOKENS
+	unset HARNESS_MAX_STATE_OSCILLATIONS HARNESS_MAX_PATCH_CHURN_ROUNDS
 	unset HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION
 	unset HARNESS_MAX_DECOMPOSITION_PROCESSED_TOKENS_PER_INVOCATION
 	unset HARNESS_CAPACITY_RETRY_SECONDS HARNESS_CAPACITY_MAX_RETRIES
@@ -585,6 +590,20 @@ load_harness_env()
 	# pathological. This budget counts only implementation-worker usage for one
 	# immutable task/revision; manager and Oracle scaffolding remain separate.
 	HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS="${HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS:-500000}"
+	# Relative efficiency detectors complement, but never replace or raise, the
+	# three absolute 500K investigation fuses above. Existing projects establish
+	# their no-gain baseline lazily so deployment cannot create retroactive
+	# incidents from already-accounted history.
+	HARNESS_IRREGULARITY_DETECTION_ENABLED="${HARNESS_IRREGULARITY_DETECTION_ENABLED:-1}"
+	HARNESS_RELATIVE_TOKEN_REGRESSION_PERCENT="${HARNESS_RELATIVE_TOKEN_REGRESSION_PERCENT:-300}"
+	HARNESS_RELATIVE_TOKEN_HISTORY_MIN_SAMPLES="${HARNESS_RELATIVE_TOKEN_HISTORY_MIN_SAMPLES:-5}"
+	HARNESS_EFFICIENCY_WARNING_REPEAT_LIMIT="${HARNESS_EFFICIENCY_WARNING_REPEAT_LIMIT:-2}"
+	HARNESS_MAX_EPISODES_WITHOUT_VERIFIED_FACET="${HARNESS_MAX_EPISODES_WITHOUT_VERIFIED_FACET:-3}"
+	HARNESS_MAX_TOKENS_WITHOUT_VERIFIED_FACET="${HARNESS_MAX_TOKENS_WITHOUT_VERIFIED_FACET:-500000}"
+	HARNESS_TOKEN_ACCOUNTING_MISMATCH_PERCENT="${HARNESS_TOKEN_ACCOUNTING_MISMATCH_PERCENT:-1000}"
+	HARNESS_TOKEN_ACCOUNTING_MISMATCH_MIN_TOKENS="${HARNESS_TOKEN_ACCOUNTING_MISMATCH_MIN_TOKENS:-100000}"
+	HARNESS_MAX_STATE_OSCILLATIONS="${HARNESS_MAX_STATE_OSCILLATIONS:-3}"
+	HARNESS_MAX_PATCH_CHURN_ROUNDS="${HARNESS_MAX_PATCH_CHURN_ROUNDS:-2}"
 	# Normalizing a large, imported specification can legitimately emit hundreds
 	# of obligations and relations in one atomic transaction. Keep it bounded,
 	# but give that named startup phase a separate budget from ordinary turns.
@@ -728,6 +747,15 @@ load_harness_env()
 	[[ "$HARNESS_MAX_CRITERION_DEPTH" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_CRITERION_DEPTH must be a positive integer'
 	[[ "$HARNESS_MAX_ROOT_LIFETIME_SECONDS" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_ROOT_LIFETIME_SECONDS must be a positive integer'
 	[[ "$HARNESS_MAX_ROOT_PROCESSED_TOKENS" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_ROOT_PROCESSED_TOKENS must be a positive integer'
+	[[ "$HARNESS_IRREGULARITY_DETECTION_ENABLED" =~ ^[01]$ ]] || die 'HARNESS_IRREGULARITY_DETECTION_ENABLED must be 0 or 1'
+	for irregularity_positive_name in HARNESS_RELATIVE_TOKEN_REGRESSION_PERCENT \
+		HARNESS_RELATIVE_TOKEN_HISTORY_MIN_SAMPLES HARNESS_EFFICIENCY_WARNING_REPEAT_LIMIT \
+		HARNESS_MAX_EPISODES_WITHOUT_VERIFIED_FACET HARNESS_MAX_TOKENS_WITHOUT_VERIFIED_FACET \
+		HARNESS_TOKEN_ACCOUNTING_MISMATCH_PERCENT HARNESS_TOKEN_ACCOUNTING_MISMATCH_MIN_TOKENS \
+		HARNESS_MAX_STATE_OSCILLATIONS HARNESS_MAX_PATCH_CHURN_ROUNDS; do
+		[[ "${!irregularity_positive_name}" =~ ^[1-9][0-9]*$ ]] ||
+			die "$irregularity_positive_name must be a positive integer"
+	done
 	[[ "$HARNESS_LARGE_DECOMPOSITION_OBLIGATION_THRESHOLD" =~ ^[1-9][0-9]*$ ]] ||
 		die 'HARNESS_LARGE_DECOMPOSITION_OBLIGATION_THRESHOLD must be a positive integer'
 	[[ "$HARNESS_AUTO_REPLAN_ENABLED" =~ ^[01]$ ]] || die 'HARNESS_AUTO_REPLAN_ENABLED must be 0 or 1'
@@ -949,6 +977,11 @@ load_harness_env()
 	export HARNESS_AGENT_BASE_CONTEXT_TOKENS_PER_ROUND
 	export HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION
 	export HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS
+	export HARNESS_IRREGULARITY_DETECTION_ENABLED HARNESS_RELATIVE_TOKEN_REGRESSION_PERCENT
+	export HARNESS_RELATIVE_TOKEN_HISTORY_MIN_SAMPLES HARNESS_EFFICIENCY_WARNING_REPEAT_LIMIT
+	export HARNESS_MAX_EPISODES_WITHOUT_VERIFIED_FACET HARNESS_MAX_TOKENS_WITHOUT_VERIFIED_FACET
+	export HARNESS_TOKEN_ACCOUNTING_MISMATCH_PERCENT HARNESS_TOKEN_ACCOUNTING_MISMATCH_MIN_TOKENS
+	export HARNESS_MAX_STATE_OSCILLATIONS HARNESS_MAX_PATCH_CHURN_ROUNDS
 	export HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION
 	export HARNESS_MAX_DECOMPOSITION_PROCESSED_TOKENS_PER_INVOCATION
 	export HARNESS_MAX_SPECIFICATION_RENORMALIZATIONS HARNESS_START_MAX_AGENT_INVOCATIONS
@@ -1528,6 +1561,46 @@ task_root_token_usage_anomaly_file()
 	root="$(task_root_id "$1")"
 	printf '%s/control/progress/%s-task-%s.token-usage-anomaly.md' \
 		"$(project_dir)" "$PROJECT" "$root"
+}
+
+project_integrity_anomaly_file()
+{
+	printf '%s/control/project-integrity-anomaly.md' "$(project_dir)"
+}
+
+task_resource_anomaly_file()
+{
+	local task_id="$1"
+	printf '%s/control/progress/%s.task-resource-anomaly.md' "$(project_dir)" "$(task_base "$task_id")"
+}
+
+task_root_efficiency_baseline_file()
+{
+	local root
+	root="$(task_root_id "$1")"
+	printf '%s/control/progress/%s-task-%s.efficiency-baseline.env' "$(project_dir)" "$PROJECT" "$root"
+}
+
+task_root_efficiency_metrics_file()
+{
+	local root
+	root="$(task_root_id "$1")"
+	printf '%s/control/progress/%s-task-%s.efficiency.env' "$(project_dir)" "$PROJECT" "$root"
+}
+
+project_efficiency_metrics_file()
+{
+	printf '%s/control/convergence-efficiency.env' "$(project_dir)"
+}
+
+project_verified_facet_efficiency_ledger_file()
+{
+	printf '%s/logs/verified-facet-efficiency.tsv' "$(project_dir)"
+}
+
+project_irregularity_ledger_file()
+{
+	printf '%s/logs/irregularities.tsv' "$(project_dir)"
 }
 
 plan_dependency_invalidation_dir()
@@ -2616,6 +2689,112 @@ require_no_project_token_usage_anomaly()
 	die 'project has an unresolved TOKEN_USAGE_ANOMALY; inspect and resolve it before launching another agent process'
 }
 
+project_has_integrity_anomaly()
+{
+	[[ -f "$(project_integrity_anomaly_file)" ]]
+}
+
+require_no_project_integrity_anomaly()
+{
+	project_has_integrity_anomaly || return 0
+	die 'project has an unresolved PROJECT_INTEGRITY_ANOMALY; inspect and explicitly resolve it before launching another agent process'
+}
+
+task_has_resource_anomaly()
+{
+	[[ -f "$(task_resource_anomaly_file "$1")" ]]
+}
+
+irregularity_sanitize_field()
+{
+	printf '%s' "$1" | tr '\t\r\n' '   '
+}
+
+record_irregularity()
+{
+	local severity="$1" category="$2" task_id="${3:--}" scope="${4:--}"
+	local reason="${5:--}" evidence="${6:--}" marker="${7:--}"
+	local ledger lock
+	[[ "$HARNESS_IRREGULARITY_DETECTION_ENABLED" == 1 ]] || return 0
+	case "$severity" in
+		EFFICIENCY_WARNING|TASK_RESOURCE_ANOMALY|PROJECT_INTEGRITY_ANOMALY) ;;
+		*) die "invalid irregularity severity: $severity" ;;
+	esac
+	ledger="$(project_irregularity_ledger_file)"
+	lock="$(project_dir)/control/irregularities.lock"
+	mkdir -p "$(dirname "$ledger")" "$(dirname "$lock")"
+	exec 4>"$lock"
+	flock -x 4
+	if [[ ! -f "$ledger" ]]; then
+		printf 'recorded_at\tseverity\tcategory\ttask_id\tscope\treason\tevidence\tmarker\n' > "$ledger"
+		chmod 600 "$ledger"
+	fi
+	printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(timestamp_utc)" "$severity" \
+		"$(irregularity_sanitize_field "$category")" "$(irregularity_sanitize_field "$task_id")" \
+		"$(irregularity_sanitize_field "$scope")" "$(irregularity_sanitize_field "$reason")" \
+		"$(irregularity_sanitize_field "$evidence")" "$(irregularity_sanitize_field "$marker")" >> "$ledger"
+	flock -u 4
+	log_event "IRREGULARITY severity=$severity category=$category task=$task_id scope=$scope marker=$marker reason=$(printf '%q' "$reason")"
+}
+
+mark_efficiency_warning()
+{
+	local category="$1" task_id="${2:--}" reason="${3:--}" evidence="${4:--}"
+	local root="-"
+	[[ "$task_id" == - ]] || root="$(task_root_id "$task_id")"
+	record_irregularity EFFICIENCY_WARNING "$category" "$task_id" "$root" "$reason" "$evidence" -
+}
+
+mark_task_resource_anomaly()
+{
+	local task_id="$1" category="$2" reason="$3" evidence="${4:--}"
+	local marker tmp created=0 root
+	root="$(task_root_id "$task_id")"
+	marker="$(task_resource_anomaly_file "$task_id")"
+	mkdir -p "$(dirname "$marker")"
+	if [[ ! -f "$marker" ]]; then
+		tmp="$marker.tmp.$$"
+		{
+			printf '# Task Resource Anomaly\n\n'
+			printf 'Project: %s\n\nTask-ID: %s\n\nTask-Root: %s\n\n' "$PROJECT" "$task_id" "$root"
+			printf 'Category: %s\n\nDetected-At: %s\n\n' "$category" "$(timestamp_utc)"
+			printf 'Reason: %s\n\nEvidence: %s\n\n' "$reason" "$evidence"
+			printf 'This immutable task revision is quarantined. A smaller successor revision may run after deterministic decomposition; the anomaly record remains durable for investigation.\n'
+		} > "$tmp"
+		chmod 600 "$tmp"
+		mv "$tmp" "$marker"
+		created=1
+	fi
+	if (( created == 1 )); then
+		record_irregularity TASK_RESOURCE_ANOMALY "$category" "$task_id" "$root" "$reason" "$evidence" "$marker"
+	fi
+	printf '%s\n' "$marker"
+}
+
+mark_project_integrity_anomaly()
+{
+	local category="$1" task_id="${2:--}" reason="${3:--}" evidence="${4:--}"
+	local marker tmp created=0
+	marker="$(project_integrity_anomaly_file)"
+	mkdir -p "$(dirname "$marker")"
+	if [[ ! -f "$marker" ]]; then
+		tmp="$marker.tmp.$$"
+		{
+			printf '# Project Integrity Anomaly\n\n'
+			printf 'Project: %s\n\nCategory: %s\n\nTriggered-By: %s\n\n' "$PROJECT" "$category" "$task_id"
+			printf 'Paused-At: %s\n\nReason: %s\n\nEvidence: %s\n\n' "$(timestamp_utc)" "$reason" "$evidence"
+			printf 'All agent launches are suppressed. Preserve the marker, correct the accounting/closure/model/index policy defect, then use harness-resolve-project-integrity-anomaly with an explicit resolution record.\n'
+		} > "$tmp"
+		chmod 600 "$tmp"
+		mv "$tmp" "$marker"
+		created=1
+	fi
+	if (( created == 1 )); then
+		record_irregularity PROJECT_INTEGRITY_ANOMALY "$category" "$task_id" project "$reason" "$evidence" "$marker"
+	fi
+	printf '%s\n' "$marker"
+}
+
 task_root_waiting_dependency()
 {
 	[[ -f "$(task_root_waiting_dependency_file "$1")" ]]
@@ -2693,6 +2872,9 @@ initialize_task_progress()
 		} > "$tmp"
 		chmod 600 "$tmp"
 		mv "$tmp" "$progress"
+	fi
+	if [[ ! -f "$(task_root_efficiency_baseline_file "$root")" ]]; then
+		record_root_verified_facet_boundary "$root"
 	fi
 }
 
@@ -2816,6 +2998,156 @@ root_processed_token_count()
 	awk -F '\t' 'NR > 1 {total += $7} END {printf "%.0f\n", total + 0}' "$ledger"
 }
 
+root_agent_episode_count()
+{
+	local ledger
+	ledger="$(task_root_token_ledger_file "$1")"
+	[[ -f "$ledger" ]] || { printf '0\n'; return 0; }
+	awk 'END {print (NR > 0 ? NR - 1 : 0)}' "$ledger"
+}
+
+root_verified_facet_count()
+{
+	local ledger
+	ledger="$(task_criterion_ledger_file "$1")"
+	[[ -f "$ledger" ]] || { printf '0\n'; return 0; }
+	awk -F '\t' 'NR > 1 && ($2 == "PASSED" || $2 == "VERIFIED") && !seen[$1]++ {count++} END {print count + 0}' "$ledger"
+}
+
+refresh_project_efficiency_metrics()
+{
+	local metrics total=0 facets=0 ratio=UNAVAILABLE tmp file
+	local -a token_ledgers=() criterion_ledgers=()
+	shopt -s nullglob
+	token_ledgers=("$(project_dir)/control/progress/$PROJECT-task-"*.tokens.tsv)
+	criterion_ledgers=("$(project_dir)/control/progress/$PROJECT-task-"*.criteria.tsv)
+	shopt -u nullglob
+	if (( ${#token_ledgers[@]} > 0 )); then
+		total="$(awk -F '\t' 'FNR>1 {total += $7} END {printf "%.0f\n", total+0}' "${token_ledgers[@]}")"
+	fi
+	if (( ${#criterion_ledgers[@]} > 0 )); then
+		facets="$(awk -F '\t' 'FNR>1 && ($2=="PASSED" || $2=="VERIFIED") && !seen[FILENAME SUBSEP $1]++ {count++} END {print count+0}' "${criterion_ledgers[@]}")"
+	fi
+	(( facets == 0 )) || ratio=$((total / facets))
+	metrics="$(project_efficiency_metrics_file)"
+	tmp="$metrics.tmp.$$"
+	{
+		printf 'project=%s\nupdated_at=%s\n' "$PROJECT" "$(timestamp_utc)"
+		printf 'total_processed_tokens=%s\nverified_facets=%s\ntokens_per_verified_facet=%s\n' "$total" "$facets" "$ratio"
+	} > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$metrics"
+}
+
+refresh_root_efficiency_metrics()
+{
+	local root="$1" baseline metrics total facets episodes base_tokens base_facets base_episodes
+	local delta_tokens delta_facets delta_episodes ratio=UNAVAILABLE delta_ratio=UNAVAILABLE tmp
+	root="$(task_root_id "$root")"
+	baseline="$(task_root_efficiency_baseline_file "$root")"
+	metrics="$(task_root_efficiency_metrics_file "$root")"
+	total="$(root_processed_token_count "$root")"
+	facets="$(root_verified_facet_count "$root")"
+	episodes="$(root_agent_episode_count "$root")"
+	base_tokens="$total"; base_facets="$facets"; base_episodes="$episodes"
+	if [[ -f "$baseline" ]]; then
+		base_tokens="$(kv_file_value "$baseline" processed_tokens 2>/dev/null || printf '%s' "$total")"
+		base_facets="$(kv_file_value "$baseline" verified_facets 2>/dev/null || printf '%s' "$facets")"
+		base_episodes="$(kv_file_value "$baseline" agent_episodes 2>/dev/null || printf '%s' "$episodes")"
+	fi
+	for value_name in total facets episodes base_tokens base_facets base_episodes; do
+		[[ "${!value_name}" =~ ^[0-9]+$ ]] || printf -v "$value_name" 0
+	done
+	(( total >= base_tokens )) || base_tokens="$total"
+	(( facets >= base_facets )) || base_facets="$facets"
+	(( episodes >= base_episodes )) || base_episodes="$episodes"
+	delta_tokens=$((total - base_tokens))
+	delta_facets=$((facets - base_facets))
+	delta_episodes=$((episodes - base_episodes))
+	(( facets == 0 )) || ratio=$((total / facets))
+	(( delta_facets == 0 )) || delta_ratio=$((delta_tokens / delta_facets))
+	tmp="$metrics.tmp.$$"
+	{
+		printf 'task_root=%s\nupdated_at=%s\n' "$root" "$(timestamp_utc)"
+		printf 'total_processed_tokens=%s\nverified_facets=%s\nagent_episodes=%s\n' "$total" "$facets" "$episodes"
+		printf 'tokens_per_verified_facet=%s\n' "$ratio"
+		printf 'boundary_processed_tokens=%s\nboundary_verified_facets=%s\nboundary_agent_episodes=%s\n' "$base_tokens" "$base_facets" "$base_episodes"
+		printf 'tokens_since_verified_facet=%s\nepisodes_since_verified_facet=%s\nnewly_verified_facets=%s\n' "$delta_tokens" "$delta_episodes" "$delta_facets"
+		printf 'tokens_per_newly_verified_facet=%s\n' "$delta_ratio"
+	} > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$metrics"
+	refresh_project_efficiency_metrics
+}
+
+record_root_verified_facet_boundary()
+{
+	local root="$1" baseline tmp total facets episodes prior_tokens prior_facets delta_tokens delta_facets ratio ledger
+	root="$(task_root_id "$root")"
+	baseline="$(task_root_efficiency_baseline_file "$root")"
+	total="$(root_processed_token_count "$root")"
+	facets="$(root_verified_facet_count "$root")"
+	episodes="$(root_agent_episode_count "$root")"
+	if [[ -f "$baseline" ]]; then
+		prior_tokens="$(kv_file_value "$baseline" processed_tokens 2>/dev/null || printf '%s' "$total")"
+		prior_facets="$(kv_file_value "$baseline" verified_facets 2>/dev/null || printf '%s' "$facets")"
+		if [[ "$prior_tokens" =~ ^[0-9]+$ && "$prior_facets" =~ ^[0-9]+$ ]] && (( facets > prior_facets )); then
+			delta_tokens=$((total - prior_tokens)); delta_facets=$((facets - prior_facets)); ratio=$((delta_tokens / delta_facets))
+			ledger="$(project_verified_facet_efficiency_ledger_file)"
+			if [[ ! -f "$ledger" ]]; then
+				printf 'verified_at\ttask_root\tprocessed_tokens\tnewly_verified_facets\ttokens_per_verified_facet\n' > "$ledger"
+				chmod 600 "$ledger"
+			fi
+			printf '%s\t%s\t%s\t%s\t%s\n' "$(timestamp_utc)" "$root" "$delta_tokens" "$delta_facets" "$ratio" >> "$ledger"
+		fi
+	fi
+	tmp="$baseline.tmp.$$"
+	{
+		printf 'task_root=%s\nrecorded_at=%s\n' "$root" "$(timestamp_utc)"
+		printf 'processed_tokens=%s\n' "$total"
+		printf 'verified_facets=%s\n' "$facets"
+		printf 'agent_episodes=%s\n' "$episodes"
+	} > "$tmp"
+	chmod 600 "$tmp"
+	mv "$tmp" "$baseline"
+	refresh_root_efficiency_metrics "$root"
+}
+
+evaluate_tokens_without_verified_gain()
+{
+	local root="$1" baseline total facets episodes base_tokens base_facets base_episodes delta_tokens delta_episodes
+	local reason evidence marker
+	[[ "$HARNESS_IRREGULARITY_DETECTION_ENABLED" == 1 ]] || return 0
+	root="$(task_root_id "$root")"
+	baseline="$(task_root_efficiency_baseline_file "$root")"
+	if [[ ! -f "$baseline" ]]; then
+		# Lazy initialization prevents a deployment from treating historical
+		# activity as a fresh incident.
+		record_root_verified_facet_boundary "$root"
+		return 0
+	fi
+	total="$(root_processed_token_count "$root")"; facets="$(root_verified_facet_count "$root")"
+	episodes="$(root_agent_episode_count "$root")"
+	base_tokens="$(kv_file_value "$baseline" processed_tokens 2>/dev/null || printf '%s' "$total")"
+	base_facets="$(kv_file_value "$baseline" verified_facets 2>/dev/null || printf '%s' "$facets")"
+	base_episodes="$(kv_file_value "$baseline" agent_episodes 2>/dev/null || printf '%s' "$episodes")"
+	if (( facets > base_facets )); then
+		record_root_verified_facet_boundary "$root"
+		return 0
+	fi
+	delta_tokens=$((total - base_tokens)); delta_episodes=$((episodes - base_episodes))
+	refresh_root_efficiency_metrics "$root"
+	if (( delta_episodes >= HARNESS_MAX_EPISODES_WITHOUT_VERIFIED_FACET &&
+		delta_tokens >= HARNESS_MAX_TOKENS_WITHOUT_VERIFIED_FACET )); then
+		reason="$delta_episodes paid agent episodes consumed $delta_tokens processed tokens without verifying a new obligation facet"
+		evidence="baseline=$baseline metrics=$(task_root_efficiency_metrics_file "$root")"
+		marker="$(mark_root_architecture_reassessment "$root" TOKENS_WITHOUT_VERIFIED_GAIN "$reason" "$evidence")"
+		record_irregularity TASK_RESOURCE_ANOMALY TOKENS_WITHOUT_VERIFIED_GAIN "$root" "$root" "$reason" "$evidence" "$marker"
+		return 1
+	fi
+	return 0
+}
+
 worker_task_processed_token_count()
 {
 	local task_id="$1" ledger
@@ -2829,14 +3161,34 @@ worker_task_processed_token_count()
 record_root_agent_tokens()
 {
 	local task_id="$1" role="$2" classification="$3" root thread input output current
-	local token_dir thread_key thread_state prior delta ledger tmp
+	local token_dir thread_key thread_state prior delta ledger tmp class estimated authoritative delta_known
 	[[ -f "$classification" ]] || return 0
 	root="$(task_root_id "$task_id")"
+	class="$(kv_file_value "$classification" classification 2>/dev/null || true)"
 	thread="$(kv_file_value "$classification" thread_id 2>/dev/null || true)"
 	input="$(kv_file_value "$classification" input_tokens 2>/dev/null || true)"
 	output="$(kv_file_value "$classification" output_tokens 2>/dev/null || true)"
-	[[ -n "$thread" && "$input" =~ ^[0-9]+$ && "$output" =~ ^[0-9]+$ ]] || return 0
+	if [[ -z "$thread" || ! "$input" =~ ^[0-9]+$ || ! "$output" =~ ^[0-9]+$ ]]; then
+		if [[ "$class" == success ]]; then
+			mark_project_integrity_anomaly ACCOUNTING_INCONSISTENCY "$task_id" \
+				'successful agent episode has missing or malformed authoritative token usage' \
+				"role=$role classification=$classification thread=${thread:--} input=${input:--} output=${output:--}" >/dev/null
+		fi
+		return 0
+	fi
 	current=$((input + output))
+	estimated="$(kv_file_value "$classification" estimated_processed_tokens 2>/dev/null || printf 0)"
+	authoritative="$(kv_file_value "$classification" invocation_processed_delta 2>/dev/null || printf 0)"
+	delta_known="$(kv_file_value "$classification" invocation_delta_known 2>/dev/null || printf 0)"
+	if [[ "$estimated" =~ ^[0-9]+$ && "$authoritative" =~ ^[0-9]+$ ]] &&
+		(( estimated >= HARNESS_TOKEN_ACCOUNTING_MISMATCH_MIN_TOKENS &&
+		authoritative >= HARNESS_TOKEN_ACCOUNTING_MISMATCH_MIN_TOKENS )) &&
+		{ (( estimated * 100 > authoritative * HARNESS_TOKEN_ACCOUNTING_MISMATCH_PERCENT )) ||
+			(( authoritative * 100 > estimated * HARNESS_TOKEN_ACCOUNTING_MISMATCH_PERCENT )); }; then
+		mark_project_integrity_anomaly ACCOUNTING_INCONSISTENCY "$task_id" \
+			'estimated and authoritative token accounting differ beyond the configured ratio' \
+			"role=$role estimated=$estimated authoritative=$authoritative threshold_percent=$HARNESS_TOKEN_ACCOUNTING_MISMATCH_PERCENT classification=$classification" >/dev/null
+	fi
 	token_dir="$(project_dir)/control/agent-token-thread-state"
 	mkdir -p "$token_dir"
 	chmod 700 "$token_dir"
@@ -2849,6 +3201,13 @@ record_root_agent_tokens()
 	prior=0
 	[[ ! -f "$thread_state" ]] || prior="$(kv_file_value "$thread_state" processed_tokens 2>/dev/null || printf 0)"
 	[[ "$prior" =~ ^[0-9]+$ ]] || prior=0
+	if (( current < prior )); then
+		flock -u 7
+		mark_project_integrity_anomaly ACCOUNTING_INCONSISTENCY "$task_id" \
+			'authoritative cumulative token counter moved backwards' \
+			"role=$role thread=$thread prior=$prior current=$current classification=$classification" >/dev/null
+		return 0
+	fi
 	if (( current > prior )); then
 		if (( prior == 0 )) && [[ "$role" == manager* ]]; then
 			# A persistent manager thread may predate this release or this root.
@@ -2857,6 +3216,12 @@ record_root_agent_tokens()
 			delta=0
 		else
 			delta=$((current - prior))
+		fi
+		if [[ "$delta_known" == 1 && "$authoritative" =~ ^[0-9]+$ ]] &&
+			! { (( prior == 0 )) && [[ "$role" == manager* ]]; } && (( delta != authoritative )); then
+			mark_project_integrity_anomaly ACCOUNTING_INCONSISTENCY "$task_id" \
+				'root token-ledger delta disagrees with the invocation classifier delta' \
+				"role=$role thread=$thread prior=$prior current=$current ledger_delta=$delta invocation_delta=$authoritative classification=$classification" >/dev/null
 		fi
 		tmp="$thread_state.tmp.$$"
 		{
@@ -2878,6 +3243,7 @@ record_root_agent_tokens()
 		fi
 	fi
 	flock -u 7
+	evaluate_tokens_without_verified_gain "$root" || true
 }
 
 record_worker_complexity_observation()
@@ -2951,6 +3317,38 @@ record_worker_complexity_observation()
 		"$max_output" "$source_read_bytes" "$repeated_reads" "$changed_files" "$duration" "$class" "$changed_lines" \
 		"$planner_model" "$planner_effort" "$leaf_type" >> "$ledger"
 	flock -u 6
+}
+
+evaluate_worker_episode_irregularities()
+{
+	local task_id="$1" ledger output category reason evidence prior
+	local -A seen=()
+	[[ "$HARNESS_IRREGULARITY_DETECTION_ENABLED" == 1 ]] || return 1
+	ledger="$(project_dir)/logs/complexity-observations.tsv"
+	output="$(mktemp)"
+	if ! python3 "$HARNESS_HOME/tools/irregularity_detector.py" episode --observations "$ledger" \
+		--outcomes "$(project_dir)/logs/complexity-outcomes.tsv" \
+		--task "$task_id" --regression-percent "$HARNESS_RELATIVE_TOKEN_REGRESSION_PERCENT" \
+		--min-samples "$HARNESS_RELATIVE_TOKEN_HISTORY_MIN_SAMPLES" > "$output"; then
+		rm -f "$output"
+		return 1
+	fi
+	while IFS=$'\t' read -r category reason evidence; do
+		[[ -n "$category" && -z "${seen[$category]:-}" ]] || continue
+		seen["$category"]=1
+		prior=0
+		if [[ -f "$(project_irregularity_ledger_file)" ]]; then
+			prior="$(awk -F '\t' -v task="$task_id" -v category="$category" \
+				'NR>1 && $3==category && $4==task {count++} END {print count+0}' "$(project_irregularity_ledger_file)")"
+		fi
+		if (( prior + 1 >= HARNESS_EFFICIENCY_WARNING_REPEAT_LIMIT )); then
+			mark_task_resource_anomaly "$task_id" "$category" "$reason" "$evidence" >/dev/null
+		else
+			mark_efficiency_warning "$category" "$task_id" "$reason" "$evidence"
+		fi
+	done < "$output"
+	rm -f "$output"
+	task_has_resource_anomaly "$task_id"
 }
 
 record_worker_complexity_outcome()
@@ -3477,6 +3875,28 @@ root_auto_replans_without_verified_gain()
 		count=$((count + 1))
 	done
 	printf '%s\n' "$count"
+}
+
+evaluate_root_state_oscillation()
+{
+	local task_id="$1" root ledger target verified count reason evidence marker
+	[[ "$HARNESS_IRREGULARITY_DETECTION_ENABLED" == 1 ]] || return 0
+	root="$(task_root_id "$task_id")"
+	ledger="$(task_replan_ledger_file "$root")"
+	[[ -f "$ledger" ]] || return 0
+	target="$(metadata_value "$(project_dir)/tasks/$(task_base "$task_id").ready.md" Target-Criterion 2>/dev/null || true)"
+	[[ -n "$target" ]] || target="$(awk -F '\t' 'END {print $4}' "$ledger")"
+	verified="$(task_verified_item_count "$root")"
+	count="$(awk -F '\t' -v target="$target" -v verified="$verified" \
+		'NR>1 && $4==target && $10==verified {count++} END {print count+0}' "$ledger")"
+	if (( count >= HARNESS_MAX_STATE_OSCILLATIONS )); then
+		reason="root returned to the same target criterion $count times without new verified evidence"
+		evidence="target=$target verified_items=$verified ledger=$ledger limit=$HARNESS_MAX_STATE_OSCILLATIONS"
+		marker="$(mark_root_architecture_reassessment "$task_id" STATE_OSCILLATION "$reason" "$evidence")"
+		record_irregularity TASK_RESOURCE_ANOMALY STATE_OSCILLATION "$task_id" "$root" "$reason" "$evidence" "$marker"
+		return 1
+	fi
+	return 0
 }
 
 # Compatibility wrapper for integrations written against the original name.
@@ -5906,6 +6326,20 @@ terminate_descendants_of_pid()
 	kill -9 $descendants 2>/dev/null || true
 }
 
+write_irregularity_snapshot_fields()
+{
+	printf 'irregularity_detection_enabled=%s\n' "$HARNESS_IRREGULARITY_DETECTION_ENABLED"
+	printf 'relative_token_regression_percent=%s\n' "$HARNESS_RELATIVE_TOKEN_REGRESSION_PERCENT"
+	printf 'relative_token_history_min_samples=%s\n' "$HARNESS_RELATIVE_TOKEN_HISTORY_MIN_SAMPLES"
+	printf 'efficiency_warning_repeat_limit=%s\n' "$HARNESS_EFFICIENCY_WARNING_REPEAT_LIMIT"
+	printf 'max_episodes_without_verified_facet=%s\n' "$HARNESS_MAX_EPISODES_WITHOUT_VERIFIED_FACET"
+	printf 'max_tokens_without_verified_facet=%s\n' "$HARNESS_MAX_TOKENS_WITHOUT_VERIFIED_FACET"
+	printf 'token_accounting_mismatch_percent=%s\n' "$HARNESS_TOKEN_ACCOUNTING_MISMATCH_PERCENT"
+	printf 'token_accounting_mismatch_min_tokens=%s\n' "$HARNESS_TOKEN_ACCOUNTING_MISMATCH_MIN_TOKENS"
+	printf 'max_state_oscillations=%s\n' "$HARNESS_MAX_STATE_OSCILLATIONS"
+	printf 'max_patch_churn_rounds=%s\n' "$HARNESS_MAX_PATCH_CHURN_ROUNDS"
+}
+
 write_project_snapshot()
 {
 	local config tmp
@@ -5926,6 +6360,7 @@ write_project_snapshot()
 		printf 'repository_index_root=%s\n' "$HARNESS_REPOSITORY_INDEX_ROOT"
 		printf 'compile_commands=%s\n' "$HARNESS_COMPILE_COMMANDS"
 		printf 'semantic_continuation_review_enabled=%s\n' "$HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED"
+		write_irregularity_snapshot_fields
 		printf 'harness_home=%s\n' "$HARNESS_HOME"
 		printf 'harness_bin=%s\n' "$HARNESS_BIN"
 		printf 'project_tmp_dir=%s\n' "$(project_tmp_dir)"
@@ -5972,6 +6407,7 @@ write_manager_snapshot()
 		printf 'max_criterion_depth=%s\n' "$HARNESS_MAX_CRITERION_DEPTH"
 		printf 'max_root_lifetime_seconds=%s\n' "$HARNESS_MAX_ROOT_LIFETIME_SECONDS"
 		printf 'max_root_processed_tokens=%s\n' "$HARNESS_MAX_ROOT_PROCESSED_TOKENS"
+		write_irregularity_snapshot_fields
 		printf 'preferred_worker_route=%s\n' "$HARNESS_PREFERRED_WORKER_ROUTE"
 		printf 'agent_commits_enabled=%s\n' "$HARNESS_AGENT_COMMITS_ENABLED"
 		printf 'min_luna_node_percent=%s\n' "$HARNESS_MIN_LUNA_NODE_PERCENT"
@@ -6023,6 +6459,7 @@ write_worker_snapshot()
 		printf 'max_criterion_depth=%s\n' "$HARNESS_MAX_CRITERION_DEPTH"
 		printf 'max_root_lifetime_seconds=%s\n' "$HARNESS_MAX_ROOT_LIFETIME_SECONDS"
 		printf 'max_root_processed_tokens=%s\n' "$HARNESS_MAX_ROOT_PROCESSED_TOKENS"
+		write_irregularity_snapshot_fields
 		printf 'closure_mode_enabled=%s\n' "$HARNESS_CLOSURE_MODE_ENABLED"
 		printf 'closure_min_progress=%s\n' "$HARNESS_CLOSURE_MODE_MIN_PROGRESS"
 		printf 'closure_max_fixes=%s\n' "$HARNESS_CLOSURE_MODE_MAX_FIXES"

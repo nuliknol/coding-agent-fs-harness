@@ -37,6 +37,7 @@ else
 	plan_item_id="${4:-}"
 fi
 ensure_project
+require_no_project_integrity_anomaly
 require_registered_specification_ir
 trace_init manager_publish_task
 trace_script_start "$@"
@@ -905,13 +906,19 @@ validate_focused_validation_boundary()
 	validation_is_executable_command "$validation" ||
 		die 'Focused-Validation must be one machine-executable shell command without Markdown quoting or trailing prose; use Validation-Command to refine a descriptive DAG boundary'
 	if [[ "$lower" == *"cmake --build"* && "$lower" != *"--target"* ]]; then
+		mark_efficiency_warning VALIDATION_INFLATION "${task_id:--}" \
+			'focused leaf requested an unqualified CMake all-target build' "validation=$validation"
 		die 'FOCUSED validation cannot run an unqualified CMake all-target build; name the exact --target or use a separate CLEAN_GLOBAL Terra integration leaf'
 	fi
 	if [[ "$lower" == *"ctest"* && "$lower" != *" -r "* &&
 		"$lower" != *"--tests-regex"* ]]; then
+		mark_efficiency_warning VALIDATION_INFLATION "${task_id:--}" \
+			'focused leaf requested unfiltered CTest' "validation=$validation"
 		die 'FOCUSED validation cannot run unfiltered CTest; name an exact -R/--tests-regex selector or use CLEAN_GLOBAL validation'
 	fi
 	if [[ "$lower" == *"host-test-build"* || "$lower" == *"test-build"* ]]; then
+		mark_efficiency_warning VALIDATION_INFLATION "${task_id:--}" \
+			'focused leaf requested a repository-wide test-build target' "validation=$validation"
 		die 'FOCUSED validation cannot use a repository-wide test-build target; name the exact executable/test target or use CLEAN_GLOBAL validation'
 	fi
 }
@@ -2010,6 +2017,7 @@ if (( recovery_publish == 1 )); then
 		"$strategy_change" "$strategy_fingerprint" "$blocking_fingerprint" \
 		"$(task_passed_declared_criterion_count "$root")" \
 		"$(task_verified_item_count "$root")" >> "$replan_ledger"
+	evaluate_root_state_oscillation "$task_id" || true
 	if (( manager_remediation == 1 )); then
 		ensure_root_manager_remediation_ledger_schema "$root"
 		remediation_ledger="$(task_manager_remediation_ledger_file "$root")"
