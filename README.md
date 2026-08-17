@@ -268,6 +268,13 @@ unchanged restart refuses further agent calls. Thus only missing human
 authority is bounced as specification clarification; structural fitness is
 handled by the separate architecture gate below.
 
+The following Sol DAG-construction turn consumes a larger deterministic
+decomposition capsule containing the complete normalized obligation and typed
+relation projections plus the same selected repository and architecture
+evidence. It follows the same one-source bounded fallback policy. A
+command-output limit at this stage is also `RECOVERABLE`, with accepted
+architecture fit retained as its resume checkpoint.
+
 Before DAG registration, this dedicated Sol critic performs an evidence-backed
 architecture-fit review. If the accepted feature necessarily conflicts with a
 foundational ownership, transaction, migration, dependency-direction,

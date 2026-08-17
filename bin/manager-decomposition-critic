@@ -29,38 +29,86 @@ specification_review_report='-'
 repository_facts_file='-'
 specification_obligations_file_path='-'
 specification_relations_file_path='-'
-repository_inventory_file='-'
-domain_manifest_file='-'
-repository_architecture_slice='-'
+repository_architecture_slice=''
 if (( HARNESS_SPECIFICATION_REVIEW_ENABLED == 1 )); then
 	specification_review_is_accepted || die 'decomposition requires an accepted current specification review'
 	specification_review_report="$REPOSITORY/$(specification_review_state_value report)"
 	repository_facts_file="$REPOSITORY/$(specification_review_state_value facts)"
 	specification_obligations_file_path="$(specification_obligations_file)"
 	specification_relations_file_path="$(specification_relations_file)"
-	repository_inventory_file="$(specification_repository_inventory_file)"
-	domain_manifest_file="$(specification_domain_manifest_file)"
 fi
 if [[ -s "$dir/control/repository-architecture-slice.md" ]]; then
 	repository_architecture_slice="$dir/control/repository-architecture-slice.md"
 fi
-cat > "$prompt.tmp.$$" <<PROMPT
+decomposition_capsule="$dir/control/manager-decomposition.context.md"
+decomposition_slice_args=()
+[[ -z "$repository_architecture_slice" ]] || decomposition_slice_args=(--architecture-slice "$repository_architecture_slice")
+decomposition_authority_args=()
+architecture_fit_report_relative="$(architecture_fit_state_value report force-waiver)"
+if [[ "$architecture_fit_report_relative" != force-waiver && -f "$REPOSITORY/$architecture_fit_report_relative" ]]; then
+	decomposition_authority_args+=(--authority-file "$REPOSITORY/$architecture_fit_report_relative")
+fi
+architecture_redesign_report_relative="$(architecture_redesign_state_value report -)"
+if [[ "$architecture_redesign_report_relative" != - && -f "$REPOSITORY/$architecture_redesign_report_relative" ]]; then
+	decomposition_authority_args+=(--authority-file "$REPOSITORY/$architecture_redesign_report_relative")
+fi
+if [[ -f "$(architecture_redesign_force_file)" ]]; then
+	decomposition_authority_args+=(--authority-file "$(architecture_redesign_force_file)")
+fi
+python3 "$HARNESS_HOME/tools/build_architecture_fit_capsule.py" \
+	--purpose decomposition \
+	--project "$PROJECT" \
+	--specification-sha256 "$(specification_sha256)" \
+	--repository-baseline "$(specification_review_repository_baseline)" \
+	--domain-profiles-sha256 "$(domain_profiles_sha256)" \
+	--repository "$REPOSITORY" \
+	--review-report "$specification_review_report" \
+	--facts "$repository_facts_file" \
+	--obligations "$specification_obligations_file_path" \
+	--relations "$specification_relations_file_path" \
+	"${decomposition_slice_args[@]}" \
+	"${decomposition_authority_args[@]}" \
+	--max-bytes "$HARNESS_DECOMPOSITION_CAPSULE_MAX_BYTES" \
+	--output "$decomposition_capsule.tmp.$$"
+chmod 600 "$decomposition_capsule.tmp.$$"
+mv "$decomposition_capsule.tmp.$$" "$decomposition_capsule"
+decomposition_capsule_sha="$(sha256sum "$decomposition_capsule" | awk '{print $1}')"
+decomposition_implementation_sha="$({
+	sha256sum "$0" "$HARNESS_HOME/tools/build_architecture_fit_capsule.py" "$HARNESS_BIN/codex-exec-jsonl"
+	printf 'read_lines=%s\nread_bytes=%s\ncommand_bytes=%s\n' \
+		"$HARNESS_VALIDATION_OUTPUT_MAX_LINES" "$HARNESS_VALIDATION_OUTPUT_MAX_BYTES" \
+		"$HARNESS_MAX_AGENT_COMMAND_OUTPUT_BYTES"
+} | sha256sum | awk '{print $1}')"
+recovery_marker="$dir/control/startup-recoverable.env"
+if [[ -f "$recovery_marker" ]] &&
+	[[ "$(kv_file_value "$recovery_marker" state)" == RECOVERABLE ]] &&
+	[[ "$(kv_file_value "$recovery_marker" stage)" == decomposition ]] &&
+	[[ "$(kv_file_value "$recovery_marker" specification_sha256)" == "$(specification_sha256)" ]] &&
+	[[ "$(kv_file_value "$recovery_marker" repository_baseline)" == "$(specification_review_repository_baseline)" ]] &&
+	[[ "$(kv_file_value "$recovery_marker" domain_profiles_sha256)" == "$(domain_profiles_sha256)" ]] &&
+	[[ "$(kv_file_value "$recovery_marker" input_sha256)" == "$decomposition_capsule_sha" ]] &&
+	[[ "$(kv_file_value "$recovery_marker" harness_implementation_sha256)" == "$decomposition_implementation_sha" ]]; then
+	printf 'Decomposition startup remains recoverable; refusing to replay the unchanged failed input. Fix or update the harness, then restart: %s\n' "$recovery_marker" >&2
+	exit 7
+elif [[ -f "$recovery_marker" ]]; then
+	resolved_marker="$dir/logs/startup-recovery-resumed-$(timestamp_compact_utc)-$$.env"
+	mv "$recovery_marker" "$resolved_marker"
+	log_event "STARTUP_RECOVERY_RESUMED stage=decomposition prior=$resolved_marker resume_from=accepted_architecture_fit input=$decomposition_capsule"
+fi
+{
+cat <<PROMPT
 You are the fresh DAG construction planner for a filesystem-backed coding harness. Do not edit the repository.
 
 ENV_FILE=$HARNESS_ENV_FILE
 HARNESS_BIN=$HARNESS_BIN
 PROJECT=$PROJECT
 REPOSITORY=$REPOSITORY
-SPECIFICATION=$SPECIFICATION
-SPECIFICATION_REVIEW_REPORT=$specification_review_report
-REPOSITORY_FACTS_FILE=$repository_facts_file
-SPECIFICATION_OBLIGATIONS_FILE=$specification_obligations_file_path
-SPECIFICATION_RELATIONS_FILE=$specification_relations_file_path
-REPOSITORY_INVENTORY_FILE=$repository_inventory_file
-DOMAIN_PROFILE_MANIFEST=$domain_manifest_file
-REPOSITORY_ARCHITECTURE_SLICE=$repository_architecture_slice
+DECOMPOSITION_CAPSULE_FILE=$decomposition_capsule
+DECOMPOSITION_CAPSULE_SHA256=$decomposition_capsule_sha
 PROJECT_TMP_DIR=$PROJECT_TMP_DIR
 AGENT_PHASE=decomposition
+REVIEW_READ_MAX_LINES=$HARNESS_VALIDATION_OUTPUT_MAX_LINES
+REVIEW_READ_MAX_BYTES=$HARNESS_VALIDATION_OUTPUT_MAX_BYTES
 ARCHITECTURE_GUARDS=$HARNESS_ARCHITECTURE_GUARDS
 MAX_LUNA_ALLOWED_PATHS=$HARNESS_MAX_LUNA_ALLOWED_PATHS
 MAX_LUNA_OBLIGATIONS_PER_LEAF=$HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF
@@ -81,7 +129,6 @@ ARCHITECTURE_REDESIGN_REPORT=$(architecture_redesign_state_value report -)
 ARCHITECTURE_FORCE_WAIVER=$(architecture_redesign_force_file)
 ARCHITECTURE_FORCE_WAIVER_ID=$(kv_file_value "$(architecture_redesign_force_file)" waiver_id 2>/dev/null || printf '-')
 ARCHITECTURE_FORCE_DEBT_EXPIRES_AT=$(date -u -d '+30 days' +%Y-%m-%d)
-ARCHITECTURE_FIT_REPORT=$(architecture_fit_state_value report force-waiver)
 
 The separate Sol architecture-fit transaction already challenged the governing specification, normalized IR, and foundational repository boundaries. Its durable decision is authoritative for this baseline. Do not repeat specification clarification, IR renormalization, or architecture-redesign analysis in this turn. Do not inspect harness source. Proceed directly to DAG construction.
 
@@ -91,7 +138,9 @@ When FORCE_DECOMPOSITION=1, a human has explicitly waived a matching redesign re
 
 The accepted review, normalized IR, and architecture-fit review have survived the independent challenge, or a matching force waiver has converted every blocker into prerequisite remediation. Construct and submit the DAG now.
 
-Read the accepted specification review, normalized obligations, typed semantic relations, repository facts, selected domain-profile manifest, REPOSITORY_ARCHITECTURE_SLICE when it is not '-', and ARCHITECTURE_FIT_REPORT. These are the bounded semantic capsule. The architecture slice is deterministic structural navigation evidence: use its build ownership, public-interface candidates, high-fanout seams, and focused-test map to choose cohesive boundaries, but do not treat inferred structure as normative authority. Search the repository inventory only for exact paths or symbols needed by a node; never print or read the complete inventory, complete development policy, harness implementation, unrelated Git history, or broad source trees. Retain verbose command output in files and return bounded excerpts. Treat OBSERVED repository facts as evidence, INFERRED facts as hypotheses to verify, and PLANNING_HINT facts as advisory only. Produce a topologically ordered decomposition DAG with this exact tab-separated header:
+Reason from the deterministic decomposition capsule embedded below. It is the complete planning evidence surface compiled from accepted normalized obligations and typed relations, accepted repository facts, exact selected source evidence, indexed architecture facts, and accepted architecture-fit/force decisions. Do not open or reread DECOMPOSITION_CAPSULE_FILE through shell commands. Do not open the human specification, specification review report, facts/obligations/relations/inventory files, domain profiles, complete architecture slice, architecture-fit/redesign reports, development policy, harness implementation, prior logs, unrelated Git history, or broad source trees. Treat OBSERVED repository facts as evidence, INFERRED facts as hypotheses, and PLANNING_HINT facts as advisory only.
+
+Only when the capsule leaves one exact path or symbol necessary to make a node executable may you inspect repository source. Inspect exactly one source file and one exact source window in that shell action, only at a repository path already named by the capsule. Every shell read has one content source only and must end with both `head -n $HARNESS_VALIDATION_OUTPUT_MAX_LINES` and `head -c $HARNESS_VALIDATION_OUTPUT_MAX_BYTES`. Never use cat for source or document inspection. Never use unbounded sed, awk, rg, grep, find, git diff, compiler output, or test output. Never concatenate, loop over, or combine multiple source/document reads in one action. Every shell action has one aggregate hard transcript budget of REVIEW_READ_MAX_LINES lines and REVIEW_READ_MAX_BYTES bytes across stdout and stderr. If the capsule cannot close a proposed leaf after one exact excerpt, split or route the unresolved boundary explicitly; do not explore the repository interactively. Produce a topologically ordered decomposition DAG with this exact tab-separated header:
 
 Preserve specification-declared component ownership and principal source paths. Before staging every contract, architecture, producer, adopter, or delivery node, trace its allocated obligations back to any exact component-definition or principal-source-path declaration at their source locations. The node's allowed_paths and required_symbols must include the implementation seam owned by that component; a similarly named downstream compiler, transport, facade, or presentation surface is not a substitute. Split producer/adopter work from delivery work when the specification assigns them to different components. If the repository facts disagree with a governing component declaration, challenge or renormalize the authority instead of silently rebinding the work.
 
@@ -120,7 +169,7 @@ Also produce SPECIFICATION_COVERAGE_FILE with exactly this tab-separated header:
 
 obligation_id<TAB>node_ids<TAB>evidence_plan
 
-Include exactly one row for every obligation in SPECIFICATION_OBLIGATIONS_FILE. node_ids is a comma-separated list of DAG nodes whose combined accepted evidence proves that obligation. Every DAG node must appear in at least one coverage row, so the plan cannot invent unrelated work. evidence_plan names the deterministic node evidence and final integration evidence that will discharge the obligation. Respect typed relations: dependency relations constrain order; MAY_DEVELOP_INDEPENDENTLY does not create a false prerequisite; INTEGRATION_DEPENDENCY_ONLY permits isolated fixture work but requires an actual-producer integration node; REGRESSION_BOUNDARY and FINAL_HEALTH_DEPENDENCY require corresponding validation nodes. Repository-derived and planning-hint relations may guide decomposition but cannot override normative authority.
+Include exactly one row for every obligation in the capsule's complete normalized obligation projection. node_ids is a comma-separated list of DAG nodes whose combined accepted evidence proves that obligation. Every DAG node must appear in at least one coverage row, so the plan cannot invent unrelated work. evidence_plan names the deterministic node evidence and final integration evidence that will discharge the obligation. Respect typed relations: dependency relations constrain order; MAY_DEVELOP_INDEPENDENTLY does not create a false prerequisite; INTEGRATION_DEPENDENCY_ONLY permits isolated fixture work but requires an actual-producer integration node; REGRESSION_BOUNDARY and FINAL_HEALTH_DEPENDENCY require corresponding validation nodes. Repository-derived and planning-hint relations may guide decomposition but cannot override normative authority.
 
 Draft each node with a local authority-closure check, then stage the complete DAG and coverage immediately. Do not perform a second global replay of all obligations, relations, route counts, or validator rules inside this turn; the staging command performs deterministic global checks after preserving the candidate, and a fresh bounded repair turn handles any reported defect. This staging boundary is mandatory before further critique. Do not manually read harness source or manually replay deterministic validators.
 
@@ -132,6 +181,9 @@ $HARNESS_BIN/manager-stage-decomposition-dag "$HARNESS_ENV_FILE" DAG_FILE SPECIF
 
 After the command succeeds, terminate. Do not publish a worker task, construct architecture bindings, wait, poll, or modify repository files.
 PROMPT
+printf '\n## Embedded deterministic decomposition capsule\n\n'
+cat "$decomposition_capsule"
+} > "$prompt.tmp.$$"
 chmod 600 "$prompt.tmp.$$"
 mv "$prompt.tmp.$$" "$prompt"
 
@@ -199,6 +251,33 @@ while true; do
 		exit 4
 	fi
 	classification="$(kv_file_value "${json%.jsonl}.classification" classification 2>/dev/null || true)"
+	if [[ "$classification" == agent_command_output_budget_exceeded ]]; then
+		classification_file="${json%.jsonl}.classification"
+		{
+			printf 'state=RECOVERABLE\n'
+			printf 'stage=decomposition\n'
+			printf 'resume_from=accepted_architecture_fit\n'
+			printf 'classification=%s\n' "$classification"
+			printf 'offending_input=%s\n' "$decomposition_capsule"
+			printf 'input_sha256=%s\n' "$decomposition_capsule_sha"
+			printf 'prompt=%s\n' "$prompt"
+			printf 'prompt_sha256=%s\n' "$(sha256sum "$prompt" | awk '{print $1}')"
+			printf 'classification_file=%s\n' "$classification_file"
+			printf 'jsonl=%s\n' "$json"
+			printf 'specification_review_report=%s\n' "$(specification_review_report_relative_path)"
+			printf 'architecture_fit_report=%s\n' "$(architecture_fit_state_value report force-waiver)"
+			printf 'specification_sha256=%s\n' "$(specification_sha256)"
+			printf 'repository_baseline=%s\n' "$(specification_review_repository_baseline)"
+			printf 'domain_profiles_sha256=%s\n' "$(domain_profiles_sha256)"
+			printf 'harness_implementation_sha256=%s\n' "$decomposition_implementation_sha"
+			printf 'recorded_at=%s\n' "$(timestamp_utc)"
+		} > "$recovery_marker.tmp.$$"
+		chmod 600 "$recovery_marker.tmp.$$"
+		mv "$recovery_marker.tmp.$$" "$recovery_marker"
+		log_event "STARTUP_RECOVERABLE stage=decomposition classification=$classification input=$decomposition_capsule input_sha256=$decomposition_capsule_sha classification_file=$classification_file resume_from=accepted_architecture_fit"
+		printf 'Decomposition startup paused recoverably after a command-output limit hit; accepted architecture fit is preserved: %s\n' "$recovery_marker" >&2
+		exit 7
+	fi
 	retry_kind="$(codex_provider_retry_kind "$classification" 2>/dev/null || true)"
 	if [[ -n "$retry_kind" ]]; then
 		delay="$(codex_provider_retry_delay "$classification")"

@@ -210,6 +210,73 @@ fit_relative="$($HARNESS_BIN/manager-record-architecture-fit "$env_file" "$fit_r
 [[ "$fit_relative" == architecture-review/architecture-fit-* ]]
 grep -Fqx 'status=ACCEPTED' "$project_dir/control/architecture-fit-review.env"
 
+# DAG construction receives its own compiled capsule and applies the same
+# recoverable no-replay behavior at the next Sol startup boundary.
+decomposition_guard_mock="$TEST_ROOT/decomposition-guard-codex"
+decomposition_guard_env="$TEST_ROOT/configs/startup-decomposition-guard.env"
+decomposition_guard_count="$TEST_ROOT/decomposition-guard-count"
+cat > "$decomposition_guard_mock" <<'MOCK'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+prompt="$(cat)"
+last_message=""
+take_last=0
+for argument in "$@"; do
+	if (( take_last )); then last_message="$argument"; take_last=0; continue; fi
+	[[ "$argument" != --output-last-message ]] || take_last=1
+done
+grep -Fq '## Embedded deterministic decomposition capsule' <<< "$prompt"
+grep -Fq '# Deterministic Decomposition Capsule' <<< "$prompt"
+grep -Fq '## Complete normalized typed relation projection' <<< "$prompt"
+grep -Fq 'Every shell read has one content source only' <<< "$prompt"
+grep -Fq 'Never use cat for source or document inspection' <<< "$prompt"
+if grep -Eq '^(SPECIFICATION|SPECIFICATION_REVIEW_REPORT|REPOSITORY_FACTS_FILE|SPECIFICATION_OBLIGATIONS_FILE|SPECIFICATION_RELATIONS_FILE|REPOSITORY_INVENTORY_FILE|REPOSITORY_ARCHITECTURE_SLICE|ARCHITECTURE_FIT_REPORT)=' <<< "$prompt"; then
+	printf 'decomposition prompt exposed raw global inputs\n' >&2
+	exit 90
+fi
+count=0
+[[ ! -f "$DECOMPOSITION_GUARD_COUNT" ]] || count="$(<"$DECOMPOSITION_GUARD_COUNT")"
+printf '%s\n' "$((count + 1))" > "$DECOMPOSITION_GUARD_COUNT"
+printf 'guarded\n' > "$last_message"
+printf '%s\n' '{"type":"thread.started","thread_id":"decomposition-guard"}'
+printf '{"type":"item.completed","item":{"type":"command_execution","command":"unbounded-read","aggregated_output":"'
+printf '%32769s' ''
+printf '%s\n' '"}}'
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}'
+MOCK
+chmod +x "$decomposition_guard_mock"
+sed "s#export MANAGER_CODEX_BIN=\"/bin/false\"#export MANAGER_CODEX_BIN=\"$decomposition_guard_mock\"#" \
+	"$env_file" > "$decomposition_guard_env"
+printf 'export DECOMPOSITION_GUARD_COUNT="%s"\n' "$decomposition_guard_count" >> "$decomposition_guard_env"
+chmod 600 "$decomposition_guard_env"
+set +e
+"$HARNESS_BIN/manager-decomposition-critic" "$decomposition_guard_env" \
+	> "$TEST_ROOT/decomposition-guard.out" 2> "$TEST_ROOT/decomposition-guard.err"
+decomposition_guard_status=$?
+set -e
+(( decomposition_guard_status == 7 ))
+grep -Fq 'paused recoverably after a command-output limit hit' "$TEST_ROOT/decomposition-guard.err"
+recovery_marker="$project_dir/control/startup-recoverable.env"
+grep -Fqx 'state=RECOVERABLE' "$recovery_marker"
+grep -Fqx 'stage=decomposition' "$recovery_marker"
+grep -Fqx 'resume_from=accepted_architecture_fit' "$recovery_marker"
+grep -Fqx 'classification=agent_command_output_budget_exceeded' "$recovery_marker"
+grep -Fqx 'status=ACCEPTED' "$project_dir/control/architecture-fit-review.env"
+decomposition_capsule="$project_dir/control/manager-decomposition.context.md"
+test -s "$decomposition_capsule"
+(( $(stat -c %s "$decomposition_capsule") <= 65536 ))
+cp "$decomposition_capsule" "$TEST_ROOT/decomposition-capsule-first.md"
+set +e
+"$HARNESS_BIN/manager-decomposition-critic" "$decomposition_guard_env" \
+	> "$TEST_ROOT/decomposition-guard-replay.out" 2> "$TEST_ROOT/decomposition-guard-replay.err"
+decomposition_guard_replay_status=$?
+set -e
+(( decomposition_guard_replay_status == 7 ))
+grep -Fq 'refusing to replay the unchanged failed input' "$TEST_ROOT/decomposition-guard-replay.err"
+grep -Fqx '1' "$decomposition_guard_count"
+cmp -s "$decomposition_capsule" "$TEST_ROOT/decomposition-capsule-first.md"
+rm -f "$recovery_marker"
+
 cat > "$TEST_ROOT/dag.tsv" <<'EOF'
 node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route	behavioral_concerns	failure_paths	ownership_transitions	concurrency_boundaries	validation_surfaces	implementation_files	predicted_worker_actions	predicted_p95_tokens	terra_exception
 n01	-	-	Implement target behavior	Focused source exists	test -f src/a.c	src/a.c	target	LOCAL_IMPLEMENTATION	LOW	LUNA	1	0	0	0	1	1	4	100000	-
