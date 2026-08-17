@@ -1205,7 +1205,8 @@ bounded_context_emit_tsv_rows_for_ids()
 # planning agent to inspect repository source or guess its working directory.
 emit_plan_node_build_context()
 {
-	local node_contract="$1" cmake_file root target found=0
+	local node_contract="$1" node_validation cmake_file root target found=0 candidate
+	node_validation="$(awk -F '\t' '{print $6; exit}' <<< "$node_contract")"
 	printf '\n## Deterministic build-system boundaries\n\n'
 	printf 'Shell commands execute from the repository root unless they begin with an explicit `cd`. A CMake source path of `.` is valid only when `.` is listed below. Configure every new static build directory in the same validation command before building it.\n\n'
 	printf '### CMake source roots\n\n```text\n'
@@ -1218,9 +1219,20 @@ emit_plan_node_build_context()
 	printf '```\n\n### Validation targets named by this node\n\n```tsv\n'
 	printf 'target\tcmake_source_root\n'
 	while IFS=$'\t' read -r target cmake_file; do
-		[[ -n "$target" && "$node_contract" == *"$target"* ]] || continue
-		root="${cmake_file%/CMakeLists.txt}"
-		[[ "$root" != "$cmake_file" ]] || root='.'
+		[[ -n "$target" ]] || continue
+		tr -cs 'A-Za-z0-9_.:+-' '\n' <<< "$node_validation" | grep -Fqx -- "$target" || continue
+		root='.'
+		if [[ "$cmake_file" == */* ]]; then
+			candidate="${cmake_file%/*}"
+			while [[ -n "$candidate" && "$candidate" != . ]]; do
+				if [[ -f "$REPOSITORY/$candidate/CMakeLists.txt" ]]; then
+					root="$candidate"
+					break
+				fi
+				[[ "$candidate" == */* ]] || break
+				candidate="${candidate%/*}"
+			done
+		fi
 		printf '%s\t%s\n' "$target" "$root"
 		found=1
 	done < <(
@@ -1233,7 +1245,7 @@ emit_plan_node_build_context()
 					printf "%s\t%s\n",value,file
 				}
 			' "$REPOSITORY/$cmake_file"
-		done < <(git -C "$REPOSITORY" ls-files -- 'CMakeLists.txt' ':(glob)**/CMakeLists.txt' | sort -u)
+		done < <(git -C "$REPOSITORY" ls-files -- 'CMakeLists.txt' ':(glob)**/CMakeLists.txt' '*.cmake' ':(glob)**/*.cmake' | sort -u)
 	)
 	(( found == 1 )) || printf '%s\t%s\n' '<none-detected>' '-'
 	printf '```\n'

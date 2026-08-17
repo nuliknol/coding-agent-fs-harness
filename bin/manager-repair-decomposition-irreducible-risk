@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 1 ]] || { printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+project_plan_exists && exit 1
+decomposition_dag_candidate_matches_current_inputs || exit 1
+[[ "$(decomposition_dag_candidate_state_value status)" == REJECTED ]] || exit 1
+
+candidate_dir="$(decomposition_dag_candidate_state_value directory)"
+complexity_report="$candidate_dir/complexity.tsv"
+complexity_state="$(project_dir)/control/complexity-decomposition-state.env"
+[[ -s "$complexity_report" && -f "$complexity_state" ]] || exit 1
+passes="$(kv_file_value "$complexity_state" passes 2>/dev/null || printf 0)"
+previous_candidate="$(kv_file_value "$complexity_state" candidate 2>/dev/null || true)"
+[[ "$passes" =~ ^[0-9]+$ ]] || passes=0
+(( passes >= 2 )) || exit 1
+[[ -n "$previous_candidate" && "$previous_candidate" != "${candidate_dir##*/}" ]] || exit 1
+
+# After two bounded Sol split passes, a one-obligation, one-path, one-file leaf
+# whose sole remaining violation is textual cross-boundary risk is already at
+# the smallest executable boundary. Escalate only that exact shape to the
+# contract's explicit irreducible Terra integration route.
+awk -F '\t' '
+	NR == 1 {next}
+	$19 == "READY" {next}
+	{
+		seen++
+		if ($2 != "LUNA" || $19 != "OVER_BUDGET" ||
+			$5 != 1 || $7 != 1 || $14 != 1 ||
+			$20 !~ /^risk_domains=[0-9]+>[0-9]+$/) invalid=1
+	}
+	END {exit !(seen > 0 && invalid == 0)}
+' "$complexity_report" || exit 1
+
+repair_dir="$PROJECT_TMP_DIR/decomposition-irreducible-risk-${candidate_dir##*/}"
+rm -rf -- "$repair_dir"
+mkdir -p "$repair_dir"
+install -m 600 "$candidate_dir/coverage.tsv" "$repair_dir/coverage.tsv"
+awk -F '\t' -v OFS='\t' -v report="$complexity_report" '
+	BEGIN {
+		while ((getline < report) > 0) if ($19 == "OVER_BUDGET") promote[$1]=1
+	}
+	NR == 1 {print; next}
+	$1 in promote {
+		$9="INTEGRATION"
+		$10="HIGH"
+		$11="TERRA"
+		$20="IRREDUCIBLE_CROSS_BOUNDARY"
+		converted++
+	}
+	{print}
+	END {exit converted == length(promote) ? 0 : 1}
+' "$candidate_dir/dag.tsv" > "$repair_dir/dag.tsv"
+chmod 600 "$repair_dir/dag.tsv"
+
+"$HARNESS_BIN/manager-stage-decomposition-dag" "$HARNESS_ENV_FILE" \
+	"$repair_dir/dag.tsv" "$repair_dir/coverage.tsv"
+decomposition_dag_candidate_matches_current_inputs ||
+	die 'irreducible-risk normalization did not create a current DAG candidate'
+[[ "$(decomposition_dag_candidate_state_value status)" == STAGED ]] ||
+	die 'irreducible-risk normalization did not produce a bindable staged DAG'
+log_event "DECOMPOSITION_IRREDUCIBLE_RISK_NORMALIZED source=$candidate_dir"
+printf 'Irreducible one-file risk boundaries normalized to Terra integration leaves.\n'

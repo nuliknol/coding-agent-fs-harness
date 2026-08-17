@@ -300,6 +300,13 @@ while ! project_plan_exists; do
 			[[ "$(decomposition_dag_candidate_state_value status)" == REJECTED ]]; then
 			dag_rejection_log="$(decomposition_dag_candidate_state_value rejection_log "$(decomposition_dag_candidate_state_value directory)/rejection.log")"
 			if [[ -f "$dag_rejection_log" ]] &&
+				grep -Eq 'LUNA_COMPLEXITY_OVER_BUDGET .*status=OVER_BUDGET violations=risk_domains=[0-9]+>[0-9]+' "$dag_rejection_log"; then
+				printf 'Checking exhausted one-file risk boundaries for deterministic Terra escalation.\n'
+				if "$HARNESS_BIN/manager-repair-decomposition-irreducible-risk" "$HARNESS_ENV_FILE"; then
+					continue
+				fi
+			fi
+			if [[ -f "$dag_rejection_log" ]] &&
 				grep -Eq '^ERROR: DAG node is not justified by a normalized specification obligation: ' "$dag_rejection_log"; then
 				printf 'Repairing omitted executable-node coverage without an agent turn.\n'
 				if "$HARNESS_BIN/manager-repair-decomposition-coverage" "$HARNESS_ENV_FILE"; then

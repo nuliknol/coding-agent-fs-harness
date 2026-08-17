@@ -13,12 +13,13 @@ fi
 
 repo="$TEST_ROOT/repo"
 state="$TEST_ROOT/state"
-mkdir -p "$repo/src" "$repo/dplm" "$repo/spec-review" "$TEST_ROOT/configs" "$TEST_ROOT/manager-home" "$TEST_ROOT/worker-home"
+mkdir -p "$repo/src" "$repo/dplm/cmake" "$repo/spec-review" "$TEST_ROOT/configs" "$TEST_ROOT/manager-home" "$TEST_ROOT/worker-home"
 printf 'REQ-ONE: implement one bounded behavior.\n' > "$repo/spec.md"
 printf 'int target(void) { return 0; }\n' > "$repo/src/a.c"
-printf 'add_library(target STATIC ../src/a.c)\n' > "$repo/dplm/CMakeLists.txt"
+printf 'include(cmake/targets.cmake)\n' > "$repo/dplm/CMakeLists.txt"
+printf 'add_library(target STATIC ../../src/a.c)\n' > "$repo/dplm/cmake/targets.cmake"
 git -C "$repo" init -q
-git -C "$repo" add spec.md src/a.c dplm/CMakeLists.txt
+git -C "$repo" add spec.md src/a.c dplm/CMakeLists.txt dplm/cmake/targets.cmake
 git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm seed
 
 env_file="$TEST_ROOT/configs/startup.env"
@@ -793,6 +794,36 @@ grep -Fqx 'status=REPAIR_ROUTED' "$project_dir/control/decomposition-candidate.e
 grep -Fqx 'repair_route=recursive_decomposition' "$project_dir/control/decomposition-candidate.env"
 grep -Fqx 'status=REJECTED' "$project_dir/control/decomposition-dag-candidate.env"
 
+# Exhausted one-file leaves with only cross-boundary risk remaining are
+# deterministically escalated instead of entering a dead-end Sol split loop.
+awk -F '\t' 'BEGIN {OFS=FS} $1=="n01" {$4="Allocation failure leaves output unpublished"; $5="Failure returns without publishing ownership"; $6="test allocation failure"; $12=1; $13=1; $14=0; $15=0; $16=1} {print}' \
+	"$TEST_ROOT/dag.tsv" > "$TEST_ROOT/irreducible-risk-dag.tsv"
+set +e
+"$HARNESS_BIN/manager-stage-decomposition-dag" "$env_file" \
+	"$TEST_ROOT/irreducible-risk-dag.tsv" "$TEST_ROOT/coverage.tsv" >/dev/null 2>&1
+irreducible_risk_status=$?
+set -e
+(( irreducible_risk_status != 0 ))
+risk_candidate="$(awk -F= '$1=="directory" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
+grep -Eq '^LUNA_COMPLEXITY_OVER_BUDGET .*violations=risk_domains=[0-9]+>[0-9]+' "$risk_candidate/rejection.log"
+cat > "$project_dir/control/complexity-decomposition-state.env" <<EOF
+input_key=test
+candidate=prior-candidate
+excess=1
+scope=1
+max_score=1
+max_actions=1
+max_p95=1
+measurable=1
+passes=2
+updated_at=2026-08-16T00:00:00Z
+EOF
+"$HARNESS_BIN/manager-repair-decomposition-irreducible-risk" "$env_file" >/dev/null
+grep -Fqx 'status=STAGED' "$project_dir/control/decomposition-dag-candidate.env"
+risk_repaired_candidate="$(awk -F= '$1=="directory" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
+awk -F '\t' '$1=="n01" && $9=="INTEGRATION" && $10=="HIGH" && $11=="TERRA" && $20=="IRREDUCIBLE_CROSS_BOUNDARY" {found=1} END {exit !found}' \
+	"$risk_repaired_candidate/dag.tsv"
+
 # A killed submission may leave a complete staged candidate before plan
 # installation. Startup must report the failure, then recover it without a new
 # model invocation.
@@ -837,8 +868,13 @@ bash -c 'source "$1"; load_harness_env "$2"; write_plan_node_context_capsule "$3
 	"$HARNESS_HOME/lib/harness-common.sh" "$env_file" "$plan_context"
 grep -Fqx '## Deterministic build-system boundaries' "$plan_context"
 grep -Fqx 'dplm' "$plan_context"
-grep -Fqx $'target\tdplm' "$plan_context"
+grep -Fqx $'<none-detected>\t-' "$plan_context"
 (( $(stat -c %s "$plan_context") <= 65536 ))
+synthetic_contract="$(awk -F '\t' 'BEGIN {OFS=FS} $1=="n01" {$6="cmake --build /tmp/build --target target"; print; exit}' "$TEST_ROOT/dag.tsv")"
+build_context="$TEST_ROOT/deterministic-build-context.md"
+bash -c 'source "$1"; load_harness_env "$2"; emit_plan_node_build_context "$3"' _ \
+	"$HARNESS_HOME/lib/harness-common.sh" "$env_file" "$synthetic_contract" > "$build_context"
+grep -Fqx $'target\tdplm' "$build_context"
 # A broad parent obligation may span ownership, error, and telemetry domains.
 # Its focused child does not inherit those words for risk-domain scoring; full
 # obligation coverage remains mandatory through the separate coverage table.
