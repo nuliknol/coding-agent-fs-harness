@@ -39,5 +39,10 @@ validation_is_executable_command "$validation" ||
 
 # Execute the complete machine-recorded expression inside the capture wrapper.
 # Shell operators therefore cannot escape logging through the caller's shell.
+# Validation commands are specified relative to the repository root.  This
+# runner is also called directly by worker-invoke-task, whose persistent
+# supervisor may have been launched from HARNESS_HOME or another directory;
+# never inherit that unrelated working directory.
+cd "$REPOSITORY"
 exec "$HARNESS_BIN/harness-run-logged" "$HARNESS_ENV_FILE" "$task_id" "$label" -- \
 	/bin/bash -lc "$validation"

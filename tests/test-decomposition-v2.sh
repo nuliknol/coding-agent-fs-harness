@@ -195,9 +195,9 @@ test "$(wc -l < "$logged_path")" -eq 2000
 # logical operator cannot escape output capture in the caller's shell.
 cat > "$project_dir/archive/decompv2-task-compound.assignment.md" <<'ASSIGNMENT'
 Task-ID: compound
-Focused-Validation: printf 'first\n' && for i in $(seq 1 2000); do printf 'second verbose line %s\n' "$i"; done
+Focused-Validation: test "$PWD" = "$REPOSITORY" && printf 'first\n' && for i in $(seq 1 2000); do printf 'second verbose line %s\n' "$i"; done
 ASSIGNMENT
-assigned_output="$("$HARNESS_BIN/harness-run-assigned-validation" \
+assigned_output="$(cd / && "$HARNESS_BIN/harness-run-assigned-validation" \
 	"$TEST_ROOT/harness.env" compound assigned-compound)"
 grep -Fq 'VALIDATION_LOG label=assigned-compound exit=0 lines=2001' <<< "$assigned_output"
 (( ${#assigned_output} <= 40000 ))
