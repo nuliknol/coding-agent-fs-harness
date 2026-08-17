@@ -520,6 +520,7 @@ context_expansion_pending=0
 context_followup_prompt=""
 followup_reason=""
 patch_validation_round=0
+patch_format_round=0
 patch_last_diagnostic_fingerprint=""
 patch_repair_ledger="$dir/control/progress/$base.patch-only-repairs.tsv"
 if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only && "$worker_route" == LUNA ]]; then
@@ -920,8 +921,30 @@ while true; do
 				fi
 			fi
 		else
-			log_event "PATCH_ONLY_REJECTED task=$task_id reason=$(printf '%q' "$patch_apply_output")"
-			{
+			patch_format_repair_ready=0
+			if (( context_request_status != 2 &&
+				patch_format_round + 1 < HARNESS_PATCH_ONLY_MAX_VALIDATION_ROUNDS )) &&
+				{ [[ "$observed_thread_id" =~ ^[A-Za-z0-9-]+$ ]] ||
+				[[ "$worker_resume_thread_id" =~ ^[A-Za-z0-9-]+$ ]]; }; then
+				patch_format_round=$((patch_format_round + 1))
+				context_followup_prompt="$PROJECT_TMP_DIR/$base.patch-format-followup-$patch_format_round.md"
+				{
+					printf 'The trusted patch parser rejected fenced diff format round %s of %s. No source mutation occurred. Re-emit the same intended bounded change as exactly one complete fenced Git unified diff; include file headers and valid hunk counts. Do not inspect files, change scope, request general context, or add prose outside the required terminal metadata. Parser diagnostic:\n\n' \
+						"$patch_format_round" "$((HARNESS_PATCH_ONLY_MAX_VALIDATION_ROUNDS - 1))"
+					printf '%s\n' "$patch_apply_output" |
+						head -n "$HARNESS_VALIDATION_OUTPUT_MAX_LINES" |
+						head -c "$HARNESS_VALIDATION_OUTPUT_MAX_BYTES" || true
+				} > "$context_followup_prompt.tmp.$$"
+				chmod 600 "$context_followup_prompt.tmp.$$"
+				mv "$context_followup_prompt.tmp.$$" "$context_followup_prompt"
+				context_expansion_pending=1
+				followup_reason=patch_format_repair
+				patch_format_repair_ready=1
+				log_event "PATCH_ONLY_FORMAT_REPAIR_READY task=$task_id format_round=$patch_format_round reason=$(printf '%q' "$patch_apply_output")"
+			fi
+			if (( patch_format_repair_ready == 0 )); then
+				log_event "PATCH_ONLY_REJECTED task=$task_id reason=$(printf '%q' "$patch_apply_output")"
+				{
 				printf '# Worker Task Result\n\nTask-ID: %s\nStatus: COMPLETED\n' "$task_id"
 				if (( goal_mode == 1 )); then
 					printf 'Goal-ID: %s\nGoal-Outcome: NEEDS_DECOMPOSITION\nDecomposition-Reason: CONTEXT_INCOMPLETE\n' "$goal_id"
@@ -933,7 +956,8 @@ while true; do
 				printf '\n## Deviations from assignment\n\nThe worker did not produce an admissible patch-only result.\n'
 				printf '\n## Remaining concerns\n\nManager must split the leaf or repair the compiled context/instructions.\n'
 				printf '\n## Worker assessment\n\nNEEDS_DECOMPOSITION without another identical worker retry.\n'
-			} > "$last_message"
+				} > "$last_message"
+			fi
 		fi
 	fi
 	observed_thread_id="$(codex_thread_id_from_jsonl "$json_log" 2>/dev/null || true)"
@@ -1024,6 +1048,9 @@ while true; do
 		if [[ "$followup_reason" == diagnostic_repair ]]; then
 			log_event "WORKER_DIAGNOSTIC_REPAIR_RESUMING task=$task_id session=$session validation_round=$patch_validation_round thread_id=$worker_resume_thread_id attempt=$attempt"
 			trace_event WORKER_DIAGNOSTIC_REPAIR_RESUMING "task_id=$task_id" "session=$session" "validation_round=$patch_validation_round" "thread_id=$worker_resume_thread_id" "attempt=$attempt"
+		elif [[ "$followup_reason" == patch_format_repair ]]; then
+			log_event "WORKER_PATCH_FORMAT_REPAIR_RESUMING task=$task_id session=$session format_round=$patch_format_round thread_id=$worker_resume_thread_id attempt=$attempt"
+			trace_event WORKER_PATCH_FORMAT_REPAIR_RESUMING "task_id=$task_id" "session=$session" "format_round=$patch_format_round" "thread_id=$worker_resume_thread_id" "attempt=$attempt"
 		else
 			log_event "WORKER_CONTEXT_EXPANSION_RESUMING task=$task_id session=$session count=$context_expansion_count thread_id=$worker_resume_thread_id attempt=$attempt"
 			trace_event WORKER_CONTEXT_EXPANSION_RESUMING "task_id=$task_id" "session=$session" "count=$context_expansion_count" "thread_id=$worker_resume_thread_id" "attempt=$attempt"

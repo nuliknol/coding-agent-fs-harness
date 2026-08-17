@@ -1,6 +1,6 @@
 # Luna-Only Convergence Implementation Status
 
-Last updated (UTC): 2026-08-17T16:42:05Z
+Last updated (UTC): 2026-08-17T16:46:43Z
 
 Overall status: `IN_PROGRESS`
 
@@ -413,6 +413,15 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   each side of the indexed declaration. This supplies nearby contract comments
   needed by documentation/mechanical API leaves without opening a whole header
   or granting repository exploration.
+- Production proved the rejected-extension liveness repair: dplm and dpvis
+  both emitted `CONTEXT_EXPANSION_REJECTED`, synthesized and committed
+  `Goal-Outcome: NEEDS_DECOMPOSITION`, released their leases, and entered
+  ordinary Luna review. Neither remained as an orphan running task.
+- Patch-only syntax failures now receive at most two same-thread correction
+  prompts (under the existing three-round ceiling). The prompt contains only
+  the bounded parser diagnostic and requires one complete unified diff; no
+  source reread, scope expansion, general context request, or manager model is
+  authorized. Repeated malformed output still closes deterministically.
 
 ## Validation journal
 

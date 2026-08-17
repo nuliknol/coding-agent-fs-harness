@@ -14,6 +14,8 @@ grep -Fq '[[ "$successor_trigger" == "$expected_task_id" ]]' \
 	"$ROOT/bin/manager-auto-replan-root"
 grep -Fq 'if prepare_typed_context_expansion "$last_message"; then' \
 	"$ROOT/bin/worker-invoke-task"
+grep -Fq 'PATCH_ONLY_FORMAT_REPAIR_READY' "$ROOT/bin/worker-invoke-task"
+grep -Fq 'WORKER_PATCH_FORMAT_REPAIR_RESUMING' "$ROOT/bin/worker-invoke-task"
 
 mkdir -p "$TMP/repo" "$TMP/codex-home"
 printf 'test specification\n' > "$TMP/repo/spec.md"
