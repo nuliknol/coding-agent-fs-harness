@@ -978,3 +978,15 @@ project DAG authority, verified checkpoints, commits, and Goal IDs.
   lifetime, or root-token liveness budgets. Reusing the same fix commit on the
   unchanged efficiency boundary is rejected; root-liveness regression covers
   the separation.
+- Story A19's preserved startup eventually staged a 126-node, 126/126
+  closure-ready Luna DAG, then failed before architecture binding because the
+  capsule compiler copied every raw DAG score/routing column. The normalized
+  IR plus 52,080-byte DAG and coverage consumed 90,922/98,304 bytes, violating
+  the unchanged 10,000-byte architecture-evidence reserve.
+- Architecture binding now compiles every fixed node into a deterministic
+  binding projection: node/parent/dependency identity, deliverable, acceptance,
+  focused validation, allowed paths, required symbols, and leaf type. Redundant
+  machine-owned complexity vectors and uniform routing fields remain in the
+  staged DAG and are restored/validated by the publisher rather than repaid in
+  Sol context. The exact Story candidate now compiles successfully under the
+  same 98,304-byte hard cap, and the startup transaction regression passes.

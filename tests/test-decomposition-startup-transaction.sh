@@ -639,6 +639,12 @@ grep -Fqx 'resume_from=staged_decomposition_dag' "$recovery_marker"
 grep -Fqx 'classification=agent_command_output_budget_exceeded' "$recovery_marker"
 grep -Fqx 'status=STAGED' "$project_dir/control/decomposition-dag-candidate.env"
 binding_capsule="$project_dir/control/manager-architecture-binding.context.md"
+grep -Fq '## Complete fixed decomposition DAG binding projection' "$binding_capsule"
+grep -Fq $'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tleaf_type' "$binding_capsule"
+if grep -Fq $'predicted_worker_actions\tpredicted_p95_tokens\tterra_exception' "$binding_capsule"; then
+	printf 'architecture-binding capsule retained redundant machine-owned DAG score columns\n' >&2
+	exit 1
+fi
 test -s "$binding_capsule"
 (( $(stat -c %s "$binding_capsule") <= 98304 ))
 cp "$binding_capsule" "$TEST_ROOT/binding-capsule-first.md"

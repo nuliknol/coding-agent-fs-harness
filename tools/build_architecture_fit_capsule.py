@@ -200,6 +200,31 @@ def append_bounded(output: list[str], lines: list[str], maximum_bytes: int, mark
         output.append(line)
 
 
+def fixed_dag_binding_projection(path: Path) -> list[str]:
+    """Compile every fixed node without replaying machine-owned score columns."""
+    fields = (
+        "node_id", "parent_id", "depends_on", "deliverable",
+        "acceptance_evidence", "focused_validation", "allowed_paths",
+        "required_symbols", "leaf_type",
+    )
+    limits = {
+        "node_id": 72,
+        "parent_id": 72,
+        "depends_on": 120,
+        "deliverable": 120,
+        "acceptance_evidence": 120,
+        "focused_validation": 120,
+        "allowed_paths": 120,
+        "required_symbols": 100,
+        "leaf_type": 40,
+    }
+    rows = read_tsv(path, set(fields))
+    projection = ["\t".join(fields)]
+    projection.extend("\t".join(one_line(row.get(field, "-"), limits[field])
+                                for field in fields) for row in rows)
+    return projection
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--project", required=True)
@@ -327,8 +352,10 @@ def main() -> None:
         ], 3000)
         append_bounded(lines, detail, args.max_bytes, "architecture relation projection")
     if args.purpose == "architecture-binding":
-        fixed_graph = section("## Complete fixed decomposition DAG", [
-            "```tsv", *dag_path.read_text(encoding="utf-8", errors="replace").splitlines(), "```",
+        fixed_graph = section("## Complete fixed decomposition DAG binding projection", [
+            "Every fixed node is present. Machine-owned complexity vectors and uniform route columns are omitted; "
+            "the publisher restores and validates them from the staged DAG.",
+            "```tsv", *fixed_dag_binding_projection(dag_path), "```",
             "", "## Complete fixed specification coverage", "",
             "```tsv", *coverage_path.read_text(encoding="utf-8", errors="replace").splitlines(), "```",
         ])
