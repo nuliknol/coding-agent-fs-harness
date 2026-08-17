@@ -15,6 +15,8 @@ set -Eeuo pipefail
 prompt="$(cat)"
 grep -Fq 'REPOSITORY_ARCHITECTURE_SLICE=' <<< "$prompt"
 grep -Fq 'Every shell read has one content source only' <<< "$prompt"
+grep -Fq 'head -n 200' <<< "$prompt"
+grep -Fq 'head -c 32768' <<< "$prompt"
 grep -Fq 'Never use unbounded cat, sed, awk, rg, grep, find, git diff, or compiler/test output.' <<< "$prompt"
 value()
 {
