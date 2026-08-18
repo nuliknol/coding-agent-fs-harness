@@ -2,8 +2,15 @@
 
 set -Eeuo pipefail
 
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/harness-config.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/harness-project-layout.sh"
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/harness-architecture.sh"
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/harness-acp.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/harness-artifact-store.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/harness-task-state.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/harness-rebuild.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/harness-assignment.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/harness-worker-policy.sh"
 
 die()
 {
@@ -104,12 +111,7 @@ codex_model_requires_narrow_prompt()
 
 resolve_from_env_dir()
 {
-	local path="$1"
-	if [[ "$path" == /* ]]; then
-		realpath -m "$path"
-	else
-		realpath -m "$HARNESS_ENV_DIR/$path"
-	fi
+	harness_config_resolve_path "$HARNESS_ENV_DIR" "$1"
 }
 
 resolve_command_path()
@@ -181,18 +183,10 @@ load_harness_env()
 {
 	[[ $# -eq 1 ]] || die 'load_harness_env requires exactly one ENV_FILE argument'
 	local input="$1"
-	[[ -f "$input" ]] || die "environment file does not exist: $input"
-
 	local canonical_file canonical_dir
-	canonical_file="$(realpath "$input")"
-	canonical_dir="$(dirname "$canonical_file")"
-
-	local owner mode_octal mode
-	owner="$(stat -c '%u' "$canonical_file")"
-	mode_octal="$(stat -c '%a' "$canonical_file")"
-	mode=$((8#$mode_octal))
-	(( owner == UID || owner == 0 )) || die "environment file must be owned by UID $UID or root: $canonical_file"
-	(( (mode & 8#022) == 0 )) || die "environment file must not be group/world writable: $canonical_file"
+	harness_config_require_secure_file "$input"
+	canonical_file="$HARNESS_CONFIG_CANONICAL_FILE"
+	canonical_dir="$HARNESS_CONFIG_CANONICAL_DIR"
 
 	unset PROJECT REPOSITORY SPECIFICATION HARNESS_MODE harness_mode HARNESS_HOME HARNESS_BIN HARNESS_ROOT PROJECT_TMP_DIR
 	unset HARNESS_POLL_SECONDS HARNESS_WAIT_SECONDS HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY
@@ -1032,15 +1026,15 @@ load_harness_env()
 	if [[ "$ORACLE_ENABLED" == 1 ]]; then
 		[[ "$ORACLE_MODEL" =~ ^[A-Za-z0-9._:-]+$ ]] || die "invalid ORACLE_MODEL: $ORACLE_MODEL"
 	fi
-	[[ "$MANAGER_REASONING_EFFORT" =~ ^(none|minimal|low|medium|high|xhigh|max)$ ]] || die "invalid MANAGER_REASONING_EFFORT: $MANAGER_REASONING_EFFORT"
-	[[ "$DECOMPOSITION_REASONING_EFFORT" =~ ^(none|minimal|low|medium|high|xhigh|max)$ ]] || die "invalid DECOMPOSITION_REASONING_EFFORT: $DECOMPOSITION_REASONING_EFFORT"
-	[[ "$WORKER_REASONING_EFFORT" =~ ^(none|minimal|low|medium|high|xhigh|max)$ ]] || die "invalid WORKER_REASONING_EFFORT: $WORKER_REASONING_EFFORT"
-	[[ "$LUNA_WORKER_REASONING_EFFORT" =~ ^(none|minimal|low|medium|high|xhigh|max)$ ]] || die "invalid LUNA_WORKER_REASONING_EFFORT: $LUNA_WORKER_REASONING_EFFORT"
-	[[ "$TERRA_WORKER_REASONING_EFFORT" =~ ^(none|minimal|low|medium|high|xhigh|max)$ ]] || die "invalid TERRA_WORKER_REASONING_EFFORT: $TERRA_WORKER_REASONING_EFFORT"
-	[[ "$MANAGER_SANDBOX" =~ ^(read-only|workspace-write|danger-full-access)$ ]] || die "invalid MANAGER_SANDBOX: $MANAGER_SANDBOX"
-	[[ "$WORKER_SANDBOX" =~ ^(read-only|workspace-write|danger-full-access)$ ]] || die "invalid WORKER_SANDBOX: $WORKER_SANDBOX"
-	[[ "$ORACLE_REASONING_EFFORT" =~ ^(none|minimal|low|medium|high|xhigh|max)$ ]] || die "invalid ORACLE_REASONING_EFFORT: $ORACLE_REASONING_EFFORT"
-	[[ "$ORACLE_SANDBOX" =~ ^(read-only|workspace-write|danger-full-access)$ ]] || die "invalid ORACLE_SANDBOX: $ORACLE_SANDBOX"
+	harness_config_validate_reasoning_effort MANAGER_REASONING_EFFORT "$MANAGER_REASONING_EFFORT"
+	harness_config_validate_reasoning_effort DECOMPOSITION_REASONING_EFFORT "$DECOMPOSITION_REASONING_EFFORT"
+	harness_config_validate_reasoning_effort WORKER_REASONING_EFFORT "$WORKER_REASONING_EFFORT"
+	harness_config_validate_reasoning_effort LUNA_WORKER_REASONING_EFFORT "$LUNA_WORKER_REASONING_EFFORT"
+	harness_config_validate_reasoning_effort TERRA_WORKER_REASONING_EFFORT "$TERRA_WORKER_REASONING_EFFORT"
+	harness_config_validate_sandbox MANAGER_SANDBOX "$MANAGER_SANDBOX"
+	harness_config_validate_sandbox WORKER_SANDBOX "$WORKER_SANDBOX"
+	harness_config_validate_reasoning_effort ORACLE_REASONING_EFFORT "$ORACLE_REASONING_EFFORT"
+	harness_config_validate_sandbox ORACLE_SANDBOX "$ORACLE_SANDBOX"
 	[[ "$MANAGER_CODEX_BIN" != *[[:space:]]* ]] || die 'MANAGER_CODEX_BIN must not contain arguments'
 	[[ "$WORKER_CODEX_BIN" != *[[:space:]]* ]] || die 'WORKER_CODEX_BIN must not contain arguments'
 	[[ "$ORACLE_CODEX_BIN" != *[[:space:]]* ]] || die 'ORACLE_CODEX_BIN must not contain arguments'
@@ -1334,16 +1328,6 @@ require_single_metadata_value()
 	printf '%s\n' "$value"
 }
 
-project_dir()
-{
-	printf '%s/projects/%s' "$HARNESS_ROOT" "$PROJECT"
-}
-
-project_tmp_dir()
-{
-	printf '%s\n' "$PROJECT_TMP_DIR"
-}
-
 ensure_project()
 {
 	local dir config stored_project stored_repository stored_mode
@@ -1371,22 +1355,6 @@ ensure_project()
 	fi
 	[[ -z "$stored_mode" || "$stored_mode" == "$HARNESS_MODE" ]] ||
 		die "project state was initialized in HARNESS_MODE=$stored_mode, not $HARNESS_MODE"
-}
-
-task_base()
-{
-	local task_id="$1"
-	printf '%s-task-%s' "$PROJECT" "$task_id"
-}
-
-task_root_id()
-{
-	local task_id="$1"
-	if [[ "$task_id" =~ ^(.+)-revision-[0-9]+$ ]]; then
-		printf '%s' "${BASH_REMATCH[1]}"
-	else
-		printf '%s' "$task_id"
-	fi
 }
 
 task_progress_file()

@@ -1,0 +1,13 @@
+{
+  "ambiguous_owners": 0,
+  "concepts": 1327,
+  "cycles": 1,
+  "findings": 256,
+  "generation": "after-refactor",
+  "module_edges": 797,
+  "modules": 285,
+  "public_interfaces": 798,
+  "schema_version": 2,
+  "state_accesses": 5007,
+  "tests": 30
+}

@@ -14,7 +14,7 @@ generation_dir="$(kv_file_value "$pointer" generation_dir)"
 generation="$(kv_file_value "$pointer" generation)"
 report="$(project_dir)/logs/recoll-$generation-$(timestamp_compact_utc).tsv"
 query_hash="$(printf '%s' "$*" | sha256sum | awk '{print $1}')"
-overlay="$(project_dir)/control/repository-architecture/$generation/recoll-$query_hash.sqlite"
+overlay="$(architecture_evidence_root)/$generation/recoll-$query_hash.sqlite"
 python3 "$HARNESS_HOME/tools/import_recoll_candidates.py" --output-database "$overlay" \
 	--generation "$generation" --repository "$REPOSITORY" --recoll-bin "$HARNESS_RECOLL_BIN" \
 	--query "$*" --report "$report"

@@ -3,16 +3,26 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/harness-common.sh"
 source "$SCRIPT_DIR/../lib/harness-repository-index.sh"
-[[ $# -eq 2 ]] || { printf 'Usage: %s ENV_FILE QUERIES_TSV\n' "${0##*/}" >&2; exit 2; }
+[[ $# -ge 2 && $# -le 3 ]] || { printf 'Usage: %s ENV_FILE QUERIES_TSV [--source-only]\n' "${0##*/}" >&2; exit 2; }
 load_harness_env "$1"
 ensure_project
+if [[ "${3:-}" == --source-only ]]; then
+	index_output="$("$HARNESS_BIN/harness-architecture-source-index" "$HARNESS_ENV_FILE")"
+	generation="$(sed -n 's/^SOURCE_ARCHITECTURE_READY generation=\([^ ]*\) path=.*/\1/p' <<< "$index_output")"
+	generation_dir="$(sed -n 's/^SOURCE_ARCHITECTURE_READY generation=[^ ]* path=//p' <<< "$index_output")"
+	output="$generation_dir/benchmarks.tsv"
+	python3 "$HARNESS_HOME/tools/architecture_benchmarks.py" --maps-dir "$generation_dir" \
+		--generation "$generation" --repository "$REPOSITORY" --queries "$2" --output "$output"
+	cat "$output"
+	exit 0
+fi
 repository_index_project_pointer_is_current || die "architecture benchmark requires a current index: $REPOSITORY_INDEX_POINTER_REASON"
 pointer="$(repository_index_project_pointer_file)"
 generation_dir="$(kv_file_value "$pointer" generation_dir)"
 generation="$(kv_file_value "$pointer" generation)"
-output="$(project_dir)/control/repository-architecture/$generation/benchmarks.tsv"
+output="$(architecture_evidence_root)/$generation/benchmarks.tsv"
 mkdir -p "${output%/*}"
-python3 "$HARNESS_HOME/tools/normalize_repository_architecture.py" benchmark \
+python3 "$HARNESS_HOME/tools/architecture_benchmarks.py" \
 	--database "$generation_dir/architecture.sqlite" --generation "$generation" \
 	--repository "$REPOSITORY" --queries "$2" --output "$output"
 cat "$output"

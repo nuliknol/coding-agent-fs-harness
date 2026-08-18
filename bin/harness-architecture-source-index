@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+[[ $# -ge 1 && $# -le 2 ]] || { printf 'Usage: %s ENV_FILE [OUTPUT_DIR]\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+git -C "$REPOSITORY" diff --quiet --ignore-submodules -- ||
+	die 'source architecture evidence requires a clean tracked worktree'
+git -C "$REPOSITORY" diff --cached --quiet --ignore-submodules -- ||
+	die 'source architecture evidence requires an empty Git index'
+revision="$(git -C "$REPOSITORY" rev-parse HEAD)"
+provider_fingerprint="$({ sha256sum "$HARNESS_HOME/tools/source_architecture.py" "$HARNESS_HOME/tools/architecture/providers/bash_provider.py" "$HARNESS_HOME/tools/architecture/providers/python_provider.py"; } | sha256sum | awk '{print $1}')"
+generation="source-$(printf '%s\0%s\0%s' "$REPOSITORY" "$revision" "$provider_fingerprint" | sha256sum | awk '{print $1}')"
+output="${2:-$(architecture_evidence_root)/$generation}"
+python3 "$HARNESS_HOME/tools/source_architecture.py" --repository "$REPOSITORY" \
+	--generation "$generation" --output "$output"

@@ -1,0 +1,9 @@
+benchmark_id	query	expected_paths	returned_paths	relevant_returned	expected_total	returned_total	context_bytes
+layout-owner	project_dir	lib/harness-project-layout.sh	lib/harness-common.sh	0	1	1	305343
+config-trust	harness_config_require_secure_file	lib/harness-config.sh		0	1	0	0
+artifact-transition	harness_artifact_compare_and_swap_kv	lib/harness-artifact-store.sh		0	1	0	0
+rebuild-transition	architecture_rebuild_advance	lib/harness-rebuild.sh		0	1	0	0
+worker-policy	harness_worker_select_execution_policy	lib/harness-worker-policy.sh		0	1	0	0
+supervisor-policy	harness_supervisor_process_cycle	lib/harness-supervisor-policy.sh		0	1	0	0
+source-provider	BashProvider	tools/architecture/providers/bash_provider.py		0	1	0	0
+scorecard-owner	write_scorecard	tools/architecture/scorecard.py		0	1	0	0

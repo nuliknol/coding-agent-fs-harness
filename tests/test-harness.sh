@@ -378,11 +378,11 @@ chmod +x "$TEST_ROOT/mock-codex"
 # Every Luna inference path, including manager remediation, must use the same
 # fail-closed compiled-context and patch-only state machine. Guard against
 # accidentally keying those gates only to the assignment's Worker-Route.
-grep -Fq 'if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then' \
-	"$HARNESS_BIN/worker-invoke-task"
-grep -Fq 'luna_bounded_execution=1' "$HARNESS_BIN/worker-invoke-task"
+worker_policy="$HARNESS_HOME/lib/harness-worker-policy.sh"
+grep -Fq 'if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then' "$worker_policy"
+grep -Fq 'luna_bounded_execution=1' "$worker_policy"
 if grep -Eq '\$worker_route[^\n]*==[[:space:]]*LUNA|\$worker_route[^\n]*LUNA' \
-	"$HARNESS_BIN/worker-invoke-task"; then
+	"$worker_policy"; then
 	printf 'Luna closure admission is still keyed to Worker-Route instead of execution policy\n' >&2
 	exit 1
 fi
@@ -2602,10 +2602,14 @@ export HARNESS_WAIT_SECONDS="5"
 export HARNESS_STALE_SECONDS="30"
 export HARNESS_USE_INOTIFY="1"
 export WORKER_HEARTBEAT_SECONDS="1"
+export HARNESS_MANAGER_PLAN_INVOKER="/bin/true"
 ENV
 chmod 600 "$ACTIVE_ROOT/harness.env"
 "$HARNESS_BIN/harness-init" "$ACTIVE_ROOT/harness.env" >/dev/null
 [[ -d "/tmp/activeproj" ]]
+active_plan="$ACTIVE_ROOT/project-plan.tsv"
+printf 'active-step\tActive supervisor fixture\n' > "$active_plan"
+"$HARNESS_BIN/manager-init-project-plan" "$ACTIVE_ROOT/harness.env" "$active_plan" >/dev/null
 "$HARNESS_BIN/harness-supervisor-start" "$ACTIVE_ROOT/harness.env" >/dev/null
 "$HARNESS_BIN/worker-supervisor-start" "$ACTIVE_ROOT/harness.env" >/dev/null
 printf 'thread_id=existing-thread\n' > "$ACTIVE_ROOT/state/projects/activeproj/control/manager.thread"

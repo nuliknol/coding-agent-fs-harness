@@ -1134,6 +1134,23 @@ harness-compare-architecture-scorecards before.tsv after.tsv
 harness-compare-context-baselines before.tsv after.tsv
 ```
 
+For repositories dominated by Bash or Python, add `--source-only` to the
+architecture index, benchmark, or scorecard command. Periodic architecture
+rebuilds are durable, resumable, and require a separate operator approval:
+
+```bash
+harness-architecture-rebuild project.env begin core-coupling periodic-scorecard queries.tsv
+harness-architecture-rebuild project.env design REBUILD_ID target-architecture.md
+harness-architecture-rebuild project.env baseline REBUILD_ID behavioral-baseline.md
+harness-architecture-rebuild project.env refactor-complete REBUILD_ID migration-ledger.tsv
+harness-architecture-rebuild project.env recompute REBUILD_ID
+harness-architecture-rebuild project.env accept REBUILD_ID operator-approval.md
+```
+
+See [the architecture rebuild lifecycle](docs/architecture-rebuild-lifecycle.md)
+for phase semantics, failure recovery, evidence authority, scorecard gates, and
+the required final report/debt ledger.
+
 After each advisory worker invocation, the harness compares repository paths
 observed in the bounded transcript with the compiled closure. It records used
 evidence, unused candidates, paths discovered outside the closure, and changed
@@ -1759,6 +1776,10 @@ bash tests/test-root-liveness.sh
 bash tests/test-active-plan-revision.sh
 bash tests/test-repository-index.sh
 bash tests/test-scip-importer.sh
+bash tests/test-architecture-rebuild.sh
+bash tests/test-architecture-rebuild-cli.sh
+bash tests/test-module-boundaries.sh
+bash tests/test-module-primitives.sh
 ```
 
 The leaf-goal test covers assignment validation, code-only continuation,

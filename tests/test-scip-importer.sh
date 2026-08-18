@@ -194,7 +194,7 @@ usage_output="$($HARNESS_HOME/bin/harness-context-closure-usage \
 	"$TEST_ROOT/e2e.env" context-add-test "$TEST_ROOT/worker.jsonl")"
 usage_report="$(sed -n 's/^report=//p' <<< "$usage_output")"
 grep -Fq $'src/calc.c\tIN_CLOSURE\tREQUIRED\t1\t0\tUSED' "$usage_report"
-grep -Fq $'tests/test_calc.c\tIN_CLOSURE\tREQUIRED\t1\t1\tUSED' "$usage_report"
+grep -Fq $'tests/test_calc.c\tIN_CLOSURE\tSUPPORTING\t1\t1\tUSED' "$usage_report"
 grep -Fq $'CMakeLists.txt\tOUTSIDE_CLOSURE\t-\t1\t0\tMISSING_CANDIDATE' "$usage_report"
 grep -Eq '^missing_candidates=1$' "${usage_report%.tsv}.env"
 bash -c 'source "$1/lib/harness-common.sh"; load_harness_env "$2"; ensure_project; record_context_closure_outcome context-add-test ACCEPTED n01' \

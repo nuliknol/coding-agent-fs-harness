@@ -4,16 +4,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/harness-common.sh"
 source "$SCRIPT_DIR/../lib/harness-repository-index.sh"
 source "$SCRIPT_DIR/../lib/harness-architecture.sh"
-[[ $# -ge 1 && $# -le 2 ]] || { printf 'Usage: %s ENV_FILE [--rebuild]\n' "${0##*/}" >&2; exit 2; }
+[[ $# -ge 1 && $# -le 2 ]] || { printf 'Usage: %s ENV_FILE [--rebuild|--source-only]\n' "${0##*/}" >&2; exit 2; }
 load_harness_env "$1"
 ensure_project
+if [[ "${2:-}" == --source-only ]]; then
+	exec "$HARNESS_BIN/harness-architecture-source-index" "$HARNESS_ENV_FILE"
+fi
 if [[ "${2:-}" == --rebuild ]] || ! repository_index_project_pointer_is_current; then
 	"$HARNESS_BIN/harness-index-repository" "$HARNESS_ENV_FILE" ${2:+--force} >/dev/null
 fi
 repository_index_project_pointer_is_current || die "architecture index is unavailable: $REPOSITORY_INDEX_POINTER_REASON"
 generation_dir="$(kv_file_value "$(repository_index_project_pointer_file)" generation_dir)"
 generation="$(kv_file_value "$(repository_index_project_pointer_file)" generation)"
-output="$(project_dir)/control/repository-architecture/$generation"
+output="$(architecture_evidence_root)/$generation"
 mkdir -p "$output"
 cp -a "$generation_dir/reports/architecture/." "$output/"
 if architecture_registered; then

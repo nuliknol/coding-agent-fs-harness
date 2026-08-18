@@ -4,6 +4,8 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/harness-common.sh"
 source "$SCRIPT_DIR/../lib/harness-repository-index.sh"
+source "$SCRIPT_DIR/../lib/harness-index-generation.sh"
+source "$SCRIPT_DIR/../lib/harness-index-providers.sh"
 
 usage()
 {
@@ -57,17 +59,10 @@ python3 "$(repository_index_build_scanner_file)" --compile-commands "$normalized
 	--repository "$REPOSITORY" --output "$generated_inputs"
 repository_index_prepare_identity "$normalized" "$generated_inputs"
 
-mkdir -p "$REPOSITORY_INDEX_REPOSITORY_ROOT/generations" "$REPOSITORY_INDEX_REPOSITORY_ROOT/quarantine"
-chmod 700 "$REPOSITORY_INDEX_REPOSITORY_ROOT" "$REPOSITORY_INDEX_REPOSITORY_ROOT/generations" \
-	"$REPOSITORY_INDEX_REPOSITORY_ROOT/quarantine"
-exec 9>"$REPOSITORY_INDEX_REPOSITORY_ROOT/index.lock"
-flock -x 9
-repository_index_reconcile_interrupted_generations "$REPOSITORY_INDEX_REPOSITORY_ROOT"
+repository_index_generation_prepare_store "$REPOSITORY_INDEX_REPOSITORY_ROOT"
+repository_index_generation_acquire_lock "$REPOSITORY_INDEX_REPOSITORY_ROOT"
 index_tool_ledger="$(project_dir)/logs/index-tool-executions.tsv"
-if [[ ! -f "$index_tool_ledger" ]]; then
-	printf 'recorded_at\tprovider\tdigest\tstate\tdetail\n' > "$index_tool_ledger"
-	chmod 600 "$index_tool_ledger"
-fi
+repository_index_provider_ledger_initialize "$index_tool_ledger"
 
 if repository_index_verify_generation "$REPOSITORY_INDEX_GENERATION_DIR"; then
 	if (( force == 1 )); then
@@ -94,12 +89,10 @@ if awk -F '\t' -v digest="$REPOSITORY_INDEX_GENERATION" \
 	die 'INDEX_TOOL_OVERUSE: refusing duplicate full SCIP rebuild for an unchanged digest'
 fi
 
-if [[ -e "$REPOSITORY_INDEX_GENERATION_DIR" ]]; then
-	quarantine="$REPOSITORY_INDEX_REPOSITORY_ROOT/quarantine/$REPOSITORY_INDEX_GENERATION-$(timestamp_compact_utc)"
-	mv "$REPOSITORY_INDEX_GENERATION_DIR" "$quarantine"
-fi
+repository_index_generation_quarantine_existing "$REPOSITORY_INDEX_GENERATION_DIR" \
+	"$REPOSITORY_INDEX_REPOSITORY_ROOT" "$REPOSITORY_INDEX_GENERATION"
 
-tmp_generation="$REPOSITORY_INDEX_REPOSITORY_ROOT/generations/.${REPOSITORY_INDEX_GENERATION}.tmp.$$.$RANDOM"
+tmp_generation="$(repository_index_generation_temporary_dir "$REPOSITORY_INDEX_REPOSITORY_ROOT" "$REPOSITORY_INDEX_GENERATION")"
 mkdir -p "$tmp_generation/reports" "$tmp_generation/joern/export"
 chmod 700 "$tmp_generation" "$tmp_generation/reports" "$tmp_generation/joern" "$tmp_generation/joern/export"
 install -m 600 "$normalized" "$tmp_generation/compile-commands.normalized.json"
@@ -107,17 +100,21 @@ install -m 600 "$generated_inputs" "$tmp_generation/compile-inputs.tsv"
 install -m 600 "$generated_inputs_unresolved" "$tmp_generation/reports/compile-inputs-unresolved.tsv"
 
 printf 'SCIP indexing repository %s at %s\n' "$REPOSITORY" "$REPOSITORY_INDEX_SOURCE_REVISION"
-printf '%s\tscip\t%s\tSTARTED\t%s\n' "$(timestamp_utc)" "$REPOSITORY_INDEX_GENERATION" \
-	"$REPOSITORY_INDEX_SOURCE_REVISION" >> "$index_tool_ledger"
-(
-	cd "$REPOSITORY"
+repository_index_provider_record "$index_tool_ledger" scip "$REPOSITORY_INDEX_GENERATION" STARTED \
+	"$REPOSITORY_INDEX_SOURCE_REVISION"
+if repository_index_provider_run scip "$tmp_generation/reports/scip-clang.log" "$REPOSITORY" -- \
 	"$REPOSITORY_INDEX_SCIP_CLANG_PATH" \
 		--compdb-path "$tmp_generation/compile-commands.normalized.json" \
 		--index-output-path "$tmp_generation/index.scip" \
 		--jobs "$HARNESS_SCIP_CLANG_JOBS" \
-		--no-progress-report
-) > "$tmp_generation/reports/scip-clang.log" 2>&1 ||
+		--no-progress-report; then
+	:
+else
+	provider_status=$?
+	repository_index_provider_record "$index_tool_ledger" scip "$REPOSITORY_INDEX_GENERATION" FAILED \
+		"exit_status=$provider_status log=$tmp_generation/reports/scip-clang.log"
 	die "scip-clang failed; inspect $tmp_generation/reports/scip-clang.log"
+fi
 [[ -s "$tmp_generation/index.scip" ]] || die 'scip-clang produced an empty index.scip'
 
 set +e
@@ -302,7 +299,7 @@ fi
 
 python3 "$HARNESS_HOME/tools/normalize_repository_architecture.py" normalize \
 	--database "$tmp_generation/architecture.sqlite" --generation "$REPOSITORY_INDEX_GENERATION" \
-	--output "$tmp_generation/reports/architecture" \
+	--repository "$REPOSITORY" --output "$tmp_generation/reports/architecture" \
 	> "$tmp_generation/reports/architecture-normalize.log" 2>&1 ||
 	die "architecture normalization failed; inspect $tmp_generation/reports/architecture-normalize.log"
 
@@ -395,14 +392,9 @@ printf 'metric\tvalue\nscip_index_bytes\t%s\ncompile_commands\t%s\nfiles\t%s\nsy
 } > "$tmp_generation/manifest.env"
 
 find "$tmp_generation" -type f -exec chmod 600 {} +
-repository_index_write_verification_marker "$tmp_generation" integrity_check ||
-	die 'could not record repository-index publication integrity marker'
-mv "$tmp_generation" "$REPOSITORY_INDEX_GENERATION_DIR"
+repository_index_generation_publish "$tmp_generation" "$REPOSITORY_INDEX_GENERATION_DIR" \
+	"$REPOSITORY_INDEX_REPOSITORY_ROOT" "$HARNESS_REPOSITORY_INDEX_RETENTION"
 tmp_generation=
-repository_index_verify_generation "$REPOSITORY_INDEX_GENERATION_DIR" ||
-	die 'published repository-index generation failed verification'
-repository_index_publish_project_pointer "$REPOSITORY_INDEX_GENERATION_DIR"
-repository_index_apply_retention "$REPOSITORY_INDEX_REPOSITORY_ROOT" "$HARNESS_REPOSITORY_INDEX_RETENTION" "$REPOSITORY_INDEX_GENERATION_DIR"
-printf '%s\tscip\t%s\tCOMPLETED\t%s\n' "$(timestamp_utc)" "$REPOSITORY_INDEX_GENERATION" \
-	"$REPOSITORY_INDEX_GENERATION_DIR" >> "$index_tool_ledger"
+repository_index_provider_record "$index_tool_ledger" scip "$REPOSITORY_INDEX_GENERATION" COMPLETED \
+	"$REPOSITORY_INDEX_GENERATION_DIR"
 printf 'INDEX_READY generation=%s path=%s\n' "$REPOSITORY_INDEX_GENERATION" "$REPOSITORY_INDEX_GENERATION_DIR"

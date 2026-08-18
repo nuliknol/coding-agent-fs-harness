@@ -326,10 +326,23 @@ git -C "$TEST_ROOT/repo" -c user.name=test -c user.email=test@example.invalid \
 	repository_index_refresh_at_safe_boundary fixture-task ACCEPTED
 )
 refresh_project="$TEST_ROOT/state/projects/indexrefresh"
+start_index_refresh_supervisor()
+{
+	setsid "$HARNESS_BIN/harness-supervisor" "$env_refresh" </dev/null \
+		>> "$refresh_project/logs/supervisor.log" 2>&1 &
+	local launched=$!
+	for _ in $(seq 1 50); do
+		[[ -f "$refresh_project/control/supervisor.pid" ]] && return 0
+		kill -0 "$launched" 2>/dev/null || break
+		sleep 0.1
+	done
+	printf 'index refresh test supervisor failed to start\n' >&2
+	return 1
+}
 test -f "$refresh_project/control/repository-index-refresh.pending.env"
 grep -q 'REPOSITORY_INDEX_REFRESH_SCHEDULED task=fixture-task outcome=ACCEPTED' \
 	"$refresh_project/logs/events.log"
-"$HARNESS_BIN/harness-supervisor-start" "$env_refresh" >/dev/null
+start_index_refresh_supervisor
 for _ in $(seq 1 200); do
 	grep -Fqx $'status\tREADY' < <("$HARNESS_BIN/harness-index-status" "$env_refresh") &&
 		[[ ! -f "$refresh_project/control/repository-index-refresh.pending.env" ]] && break
@@ -348,7 +361,7 @@ git -C "$TEST_ROOT/repo" add src/calc.c
 git -C "$TEST_ROOT/repo" -c user.name=test -c user.email=test@example.invalid \
 	commit -qm 'advance unscheduled refresh fixture'
 test ! -f "$refresh_project/control/repository-index-refresh.pending.env"
-"$HARNESS_BIN/harness-supervisor-start" "$env_refresh" >/dev/null
+start_index_refresh_supervisor
 for _ in $(seq 1 200); do
 	grep -Fqx $'status\tREADY' < <("$HARNESS_BIN/harness-index-status" "$env_refresh") &&
 		grep -q 'REPOSITORY_INDEX_REFRESHED task=supervisor outcome=REQUIRED_BARRIER.*owner=supervisor' \
@@ -365,16 +378,17 @@ grep -Fqx $'status\tREADY' < <("$HARNESS_BIN/harness-index-status" "$env_refresh
 # A review can create the refresh marker after the loop's initial refresh
 # check. The supervisor must cross the barrier again before either recovery or
 # ordinary planning can publish the next task in that same iteration.
-python3 - "$HARNESS_BIN/manager-supervisor" <<'PY'
+python3 - "$HARNESS_HOME/lib/harness-supervisor-policy.sh" <<'PY'
 from pathlib import Path
 import sys
 
-loop = Path(sys.argv[1]).read_text(encoding="utf-8").split("while true; do", 1)[1]
-first_refresh = loop.index("process_repository_index_refresh")
-results = loop.index("process_results", first_refresh)
-second_refresh = loop.index("process_repository_index_refresh", results)
-replans = loop.index("process_auto_replans", second_refresh)
-planning = loop.index("process_planning_gap", replans)
+policy = Path(sys.argv[1]).read_text(encoding="utf-8").split(
+    "harness_supervisor_process_cycle()", 1)[1]
+first_refresh = policy.index("process_repository_index_refresh")
+results = policy.index("process_results", first_refresh)
+second_refresh = policy.index("process_repository_index_refresh", results)
+replans = policy.index("process_auto_replans", second_refresh)
+planning = policy.index("process_planning_gap", replans)
 assert first_refresh < results < second_refresh < replans < planning
 PY
 

@@ -2432,16 +2432,7 @@ fi
 # model-authored broader Allowed-Scope line.
 if (( goal_mode == 1 )) &&
 	[[ "$(metadata_value "$tmp" Allowed-Scope)" != "$goal_allowed_scope" ]]; then
-	normalized_tmp="$tmp.normalized.$$"
-	HARNESS_NORMALIZED_ALLOWED_SCOPE="$goal_allowed_scope" awk '
-		index($0, "Allowed-Scope: ") == 1 {
-			if (!seen++) print "Allowed-Scope: " ENVIRON["HARNESS_NORMALIZED_ALLOWED_SCOPE"]
-			next
-		}
-		{print}
-	' "$tmp" > "$normalized_tmp"
-	chmod 600 "$normalized_tmp"
-	mv "$normalized_tmp" "$tmp"
+	harness_assignment_replace_metadata "$tmp" Allowed-Scope "$goal_allowed_scope"
 fi
 
 if (( goal_mode == 1 )); then
@@ -2733,7 +2724,7 @@ if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
 	fi
 	mv "$context_capsule.tmp.$$" "$context_capsule"
 fi
-mv "$tmp" "$ready"
+harness_assignment_publish "$tmp" "$ready"
 goal_publish_ready=1
 if (( recovery_publish == 1 )); then
 	rm -f "$(task_root_replan_file "$root")" "$(task_root_replanning_file "$root")"

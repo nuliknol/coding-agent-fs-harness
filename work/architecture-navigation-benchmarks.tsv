@@ -1,0 +1,9 @@
+benchmark_id	query	expected_paths
+layout-owner	project_dir	lib/harness-project-layout.sh
+config-trust	harness_config_require_secure_file	lib/harness-config.sh
+artifact-transition	harness_artifact_compare_and_swap_kv	lib/harness-artifact-store.sh
+rebuild-transition	architecture_rebuild_advance	lib/harness-rebuild.sh
+worker-policy	harness_worker_select_execution_policy	lib/harness-worker-policy.sh
+supervisor-policy	harness_supervisor_process_cycle	lib/harness-supervisor-policy.sh
+source-provider	BashProvider	tools/architecture/providers/bash_provider.py
+scorecard-owner	write_scorecard	tools/architecture/scorecard.py

@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	cat >&2 <<'USAGE'
+Usage:
+  harness-architecture-rebuild ENV_FILE begin SCOPE TRIGGER [BENCHMARKS_TSV]
+  harness-architecture-rebuild ENV_FILE status [REBUILD_ID]
+  harness-architecture-rebuild ENV_FILE design REBUILD_ID TARGET_ARCHITECTURE_FILE
+  harness-architecture-rebuild ENV_FILE baseline REBUILD_ID BASELINE_REPORT
+  harness-architecture-rebuild ENV_FILE refactor-complete REBUILD_ID MIGRATION_REPORT
+  harness-architecture-rebuild ENV_FILE recompute REBUILD_ID
+  harness-architecture-rebuild ENV_FILE accept REBUILD_ID APPROVAL_FILE
+  harness-architecture-rebuild ENV_FILE advance REBUILD_ID EXPECTED NEXT EVIDENCE_FILE [NOTE]
+  harness-architecture-rebuild ENV_FILE fail REBUILD_ID EXPECTED EVIDENCE_FILE NOTE
+  harness-architecture-rebuild ENV_FILE resume REBUILD_ID
+USAGE
+	exit 2
+}
+
+(( $# >= 2 )) || usage
+load_harness_env "$1"
+ensure_project
+action="$2"
+shift 2
+
+case "$action" in
+	begin)
+		[[ $# -ge 2 && $# -le 3 ]] || usage
+		rebuild_id="$(architecture_rebuild_begin "$1" "$2" "${3:--}")"
+		architecture_rebuild_prepare "$rebuild_id"
+		cat "$(architecture_rebuild_state_file "$rebuild_id")"
+		;;
+	status)
+		[[ $# -le 1 ]] || usage
+		rebuild_id="${1:-$(harness_artifact_get "$(architecture_rebuild_latest_file)" rebuild_id)}"
+		state="$(architecture_rebuild_state_file "$rebuild_id")"
+		harness_artifact_require_schema "$state" 'schema_version,rebuild_id,project,status,last_completed_phase,scope,trigger,source_revision,created_at,updated_at'
+		cat "$state"
+		;;
+	advance)
+		[[ $# -ge 4 && $# -le 5 ]] || usage
+		architecture_rebuild_advance "$1" "$2" "$3" "$4" "${5:--}"
+		cat "$(architecture_rebuild_state_file "$1")"
+		;;
+	design)
+		[[ $# -eq 2 ]] || usage
+		harness_artifact_install_file "$2" "$(architecture_rebuild_dir "$1")/target-architecture.md"
+		architecture_rebuild_advance "$1" DESIGN BASELINE "$2" target-architecture-approved-for-baseline
+		cat "$(architecture_rebuild_state_file "$1")"
+		;;
+	baseline)
+		[[ $# -eq 2 ]] || usage
+		harness_artifact_install_file "$2" "$(architecture_rebuild_dir "$1")/behavioral-baseline.md"
+		architecture_rebuild_advance "$1" BASELINE REFACTOR "$2" behavioral-baseline-established
+		cat "$(architecture_rebuild_state_file "$1")"
+		;;
+	refactor-complete)
+		[[ $# -eq 2 ]] || usage
+		harness_artifact_install_file "$2" "$(architecture_rebuild_dir "$1")/migration-ledger.tsv"
+		architecture_rebuild_advance "$1" REFACTOR RECOMPUTE "$2" incremental-migration-complete
+		cat "$(architecture_rebuild_state_file "$1")"
+		;;
+	recompute)
+		[[ $# -eq 1 ]] || usage
+		architecture_rebuild_recompute "$1"
+		cat "$(architecture_rebuild_state_file "$1")"
+		;;
+	accept)
+		[[ $# -eq 2 ]] || usage
+		harness_artifact_install_file "$2" "$(architecture_rebuild_dir "$1")/approval.md"
+		architecture_rebuild_advance "$1" AWAITING_APPROVAL ACCEPTED "$2" operator-approved
+		cat "$(architecture_rebuild_state_file "$1")"
+		;;
+	fail)
+		[[ $# -eq 4 ]] || usage
+		architecture_rebuild_advance "$1" "$2" FAILED "$3" "$4"
+		cat "$(architecture_rebuild_state_file "$1")"
+		;;
+	resume)
+		[[ $# -eq 1 ]] || usage
+		architecture_rebuild_resume "$1"
+		cat "$(architecture_rebuild_state_file "$1")"
+		;;
+	*) usage ;;
+esac

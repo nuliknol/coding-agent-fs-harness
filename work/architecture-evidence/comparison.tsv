@@ -1,0 +1,22 @@
+metric	before	after	delta	direction	regression_threshold	verdict
+ambiguous_owners	0	0	0	LOWER	0	UNCHANGED
+ambiguous_state_owners	174	173	-1	LOWER	0	IMPROVED
+architecture_debt_score	782	779	-3	LOWER	0	IMPROVED
+benchmark_queries	8	8	0	INFORMATIONAL	-	INFORMATIONAL
+benchmark_set_sha256	sha256:a55c74d465dbc23e7d7fc0fecf12ac9a85d37990b5e990e139fad2231ed72371	sha256:a55c74d465dbc23e7d7fc0fecf12ac9a85d37990b5e990e139fad2231ed72371	-	INFORMATIONAL	-	INFORMATIONAL
+context_bytes_per_query	38167.875	4869.25	-33298.6	LOWER	10%	IMPROVED
+cross_subsystem_writes	0	0	0	LOWER	0	UNCHANGED
+cycles	1	1	0	LOWER	0	UNCHANGED
+direct_state_writers	67	68	1	LOWER	1	REGRESSED
+generation	before-head	after-refactor	-	INFORMATIONAL	-	INFORMATIONAL
+high_fanout	0	0	0	LOWER	0	UNCHANGED
+large_modules	12	12	0	LOWER	0	UNCHANGED
+module_edges	697	797	100	LOWER	100	REGRESSED
+modules	252	285	33	INFORMATIONAL	-	INFORMATIONAL
+navigation_precision_percent	0.0	100.0	100	HIGHER	2	IMPROVED
+navigation_recall_percent	0.0	100.0	100	HIGHER	1	IMPROVED
+reasoning_firewall_candidates	2	2	0	LOWER	5	UNCHANGED
+schema_version	2	2	0	INFORMATIONAL	-	INFORMATIONAL
+search_breadth_paths_per_query	0.125	1.0	0.875	LOWER	1	REGRESSED
+status	REBUILD_CANDIDATE	REBUILD_CANDIDATE	-	INFORMATIONAL	-	INFORMATIONAL
+comparison_status	PASS	-

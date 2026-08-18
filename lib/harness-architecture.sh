@@ -5,8 +5,17 @@
 
 architecture_dir()
 {
-	printf '%s/control/architecture' "$(project_dir)"
+	architecture_registry_dir
 }
+
+# Logical lifecycle namespaces.  The normative registry keeps its historical
+# physical location for compatibility; derived evidence and rebuild runs are
+# explicitly namespaced beneath it.
+architecture_registry_dir() { printf '%s/control/architecture' "$(project_dir)"; }
+# Preserve the established on-disk location while giving every producer one
+# logical namespace API. A future state migration can change this function
+# without changing callers or mixing evidence with normative registry files.
+architecture_evidence_root() { printf '%s/control/repository-architecture' "$(project_dir)"; }
 
 architecture_invariants_file() { printf '%s/invariants.tsv' "$(architecture_dir)"; }
 architecture_decisions_file() { printf '%s/decisions.tsv' "$(architecture_dir)"; }

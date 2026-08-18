@@ -6,6 +6,8 @@ source "$SCRIPT_DIR/../lib/harness-mode.sh"
 harness_dispatch_mode "$SCRIPT_DIR/.." "${0##*/}" "$@"
 source "$SCRIPT_DIR/../lib/harness-common.sh"
 source "$SCRIPT_DIR/../lib/harness-repository-index.sh"
+source "$SCRIPT_DIR/../lib/harness-index-maintenance.sh"
+source "$SCRIPT_DIR/../lib/harness-supervisor-policy.sh"
 
 usage()
 {
@@ -75,74 +77,6 @@ fingerprint()
 {
 	local file="$1"
 	stat -c '%i:%s:%Y' "$file"
-}
-
-process_repository_index_refresh()
-{
-	local pending failed task_id outcome reason current status log tmp pointer recorded_revision source_revision
-	pending="$dir/control/repository-index-refresh.pending.env"
-	failed="$dir/control/repository-index-refresh.failed.md"
-	# A reviewed BLOCKED/HARD_BLOCKED episode can preserve and commit a valid
-	# source increment without passing through the accepted/checkpointed hooks
-	# that normally create the refresh marker. Detect committed source drift at
-	# every safe supervisor boundary so required mode cannot publish the next
-	# leaf against the previous generation.
-	if [[ ! -f "$pending" && "$HARNESS_REPOSITORY_INDEX_MODE" == required ]]; then
-		pointer="$(repository_index_project_pointer_file)"
-		recorded_revision="$(kv_file_value "$pointer" source_revision 2>/dev/null || true)"
-		source_revision="$(repository_index_source_revision 2>/dev/null || true)"
-		if [[ -z "$recorded_revision" || -z "$source_revision" ||
-			"$recorded_revision" != "$source_revision" ]]; then
-			repository_index_refresh_at_safe_boundary supervisor REQUIRED_BARRIER
-		fi
-	fi
-	[[ -f "$pending" ]] || return 0
-	if repository_index_project_pointer_is_current; then
-		rm -f "$pending" "$failed"
-		repository_index_failed_fingerprint=""
-		return 0
-	fi
-	# A worker or manager-remediation turn may have a preserved tracked diff.
-	# Keep the request durable and allow its review transaction to finish; Luna
-	# remains protected independently by the required closure launch gate.
-	if ! git -C "$REPOSITORY" diff --quiet --ignore-submodules -- ||
-		! git -C "$REPOSITORY" diff --cached --quiet --ignore-submodules --; then
-		return 0
-	fi
-	current="$({ sha256sum "$pending" "$HARNESS_ENV_FILE" "$HARNESS_HOME/VERSION"; git -C "$REPOSITORY" rev-parse HEAD; } | sha256sum | awk '{print "sha256:" $1}')"
-	[[ "$current" != "$repository_index_failed_fingerprint" ]] || return 1
-	task_id="$(kv_file_value "$pending" task_id 2>/dev/null || printf supervisor)"
-	outcome="$(kv_file_value "$pending" outcome 2>/dev/null || printf SAFE_BOUNDARY)"
-	reason="$(kv_file_value "$pending" reason 2>/dev/null || printf stale)"
-	log="$dir/logs/repository-index-refresh-$task_id-$(timestamp_compact_utc).log"
-	log_event "SUPERVISOR_REPOSITORY_INDEX_REFRESH_STARTED task=$task_id outcome=$outcome reason=$reason log=$log"
-	if "$HARNESS_BIN/harness-index-repository" "$HARNESS_ENV_FILE" > "$log" 2>&1; then
-		rm -f "$pending" "$failed"
-		repository_index_failed_fingerprint=""
-		log_event "REPOSITORY_INDEX_REFRESHED task=$task_id outcome=$outcome log=$log owner=supervisor"
-		"$HARNESS_BIN/harness-architecture-scorecard" "$HARNESS_ENV_FILE" \
-			> "$dir/logs/architecture-scorecard-$task_id-$(timestamp_compact_utc).log" 2>&1 ||
-			log_event "ARCHITECTURE_SCORECARD_FAILED task=$task_id outcome=$outcome"
-		return 0
-	else
-		status=$?
-	fi
-	repository_index_failed_fingerprint="$current"
-	tmp="$failed.tmp.$$"
-	{
-		printf '# Repository Index Refresh Failed\n\n'
-		printf 'Project: %s\n\n' "$PROJECT"
-		printf 'Task-ID: %s\n\n' "$task_id"
-		printf 'Outcome: %s\n\n' "$outcome"
-		printf 'State-Fingerprint: %s\n\n' "$current"
-		printf 'Exit-Status: %s\n\n' "$status"
-		printf 'Log: %s\n\n' "$log"
-		printf 'The required index remains fail-closed. Correct the provider failure or restart the supervisor to retry this unchanged request.\n'
-	} > "$tmp"
-	chmod 600 "$tmp"
-	mv "$tmp" "$failed"
-	log_event "REPOSITORY_INDEX_REFRESH_FAILED task=$task_id outcome=$outcome status=$status log=$log owner=supervisor"
-	return 1
 }
 
 review_state_fingerprint()
@@ -801,42 +735,14 @@ log_event "SUPERVISOR_STARTED pid=$$ env_file=$HARNESS_ENV_FILE"
 printf 'Supervisor started for %s with PID %s. No LLM is running while idle.\n' "$PROJECT" "$$"
 
 while true; do
-	if project_has_integrity_anomaly; then
+	harness_supervisor_process_cycle
+	if [[ "$HARNESS_SUPERVISOR_CYCLE_RESULT" == COMPLETE ]]; then break; fi
+	if [[ "$HARNESS_SUPERVISOR_CYCLE_RESULT" == WAIT ]]; then
 		sleep "$HARNESS_POLL_SECONDS"
 		continue
 	fi
-	process_dependency_requests
-	if ! process_repository_index_refresh; then
-		sleep "$HARNESS_POLL_SECONDS"
-		continue
-	fi
-	if handle_project_completion; then
-		break
-	fi
-	process_results
-	if handle_project_completion; then
-		break
-	fi
-	# A terminal review can schedule a required refresh inside process_results.
-	# Re-check the durable barrier in this same loop iteration before an auto
-	# replan or planning-gap turn can publish the next assignment against the
-	# now-stale generation.
-	if ! process_repository_index_refresh; then
-		sleep "$HARNESS_POLL_SECONDS"
-		continue
-	fi
-	reclassify_legacy_hard_block_markers
-	reclassify_legacy_convergence_human_markers
-	process_context_closure_provider_repairs
-	process_auto_replans
-	process_parallel_planning_capacity
-	if handle_project_completion; then
-		break
-	fi
-	process_planning_gap
-	if handle_project_completion; then
-		break
-	fi
+	[[ "$HARNESS_SUPERVISOR_CYCLE_RESULT" == CONTINUE ]] ||
+		die "unexpected supervisor cycle result: $HARNESS_SUPERVISOR_CYCLE_RESULT"
 	if [[ "$HARNESS_USE_INOTIFY" == "1" ]] && command -v inotifywait >/dev/null 2>&1; then
 		trace_event SUPERVISOR_WATCH_WAIT_BEGIN "mode=inotify" "timeout=$HARNESS_POLL_SECONDS"
 		inotifywait -q -t "$HARNESS_POLL_SECONDS" -e moved_to -e delete \

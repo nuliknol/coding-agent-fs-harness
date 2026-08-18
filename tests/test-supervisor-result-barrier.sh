@@ -77,6 +77,19 @@ chmod 600 "$TEST_ROOT/harness.env"
 "$HARNESS_BIN/harness-init" "$TEST_ROOT/harness.env" >/dev/null
 
 project="$TEST_ROOT/state/projects/raceproj"
+start_test_supervisor()
+{
+	setsid "$HARNESS_BIN/harness-supervisor" "$TEST_ROOT/harness.env" </dev/null \
+		>> "$project/logs/supervisor.log" 2>&1 &
+	local launched=$!
+	for _ in $(seq 1 50); do
+		[[ -f "$project/control/supervisor.pid" ]] && return 0
+		kill -0 "$launched" 2>/dev/null || break
+		sleep 0.1
+	done
+	printf 'test supervisor failed to start\n' >&2
+	return 1
+}
 cat > "$project/archive/raceproj-task-001.assignment.md" <<'ASSIGNMENT'
 # Task Assignment
 
@@ -101,7 +114,7 @@ worker_pid=$worker_pid
 started_at=2026-08-15T00:00:00Z
 MARKER
 
-"$HARNESS_BIN/harness-supervisor-start" "$TEST_ROOT/harness.env" >/dev/null
+start_test_supervisor
 sleep 2
 [[ ! -e "$TEST_ROOT/manager-called-001" ]]
 [[ -f "$project/results/raceproj-task-001.result.md" ]]
@@ -220,7 +233,7 @@ cat > "$project/results/raceproj-task-005.result.md" <<'RESULT'
 Task-ID: 005
 Status: COMPLETED
 RESULT
-"$HARNESS_BIN/harness-supervisor-start" "$TEST_ROOT/harness.env" >/dev/null
+start_test_supervisor
 for _ in $(seq 1 100); do
 	[[ -e "$project/control/raceproj-task-005.manager-review-stalled.md" ]] && break
 	sleep 0.05
@@ -229,7 +242,7 @@ done
 "$HARNESS_BIN/harness-supervisor-stop" "$TEST_ROOT/harness.env" >/dev/null
 printf '\n# deployed review fix\n' >> "$TEST_ROOT/manager-invoker"
 rm -f "$TEST_ROOT/manager-called-005"
-"$HARNESS_BIN/harness-supervisor-start" "$TEST_ROOT/harness.env" >/dev/null
+start_test_supervisor
 for _ in $(seq 1 100); do
 	[[ -e "$TEST_ROOT/manager-called-005" ]] && break
 	sleep 0.05

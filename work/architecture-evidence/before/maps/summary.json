@@ -1,0 +1,13 @@
+{
+  "ambiguous_owners": 0,
+  "concepts": 1212,
+  "cycles": 1,
+  "findings": 256,
+  "generation": "before-head",
+  "module_edges": 697,
+  "modules": 252,
+  "public_interfaces": 705,
+  "schema_version": 2,
+  "state_accesses": 4961,
+  "tests": 26
+}

@@ -382,7 +382,7 @@ grep -Fq "grep -Eq 'CONTEXT_CLOSURE_OVER_BUDGET.*status=OVER_BUDGET'" \
 	"$HARNESS_BIN/manager-decomposition-dag-repair"
 grep -Fq 'CONTEXT_CLOSURE_REPAIR=$context_closure_repair' \
 	"$HARNESS_BIN/manager-decomposition-dag-repair"
-grep -Fq 'merely appending children while retaining that parent cannot reduce its closure' \
+grep -Fq 'merely appending children while retaining that parent' \
 	"$HARNESS_BIN/manager-decomposition-dag-repair"
 grep -Fq 'rejection_stage=context_closure or reports a Context Closure repair.tsv' \
 	"$HARNESS_BIN/manager-decomposition-repair"

@@ -131,7 +131,7 @@ recorded="$($HARNESS_BIN/manager-record-architecture-redesign "$env_file" "$repo
 grep -Fqx 'status=ARCHITECTURE_REDESIGN_REQUIRED' "$project_dir/control/architecture-redesign-review.env"
 test -f "$repo/$recorded"
 
-status_output="$($HARNESS_BIN/harness-status --machine "$env_file")"
+status_output="$($HARNESS_BIN/harness-status --machine "$env_file" || true)"
 grep -Fq "Architecture fit: ARCHITECTURE_REDESIGN_REQUIRED ($recorded)" <<< "$status_output"
 grep -Fq "Project status: ARCHITECTURE_REDESIGN_REQUIRED. Foundational architecture cannot safely support the accepted specification; review $recorded before DAG registration." <<< "$status_output"
 show_output="$($HARNESS_BIN/harness-show-redesign-request "$env_file")"

@@ -27,68 +27,7 @@ dir="$(project_dir)"
 base="$(task_base "$task_id")"
 ready="$dir/tasks/$base.ready.md"
 [[ -f "$ready" ]] || die "task is not ready: $task_id"
-manager_remediation=0
-execution_role=worker
-execution_model="$WORKER_MODEL"
-execution_fallback_model="$WORKER_FALLBACK_MODEL"
-execution_mode=WORKER
-worker_route=LEGACY
-luna_bounded_execution=0
-leaf_expected_turns=0
-if assignment_is_manager_remediation "$ready"; then
-	manager_remediation=1
-	execution_role=manager_remediation
-	execution_model="$MANAGER_MODEL"
-	execution_fallback_model="$MANAGER_FALLBACK_MODEL"
-	execution_mode=MANAGER_REMEDIATION
-	worker_route=MANAGER_REMEDIATION
-	if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
-		leaf_expected_turns="$(require_single_metadata_value "$ready" Expected-Max-Worker-Turns 'v2 manager remediation assignment')"
-		[[ "$leaf_expected_turns" =~ ^[1-9][0-9]*$ ]] || die 'invalid v2 Expected-Max-Worker-Turns'
-	fi
-	if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
-		luna_bounded_execution=1
-		require_worker_codex
-		write_worker_snapshot
-	else
-		require_manager_codex
-		write_manager_snapshot
-	fi
-else
-	if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
-		worker_route="$(require_single_metadata_value "$ready" Worker-Route 'v2 worker assignment')"
-		leaf_expected_turns="$(require_single_metadata_value "$ready" Expected-Max-Worker-Turns 'v2 worker assignment')"
-		[[ "$leaf_expected_turns" =~ ^[1-9][0-9]*$ ]] || die 'invalid v2 Expected-Max-Worker-Turns'
-		case "$worker_route" in
-			LUNA)
-				luna_bounded_execution=1
-				execution_role=worker_luna
-				execution_model="$LUNA_WORKER_MODEL"
-				if [[ "$HARNESS_ESCALATION_POLICY" == decompose ]]; then
-					execution_fallback_model="$WORKER_FALLBACK_MODEL"
-				else
-					execution_fallback_model="$TERRA_WORKER_MODEL"
-				fi
-				execution_mode=LUNA_LEAF
-				;;
-			TERRA)
-				if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
-					mark_project_integrity_anomaly MODEL_POLICY_VIOLATION "$task_id" \
-						'Luna-only project published a TERRA worker assignment' \
-						"assignment=$ready route=$worker_route" >/dev/null
-					die 'Luna-only policy rejected a TERRA worker assignment; decompose it into Luna children'
-				fi
-				execution_role=worker_terra
-				execution_model="$TERRA_WORKER_MODEL"
-				execution_fallback_model="$MANAGER_FALLBACK_MODEL"
-				execution_mode=TERRA_LEAF
-				;;
-			*) die "invalid v2 Worker-Route: $worker_route" ;;
-		esac
-	fi
-	require_worker_codex
-	write_worker_snapshot
-fi
+harness_worker_select_execution_policy "$ready" "$task_id"
 if assignment_uses_goal_mode "$ready"; then
 	(( HARNESS_WORKER_GOAL_MODE == 1 )) ||
 		die 'refusing to claim an active LEAF_GOAL after HARNESS_WORKER_GOAL_MODE was disabled'
@@ -620,9 +559,7 @@ emit_synthetic_impact_manifest()
 # decomposition handoff so the manager can repair the index/capsule or split
 # the node; never spend a worker invocation and never turn an index deficiency
 # into NEEDS_HUMAN.
-if (( luna_bounded_execution == 1 )) &&
-	[[ "$HARNESS_CONTEXT_CLOSURE_MODE" =~ ^(required|patch_only)$ &&
-	"$context_closure_status" != READY ]]; then
+if harness_worker_context_admission_requires_repair; then
 	if [[ "$HARNESS_ESCALATION_POLICY" == decompose ]]; then
 		"$HARNESS_BIN/worker-return-context-repair" "$HARNESS_ENV_FILE" "$task_id" "$session" \
 			"$context_closure_condition" "$context_closure_repair_action" \
