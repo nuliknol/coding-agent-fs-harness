@@ -531,10 +531,13 @@ sed \
 verification_ready="$verification_project/tasks/decompv2verification-task-001-revision-01.ready.md"
 grep -Fqx 'Leaf-Type: VERIFICATION_ONLY' "$verification_ready"
 grep -Fqx 'Expected-Max-Implementation-Files: 0' "$verification_ready"
+grep -Fqx 'Expected-Max-Agent-Actions: 4' "$verification_ready"
 grep -Fqx 'Worker-Route: TERRA' "$verification_ready"
 grep -Fqx 'Complexity-Class: HIGH' "$verification_ready"
 grep -Fqx 'Terra-Exception: IRREDUCIBLE_CROSS_BOUNDARY' "$verification_ready"
 grep -Fq 'RESOURCE_PROGRESS_VERIFICATION_VECTOR_NORMALIZED root=001 task=001-revision-01 expected_files=0' \
+	"$verification_project/logs/events.log"
+grep -Fq 'VERIFICATION_ACTION_BUDGET_NORMALIZED root=001 task=001-revision-01 requested=5 expected=4' \
 	"$verification_project/logs/events.log"
 grep -Eq 'RECOVERY_(TERRA_ESCALATION|EXHAUSTED_LUNA_ROUTE)_NORMALIZED root=001 task=001-revision-01 .*luna_failures=3.*exception=IRREDUCIBLE_CROSS_BOUNDARY' \
 	"$verification_project/logs/events.log"

@@ -2003,6 +2003,28 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 			leaf_expected_files=0
 			log_event "VERIFICATION_FILE_BUDGET_NORMALIZED root=$root task=$task_id requested=$requested_verification_files expected=0"
 		fi
+		# A zero-write verification leaf has no edit/validation action pair to
+		# reserve. Inheriting the aggregate implementation node's action count
+		# multiplies the full prompt across needless context rounds and can push a
+		# tiny evidence check through the 500k invocation fuse. Bound it to one
+		# evidence action per declared worker turn plus finalization headroom.
+		if [[ "$leaf_type" == VERIFICATION_ONLY ]] && project_plan_has_column behavioral_concerns; then
+			requested_verification_actions="$(require_single_metadata_value "$task_file" Expected-Max-Agent-Actions 'measured verification leaf assignment')"
+			normalized_verification_actions=$((leaf_expected_turns + 1))
+			if (( requested_verification_actions > normalized_verification_actions )); then
+				tmp_verification_actions="$task_file.verification-actions.$$"
+				awk -v actions="$normalized_verification_actions" '
+					index($0, "Expected-Max-Agent-Actions: ") == 1 {
+						if (!seen++) print "Expected-Max-Agent-Actions: " actions
+						next
+					}
+					{print}
+				' "$task_file" > "$tmp_verification_actions"
+				chmod --reference="$task_file" "$tmp_verification_actions"
+				mv "$tmp_verification_actions" "$task_file"
+				log_event "VERIFICATION_ACTION_BUDGET_NORMALIZED root=$root task=$task_id requested=$requested_verification_actions expected=$normalized_verification_actions"
+			fi
+		fi
 		if project_plan_has_column behavioral_concerns; then
 			leaf_expected_actions="$(require_single_metadata_value "$task_file" Expected-Max-Agent-Actions 'measured leaf assignment')"
 			leaf_predicted_p95="$(require_single_metadata_value "$task_file" Predicted-P95-Tokens 'measured leaf assignment')"
@@ -2032,6 +2054,10 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 					expected_value="$(awk -F '\t' -v node="$plan_item_id" -v field="$report_field" 'NR>1 && $1==node {print $field; exit}' "$(decomposition_complexity_report_file)")"
 					if [[ "$metadata_field" == Expected-Max-Implementation-Files && "$leaf_type" == VERIFICATION_ONLY ]]; then
 						expected_value=0
+					fi
+					if [[ "$metadata_field" == Expected-Max-Agent-Actions && "$leaf_type" == VERIFICATION_ONLY ]] &&
+						(( expected_value > leaf_expected_turns + 1 )); then
+						expected_value=$((leaf_expected_turns + 1))
 					fi
 					# Reports created before the source-action floor was introduced
 					# remain valid durable DAGs. Compare against the same normalized
