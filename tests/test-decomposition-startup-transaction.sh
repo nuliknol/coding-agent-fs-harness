@@ -739,6 +739,8 @@ grep -Fq 'machine-actionable diagnostic listing, for every offender' \
 	"$HARNESS_BIN/manager-architecture-binding-critic"
 grep -Fq 'an inferred component label without its corrective repository path or contract boundary is not actionable rejection authority' \
 	"$HARNESS_BIN/manager-architecture-binding-critic"
+grep -Fq 'MAX_NODE_OWNERSHIP_BOUNDARIES distinct ownership edges incident on any Luna node' \
+	"$HARNESS_BIN/manager-architecture-binding-critic"
 binding_reject_mock="$TEST_ROOT/binding-reject-codex"
 binding_reject_env="$TEST_ROOT/configs/startup-binding-reject.env"
 cat > "$binding_reject_mock" <<'MOCK'
