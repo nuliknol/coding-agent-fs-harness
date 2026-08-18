@@ -61,7 +61,13 @@ else
 	die "active root does not require architecture or token-usage reassessment: $root"
 fi
 if liveness_reason="$(root_liveness_violation_reason "$root" 2>/dev/null)"; then
-	die "active root remains beyond its lifetime acceptance-boundary budget: $liveness_reason; revising scope or context cannot reset liveness—replace the acceptance boundary, apply a direct operator correction, or explicitly raise the governing limit"
+	# A scope/context-only revision cannot reset monotonic liveness. A controlled
+	# criterion replacement is the explicit acceptance-boundary replacement this
+	# diagnostic asks for; validate its exact prior SHA, evidence, and deployed
+	# fix commit below, then record the new liveness epoch transactionally.
+	[[ -n "$replacement_decomposition" ]] ||
+		die "active root remains beyond its lifetime acceptance-boundary budget: $liveness_reason; revising scope or context cannot reset liveness—replace the acceptance boundary, apply a direct operator correction, or explicitly raise the governing limit"
+	log_event "ACTIVE_PLAN_REVISION_LIVENESS_REPLACEMENT_PENDING root=$root reason=$(printf '%q' "$liveness_reason") replacement=$replacement_decomposition"
 fi
 
 old_header="$(sed -n '1p' "$dag")"
