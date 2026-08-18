@@ -577,6 +577,7 @@ current_model="$execution_model"
 patch_only_baseline=""
 context_expansion_count=0
 context_expansion_pending=0
+denied_context_request=""
 context_followup_prompt=""
 followup_reason=""
 patch_validation_round=0
@@ -821,7 +822,7 @@ prepare_typed_context_expansion()
 	set -e
 	if (( resolver_status != 0 )) || [[ ! -s "$extension_file" ]]; then
 		patch_apply_output="typed Context Closure request rejected: $(tr '\n' ' ' <<< "$resolver_output" | head -c 512)"
-		acp_resolve_request "$acp_request" DENIED deterministic-context-broker - "$patch_apply_output" >/dev/null
+		denied_context_request="$(acp_resolve_request "$acp_request" DENIED deterministic-context-broker - "$patch_apply_output")"
 		acp_write_metrics
 		log_event "CONTEXT_EXPANSION_REJECTED task=$task_id kind=$kind identifier=$(printf '%q' "$identifier") reason=$(printf '%q' "$reason") resolver_status=$resolver_status resolver=$(printf '%q' "$resolver_output")"
 		return 2
@@ -829,7 +830,7 @@ prepare_typed_context_expansion()
 	workspace_after="$(acp_workspace_fingerprint "$task_file")"
 	if [[ "$workspace_after" != "$workspace_before" ]]; then
 		patch_apply_output='ACP context request became stale while deterministic evidence was compiled'
-		acp_resolve_request "$acp_request" DENIED deterministic-context-broker - "$patch_apply_output" >/dev/null
+		denied_context_request="$(acp_resolve_request "$acp_request" DENIED deterministic-context-broker - "$patch_apply_output")"
 		mark_project_integrity_anomaly ACP_STALE_AUTHORITY "$task_id" "$patch_apply_output" \
 			"before=$workspace_before after=$workspace_after request=$acp_request" >/dev/null
 		return 2
@@ -837,7 +838,7 @@ prepare_typed_context_expansion()
 	total_added_bytes="$(find "$extension_dir" -maxdepth 1 -type f -name 'request-*.md' -printf '%s\n' 2>/dev/null | awk '{sum += $1} END {print sum + 0}')"
 	if (( total_added_bytes > HARNESS_ACP_MAX_TOTAL_ADDED_BYTES )); then
 		patch_apply_output="ACP context amplification fuse reached ($total_added_bytes/$HARNESS_ACP_MAX_TOTAL_ADDED_BYTES bytes)"
-		acp_resolve_request "$acp_request" DENIED deterministic-context-broker "$extension_file" "$patch_apply_output" >/dev/null
+		denied_context_request="$(acp_resolve_request "$acp_request" DENIED deterministic-context-broker "$extension_file" "$patch_apply_output")"
 		mark_task_resource_anomaly "$task_id" CONTEXT_AMPLIFICATION "$patch_apply_output" \
 			"request=$acp_request extension=$extension_file" >/dev/null
 		return 2
@@ -874,6 +875,7 @@ publish_context_request_rejection_handoff()
 		if (( goal_mode == 1 )); then
 			printf 'Goal-ID: %s\nGoal-Outcome: NEEDS_DECOMPOSITION\nDecomposition-Reason: CONTEXT_INCOMPLETE\n' "$goal_id"
 		fi
+		emit_denied_context_request_metadata
 		emit_synthetic_impact_manifest
 		printf '\n## Summary\n\nThe deterministic Context Broker could not authorize or bound the requested fact.\n'
 		printf '\n## Modified files\n\nNo implementation claim is made by this protocol transition.\n'
@@ -886,6 +888,16 @@ publish_context_request_rejection_handoff()
 	chmod 600 "$handoff"
 	"$HARNESS_BIN/worker-complete-task" "$HARNESS_ENV_FILE" "$task_id" "$session" "$handoff" >/dev/null
 	rm -f "$handoff"
+}
+
+emit_denied_context_request_metadata()
+{
+	[[ -n "$denied_context_request" && -f "$denied_context_request" ]] || return 0
+	printf 'ACP-Request-Type: %s\n' "$(metadata_value "$denied_context_request" Request-Type)"
+	printf 'ACP-Request-Kind: %s\n' "$(metadata_value "$denied_context_request" Request-Kind)"
+	printf 'ACP-Request-Identifier: %s\n' "$(metadata_value "$denied_context_request" Identifier)"
+	printf 'ACP-Request-Reason: %s\n' "$(metadata_value "$denied_context_request" Reason)"
+	printf 'ACP-Request-ID: %s\n' "$(metadata_value "$denied_context_request" Request-ID)"
 }
 
 normalize_patch_only_result_metadata()
@@ -1348,6 +1360,7 @@ while true; do
 				if (( goal_mode == 1 )); then
 					printf 'Goal-ID: %s\nGoal-Outcome: NEEDS_DECOMPOSITION\nDecomposition-Reason: CONTEXT_INCOMPLETE\n' "$goal_id"
 				fi
+				emit_denied_context_request_metadata
 				emit_synthetic_impact_manifest
 				printf '\n## Summary\n\nThe patch-only proposal was rejected before source mutation: %s.\n' "$patch_apply_output"
 				printf '\n## Modified files\n\nNone.\n\n## Implemented behavior\n\nNone accepted.\n'

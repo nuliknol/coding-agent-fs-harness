@@ -425,8 +425,10 @@ cat > "$read_only_remediation_project/control/progress/decompreadonlyremediation
 
 Task-Root: 001
 Triggered-By: 001
-Trigger-Outcome: DETERMINISTIC_BLOCKER
+Trigger-Outcome: MANAGER_REMEDIATION_CONTEXT_INCOMPLETE
 Blocking-Fingerprint: sha256:readonly-validation
+Remediation-Scope: -
+Context-Paths: -
 MARKER
 sed \
 	-e 's/^Task-ID: 001$/Task-ID: 001-revision-01/' \

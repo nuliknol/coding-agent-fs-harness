@@ -2189,10 +2189,15 @@ if (( recovery_publish == 1 )); then
 			[[ "$(canonical_scope_path_set "$remediation_scope")" == \
 				"$(canonical_scope_path_set "$retained_remediation_scope")" ]] ||
 				die "context-incomplete remediation must preserve its exact Remediation-Scope: $retained_remediation_scope"
-			scope_is_within_root_authority "$prior_context_paths" "$requested_context_paths" ||
-				die "context-incomplete remediation must retain every prior Context-Paths entry: $prior_context_paths"
+			prior_context_path_set="$(canonical_scope_path_set "$prior_context_paths")"
+			# A dash is the machine sentinel for an empty context capsule, not a
+			# repository path that a recovery task must retain literally.
+			if [[ "$prior_context_path_set" != - ]]; then
+				scope_is_within_root_authority "$prior_context_paths" "$requested_context_paths" ||
+					die "context-incomplete remediation must retain every prior Context-Paths entry: $prior_context_paths"
+			fi
 			[[ "$(canonical_scope_path_set "$requested_context_paths")" != \
-				"$(canonical_scope_path_set "$prior_context_paths")" ]] ||
+				"$prior_context_path_set" ]] ||
 				die 'context-incomplete remediation must add at least one exact bounded Context-Paths entry'
 		fi
 	else

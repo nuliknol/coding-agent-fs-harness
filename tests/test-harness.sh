@@ -985,10 +985,19 @@ rm -f "$CIRCUIT_ROOT/state/projects/circuitproj/control/progress/circuitproj-tas
 for revision in 02 03 04; do
 	assignment="$CIRCUIT_ROOT/state/projects/circuitproj/archive/circuitproj-task-001-revision-$revision.assignment.md"
 	result="$CIRCUIT_ROOT/state/projects/circuitproj/results/circuitproj-task-001-revision-$revision.result.md"
+	acp_record="$CIRCUIT_ROOT/state/projects/circuitproj/control/acp/archive/test-$revision.denied.md"
+	mkdir -p "${acp_record%/*}"
 	cat > "$assignment" <<MD
 Task-ID: 001-revision-$revision
 Task-Root: 001
 Manager-Remediation: 1
+MD
+	cat > "$acp_record" <<MD
+Task-ID: 001-revision-$revision
+Sequence: 1
+Request-Type: CONTEXT
+Request-Kind: SYMBOL_DEFINITION
+Identifier: fixture_missing_definition
 MD
 	printf 'worker result\n' > "$result"
 	if [[ "$revision" == 04 ]]; then
@@ -1008,6 +1017,8 @@ remediation_reassessment="$CIRCUIT_ROOT/state/projects/circuitproj/control/progr
 grep -Fqx 'Category: REPEATED_MANAGER_REMEDIATION_BLOCKER' "$remediation_reassessment"
 grep -q 'TASK_CIRCUIT_BREAKER_ARCHITECTURE_REASSESSMENT task=001-revision-04' \
 	"$CIRCUIT_ROOT/state/projects/circuitproj/logs/events.log"
+grep -q 'MANAGER_REMEDIATION_ACP_IDENTITY_RECOVERED task=001-revision-04' \
+	"$CIRCUIT_ROOT/state/projects/circuitproj/logs/events.log"
 printf 'The repeated blocker was inspected and the next strategy must use the corrected focused boundary.\n' \
 	> "$CIRCUIT_ROOT/remediation-resolution.md"
 "$HARNESS_BIN/harness-resolve-architecture-reassessment" "$CIRCUIT_ROOT/harness.env" 001 \
@@ -1016,6 +1027,13 @@ cat > "$CIRCUIT_ROOT/state/projects/circuitproj/archive/circuitproj-task-001-rev
 Task-ID: 001-revision-05
 Task-Root: 001
 Manager-Remediation: 1
+MD
+cat > "$CIRCUIT_ROOT/state/projects/circuitproj/control/acp/archive/test-05.denied.md" <<'MD'
+Task-ID: 001-revision-05
+Sequence: 1
+Request-Type: CONTEXT
+Request-Kind: SYMBOL_DEFINITION
+Identifier: fixture_missing_definition
 MD
 printf 'worker result\n' > \
 	"$CIRCUIT_ROOT/state/projects/circuitproj/results/circuitproj-task-001-revision-05.result.md"

@@ -94,6 +94,33 @@ if [[ "$improvement_percent" == 0 ]]; then
 		acp_request_type="$(metadata_value "$result" ACP-Request-Type 2>/dev/null || printf '-')"
 		acp_request_kind="$(metadata_value "$result" ACP-Request-Kind 2>/dev/null || printf '-')"
 		acp_request_identifier="$(metadata_value "$result" ACP-Request-Identifier 2>/dev/null || printf '-')"
+		# Older denied-context handoffs omitted the typed request identity from
+		# the synthetic result even though the durable ACP transaction retained
+		# it. Recover the newest request for this exact task so different missing
+		# symbols cannot collapse into one false repeated-blocker fingerprint.
+		if [[ -z "$acp_request_type" || "$acp_request_type" == - ||
+			-z "$acp_request_kind" || "$acp_request_kind" == - ||
+			-z "$acp_request_identifier" || "$acp_request_identifier" == - ]]; then
+			acp_identity_record=""
+			acp_identity_sequence=-1
+			shopt -s nullglob
+			for acp_candidate in "$dir/control/acp/archive/"*.md "$dir/control/acp/requests/"*.md; do
+				[[ "$(metadata_value "$acp_candidate" Task-ID 2>/dev/null || true)" == "$task_id" ]] || continue
+				acp_candidate_sequence="$(metadata_value "$acp_candidate" Sequence 2>/dev/null || printf 0)"
+				[[ "$acp_candidate_sequence" =~ ^[0-9]+$ ]] || acp_candidate_sequence=0
+				if (( acp_candidate_sequence > acp_identity_sequence )); then
+					acp_identity_sequence="$acp_candidate_sequence"
+					acp_identity_record="$acp_candidate"
+				fi
+			done
+			shopt -u nullglob
+			if [[ -n "$acp_identity_record" ]]; then
+				acp_request_type="$(metadata_value "$acp_identity_record" Request-Type 2>/dev/null || printf '-')"
+				acp_request_kind="$(metadata_value "$acp_identity_record" Request-Kind 2>/dev/null || printf '-')"
+				acp_request_identifier="$(metadata_value "$acp_identity_record" Identifier 2>/dev/null || printf '-')"
+				log_event "MANAGER_REMEDIATION_ACP_IDENTITY_RECOVERED task=$task_id record=$acp_identity_record sequence=$acp_identity_sequence"
+			fi
+		fi
 		remediation_scope="$(metadata_value "$assignment_archive" Remediation-Scope 2>/dev/null || printf '-')"
 		context_paths="$(metadata_value "$assignment_archive" Context-Paths 2>/dev/null || printf '-')"
 		blocking_fingerprint="sha256:$(printf '%s\n' "$root" "$first_unmet" "$head_commit" \
