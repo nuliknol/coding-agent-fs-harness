@@ -47,6 +47,14 @@ chmod 600 "$TEST_ROOT/harness.env"
 "$ROOT/bin/harness-init" "$TEST_ROOT/harness.env" >/dev/null
 project="$TEST_ROOT/state/projects/acpparallel"
 
+# A healthy unblocked project is the ordinary parallel-planning state.  Keep
+# the three negative guard predicates in an explicit conditional so their
+# expected false return cannot escape through the supervisor ERR trap.
+grep -Fq 'if project_has_token_usage_anomaly || project_has_integrity_anomaly || project_is_blocked; then' \
+	"$ROOT/bin/harness-supervisor"
+! grep -Fq '{ project_has_token_usage_anomaly || project_has_integrity_anomaly || project_is_blocked; } && return 0' \
+	"$ROOT/bin/harness-supervisor"
+
 for task in a b; do
 	cat > "$project/tasks/acpparallel-task-$task.ready.md" <<TASK
 # Task Assignment

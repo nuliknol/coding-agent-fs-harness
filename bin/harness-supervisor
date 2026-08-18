@@ -693,7 +693,13 @@ process_parallel_planning_capacity()
 	[[ "$HARNESS_WORKER_ISOLATION_MODE" == worktree ]] || return 0
 	capacity="$(acp_scheduler_capacity)"
 	(( capacity > 1 )) || return 0
-	{ project_has_token_usage_anomaly || project_has_integrity_anomaly || project_is_blocked; } && return 0
+	# Keep expected false predicates in an explicit conditional.  With errtrace
+	# enabled, placing the final predicate in a grouped AND-list can still expose
+	# its internal `[[ -f ... ]]` miss to the global ERR trap on some Bash
+	# versions, terminating an otherwise healthy parallel supervisor.
+	if project_has_token_usage_anomaly || project_has_integrity_anomaly || project_is_blocked; then
+		return 0
+	fi
 
 	# First restore any active root whose previous leaf was reviewed and which
 	# now needs its next bounded revision. Multiple ACTIVE rows must not let the
