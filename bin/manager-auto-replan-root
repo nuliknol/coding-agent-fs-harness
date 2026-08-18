@@ -63,6 +63,26 @@ trigger_closure_repair_report="$(project_dir)/control/context-closures/$(task_ba
 [[ -s "$trigger_closure_repair_report" ]] || trigger_closure_repair_report=-
 closure_repair=0
 [[ "$trigger_outcome" != CONTEXT_CLOSURE_REPAIR ]] || closure_repair=1
+if (( closure_repair == 1 )) && [[ "$trigger_closure_repair_action" == GRAFT_GRAPH_CUTS ]] &&
+	{ [[ "$trigger_closure_repair_children" == - ]] ||
+		(( $(awk 'END {print NR > 0 ? NR - 1 : 0}' "$trigger_closure_repair_children") == 0 )); }; then
+	closure_recompile_log="$(project_dir)/logs/context-closure-recompile-$(task_base "$trigger_task")-$(timestamp_compact_utc).log"
+	log_event "CONTEXT_CLOSURE_REPAIR_RECOMPILE_STARTED root=$root trigger=$trigger_task assignment=$trigger_assignment log=$closure_recompile_log"
+	if [[ -f "$trigger_assignment" ]] &&
+		"$HARNESS_BIN/harness-build-context-closure" "$HARNESS_ENV_FILE" "$trigger_assignment" >"$closure_recompile_log" 2>&1; then
+		trigger_closure_repair_children="$(project_dir)/control/context-closures/$(task_base "$trigger_task")/repair-children.tsv"
+		if [[ -s "$trigger_closure_repair_children" ]] &&
+			(( $(awk 'END {print NR > 0 ? NR - 1 : 0}' "$trigger_closure_repair_children") > 0 )); then
+			log_event "CONTEXT_CLOSURE_REPAIR_RECOMPILED root=$root trigger=$trigger_task children=$(( $(wc -l < "$trigger_closure_repair_children") - 1 )) log=$closure_recompile_log"
+		else
+			trigger_closure_repair_children=-
+			log_event "CONTEXT_CLOSURE_REPAIR_RECOMPILE_EMPTY root=$root trigger=$trigger_task log=$closure_recompile_log"
+		fi
+	else
+		trigger_closure_repair_children=-
+		log_event "CONTEXT_CLOSURE_REPAIR_RECOMPILE_FAILED root=$root trigger=$trigger_task log=$closure_recompile_log"
+	fi
+fi
 recovery_mode="AUTOMATIC_REPLAN"
 recovery_reason="bounded strategy change remains available"
 if (( closure_repair == 1 )); then
