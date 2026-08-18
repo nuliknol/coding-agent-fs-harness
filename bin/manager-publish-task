@@ -1411,6 +1411,18 @@ normalize_recovery_context_paths()
 			changed=1
 			continue
 		fi
+		# A recovery planner can infer a plausible but nonexistent companion
+		# source path from a missing symbol.  Context-Paths are mandatory closure
+		# seeds, so preserving that guess forces an identical provider-refresh
+		# loop even when the exact symbol already has indexed declaration/call-site
+		# evidence.  Remove only path-shaped absent entries; simple symbolic
+		# selectors remain valid context metadata.
+		if [[ "$entry" != /* && ! -e "$REPOSITORY/$entry" &&
+			( "$entry" == */* || "$entry" =~ \.(c|cc|cpp|cxx|h|hh|hpp|hxx|hip|cu|cmake)$ ) ]]; then
+			changed=1
+			log_event "RECOVERY_ABSENT_CONTEXT_PATH_REMOVED root=$root task=$task_id path=$(printf '%q' "$entry")"
+			continue
+		fi
 		if [[ "$entry" != /* && -d "$REPOSITORY/$entry" ]]; then
 			# A directory is mutation authority, not an exact closure evidence
 			# seed. Keep it as a bounded deterministic search boundary and replace

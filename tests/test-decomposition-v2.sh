@@ -537,12 +537,15 @@ MARKER
 sed \
 	-e 's/^Task-ID: 001$/Task-ID: 001-revision-01/' \
 	-e 's/^Goal-ID: n1.goal$/Goal-ID: n1.normalize/' \
+	-e 's#^Context-Paths: include/a.h,src$#Context-Paths: include/a.h,src,src/missing_contract.c#' \
 	-e '/^Root-Criterion: n1.done$/a Replan-Strategy-ID: normalize.context.1\nStrategy-Change: NARROW_SCOPE\nSupersedes-Task: 001' \
 	"$TEST_ROOT/normalize-root-task.md" > "$TEST_ROOT/normalize-recovery-task.md"
 "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/normalize-harness.env" \
 	001-revision-01 "$TEST_ROOT/normalize-recovery-task.md" --auto-replan >/dev/null
 normalize_ready="$normalize_project/tasks/decompnormalize-task-001-revision-01.ready.md"
 grep -Fqx 'Context-Paths: include/a.h,src/a.c' "$normalize_ready"
+grep -Fq 'RECOVERY_ABSENT_CONTEXT_PATH_REMOVED root=001 task=001-revision-01 path=src/missing_contract.c' \
+	"$normalize_project/logs/events.log"
 grep -Fq 'LUNA_CONTEXT_PATHS_NORMALIZED root=001 task=001-revision-01' \
 	"$normalize_project/logs/events.log"
 
