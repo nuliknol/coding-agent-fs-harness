@@ -244,6 +244,12 @@ MD
 grep -Fq 'Project status: ACTIVE_WITH_PAUSED_ROOTS.' \
 	< <("$HARNESS_BIN/harness-status" --machine "$TEST_ROOT/harness.env")
 rm -f "$project/tasks/livenessproj-task-independent.ready.md"
+cat > "$project/control/progress/livenessproj-task-independent.replanning.md" <<'MD'
+Task-Root: independent
+MD
+grep -Fq 'Project status: ACTIVE_WITH_PAUSED_ROOTS.' \
+	< <("$HARNESS_BIN/harness-status" --machine "$TEST_ROOT/harness.env")
+rm -f "$project/control/progress/livenessproj-task-independent.replanning.md"
 
 cat > "$TEST_ROOT/resolution.md" <<'MD'
 The operator reviewed the bounded evidence and approved a revised architecture boundary.
