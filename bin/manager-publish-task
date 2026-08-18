@@ -1011,7 +1011,7 @@ validate_focused_validation_boundary()
 	success_lower="${success_evidence,,}"
 	[[ -n "$validation" ]] || die 'FOCUSED validation requires a nonempty bounded command or evidence boundary'
 	validation_is_executable_command "$validation" ||
-		die 'Focused-Validation must be one machine-executable shell command without Markdown quoting or trailing prose; use Validation-Command to refine a descriptive DAG boundary'
+		die 'Focused-Validation must be one machine-executable shell command without Markdown quoting or trailing prose; this field itself is required and Validation-Command does not replace it'
 	if grep -Eq '(^|[[:space:];&|])([0-9]*>|&>)[[:space:]]*[^&|;]*|[0-9]+>&[0-9]+' <<< "$validation"; then
 		mark_efficiency_warning VALIDATION_EVIDENCE_SUPPRESSED "${task_id:--}" \
 			'focused validation redirected command diagnostics outside harness capture' "validation=$validation"
@@ -1042,6 +1042,31 @@ validate_focused_validation_boundary()
 			"success_evidence=$success_evidence validation=$validation"
 		die 'Focused-Validation ends after compilation but Goal-Success-Evidence requires execution/runtime observation; execute the exact built fixture or selected test in the same captured command'
 	fi
+}
+
+normalize_trusted_focused_validation()
+{
+	local candidate root_validation tmp validation_command_count
+	validation_is_executable_command "$goal_focused_validation" && return 0
+	[[ -f "$root_assignment" ]] || return 0
+	validation_command_count="$(awk -F': ' '$1 == "Validation-Command" {count++} END {print count+0}' "$task_file")"
+	(( validation_command_count == 1 )) || return 0
+	candidate="$(metadata_value "$task_file" Validation-Command)"
+	root_validation="$(metadata_value "$root_assignment" Focused-Validation)"
+	[[ -n "$candidate" && "$candidate" == "$root_validation" ]] || return 0
+	validation_is_executable_command "$candidate" || return 0
+	tmp="$task_file.focused-validation.$$"
+	HARNESS_NORMALIZED_FOCUSED_VALIDATION="$candidate" awk -F': ' '
+		$1 == "Focused-Validation" {
+			if (!seen++) print "Focused-Validation: " ENVIRON["HARNESS_NORMALIZED_FOCUSED_VALIDATION"]
+			next
+		}
+		{print}
+	' "$task_file" > "$tmp"
+	chmod --reference="$task_file" "$tmp"
+	mv "$tmp" "$task_file"
+	goal_focused_validation="$candidate"
+	log_event "FOCUSED_VALIDATION_NORMALIZED root=$root task=$task_id source=immutable-root-validation"
 }
 
 validate_static_cmake_validation_paths()
@@ -1778,6 +1803,7 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 		fi
 		[[ "$leaf_validation_class" =~ ^(FOCUSED|INCREMENTAL|CLEAN_GLOBAL)$ ]] || die "invalid Validation-Class: $leaf_validation_class"
 		if [[ "$leaf_validation_class" == FOCUSED ]]; then
+			normalize_trusted_focused_validation
 			validate_focused_validation_boundary "$goal_focused_validation" "$goal_success_evidence"
 		fi
 		validate_static_cmake_validation_paths "$goal_focused_validation"

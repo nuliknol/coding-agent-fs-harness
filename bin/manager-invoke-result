@@ -288,7 +288,10 @@ if (( remaining_leaf_criteria == 1 )); then
 	recommended_terminal_command="$HARNESS_BIN/manager-accept-task"
 fi
 
-review_packet="$project_path/control/$base.manager-review-packet.md"
+# Review and recovery packets are both bounded control-plane progress evidence.
+# Keep them in one deterministic directory so a model cannot transpose the
+# established recovery-packet path and fall back to filesystem exploration.
+review_packet="$project_path/control/progress/$base.manager-review-packet.md"
 {
 	printf '# Compiled Manager Review Packet\n\n'
 	printf 'Task-ID: %s\n' "$task_id"

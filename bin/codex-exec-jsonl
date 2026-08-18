@@ -262,7 +262,8 @@ fi
 resource_task_id="$(prompt_value TASK_ID)"
 resource_task_root="$(prompt_value TASK_ROOT)"
 resource_agent_phase="$(prompt_value AGENT_PHASE)"
-if [[ "$resource_agent_phase" =~ ^(specification_review|architecture_fit|architecture_binding)$ ]] &&
+if { [[ "$resource_agent_phase" =~ ^(specification_review|architecture_fit|architecture_binding)$ ]] ||
+	[[ "$role" =~ ^manager_(review|replan)$ ]]; } &&
 	(( HARNESS_VALIDATION_OUTPUT_MAX_BYTES < agent_command_output_limit )); then
 	agent_command_output_limit="$HARNESS_VALIDATION_OUTPUT_MAX_BYTES"
 fi

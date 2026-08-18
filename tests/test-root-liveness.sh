@@ -68,6 +68,7 @@ cat > "$project/control/progress/livenessproj-task-consumer.root-assignment.md" 
 Task-ID: consumer
 Task-Root: consumer
 Root-Criterion: consumer.validation
+Focused-Validation: cmake -S . -B build && cmake --build build --target liveness_consumer_smoke
 Allowed-Scope: src/consumer
 Architecture-Decisions: NONE
 Expected-Max-Implementation-Files: 2
@@ -587,6 +588,27 @@ grep -Fqx 'cmake -S . -B build && cmake --build build --target liveness_consumer
 grep -Fq 'CMAKE_TARGET_ALIAS_NORMALIZED root=consumer task=consumer-revision-06 requested=consumer_smoke registered=liveness_consumer_smoke' \
 	"$project/logs/events.log"
 rm -f "$target_alias_ready"
+
+# A manager correction may move the executable immutable-root command into
+# Validation-Command while leaving a descriptive Focused-Validation field.
+# Normalize that exact trusted command mechanically instead of spending another
+# model action reversing the field-shape mistake.
+sed \
+	-e 's/consumer-revision-05/consumer-revision-11/g' \
+	-e 's/consumer.generated-validation/consumer.validation-field-normalization/' \
+	-e 's|^Focused-Validation:.*|Focused-Validation: FOCUSED: run the immutable consumer smoke boundary|' \
+	"$TEST_ROOT/generated-validation-revision.md" > "$TEST_ROOT/validation-field-normalized-revision.md"
+sed -i '/^Focused-Validation:/a Validation-Command: cmake -S . -B build && cmake --build build --target liveness_consumer_smoke' \
+	"$TEST_ROOT/validation-field-normalized-revision.md"
+validation_field_output="$("$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" \
+	consumer-revision-11 "$TEST_ROOT/validation-field-normalized-revision.md")"
+validation_field_ready="$project/tasks/livenessproj-task-consumer-revision-11.ready.md"
+[[ "$validation_field_output" == "$validation_field_ready" ]]
+grep -Fqx 'Focused-Validation: cmake -S . -B build && cmake --build build --target liveness_consumer_smoke' \
+	"$validation_field_ready"
+grep -Fq 'FOCUSED_VALIDATION_NORMALIZED root=consumer task=consumer-revision-11 source=immutable-root-validation' \
+	"$project/logs/events.log"
+rm -f "$validation_field_ready"
 
 # Recovery coding leaves must be implementation-ready before they consume an
 # agent invocation. Review descriptors and unresolved discovery objectives are
