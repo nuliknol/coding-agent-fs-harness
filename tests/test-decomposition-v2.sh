@@ -15,8 +15,9 @@ mkdir -p "$TEST_ROOT/repo/src" "$TEST_ROOT/repo/include" "$TEST_ROOT/manager-hom
 printf 'Implement one focused behavior.\n' > "$TEST_ROOT/repo/spec.md"
 printf 'int target_symbol(void) { return 0; }\n' > "$TEST_ROOT/repo/src/a.c"
 printf 'int target_symbol(void);\n' > "$TEST_ROOT/repo/include/a.h"
+printf 'add_custom_target(fixture-check)\n' > "$TEST_ROOT/repo/src/CMakeLists.txt"
 git -C "$TEST_ROOT/repo" init -q
-git -C "$TEST_ROOT/repo" add spec.md src/a.c include/a.h
+git -C "$TEST_ROOT/repo" add spec.md src/a.c src/CMakeLists.txt include/a.h
 git -C "$TEST_ROOT/repo" -c user.name=test -c user.email=test@example.invalid commit -qm seed
 
 cat > "$TEST_ROOT/harness.env" <<ENV
@@ -395,6 +396,7 @@ sed \
 	-e 's/export PROJECT="decompv2"/export PROJECT="decompreadonlyremediation"/' \
 	-e "s|export HARNESS_ROOT=\"$TEST_ROOT/state\"|export HARNESS_ROOT=\"$TEST_ROOT/read-only-remediation-state\"|" \
 	"$TEST_ROOT/harness.env" > "$TEST_ROOT/read-only-remediation-harness.env"
+printf 'export HARNESS_MODEL_POLICY=luna_only\n' >> "$TEST_ROOT/read-only-remediation-harness.env"
 chmod 600 "$TEST_ROOT/read-only-remediation-harness.env"
 "$HARNESS_BIN/harness-init" "$TEST_ROOT/read-only-remediation-harness.env" >/dev/null
 cat > "$TEST_ROOT/read-only-remediation-plan.tsv" <<'PLAN'
@@ -435,8 +437,10 @@ sed \
 	-e 's/^Goal-ID: n1.goal$/Goal-ID: n1.readonly.repair/' \
 	-e 's#^Focused-Validation:.*#Focused-Validation: command -v source-audit-evidence-check#' \
 	-e 's#^Allowed-Scope: -$#Allowed-Scope: src#' \
-	-e 's#^Context-Paths: -$#Context-Paths: src/a.c#' \
+	-e 's#^Context-Paths: -$#Context-Paths: src#' \
 	-e 's/^Required-Symbols: -$/Required-Symbols: source-audit-evidence-check/' \
+	-e 's/^Make target_symbol return one\.$/Verify the bounded registration source without repository edits./' \
+	-e 's/^- The focused evidence passes\.$/- The bounded registration source is inspected before command resolution./' \
 	-e '/^Root-Criterion: n1.done$/a Manager-Remediation: 1\nBlocker-Class: LOCAL_INTEGRATION_PREREQUISITE\nRemediation-Scope: src\nReplan-Strategy-ID: readonly.validation.repair\nStrategy-Change: REPAIR_PREREQUISITE\nSupersedes-Task: 001' \
 	"$TEST_ROOT/read-only-remediation-root.md" > "$TEST_ROOT/read-only-remediation-recovery.md"
 "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/read-only-remediation-harness.env" \
@@ -445,9 +449,12 @@ read_only_remediation_ready="$read_only_remediation_project/tasks/decompreadonly
 grep -Fqx 'Allowed-Scope: -' "$read_only_remediation_ready"
 grep -Fqx 'Remediation-Scope: -' "$read_only_remediation_ready"
 grep -Fqx 'Required-Symbols: -' "$read_only_remediation_ready"
+grep -Fqx 'Context-Paths: src/CMakeLists.txt' "$read_only_remediation_ready"
 grep -Fq 'READ_ONLY_MANAGER_REMEDIATION_SCOPE_NORMALIZED root=001 task=001-revision-01' \
 	"$read_only_remediation_project/logs/events.log"
 grep -Fq 'READ_ONLY_VALIDATION_LABEL_NORMALIZED root=001 task=001-revision-01 label=source-audit-evidence-check' \
+	"$read_only_remediation_project/logs/events.log"
+grep -Fq 'READ_ONLY_CONTEXT_ROOT_NORMALIZED root=001 task=001-revision-01 requested=src context=src/CMakeLists.txt' \
 	"$read_only_remediation_project/logs/events.log"
 
 # A resource fuse that observes durable source progress must schedule a

@@ -1468,6 +1468,18 @@ normalize_recovery_context_paths()
 			continue
 		fi
 		if [[ "$entry" != /* && -d "$REPOSITORY/$entry" ]]; then
+			# Read-only command/registration verification sometimes names a
+			# configured source root after a context-incomplete transition. Its
+			# CMake registration file is the exact bounded evidence seed; expanding
+			# the whole directory exceeds the capsule before a worker can run.
+			if [[ "$allowed" == - && "$(metadata_value "$task_file" Leaf-Type)" == VERIFICATION_ONLY &&
+				( "$required" == - || -z "$required" ) && -f "$REPOSITORY/$entry/CMakeLists.txt" ]]; then
+				kept+=("$entry/CMakeLists.txt")
+				exact_files+=("$entry/CMakeLists.txt")
+				changed=1
+				log_event "READ_ONLY_CONTEXT_ROOT_NORMALIZED root=$root task=$task_id requested=$(printf '%q' "$entry") context=$(printf '%q' "$entry/CMakeLists.txt")"
+				continue
+			fi
 			# A directory is mutation authority, not an exact closure evidence
 			# seed. Keep it as a bounded deterministic search boundary and replace
 			# it with tracked source files below.
