@@ -54,6 +54,30 @@ validate_percent "$improvement_percent" 'Improvement-Percent'
 [[ ! -e "$running" ]] || die "task is still running: $task_id"
 [[ ! -e "$lease" ]] || die "worker lease still exists: $task_id"
 
+validate_local_remediation_scope()
+{
+	local scope="$1" assignment="$2" assignment_scope entry
+	local -a entries=()
+	assignment_scope="$(metadata_value "$assignment" Allowed-Scope)"
+	if [[ "$scope" == - ]]; then
+		[[ "$assignment_scope" == - ]] ||
+			die 'repository-local Remediation-Scope may be - only for an immutable read-only assignment'
+		return 0
+	fi
+	mapfile -t entries < <(
+		printf '%s\n' "$scope" | tr ',;[:space:]' '\n' | sed '/^$/d' | LC_ALL=C sort -u
+	)
+	(( ${#entries[@]} > 0 )) ||
+		die 'repository-local Remediation-Scope must name at least one exact repository path'
+	for entry in "${entries[@]}"; do
+		[[ -n "$entry" && "$entry" != - && "$entry" != /* &&
+			"$entry" != ../* && "$entry" != */../* && "$entry" != *'*'* ]] ||
+			die "repository-local Remediation-Scope is not an exact repository-relative path: $entry"
+		[[ -e "$REPOSITORY/$entry" ]] ||
+			die "repository-local Remediation-Scope path does not exist: $entry"
+	done
+}
+
 if [[ -f "$blocked" ]]; then
 	goal_record_manager_decision "$task_id" BLOCKED
 	printf '%s\n' "$blocked"
@@ -96,6 +120,7 @@ if [[ "$goal_outcome" != HARD_BLOCKED ]]; then
 elif hard_block_class_is_local "$blocker_class"; then
 	[[ -n "$remediation_scope" ]] ||
 		die 'a repository-local HARD_BLOCKED review requires Remediation-Scope'
+	validate_local_remediation_scope "$remediation_scope" "$assignment_archive"
 elif hard_block_class_is_human "$blocker_class"; then
 	[[ -n "$human_dependency_evidence" ]] ||
 		die 'a human-dependent HARD_BLOCKED review requires Human-Dependency-Evidence'

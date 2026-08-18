@@ -1236,6 +1236,22 @@ cat > "$hard_project/results/hardblockproj-task-001.result.md" <<'RESULT'
 
 Goal-Outcome: HARD_BLOCKED
 RESULT
+cat > "$HARD_ROOT/invalid-local-scope-review.md" <<'NOTE'
+Progress-Percent: 0%
+Improvement-Percent: 0%
+Blocker-Class: LOCAL_SCOPE_PREREQUISITE
+Remediation-Scope: focused provider fixture registration and selector wiring
+NOTE
+if "$HARNESS_BIN/manager-block-task" "$HARD_ROOT/harness.env" 001 \
+	"$HARD_ROOT/invalid-local-scope-review.md" \
+	'worker scope excludes the required private test seam' \
+	> "$HARD_ROOT/invalid-local-scope.out" 2>&1; then
+	printf 'manager block accepted prose as repository-local remediation scope\n' >&2
+	exit 1
+fi
+grep -Fq 'repository-local Remediation-Scope path does not exist: and' \
+	"$HARD_ROOT/invalid-local-scope.out"
+[[ -f "$hard_project/results/hardblockproj-task-001.result.md" ]]
 cat > "$HARD_ROOT/review.md" <<'NOTE'
 Progress-Percent: 0%
 Improvement-Percent: 0%
