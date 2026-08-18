@@ -275,6 +275,7 @@ fi
 resource_goal_mode="$(prompt_value WORKER_GOAL_MODE)"
 resource_expected_actions="$(prompt_value EXPECTED_MAX_AGENT_ACTIONS)"
 resource_expected_implementation_files="$(prompt_value EXPECTED_MAX_IMPLEMENTATION_FILES)"
+resource_leaf_type="$(prompt_value LEAF_TYPE)"
 resource_effective_p95="$(prompt_value EFFECTIVE_P95_TOKENS)"
 resource_declared_effective_p95="$resource_effective_p95"
 resource_prompt_bytes="$(stat -c %s "$prompt" 2>/dev/null || printf 0)"
@@ -283,6 +284,15 @@ resource_context_rounds=0
 resource_runtime_p95_floor=0
 resource_processed_token_limit="$HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION"
 resource_estimated_token_limit="$HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION"
+resource_item_headroom="$HARNESS_AGENT_ITEM_HEADROOM"
+# A zero-write verification leaf has no implementation/exploration phase. It
+# needs room for planning, its declared evidence actions, and finalization, but
+# not the seven-item source-changing allowance that previously let a two-action
+# check repeat builds and diagnostics until it tripped the token fuse.
+if [[ "$resource_leaf_type" == VERIFICATION_ONLY &&
+	"$resource_expected_implementation_files" == 0 ]]; then
+	resource_item_headroom=3
+fi
 resource_item_limit="$HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION"
 if [[ "$role" == manager_review ]]; then
 	resource_item_limit="$HARNESS_MAX_MANAGER_REVIEW_ITEMS_PER_INVOCATION"
@@ -297,16 +307,16 @@ if [[ "$role" =~ ^worker || "$role" == manager_remediation ]] &&
 fi
 if [[ "$role" =~ ^worker || "$role" == manager_remediation ]] &&
 	[[ "$resource_expected_actions" =~ ^[1-9][0-9]*$ ]] &&
-	(( resource_expected_actions + HARNESS_AGENT_ITEM_HEADROOM < resource_item_limit )); then
+	(( resource_expected_actions + resource_item_headroom < resource_item_limit )); then
 	# Predicted actions describe semantic work, while JSONL item starts also
 	# include model planning and finalization. Preserve a bounded allowance for
 	# those protocol items; the project-wide hard ceiling still wins.
-	resource_item_limit=$((resource_expected_actions + HARNESS_AGENT_ITEM_HEADROOM))
+	resource_item_limit=$((resource_expected_actions + resource_item_headroom))
 fi
 if [[ "$role" =~ ^worker || "$role" == manager_remediation ]] &&
 	[[ "$resource_expected_actions" =~ ^[1-9][0-9]*$ ]] &&
 	(( HARNESS_AGENT_BASE_CONTEXT_TOKENS_PER_ROUND > 0 )); then
-	resource_context_rounds=$((resource_expected_actions + HARNESS_AGENT_ITEM_HEADROOM))
+	resource_context_rounds=$((resource_expected_actions + resource_item_headroom))
 	resource_runtime_p95_floor=$(((HARNESS_AGENT_BASE_CONTEXT_TOKENS_PER_ROUND +
 		resource_prompt_tokens) * resource_context_rounds))
 	if [[ ! "$resource_effective_p95" =~ ^[1-9][0-9]*$ ]] ||

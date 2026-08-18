@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import csv
+import re
 import sqlite3
 import subprocess
 import tempfile
@@ -186,6 +187,56 @@ class SpeedImprovementTests(unittest.TestCase):
                 "--require-exact-luna"], text=True, capture_output=True)
             self.assertEqual(result.returncode, 3)
             self.assertIn("replace broad allowed_paths src with exact source files", result.stderr)
+
+    def test_partial_symbol_capabilities_fall_back_to_allowed_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database = root / "architecture.sqlite"
+            connection = sqlite3.connect(database)
+            connection.executescript("""
+                CREATE TABLE symbols(symbol_id TEXT, display_name TEXT, symbol_kind TEXT);
+                CREATE TABLE symbol_definitions(symbol_id TEXT, region_id INTEGER);
+                CREATE TABLE source_regions(region_id INTEGER, file_id INTEGER, start_line INTEGER, end_line INTEGER);
+                CREATE TABLE files(file_id INTEGER, repository_path TEXT);
+                INSERT INTO symbols VALUES('s','resolved_target','function');
+                INSERT INTO files VALUES(1,'src/a.c');
+                INSERT INTO source_regions VALUES(1,1,4,8);
+                INSERT INTO symbol_definitions VALUES('s',1);
+            """)
+            connection.commit()
+            connection.close()
+            pointer = root / "pointer.env"
+            pointer.write_text(f"status=READY\ngeneration_dir={root}\n", encoding="utf-8")
+            plan = root / "plan.tsv"
+            plan.write_text(
+                "node_id\tallowed_paths\trequired_symbols\tleaf_type\tworker_route\n"
+                "n1\tsrc/a.c\tresolved_target,unindexed_target\tLOCAL_IMPLEMENTATION\tLUNA\n",
+                encoding="utf-8")
+            output = root / "out.tsv"
+            result = subprocess.run([
+                "python3", str(ROOT / "tools/compile_mutation_capabilities.py"),
+                "--plan", str(plan), "--pointer", str(pointer), "--output", str(output)],
+                text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0)
+            with output.open(encoding="utf-8", newline="") as stream:
+                self.assertEqual(list(csv.DictReader(stream, delimiter="\t")), [])
+
+    def test_validation_build_rewrite_covers_direct_execution(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            private = root / "private"
+            logical = root / "shared-build"
+            command = (f"cmake -S dplm -B {logical} && "
+                       f"cmake --build {logical} --target smoke && "
+                       f"{logical}/smoke && ctest --test-dir {logical} -R smoke")
+            output = subprocess.check_output([
+                "python3", str(ROOT / "tools/rewrite_validation_build_paths.py"),
+                "--command", command, "--cwd", str(root),
+                "--private-root", str(private)], text=True).strip()
+            self.assertNotIn(str(logical), output)
+            rewritten_paths = re.findall(re.escape(str(private)) + r"/[0-9a-f]{64}", output)
+            self.assertEqual(len(rewritten_paths), 4)
+            self.assertEqual(len(set(rewritten_paths)), 1)
 
 
 if __name__ == "__main__":

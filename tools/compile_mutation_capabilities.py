@@ -54,6 +54,7 @@ def main() -> int:
             symbols = values(row.get("required_symbols", "-"))
             scopes = values(row.get("allowed_paths", "-"))
             resolved_symbols: set[str] = set()
+            node_rows: list[dict[str, str]] = []
             if connection is not None:
                 for symbol in symbols:
                     matches = connection.execute(
@@ -71,16 +72,22 @@ def main() -> int:
                     if bounded:
                         resolved_symbols.add(symbol)
                     for path, display, start, end, kind in bounded:
-                        output_rows.append({"node_id": node, "repository_path": path,
-                                            "symbol": display, "start_line": str(start),
-                                            "end_line": str(end), "symbol_kind": kind,
-                                            "authority": "INDEXED"})
+                        node_rows.append({"node_id": node, "repository_path": path,
+                                          "symbol": display, "start_line": str(start),
+                                          "end_line": str(end), "symbol_kind": kind,
+                                          "authority": "INDEXED"})
             complete = bool(symbols) and resolved_symbols == set(symbols)
+            # Mutation regions are an all-or-nothing refinement of the plan's
+            # Allowed-Scope.  Publishing a partial symbol set makes the patch
+            # validator deny legitimate changes for the unresolved part of the
+            # same node.  When closure is incomplete, publish no indexed rows so
+            # execution correctly falls back to the exact Allowed-Scope.
+            if complete:
+                output_rows.extend(node_rows)
             source_changing = row.get("leaf_type", "") in SOURCE_CHANGING
             if (args.require_exact_luna and source_changing and row.get("worker_route") == "LUNA"
                     and complete):
-                resolved_paths = {item["repository_path"] for item in output_rows
-                                  if item["node_id"] == node}
+                resolved_paths = {item["repository_path"] for item in node_rows}
                 broad = [scope for scope in scopes
                          if any(path.startswith(scope.rstrip("/") + "/")
                                 for path in resolved_paths)]

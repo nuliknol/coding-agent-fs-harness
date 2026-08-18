@@ -33,9 +33,11 @@ for ((index = 0; index < ${#args[@]}; index++)); do
 	esac
 done
 
-# Isolated workers must never race through one assignment's absolute build
-# directory.  Both configure (-B) and consume (--build) map that logical path
-# into a stable source-worktree-private namespace supplied by the runner.
+# The assigned-validation runner rewrites every static reference in the full
+# shell expression before execution. Keep already-private paths unchanged.
+# Dynamic paths (for example a mktemp variable) are inherently invocation
+# private and must also remain unchanged so later ctest/direct references use
+# the same directory as configure and build.
 if [[ -n "${HARNESS_CMAKE_PRIVATE_BUILD_ROOT:-}" ]]; then
 	requested_build="$build_dir"
 	if [[ -z "$requested_build" ]]; then
@@ -47,23 +49,14 @@ if [[ -n "${HARNESS_CMAKE_PRIVATE_BUILD_ROOT:-}" ]]; then
 		done
 	fi
 	if [[ -n "$requested_build" ]]; then
-		build_key="$(realpath -m -- "$requested_build" | sha256sum | awk '{print $1}')"
-		private_build="$HARNESS_CMAKE_PRIVATE_BUILD_ROOT/$build_key"
-		mkdir -p "$HARNESS_CMAKE_PRIVATE_BUILD_ROOT"
-		for ((index = 0; index < ${#args[@]}; index++)); do
-			case "${args[index]}" in
-			-B)
-				args[index + 1]="$private_build"
-				;;
-			-B*) args[index]="-B$private_build" ;;
-			--build)
-				args[index + 1]="$private_build"
-				;;
-			esac
-		done
-		build_dir="$private_build"
-		printf 'HARNESS_CMAKE_PRIVATE_BUILD requested=%s private=%s\n' \
-			"$requested_build" "$private_build" >&2
+		canonical_requested="$(realpath -m -- "$requested_build")"
+		canonical_private_root="$(realpath -m -- "$HARNESS_CMAKE_PRIVATE_BUILD_ROOT")"
+		if [[ "$canonical_requested" == "$canonical_private_root/"* ]]; then
+			mkdir -p "$HARNESS_CMAKE_PRIVATE_BUILD_ROOT"
+			build_dir="$canonical_requested"
+			printf 'HARNESS_CMAKE_PRIVATE_BUILD requested=%s private=%s\n' \
+				"$requested_build" "$canonical_requested" >&2
+		fi
 	fi
 fi
 

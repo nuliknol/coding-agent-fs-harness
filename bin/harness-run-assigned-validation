@@ -37,6 +37,20 @@ validation="$(metadata_value "$assignment" Focused-Validation)"
 validation_is_executable_command "$validation" ||
 	die 'Focused-Validation is not one machine-executable shell command; correct the assignment instead of interpreting Markdown or prose at runtime'
 
+# Isolated workers must use the same private build path for configure, build,
+# ctest, and direct executable references. Rewriting the complete recorded
+# expression up front avoids a successful private build followed by a false
+# ENOENT at the assignment's public path.
+build_identity=declared-command-build-path
+if [[ "$HARNESS_WORKER_ISOLATION_MODE" == worktree ]]; then
+	build_namespace="$(realpath -m -- "$REPOSITORY" | sha256sum | awk '{print $1}')"
+	export HARNESS_CMAKE_PRIVATE_BUILD_ROOT="$PROJECT_TMP_DIR/build-broker/$build_namespace"
+	build_identity="$HARNESS_CMAKE_PRIVATE_BUILD_ROOT"
+	validation="$(python3 "$HARNESS_HOME/tools/rewrite_validation_build_paths.py" \
+		--command "$validation" --cwd "$REPOSITORY" \
+		--private-root "$HARNESS_CMAKE_PRIVATE_BUILD_ROOT")"
+fi
+
 # Configure incrementally by default.  The wrapper adds --fresh only when an
 # existing build cache demonstrably belongs to another source tree.
 cmake_wrapper="$HARNESS_BIN/harness-cmake-configure"
@@ -52,12 +66,6 @@ mkdir -p "$receipt_dir"
 chmod 700 "$receipt_dir"
 workspace_fingerprint="$(repository_workspace_fingerprint)"
 git_head="$(git -C "$REPOSITORY" rev-parse HEAD 2>/dev/null || printf UNBORN)"
-build_identity=declared-command-build-path
-if [[ "$HARNESS_WORKER_ISOLATION_MODE" == worktree ]]; then
-	build_namespace="$(realpath -m -- "$REPOSITORY" | sha256sum | awk '{print $1}')"
-	export HARNESS_CMAKE_PRIVATE_BUILD_ROOT="$PROJECT_TMP_DIR/build-broker/$build_namespace"
-	build_identity="$HARNESS_CMAKE_PRIVATE_BUILD_ROOT"
-fi
 toolchain_fingerprint="$({
 	command -v cmake >/dev/null 2>&1 && cmake --version | head -n 1
 	command -v cc >/dev/null 2>&1 && cc --version | head -n 1

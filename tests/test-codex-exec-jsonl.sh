@@ -286,6 +286,24 @@ grep -q '^item_limit=9$' "$TMP/measured-item-loop.classification"
 rm -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-measured-root.needs-human.md" \
 	"$TMP/state/projects/jsonltest/control/progress/jsonltest-task-measured-root.token-usage-anomaly.md"
 
+# Read-only verification receives only bounded planning/finalization headroom;
+# it cannot spend the source-changing allowance repeating evidence commands.
+verification_prompt="$TMP/verification-measured-prompt"
+printf 'TASK_ID=verification-root\nTASK_ROOT=verification-root\nLEAF_TYPE=VERIFICATION_ONLY\nEXPECTED_MAX_AGENT_ACTIONS=2\nEXPECTED_MAX_IMPLEMENTATION_FILES=0\nEFFECTIVE_P95_TOKENS=100000\n' \
+	> "$verification_prompt"
+set +e
+MOCK_MODE=item_loop "$ROOT/bin/codex-exec-jsonl" "$TMP/env-measured-leaf" worker gpt-5.5 \
+	"$verification_prompt" "$TMP/verification-item-loop.jsonl" \
+	"$TMP/verification-item-loop.stderr" "$TMP/verification-item-loop.last"
+verification_item_status=$?
+set -e
+(( verification_item_status != 0 ))
+grep -q '^classification=agent_item_budget_exceeded$' \
+	"$TMP/verification-item-loop.classification"
+grep -q '^item_limit=5$' "$TMP/verification-item-loop.classification"
+rm -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-verification-root.needs-human.md" \
+	"$TMP/state/projects/jsonltest/control/progress/jsonltest-task-verification-root.token-usage-anomaly.md"
+
 # Manager-remediation is a Terra-routed implementation leaf, so it inherits
 # the same measured action ceiling and leaf-goal handoff semantics as a worker.
 manager_remediation_prompt="$TMP/manager-remediation-measured-prompt"

@@ -453,6 +453,8 @@ sed \
 	-e 's/^Goal-ID: n1.goal$/Goal-ID: n1.readonly.repair/' \
 	-e 's#^Focused-Validation:.*#Focused-Validation: command -v source-audit-evidence-check#' \
 	-e 's#^Allowed-Scope: -$#Allowed-Scope: src#' \
+	-e 's/^Leaf-Type: VERIFICATION_ONLY$/Leaf-Type: LOCAL_IMPLEMENTATION/' \
+	-e 's/^Expected-Max-Implementation-Files: 0$/Expected-Max-Implementation-Files: 1/' \
 	-e 's#^Context-Paths: -$#Context-Paths: src/CMakeLists.txt#' \
 	-e 's/^Required-Symbols: -$/Required-Symbols: source-audit-evidence-check/' \
 	-e 's/^Make target_symbol return one\.$/Verify the bounded registration source without repository edits./' \
@@ -464,12 +466,16 @@ sed \
 read_only_remediation_ready="$read_only_remediation_project/tasks/decompreadonlyremediation-task-001-revision-01.ready.md"
 grep -Fqx 'Allowed-Scope: -' "$read_only_remediation_ready"
 grep -Fqx 'Remediation-Scope: -' "$read_only_remediation_ready"
+grep -Fqx 'Leaf-Type: VERIFICATION_ONLY' "$read_only_remediation_ready"
+grep -Fqx 'Expected-Max-Implementation-Files: 0' "$read_only_remediation_ready"
 grep -Fqx 'Required-Symbols: -' "$read_only_remediation_ready"
 grep -Fqx 'Focused-Validation: FOCUSED: source-only target audit' \
 	"$read_only_remediation_ready"
 grep -Fqx 'Context-Paths: src/CMakeLists.txt,src/cmake/registration.cmake' \
 	"$read_only_remediation_ready"
 grep -Fq 'READ_ONLY_MANAGER_REMEDIATION_SCOPE_NORMALIZED root=001 task=001-revision-01' \
+	"$read_only_remediation_project/logs/events.log"
+grep -Fq 'READ_ONLY_DESCRIPTOR_AUTHORITY_NORMALIZED root=001 task=001-revision-01 requested_leaf=LOCAL_IMPLEMENTATION' \
 	"$read_only_remediation_project/logs/events.log"
 grep -Fq 'READ_ONLY_VALIDATION_LABEL_NORMALIZED root=001 task=001-revision-01 label=source-audit-evidence-check' \
 	"$read_only_remediation_project/logs/events.log"

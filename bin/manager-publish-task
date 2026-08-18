@@ -1268,8 +1268,9 @@ validate_direct_cmake_execution_targets()
 normalize_revision_execution_metadata()
 {
 	local root_scope root_max_files root_max_turns requested_scope requested_files requested_turns
-	local normalized_scope normalized_files normalized_turns tmp changed=0 scope_override additional_scope additional_entry
-	local replan_trigger_outcome requested_leaf declared_root_max_files effective_root_scope dirty_path
+	local normalized_scope normalized_files normalized_turns normalized_leaf normalized_required tmp changed=0 scope_override additional_scope additional_entry
+	local replan_trigger_outcome requested_leaf requested_required declared_root_max_files effective_root_scope dirty_path
+	local root_leaf root_validation root_required read_only_descriptor_root=0
 	local preserved_dirty_files=0
 	local additional_file_allowance=0
 	local -a additional_entries=()
@@ -1279,6 +1280,13 @@ normalize_revision_execution_metadata()
 	declared_root_max_files="$root_max_files"
 	effective_root_scope="$root_scope"
 	root_max_turns="$(metadata_value "$root_assignment" Expected-Max-Worker-Turns)"
+	root_leaf="$(metadata_value "$root_assignment" Leaf-Type)"
+	root_validation="$(metadata_value "$root_assignment" Focused-Validation)"
+	root_required="$(metadata_value "$root_assignment" Required-Symbols)"
+	if [[ "$root_leaf" == VERIFICATION_ONLY && "$root_max_files" == 0 ]] &&
+		validation_is_review_descriptor "$root_validation"; then
+		read_only_descriptor_root=1
+	fi
 	scope_override="$(task_root_architecture_scope_override_file "$root")"
 	if (( manager_remediation == 1 )) && [[ "$root_max_files" =~ ^[0-9]+$ && -f "$scope_override" ]] &&
 		[[ "$(kv_file_value "$scope_override" authorized_for 2>/dev/null || true)" == manager_remediation ]]; then
@@ -1317,6 +1325,9 @@ normalize_revision_execution_metadata()
 	normalized_turns="$requested_turns"
 	replan_trigger_outcome=""
 	requested_leaf="$(metadata_value "$task_file" Leaf-Type)"
+	requested_required="$(metadata_value "$task_file" Required-Symbols)"
+	normalized_leaf="$requested_leaf"
+	normalized_required="$requested_required"
 	if (( recovery_publish == 1 && manager_remediation == 0 )); then
 		replan_trigger_outcome="$(metadata_value "$(task_root_replan_file "$root")" Trigger-Outcome)"
 	fi
@@ -1333,12 +1344,36 @@ normalize_revision_execution_metadata()
 		log_event "RESOURCE_PROGRESS_VERIFICATION_METADATA_NORMALIZED root=$root task=$task_id requested_files=${requested_files:--} expected_files=0"
 	fi
 
+	# A review descriptor is an evidence oracle, not permission to manufacture
+	# source literals bearing the audit/criterion name. Every continuation of an
+	# immutable zero-write descriptor root therefore remains zero-write and uses
+	# the root's required-symbol contract, even if a recovery model labels its
+	# proposal LOCAL_IMPLEMENTATION or invents source-shaped audit identifiers.
+	if (( read_only_descriptor_root == 1 )); then
+		if [[ "$normalized_leaf" != VERIFICATION_ONLY ]]; then
+			normalized_leaf=VERIFICATION_ONLY
+			changed=1
+		fi
+		if [[ "$normalized_files" != 0 ]]; then
+			normalized_files=0
+			changed=1
+		fi
+		[[ -n "$root_required" ]] || root_required=-
+		if [[ "$normalized_required" != "$root_required" ]]; then
+			normalized_required="$root_required"
+			changed=1
+		fi
+		if (( changed == 1 )); then
+			log_event "READ_ONLY_DESCRIPTOR_AUTHORITY_NORMALIZED root=$root task=$task_id requested_leaf=${requested_leaf:--} requested_files=${requested_files:--} requested_symbols=$(printf '%q' "${requested_required:--}")"
+		fi
+	fi
+
 	# Manager remediation is sometimes selected after a malformed validation
 	# command repeats, even though the immutable root is explicitly read-only.
 	# A VERIFICATION_ONLY continuation cannot acquire source mutation authority
 	# merely because the manager is repairing that execution prerequisite.
-	if (( manager_remediation == 1 )) && [[ "$requested_leaf" == VERIFICATION_ONLY &&
-		"$requested_files" == 0 && "$root_max_files" == 0 && "$root_scope" == - &&
+	if (( manager_remediation == 1 )) && [[ "$normalized_leaf" == VERIFICATION_ONLY &&
+		"$normalized_files" == 0 && "$root_max_files" == 0 && "$root_scope" == - &&
 		"$normalized_scope" != - ]]; then
 		normalized_scope=-
 		changed=1
@@ -1372,6 +1407,8 @@ normalize_revision_execution_metadata()
 	HARNESS_NORMALIZED_ALLOWED_SCOPE="$normalized_scope" \
 	HARNESS_NORMALIZED_EXPECTED_FILES="$normalized_files" \
 	HARNESS_NORMALIZED_EXPECTED_TURNS="$normalized_turns" \
+	HARNESS_NORMALIZED_LEAF_TYPE="$normalized_leaf" \
+	HARNESS_NORMALIZED_REQUIRED_SYMBOLS="$normalized_required" \
 	HARNESS_NORMALIZE_REMEDIATION_SCOPE="$manager_remediation" awk -F': ' '
 		$1 == "Allowed-Scope" {print "Allowed-Scope: " ENVIRON["HARNESS_NORMALIZED_ALLOWED_SCOPE"]; next}
 		$1 == "Remediation-Scope" && ENVIRON["HARNESS_NORMALIZE_REMEDIATION_SCOPE"] == 1 {
@@ -1379,6 +1416,8 @@ normalize_revision_execution_metadata()
 		}
 		$1 == "Expected-Max-Implementation-Files" {print "Expected-Max-Implementation-Files: " ENVIRON["HARNESS_NORMALIZED_EXPECTED_FILES"]; next}
 		$1 == "Expected-Max-Worker-Turns" {print "Expected-Max-Worker-Turns: " ENVIRON["HARNESS_NORMALIZED_EXPECTED_TURNS"]; next}
+		$1 == "Leaf-Type" {print "Leaf-Type: " ENVIRON["HARNESS_NORMALIZED_LEAF_TYPE"]; next}
+		$1 == "Required-Symbols" {print "Required-Symbols: " ENVIRON["HARNESS_NORMALIZED_REQUIRED_SYMBOLS"]; next}
 		{print}
 	' "$task_file" > "$tmp"
 	chmod --reference="$task_file" "$tmp"
