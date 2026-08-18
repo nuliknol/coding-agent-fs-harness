@@ -205,10 +205,26 @@ fi
 candidate_complexity=""
 if (( measured == 1 )); then
 	candidate_complexity="$dir/control/revised-complexity-$active_item-$$.tsv"
-	write_decomposition_complexity_report "$candidate_dag" "$(specification_coverage_file)" "$candidate_complexity" || {
+	set +e
+	write_decomposition_complexity_report "$candidate_dag" "$(specification_coverage_file)" "$candidate_complexity"
+	complexity_status=$?
+	set -e
+	[[ -s "$candidate_complexity" ]] || {
+		rm -f "$candidate_complexity"
+		die 'active-node revision could not produce a measured complexity report'
+	}
+	active_complexity_status="$(awk -F '\t' -v node="$active_item" 'NR>1 && $1==node {print $19; exit}' "$candidate_complexity")"
+	[[ "$active_complexity_status" == READY ]] || {
 		rm -f "$candidate_complexity"
 		die 'revised active node exceeds the measured worker-complexity contract'
 	}
+	if (( complexity_status != 0 )); then
+		# Non-active rows are byte-identical to the installed accepted DAG. A
+		# current Luna-only contract may classify historical future Terra rows as
+		# non-ready, but that must not make correction of this anomalous active
+		# boundary impossible. Validate the revised row and preserve the others.
+		log_event "ACTIVE_PLAN_REVISION_PRESERVED_LEGACY_COMPLEXITY item=$active_item status=$complexity_status"
+	fi
 	expected_score="$(awk -F '\t' -v node="$active_item" 'NR>1 && $1==node {print $4; exit}' "$candidate_complexity")"
 	expected_p95="$(awk -F '\t' -v node="$active_item" 'NR>1 && $1==node {print $17; exit}' "$candidate_complexity")"
 	[[ "$(require_single_metadata_value "$candidate_assignment" Complexity-Score 'revised measured assignment')" == "$expected_score" ]] || die 'revised assignment Complexity-Score is not deterministic'

@@ -5,6 +5,8 @@ TEST_ROOT="$(mktemp -d /tmp/coding-harness-active-plan-revision.XXXXXX)"
 trap 'rm -rf -- "$TEST_ROOT"' EXIT
 HARNESS_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HARNESS_BIN="$HARNESS_HOME/bin"
+grep -Fq 'ACTIVE_PLAN_REVISION_PRESERVED_LEGACY_COMPLEXITY' \
+	"$HARNESS_BIN/harness-revise-active-plan-node"
 mkdir -p "$TEST_ROOT/repo/src" "$TEST_ROOT/manager-home" "$TEST_ROOT/worker-home"
 printf 'Repair the bounded runtime contract.\n' > "$TEST_ROOT/repo/spec.md"
 printf 'int public_api(void);\n' > "$TEST_ROOT/repo/src/api.h"
