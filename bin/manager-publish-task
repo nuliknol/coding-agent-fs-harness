@@ -1381,6 +1381,50 @@ normalize_revision_execution_metadata()
 
 normalize_revision_execution_metadata
 
+normalize_read_only_validation_labels()
+{
+	local required validation leaf files symbol tmp changed=0 normalized
+	local -a symbols=() kept=()
+	(( recovery_publish == 1 && manager_remediation == 1 )) || return 0
+	leaf="$(metadata_value "$task_file" Leaf-Type)"
+	files="$(metadata_value "$task_file" Expected-Max-Implementation-Files)"
+	[[ "$leaf" == VERIFICATION_ONLY && "$files" == 0 ]] || return 0
+	required="$(metadata_value "$task_file" Required-Symbols)"
+	validation="$(metadata_value "$task_file" Focused-Validation)"
+	[[ -n "$required" && "$required" != - ]] || return 0
+	IFS=',' read -r -a symbols <<< "$required"
+	for symbol in "${symbols[@]}"; do
+		symbol="$(trim_surrounding_whitespace "$symbol")"
+		[[ -n "$symbol" && "$symbol" != - ]] || continue
+		# A command/test label copied from Focused-Validation is not source
+		# closure authority when it has no tracked definition or usage. Keeping
+		# it in Required-Symbols makes a zero-write evidence task impossible to
+		# publish, despite an exact repository Context-Paths entry.
+		if [[ "$validation" == *"$symbol"* ]] &&
+			! git -C "$REPOSITORY" grep -q -F -- "$symbol" -- . 2>/dev/null; then
+			changed=1
+			log_event "READ_ONLY_VALIDATION_LABEL_NORMALIZED root=$root task=$task_id label=$(printf '%q' "$symbol")"
+			continue
+		fi
+		kept+=("$symbol")
+	done
+	(( changed == 1 )) || return 0
+	if (( ${#kept[@]} == 0 )); then
+		normalized=-
+	else
+		normalized="$(IFS=,; printf '%s' "${kept[*]}")"
+	fi
+	tmp="$task_file.required-symbols.$$"
+	HARNESS_NORMALIZED_REQUIRED_SYMBOLS="$normalized" awk -F': ' '
+		$1 == "Required-Symbols" {print "Required-Symbols: " ENVIRON["HARNESS_NORMALIZED_REQUIRED_SYMBOLS"]; next}
+		{print}
+	' "$task_file" > "$tmp"
+	chmod --reference="$task_file" "$tmp"
+	mv "$tmp" "$task_file"
+}
+
+normalize_read_only_validation_labels
+
 normalize_recovery_context_paths()
 {
 	local requested required allowed validation normalized normalized_allowed entry symbol candidate tmp changed=0

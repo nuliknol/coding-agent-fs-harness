@@ -433,8 +433,10 @@ MARKER
 sed \
 	-e 's/^Task-ID: 001$/Task-ID: 001-revision-01/' \
 	-e 's/^Goal-ID: n1.goal$/Goal-ID: n1.readonly.repair/' \
+	-e 's#^Focused-Validation:.*#Focused-Validation: command -v source-audit-evidence-check#' \
 	-e 's#^Allowed-Scope: -$#Allowed-Scope: src#' \
 	-e 's#^Context-Paths: -$#Context-Paths: src/a.c#' \
+	-e 's/^Required-Symbols: -$/Required-Symbols: source-audit-evidence-check/' \
 	-e '/^Root-Criterion: n1.done$/a Manager-Remediation: 1\nBlocker-Class: LOCAL_INTEGRATION_PREREQUISITE\nRemediation-Scope: src\nReplan-Strategy-ID: readonly.validation.repair\nStrategy-Change: REPAIR_PREREQUISITE\nSupersedes-Task: 001' \
 	"$TEST_ROOT/read-only-remediation-root.md" > "$TEST_ROOT/read-only-remediation-recovery.md"
 "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/read-only-remediation-harness.env" \
@@ -442,7 +444,10 @@ sed \
 read_only_remediation_ready="$read_only_remediation_project/tasks/decompreadonlyremediation-task-001-revision-01.ready.md"
 grep -Fqx 'Allowed-Scope: -' "$read_only_remediation_ready"
 grep -Fqx 'Remediation-Scope: -' "$read_only_remediation_ready"
+grep -Fqx 'Required-Symbols: -' "$read_only_remediation_ready"
 grep -Fq 'READ_ONLY_MANAGER_REMEDIATION_SCOPE_NORMALIZED root=001 task=001-revision-01' \
+	"$read_only_remediation_project/logs/events.log"
+grep -Fq 'READ_ONLY_VALIDATION_LABEL_NORMALIZED root=001 task=001-revision-01 label=source-audit-evidence-check' \
 	"$read_only_remediation_project/logs/events.log"
 
 # A resource fuse that observes durable source progress must schedule a
