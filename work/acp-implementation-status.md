@@ -22,6 +22,7 @@ Overall: IN PROGRESS
 - Added initial-context versus broker-extension amplification telemetry and manager-disposition counts; normal required-closure Luna prompts now expose the same typed structural negotiation as patch-only Luna.
 - Added the normative protocol description in `formats/acp-v1.md` and operator documentation in `README.md`.
 - Enforced serial fail-closed scheduling: zero resolves to safe bounded capacity and values above one are rejected until isolated capability leases and deterministic integration are actually available.
+- Live restart exposed and fixed a pre-existing patch-only empty-commit orphan: an identical remove/add proposal with passing trusted validation now becomes `PATCH_ONLY_ALREADY_SATISFIED`, and exact machine metadata strips Markdown trailing-space line breaks before result publication.
 - Passed ACP, irregularity, Context Closure (76 focused Python cases across resolver/compiler helpers), repository-index, Luna-only convergence, leaf-goal, decomposition-v2, supervisor barrier, Git dependency, active plan revision, core harness, architecture redesign, autostart, decomposition startup, manager rotation, root liveness, specification review/satisfiability, and Codex JSONL/resource-fuse suites.
 
 ## In progress

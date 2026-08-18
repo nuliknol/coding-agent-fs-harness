@@ -879,6 +879,20 @@ publish_context_request_rejection_handoff()
 	rm -f "$handoff"
 }
 
+normalize_patch_only_result_metadata()
+{
+	local response="$1" normalized
+	[[ -f "$response" ]] || return 0
+	normalized="$response.metadata-normalized.$$"
+	# Markdown authors commonly add two trailing spaces for a visual line break.
+	# Machine metadata is exact and must not inherit that presentation syntax.
+	# Match only control keys at column zero so patch payload lines are untouched.
+	sed -E '/^(Task-ID|Status|Goal-ID|Goal-Outcome|Decomposition-Reason|Changed-Public-Symbols|Changed-Representations|Changed-Ownership|Changed-Serialization|Changed-Dependencies|Affected-Invariants|Affected-Edges):/ s/[[:space:]]+$//' \
+		"$response" > "$normalized"
+	chmod --reference="$response" "$normalized"
+	mv "$normalized" "$response"
+}
+
 prepare_structural_acp_handoff()
 {
 	local response="$1" type kind identifier reason acp_thread request_path request_status
@@ -1165,14 +1179,34 @@ while true; do
 			set -e
 			patch_validation_round=$((patch_validation_round + 1))
 			if (( patch_validation_status == 0 )); then
-				patch_message="$PROJECT_TMP_DIR/$base.patch-commit-message.$$"
-				printf 'Implement %s through validated Context Closure patch\n' "$task_id" > "$patch_message"
 				mapfile -t patch_paths < "$patch_paths_file"
-				"$HARNESS_BIN/harness-commit-source" "$HARNESS_ENV_FILE" "$task_id" "$session" "$patch_message" "${patch_paths[@]}" \
-					> "$dir/logs/patch-only-commit-$task_id-$stamp.log"
-				rm -f "$patch_message"
-				printf '\n<!-- Harness patch-only validation: PASS; patch=%s -->\n' "$patch_file" >> "$last_message"
-				log_event "PATCH_ONLY_APPLIED task=$task_id patch=$patch_file paths=$patch_paths_file validation_round=$patch_validation_round"
+				patch_effective_workspace="$($HARNESS_BIN/harness-workspace-fingerprint "$HARNESS_ENV_FILE")"
+				if [[ "$patch_effective_workspace" == "$patch_only_baseline" ]]; then
+					# A remove/add pair with identical bytes applies syntactically but has
+					# no commit. If the trusted validator passes, the criterion was already
+					# satisfied. Publish that observation instead of invoking a commit
+					# helper that must (correctly) reject an empty source transaction.
+					{
+						printf '# Worker Task Result\n\nTask-ID: %s\nStatus: COMPLETED\n' "$task_id"
+						if (( goal_mode == 1 )); then printf 'Goal-ID: %s\nGoal-Outcome: COMPLETE\n' "$goal_id"; fi
+						emit_synthetic_impact_manifest
+						printf '\n## Summary\n\nThe proposed patch had no effective byte delta, and trusted focused validation passed against the existing source.\n'
+						printf '\n## Modified files\n\nNone; the assigned behavior was already present.\n'
+						printf '\n## Implemented behavior\n\nThe existing source satisfies this bounded criterion without an empty commit.\n'
+						printf '\n## Validation performed\n\nTrusted validation passed; complete output is retained at `%s`.\n' "$patch_validation_capture"
+						printf '\n## Deviations from assignment\n\nNo mutation was necessary.\n\n## Remaining concerns\n\nNone for this bounded criterion.\n'
+						printf '\n## Worker assessment\n\nCOMPLETE based on trusted validation and a clean effective patch path set.\n'
+					} > "$last_message"
+					log_event "PATCH_ONLY_ALREADY_SATISFIED task=$task_id patch=$patch_file paths=$patch_paths_file validation_round=$patch_validation_round validation=$patch_validation_capture"
+				else
+					patch_message="$PROJECT_TMP_DIR/$base.patch-commit-message.$$"
+					printf 'Implement %s through validated Context Closure patch\n' "$task_id" > "$patch_message"
+					"$HARNESS_BIN/harness-commit-source" "$HARNESS_ENV_FILE" "$task_id" "$session" "$patch_message" "${patch_paths[@]}" \
+						> "$dir/logs/patch-only-commit-$task_id-$stamp.log"
+					rm -f "$patch_message"
+					printf '\n<!-- Harness patch-only validation: PASS; patch=%s -->\n' "$patch_file" >> "$last_message"
+					log_event "PATCH_ONLY_APPLIED task=$task_id patch=$patch_file paths=$patch_paths_file validation_round=$patch_validation_round"
+				fi
 			else
 				# The trusted applicator permits uniquely anchored zero-context
 				# replacements with --unidiff-zero.  Rollback must use the same
@@ -1293,6 +1327,9 @@ while true; do
 				} > "$last_message"
 			fi
 		fi
+	fi
+	if (( luna_bounded_execution == 1 )) && [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only ]]; then
+		normalize_patch_only_result_metadata "$last_message"
 	fi
 	observed_thread_id="$(codex_thread_id_from_jsonl "$json_log" 2>/dev/null || true)"
 	if [[ "$observed_thread_id" =~ ^[A-Za-z0-9-]+$ ]]; then
