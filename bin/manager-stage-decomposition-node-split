@@ -107,16 +107,50 @@ awk -F '\t' -v OFS='\t' -v mapping_file="$mapping_source" -v replacement_file="$
 chmod 600 "$merged_dag"
 
 merged_coverage="$repair_dir/coverage.tsv"
-awk -F '\t' -v OFS='\t' -v mapping_file="$mapping_source" -v coverage_file="$coverage_source" '
+awk -F '\t' -v OFS='\t' -v mapping_file="$mapping_source" -v replacement_file="$replacement_source" -v coverage_file="$coverage_source" '
 	function trim(v) {gsub(/^[[:space:]]+|[[:space:]]+$/, "", v); return v}
+	function add(out,id) {return id=="" || seen[id] ? out : (seen[id]=1, out (out?",":"") id)}
+	BEGIN {
+		while ((getline line < coverage_file)>0) {
+			split(line,c,"\t"); if(c[1]!="obligation_id" && c[1]!="") obligation[c[1]]=1
+		}
+		close(coverage_file)
+	}
 	FILENAME==mapping_file {if(FNR>1) mapping[$1]=$2; next}
+	FILENAME==replacement_file {
+		if(FNR==1) next
+		contract=$4 " " $5 " " $6
+		gsub(/[^A-Za-z0-9._-]+/," ",contract); contract=" " contract " "
+		for(obligation_id in obligation) {
+			if(index(contract," " obligation_id " ")) {
+				mentions[$1 SUBSEP obligation_id]=1
+				has_mentions[$1]=1
+			}
+		}
+		replacement[$1]=1
+		next
+	}
 	FILENAME==coverage_file {
 		if(FNR==1) {print; next}
+		delete seen
 		n=split($2,a,","); out=""; changed=""
-		for(i=1;i<=n;i++) {id=trim(a[i]); value=(id in mapping)?mapping[id]:id; out=out (out?",":"") value; if(id in mapping) changed=changed (changed?",":"") id}
+		for(i=1;i<=n;i++) {
+			id=trim(a[i])
+			if(id in mapping) {
+				m=split(mapping[id],children,",")
+				for(j=1;j<=m;j++) {
+					child=trim(children[j])
+					if(!has_mentions[child] || mentions[child SUBSEP $1]) out=add(out,child)
+				}
+				changed=changed (changed?",":"") id
+			} else out=add(out,id)
+		}
+		# Exact normalized IDs in the child contract are authoritative allocation
+		# evidence even when a broad parent grouping omitted that facet.
+		for(child in replacement) if(mentions[child SUBSEP $1]) out=add(out,child)
 		$2=out; if(changed!="") $3=$3 " [machine node split replaces " changed "]"; print
 	}
-' "$mapping_source" "$coverage_source" > "$merged_coverage"
+' "$mapping_source" "$replacement_source" "$coverage_source" > "$merged_coverage"
 chmod 600 "$merged_coverage"
 
 "$HARNESS_BIN/manager-stage-decomposition-dag" "$HARNESS_ENV_FILE" "$merged_dag" "$merged_coverage"

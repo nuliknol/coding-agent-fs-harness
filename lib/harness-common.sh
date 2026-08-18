@@ -5978,7 +5978,7 @@ decomposition_complexity_report_file()
 complexity_contract_sha256()
 {
 	printf '%s\n' \
-		'node-local-risk-domains-v2' 'accepted-success-only-calibration-v1' \
+		'node-local-risk-domains-v2' 'explicit-obligation-facets-v1' 'accepted-success-only-calibration-v1' \
 		'executable-scope-staging-v1' \
 		"$HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF" "$HARNESS_MAX_LUNA_ALLOWED_PATHS" \
 		"$HARNESS_MAX_LUNA_REQUIRED_SYMBOLS" "$HARNESS_MAX_LUNA_BEHAVIORAL_CONCERNS" \
@@ -6028,6 +6028,7 @@ write_decomposition_complexity_report()
 	local dag="$1" coverage="$2" output="$3" obligations_file coverage_file calibration_rate
 	local node_id route leaf paths symbols behavioral failures ownership concurrency validations implementation_files actions declared_p95 exception
 	local obligation_count obligation_weight path_count symbol_count risk_domains score calibrated_p95 effective_p95 status violations text
+	local focused_obligations normalized_node_text
 	local derived derived_behavioral derived_failures derived_ownership derived_concurrency derived_validations obligation_text
 	local -a fields=()
 	decomposition_has_complexity_contract "$dag" || return 2
@@ -6084,14 +6085,39 @@ write_decomposition_complexity_report()
 		fi
 		path_count="$(awk -F, '{if ($0=="-" || $0=="") print 0; else print NF}' <<< "$paths")"
 		symbol_count="$(awk -F, '{if ($0=="-" || $0=="") print 0; else print NF}' <<< "$symbols")"
-		obligation_count="$(awk -F '\t' -v wanted="$node_id" 'NR>1 {n=split($2,a,","); for(i=1;i<=n;i++){gsub(/^[[:space:]]+|[[:space:]]+$/,"",a[i]); if(a[i]==wanted){c++; break}}} END{print c+0}' "$coverage_file")"
-		obligation_weight="$(awk -F '\t' -v wanted="$node_id" -v coverage="$coverage_file" '
-			BEGIN {while ((getline line < coverage)>0) {split(line,c,"\t"); n=split(c[2],a,","); for(i=1;i<=n;i++){gsub(/^[[:space:]]+|[[:space:]]+$/,"",a[i]); if(a[i]==wanted) selected[c[1]]=1}}}
+		# Coverage remains complete at the normative obligation level, while an
+		# executable child may own only one explicitly named facet of a broad
+		# obligation set. Charge a child for the exact covered obligation IDs it
+		# names in its compiled deliverable/evidence/validation contract. If it
+		# names none, retain the conservative legacy charge for every mapped
+		# obligation. This makes an ordered split measurable without an implicit
+		# complexity waiver.
+		normalized_node_text="$(printf '%s %s %s' "${fields[3]}" "${fields[4]}" "${fields[5]}" |
+			tr -c 'A-Za-z0-9._-' ' ')"
+		focused_obligations="$(HARNESS_NODE_CONTRACT_TEXT=" $normalized_node_text " awk -F '\t' -v wanted="$node_id" '
+			NR>1 {
+				n=split($2,a,","); mapped=0
+				for(i=1;i<=n;i++){gsub(/^[[:space:]]+|[[:space:]]+$/,"",a[i]); if(a[i]==wanted){mapped=1; break}}
+				if(mapped && index(ENVIRON["HARNESS_NODE_CONTRACT_TEXT"], " " $1 " ")) print $1
+			}' "$coverage_file" | sort -u | paste -sd, -)"
+		if [[ -n "$focused_obligations" ]]; then
+			obligation_count="$(awk -F, '{print NF}' <<< "$focused_obligations")"
+		else
+			obligation_count="$(awk -F '\t' -v wanted="$node_id" 'NR>1 {n=split($2,a,","); for(i=1;i<=n;i++){gsub(/^[[:space:]]+|[[:space:]]+$/,"",a[i]); if(a[i]==wanted){c++; break}}} END{print c+0}' "$coverage_file")"
+		fi
+		obligation_weight="$(awk -F '\t' -v wanted="$node_id" -v coverage="$coverage_file" -v focus="$focused_obligations" '
+			BEGIN {
+				if(focus!=""){n=split(focus,f,","); for(i=1;i<=n;i++) selected[f[i]]=1}
+				else while ((getline line < coverage)>0) {split(line,c,"\t"); n=split(c[2],a,","); for(i=1;i<=n;i++){gsub(/^[[:space:]]+|[[:space:]]+$/,"",a[i]); if(a[i]==wanted) selected[c[1]]=1}}
+			}
 			NR>1 && ($1 in selected) {w=2; if($5=="CONTRACT"||$5=="INVARIANT"||$5=="PERFORMANCE")w=3; else if($5=="INTEGRATION"||$5=="RESOURCE_LIFETIME")w=4; else if($5=="TEST"||$5=="DOCUMENTATION"||$5=="COMPLETION")w=1; total+=w}
 			END{print total+0}
 		' "$obligations_file")"
-		derived="$(awk -F '\t' -v wanted="$node_id" -v coverage="$coverage_file" '
-			BEGIN {while ((getline line < coverage)>0) {split(line,c,"\t"); n=split(c[2],a,","); for(i=1;i<=n;i++){gsub(/^[[:space:]]+|[[:space:]]+$/,"",a[i]); if(a[i]==wanted) selected[c[1]]=1}}}
+		derived="$(awk -F '\t' -v wanted="$node_id" -v coverage="$coverage_file" -v focus="$focused_obligations" '
+			BEGIN {
+				if(focus!=""){n=split(focus,f,","); for(i=1;i<=n;i++) selected[f[i]]=1}
+				else while ((getline line < coverage)>0) {split(line,c,"\t"); n=split(c[2],a,","); for(i=1;i<=n;i++){gsub(/^[[:space:]]+|[[:space:]]+$/,"",a[i]); if(a[i]==wanted) selected[c[1]]=1}}
+			}
 			NR>1 && ($1 in selected) {
 				tolower_text=tolower($5 " " $6 " " $7); corpus=corpus " " tolower_text
 				if($5 ~ /^(FUNCTIONAL|CONTRACT|INTEGRATION|INTERFACE)$/) behavior++
