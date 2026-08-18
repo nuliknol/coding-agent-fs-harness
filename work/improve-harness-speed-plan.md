@@ -1,7 +1,8 @@
 # Harness Throughput Improvement Plan
 
-Status: IMPLEMENTED — PENDING PRODUCTION ROLLOUT
+Status: COMPLETE — IMPLEMENTED, DEPLOYED, AND LIVE-RECOVERED
 Started: 2026-08-18
+Completed: 2026-08-18
 
 ## Objective
 
@@ -132,10 +133,27 @@ silently suppressed after an uncommitted manager review.
       architecture, liveness, and full harness suites.
 - [x] Run syntax, formatting, module-boundary, and complete regression checks.
 - [x] Record before/after throughput metrics on retained fixtures.
-- [ ] Deploy development commits to production only after tests pass and tree
+- [x] Deploy development commits to production only after tests pass and tree
       identity is verified.
-- [ ] Inventory paused production roots after deployment, resolve only incidents
+- [x] Inventory paused production roots after deployment, resolve only incidents
       covered by installed fixes, restart those harnesses, and confirm live progress.
+
+Production version: 5.18.36
+
+Live recovery evidence:
+
+- `compmod-wc-3` published deterministic closure revision 80 and launched its
+  Luna worker after the closure-cut fingerprint fix.
+- `dplm-final-v2` published deterministic closure revision 163 and launched its
+  Luna worker after the same fix.
+- `dpvis-w2-a2` resumed a preserved revision after deterministic build-broker
+  evidence removed the repeated target-discovery loop.
+- `compmod-wc-4` resumed its normalized zero-write continuation without a false
+  mutation-scope expansion.
+- `mf-story-a19-r2` was rearmed after the read-only validation-oracle fix;
+  revision 17 retained the original `FOCUSED:` oracle and launched a Luna
+  worker instead of testing the invented `source-audit-evidence-check` program.
+- The post-recovery fleet snapshot contained no paused project.
 
 ## Completion criteria
 

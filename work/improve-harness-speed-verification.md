@@ -1,7 +1,7 @@
 # Harness Throughput Improvement Verification
 
 Date: 2026-08-18
-Version: 5.18.33
+Version: 5.18.36
 
 ## Retained baseline
 
@@ -51,5 +51,34 @@ semantic conflict, while a later frontier exposes two independent nodes.
 - Luna-only convergence suite: passed.
 - Root liveness and dependency invalidation suite: passed.
 
-Production fleet measurements and resumed-root evidence are recorded after the
-deployment section of the implementation plan is completed.
+## Retained production throughput measurements
+
+The corrected historical utilization calculation pairs legacy and current
+worker lifecycle events without double-counting them and ignores unverifiable
+open intervals. Before recovery, representative retained projects reported:
+
+| Project | Worker / manager invocations | Implementation yield | Control amplification | Critical path | Max / conflict width | Slot utilization |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| compmod-wc-3 | 123 / 273 | 7.32% | 45.56 per node | 26 | 4 / 4 | 0.80% |
+| compmod-wc-4 | 74 / 193 | 4.05% | 90.33 per node | 23 | 6 / 2 | 0.90% |
+| dplm-final-v2 | 100 / 301 | 4.00% | 119.00 per node | 18 | 31 / 2 | 0.56% |
+| dpvis-w2-a2 | 155 / 241 | 0.65% | 352.00 per node | 19 | 3 / 2 | 1.26% |
+
+These values establish the retained pre-improvement comparison boundary. They
+also show that low occupancy was caused by control-plane amplification and a
+zero safe-ready frontier, not by a missing four-worker process limit.
+
+## Production rollout and recovery
+
+- Development and production were both advanced to commit `2fe2a08`, version
+  5.18.36, with matching HEAD and a clean production tree.
+- Closure-cut revisions `CMCLM-003-revision-80` and `N04-revision-163` passed
+  deterministic cut validation, published, and launched Luna workers.
+- The retained `DAG-014` worker transaction resumed after deterministic build
+  evidence recovery.
+- The story source-audit root was explicitly rearmed under the installed fix.
+  Revision 17 preserved `FOCUSED: IT-A19-SOURCE-001 source-only requirement
+  audit.` and launched a Luna worker; it did not repeat the nonexistent
+  `source-audit-evidence-check` command.
+- A final eight-project fleet snapshot showed two completed projects and six
+  running projects, with no paused or recovery-stalled harness.
