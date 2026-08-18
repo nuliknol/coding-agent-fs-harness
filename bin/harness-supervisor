@@ -19,11 +19,13 @@ usage()
 load_harness_env "$1"
 ensure_project
 "$HARNESS_BIN/harness-migrate-state" "$HARNESS_ENV_FILE" >/dev/null
+"$HARNESS_BIN/harness-rebuild-throughput-state" "$HARNESS_ENV_FILE" >/dev/null
 trace_init manager_supervisor
 trace_script_start "$@"
 dir="$(project_dir)"
 write_oracle_snapshot
 manager_invoker="${HARNESS_MANAGER_INVOKER:-$HARNESS_BIN/manager-invoke-result}"
+manager_batch_invoker="$HARNESS_BIN/manager-invoke-result-batch"
 manager_plan_invoker="${HARNESS_MANAGER_PLAN_INVOKER:-$HARNESS_BIN/manager-plan-next-task}"
 manager_replan_invoker="${HARNESS_MANAGER_REPLAN_INVOKER:-$HARNESS_BIN/manager-auto-replan-root}"
 oracle_invoker="${HARNESS_ORACLE_INVOKER:-$HARNESS_BIN/oracle-invoke-final-audit}"
@@ -154,6 +156,8 @@ planning_gap_state_fingerprint()
 process_results()
 {
 	local file task_id base marker current previous invocation_fingerprint post_fingerprint review_state_changed status alert stalled tmp running lease assignment_archive accepted checkpointed rejected blocked worker_invocation invocation_snapshot worker_pid worker_supervisor_pid
+	local candidate_file candidate_task candidate_base candidate_marker candidate_current candidate_previous candidate_root candidate_item selected_item conflict selected_task
+	local -a batch_tasks=()
 	shopt -s nullglob
 	for file in "$dir/results/$PROJECT-task-"*.result.md; do
 		task_id="$(task_id_from_filename "$file")"
@@ -208,14 +212,59 @@ process_results()
 		[[ -z "$previous" ]] || review_state_changed=1
 
 		log_event "SUPERVISOR_TRIGGER task=$task_id fingerprint=$current"
-		trace_event SUPERVISOR_INVOKE_MANAGER "task_id=$task_id" "fingerprint=$current" "manager_invoker=$manager_invoker"
-		if HARNESS_REVIEW_STATE_CHANGED="$review_state_changed" \
+		batch_tasks=("$task_id")
+		if (( HARNESS_MANAGER_BATCH_SIZE > 1 )) &&
+			[[ "$manager_invoker" == "$HARNESS_BIN/manager-invoke-result" && -x "$manager_batch_invoker" ]]; then
+			for candidate_file in "$dir/results/$PROJECT-task-"*.result.md; do
+				(( ${#batch_tasks[@]} < HARNESS_MANAGER_BATCH_SIZE )) || break
+				[[ -f "$candidate_file" && "$candidate_file" != "$file" ]] || continue
+				candidate_task="$(task_id_from_filename "$candidate_file")"
+				task_root_is_paused "$candidate_task" && continue
+				candidate_base="$(task_base "$candidate_task")"
+				[[ ! -e "$dir/running/$candidate_base.running.md" &&
+					! -e "$dir/control/$candidate_base.lease" &&
+					-f "$dir/archive/$candidate_base.assignment.md" ]] || continue
+				[[ ! -e "$dir/control/$candidate_base.worker-invocation-active" ]] || continue
+				candidate_marker="$dir/control/$candidate_base.reviewed-event"
+				candidate_current="$(review_state_fingerprint "$candidate_file")"
+				candidate_previous=""
+				[[ ! -f "$candidate_marker" ]] || candidate_previous="$(kv_file_value "$candidate_marker" fingerprint)"
+				[[ "$candidate_current" != "$candidate_previous" ]] || continue
+				candidate_root="$(task_root_id "$candidate_task")"
+				candidate_item="$(project_plan_item_for_root "$candidate_root")"
+				conflict=0
+				for selected_task in "${batch_tasks[@]}"; do
+					[[ "$(task_root_id "$selected_task")" != "$candidate_root" ]] || { conflict=1; break; }
+					selected_item="$(project_plan_item_for_root "$(task_root_id "$selected_task")")"
+					if project_plan_items_have_scope_conflict "$candidate_item" "$selected_item"; then
+						conflict=1
+						break
+					fi
+				done
+				(( conflict == 0 )) || continue
+				batch_tasks+=("$candidate_task")
+			done
+		fi
+		trace_event SUPERVISOR_INVOKE_MANAGER "task_id=$task_id" "fingerprint=$current" \
+			"manager_invoker=$manager_invoker" "batch_size=${#batch_tasks[@]}"
+		if (( ${#batch_tasks[@]} > 1 )); then
+			log_event "SUPERVISOR_INVOKE_MANAGER_BATCH tasks=$(IFS=,; printf '%s' "${batch_tasks[*]}") size=${#batch_tasks[@]}"
+			if "$manager_batch_invoker" "$HARNESS_ENV_FILE" "${batch_tasks[@]}" 8>&-; then
+				status=0
+			else
+				status=$?
+			fi
+		elif HARNESS_REVIEW_STATE_CHANGED="$review_state_changed" \
 			"$manager_invoker" "$HARNESS_ENV_FILE" "$task_id" 8>&-; then
 			status=0
 		else
 			status=$?
 		fi
 		trace_event SUPERVISOR_MANAGER_EXIT "task_id=$task_id" "status=$status"
+		# A batch can commit this event while returning nonzero because an
+		# independent sibling remained pending.  This event is complete and must
+		# not inherit the sibling's retry/stall state.
+		[[ -f "$file" ]] || continue
 		# A sibling review may have accepted this root while this manager turn was
 		# in flight. Reconcile that race before interpreting a no-op as a stall.
 		if [[ -f "$file" ]] && reconcile_superseded_result "$task_id"; then
@@ -248,8 +297,9 @@ process_results()
 					printf 'fingerprint=%s\n' "$post_fingerprint"
 				fi
 				printf 'handled_at=%s\n' "$(timestamp_utc)"
-				printf 'manager_exit_status=%s\n' "$status"
-			} > "$tmp"
+					printf 'manager_exit_status=%s\n' "$status"
+					printf 'retry_state=exhausted_after_fresh_corrective_review\n'
+				} > "$tmp"
 			chmod 600 "$tmp"
 			mv "$tmp" "$marker"
 			if [[ "$post_fingerprint" != "$invocation_fingerprint" ]]; then
@@ -262,7 +312,7 @@ process_results()
 					printf 'Task-ID: %s\n\n' "$task_id"
 					printf 'State-Fingerprint: %s\n\n' "$post_fingerprint"
 					printf 'Stalled-At: %s\n\n' "$(timestamp_utc)"
-					printf 'The manager returned without a terminal action or durable state change. The supervisor will not invoke it again until relevant state changes.\n'
+					printf 'The manager exhausted its bounded fresh corrective review without a terminal action or durable state change. The result is explicitly paused until relevant state or the deployed review boundary changes.\n'
 				} > "$tmp"
 				chmod 600 "$tmp"
 				mv "$tmp" "$stalled"

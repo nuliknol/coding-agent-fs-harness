@@ -277,6 +277,21 @@ grep -Fq 'CMAKE_VALIDATION_FRESH_CONFIGURE task=cmake-fresh label=assigned-cmake
 	"$project_dir/logs/events.log"
 grep -Fqx "CMAKE_HOME_DIRECTORY:INTERNAL=$TEST_ROOT/repo" \
 	"$TEST_ROOT/cmake-shared-build/CMakeCache.txt"
+cmake_receipt_output="$("$HARNESS_BIN/harness-run-assigned-validation" \
+	"$TEST_ROOT/harness.env" cmake-fresh assigned-cmake-repeated)"
+grep -Fq 'VALIDATION_RECEIPT_REUSED task=cmake-fresh label=assigned-cmake-repeated' \
+	<<< "$cmake_receipt_output"
+cat > "$project_dir/archive/decompv2-task-cmake-incremental.assignment.md" <<ASSIGNMENT
+Task-ID: cmake-incremental
+Focused-Validation: cmake -S . -B $TEST_ROOT/cmake-shared-build -DHARNESS_INCREMENTAL_CHECK=1
+ASSIGNMENT
+fresh_event_count_before="$(grep -c 'CMAKE_VALIDATION_FRESH_CONFIGURE' \
+	"$project_dir/logs/events.log")"
+"$HARNESS_BIN/harness-run-assigned-validation" "$TEST_ROOT/harness.env" \
+	cmake-incremental assigned-cmake-incremental >/dev/null
+fresh_event_count_after="$(grep -c 'CMAKE_VALIDATION_FRESH_CONFIGURE' \
+	"$project_dir/logs/events.log")"
+(( fresh_event_count_after == fresh_event_count_before ))
 rm -f "$TEST_ROOT/repo/CMakeLists.txt"
 
 # Outlier ranking distinguishes authoritative and estimated worker episodes and
@@ -605,35 +620,27 @@ Closure-Condition: CLOSURE_BUDGET_EXCEEDED
 Closure-Repair-Action: GRAFT_GRAPH_CUTS
 Closure-Repair-Provider: decomposition-compiler
 MARKER
+# Automatic recovery normally runs only after manager-bootstrap.  The
+# deterministic closure fast path does not invoke the provider, but it retains
+# the same durable manager registration precondition as every recovery turn.
+cat > "$cut_project/control/manager.thread" <<'THREAD'
+thread_id=test-manager-thread
+THREAD
 mkdir -p "$cut_project/control/context-closures/decompcut-task-001"
 cat > "$cut_project/control/context-closures/decompcut-task-001/repair-children.tsv" <<'TSV'
 child_id	parent_task	sequence	allowed_paths	context_paths	required_symbols	acceptance_evidence	focused_validation	source_cut	seam_kind	estimated_source_bytes	status
 CCR-cut001	001	1	src/a.c	src/a.c	target_symbol	"compiled ""quoted"" cut validation passes"	"build_dir=""$(mktemp -d /tmp/decompcut.XXXXXX)"" && test ""$(./focused-smoke)"" = 1"	cut-a	SOURCE	40	PROPOSED
 CCR-cut002	001	2	include/a.h	include/a.h	target_symbol	public declaration remains exact	test -f include/a.h	cut-h	INTERFACE	30	PROPOSED
 TSV
-sed \
-	-e 's/^Task-ID: 001$/Task-ID: 001-revision-01/' \
-	-e 's/^Goal-ID: n1.goal$/Goal-ID: n1.cut.goal/' \
-	-e 's/^Root-Criterion: broad.parent$/Root-Criterion: broad.parent/' \
-	-e 's/^Target-Criterion: broad.parent$/Target-Criterion: broad.parent.leaf/' \
-	-e 's/^Goal-Success-Evidence:.*$/Goal-Success-Evidence: stale planner evidence/' \
-	-e 's/^Focused-Validation:.*$/Focused-Validation: printf stale/' \
-	-e 's/^Allowed-Scope:.*$/Allowed-Scope: include\/a.h/' \
-	-e 's/^Context-Paths:.*$/Context-Paths: include\/a.h/' \
-	-e 's/^Required-Symbols:.*$/Required-Symbols: stale_symbol/' \
-	-e '/^Task-Root:/a Manager-Remediation: 1\nBlocker-Class: LOCAL_CODE_PREREQUISITE\nRemediation-Scope: include/a.h' \
-	-e '/^Root-Criterion:/a Replan-Strategy-ID: cut.strategy.1\nStrategy-Change: REPAIR_PREREQUISITE\nSupersedes-Task: 001' \
-	"$TEST_ROOT/cut-root-task.md" > "$TEST_ROOT/cut-recovery-task.md"
-"$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/cut-harness.env" 001-revision-01 \
-	"$TEST_ROOT/cut-recovery-task.md" --manager-remediation >/dev/null
+"$HARNESS_BIN/manager-auto-replan-root" "$TEST_ROOT/cut-harness.env" 001 >/dev/null
 cut_ready="$cut_project/tasks/decompcut-task-001-revision-01.ready.md"
 grep -Fqx 'Context-Closure-Cut: CCR-cut001' "$cut_ready"
 grep -Fqx 'Allowed-Scope: src/a.c' "$cut_ready"
 grep -Fqx 'Goal-Success-Evidence: compiled "quoted" cut validation passes' "$cut_ready"
 grep -Fqx 'Focused-Validation: build_dir="$(mktemp -d /tmp/decompcut.XXXXXX)" && test "$(./focused-smoke)" = 1' "$cut_ready"
-grep -Fq 'DETERMINISTIC_CLOSURE_CUT_NORMALIZED root=001 task=001-revision-01' \
-	"$cut_project/logs/events.log"
 grep -Fq 'DETERMINISTIC_CLOSURE_CUT_VALIDATED root=001 task=001-revision-01' \
+	"$cut_project/logs/events.log"
+grep -Fq 'DETERMINISTIC_CLOSURE_CONTINUATION_PUBLISHED root=001 task=001-revision-01' \
 	"$cut_project/logs/events.log"
 
 # Decomposition TSV fields are canonicalized at registration. In particular,

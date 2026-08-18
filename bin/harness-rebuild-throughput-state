@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 1 ]] || { printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+project_plan_uses_dag || exit 0
+acquire_project_lock
+dir="$(project_dir)"
+plan="$(project_decomposition_plan_file)"
+state="$(project_plan_state_file)"
+capabilities="$dir/control/mutation-capabilities.tsv"
+conflicts="$dir/control/project-conflict-graph.tsv"
+parallelism="$dir/control/decomposition-parallelism.env"
+python3 "$HARNESS_HOME/tools/compile_mutation_capabilities.py" \
+	--plan "$plan" --pointer "$dir/control/repository-index.env" \
+	--output "$capabilities.tmp.$$"
+chmod 600 "$capabilities.tmp.$$"
+mv "$capabilities.tmp.$$" "$capabilities"
+conflict_args=(--plan "$plan" --capabilities "$capabilities" --output "$conflicts.tmp.$$")
+if (( HARNESS_ARCHITECTURE_GUARDS == 1 )) && [[ -f "$(architecture_node_bindings_file)" ]]; then
+	conflict_args+=(--architecture-bindings "$(architecture_node_bindings_file)")
+fi
+python3 "$HARNESS_HOME/tools/compile_plan_conflicts.py" "${conflict_args[@]}"
+chmod 600 "$conflicts.tmp.$$"
+mv "$conflicts.tmp.$$" "$conflicts"
+python3 "$HARNESS_HOME/tools/analyze_decomposition_parallelism.py" \
+	--plan "$plan" --state "$state" --events "$dir/logs/events.log" \
+	--capacity "$(acp_scheduler_capacity)" --conflicts "$conflicts" > "$parallelism.tmp.$$"
+chmod 600 "$parallelism.tmp.$$"
+mv "$parallelism.tmp.$$" "$parallelism"
+log_event "THROUGHPUT_STATE_REBUILT capabilities=$(( $(wc -l < "$capabilities") - 1 )) conflicts=$(( $(wc -l < "$conflicts") - 1 )) critical_path=$(kv_file_value "$parallelism" critical_path_length) maximum_width=$(kv_file_value "$parallelism" maximum_dag_width) safe_ready=$(kv_file_value "$parallelism" safe_ready_width)"
+printf '%s\n' "$parallelism"

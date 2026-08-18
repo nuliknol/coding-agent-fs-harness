@@ -37,16 +37,50 @@ validation="$(metadata_value "$assignment" Focused-Validation)"
 validation_is_executable_command "$validation" ||
 	die 'Focused-Validation is not one machine-executable shell command; correct the assignment instead of interpreting Markdown or prose at runtime'
 
-# ACP validates the same immutable command in disposable worker and integration
-# worktrees.  A configured CMake build directory records its source directory,
-# so reusing an assignment's absolute build path otherwise produces a false
-# source-cache mismatch on the second worktree.  CMake's --fresh option keeps
-# the declared build path and validation semantics while rebuilding that cache
-# for the current source tree.
-fresh_validation="$(sed -E 's/(^|[;&|][[:space:]]*)cmake([[:space:]]+)-S/\1cmake\2--fresh -S/g' <<< "$validation")"
-if [[ "$fresh_validation" != "$validation" ]]; then
-	validation="$fresh_validation"
-	log_event "CMAKE_VALIDATION_FRESH_CONFIGURE task=$task_id label=$label"
+# Configure incrementally by default.  The wrapper adds --fresh only when an
+# existing build cache demonstrably belongs to another source tree.
+cmake_wrapper="$HARNESS_BIN/harness-cmake-configure"
+wrapped_validation="$(sed -E "s#(^|[;&|][[:space:]]*)cmake([[:space:]]+)#\\1${cmake_wrapper}\\2#g" <<< "$validation")"
+validation="$wrapped_validation"
+
+# A successful validation receipt is reusable only for the exact command,
+# repository path, source workspace, and toolchain identity.  This makes
+# repeated manager reviews cheap without allowing a stale result to cross an
+# uncommitted edit, worktree boundary, or toolchain change.
+receipt_dir="$dir/control/validation-receipts"
+mkdir -p "$receipt_dir"
+chmod 700 "$receipt_dir"
+workspace_fingerprint="$(repository_workspace_fingerprint)"
+git_head="$(git -C "$REPOSITORY" rev-parse HEAD 2>/dev/null || printf UNBORN)"
+build_identity=declared-command-build-path
+if [[ "$HARNESS_WORKER_ISOLATION_MODE" == worktree ]]; then
+	build_namespace="$(realpath -m -- "$REPOSITORY" | sha256sum | awk '{print $1}')"
+	export HARNESS_CMAKE_PRIVATE_BUILD_ROOT="$PROJECT_TMP_DIR/build-broker/$build_namespace"
+	build_identity="$HARNESS_CMAKE_PRIVATE_BUILD_ROOT"
+fi
+toolchain_fingerprint="$({
+	command -v cmake >/dev/null 2>&1 && cmake --version | head -n 1
+	command -v cc >/dev/null 2>&1 && cc --version | head -n 1
+	command -v c++ >/dev/null 2>&1 && c++ --version | head -n 1
+} | sha256sum | awk '{print "sha256:" $1}')"
+validation_base_fingerprint="$(printf '%s\0%s\0%s\0%s\0%s\0%s\0' \
+	"$(realpath -m -- "$REPOSITORY")" "$workspace_fingerprint" "$validation" \
+	"$toolchain_fingerprint" "$git_head" "$build_identity" | sha256sum | awk '{print $1}')"
+build_identity_args=(--command "$validation" --cwd "$REPOSITORY")
+[[ -z "${HARNESS_CMAKE_PRIVATE_BUILD_ROOT:-}" ]] ||
+	build_identity_args+=(--private-root "$HARNESS_CMAKE_PRIVATE_BUILD_ROOT")
+build_state_fingerprint="$(python3 "$HARNESS_HOME/tools/validation_build_identity.py" \
+	"${build_identity_args[@]}")"
+validation_fingerprint="$(printf '%s\0%s\0' "$validation_base_fingerprint" \
+	"$build_state_fingerprint" | sha256sum | awk '{print $1}')"
+receipt="$receipt_dir/$validation_fingerprint.env"
+if [[ -f "$receipt" && "$(kv_file_value "$receipt" exit_status 2>/dev/null || printf 1)" == 0 ]]; then
+	printf 'VALIDATION_RECEIPT_REUSED task=%s label=%s receipt=%s\n' "$task_id" "$label" "$receipt"
+	printf 'VALIDATION_RECEIPT command_sha256=%s workspace=%s toolchain=%s\n' \
+		"$(kv_file_value "$receipt" command_sha256)" "$workspace_fingerprint" \
+		"$toolchain_fingerprint"
+	log_event "VALIDATION_RECEIPT_REUSED task=$task_id label=$label receipt=$receipt fingerprint=$validation_fingerprint"
+	exit 0
 fi
 
 # Execute the complete machine-recorded expression inside the capture wrapper.
@@ -56,5 +90,44 @@ fi
 # supervisor may have been launched from HARNESS_HOME or another directory;
 # never inherit that unrelated working directory.
 cd "$REPOSITORY"
-exec "$HARNESS_BIN/harness-run-logged" "$HARNESS_ENV_FILE" "$task_id" "$label" -- \
-	/bin/bash -lc "$validation"
+export HARNESS_CMAKE_EVENT_FILE="$dir/logs/events.log"
+export HARNESS_CMAKE_TASK_ID="$task_id"
+export HARNESS_CMAKE_LABEL="$label"
+capture="$(mktemp "$PROJECT_TMP_DIR/validation-receipt.XXXXXX")"
+cleanup()
+{
+	rm -f -- "$capture"
+}
+trap cleanup EXIT
+set +e
+"$HARNESS_BIN/harness-run-logged" "$HARNESS_ENV_FILE" "$task_id" "$label" -- \
+	/bin/bash -lc "$validation" > "$capture"
+status=$?
+set -e
+cat "$capture"
+final_build_state_fingerprint="$(python3 "$HARNESS_HOME/tools/validation_build_identity.py" \
+	"${build_identity_args[@]}")"
+if [[ "$final_build_state_fingerprint" != "$build_state_fingerprint" ]]; then
+	validation_fingerprint="$(printf '%s\0%s\0' "$validation_base_fingerprint" \
+		"$final_build_state_fingerprint" | sha256sum | awk '{print $1}')"
+	receipt="$receipt_dir/$validation_fingerprint.env"
+fi
+command_sha256="$(printf '%s' "$validation" | sha256sum | awk '{print $1}')"
+{
+	printf 'schema_version=1\n'
+	printf 'task_id=%s\nlabel=%s\n' "$task_id" "$label"
+	printf 'repository=%s\n' "$(realpath -m -- "$REPOSITORY")"
+	printf 'git_head=%s\n' "$git_head"
+	printf 'build_identity=%s\n' "$build_identity"
+	printf 'build_state_fingerprint=%s\n' "$final_build_state_fingerprint"
+	printf 'workspace_fingerprint=%s\n' "$workspace_fingerprint"
+	printf 'command_sha256=%s\n' "$command_sha256"
+	printf 'toolchain_fingerprint=%s\n' "$toolchain_fingerprint"
+	printf 'exit_status=%s\n' "$status"
+	printf 'created_at=%s\n' "$(timestamp_utc)"
+	printf 'validation_log=%s\n' "$(awk -F'log=' '/^VALIDATION_LOG / {print $2; exit}' "$capture")"
+} > "$receipt.tmp.$$"
+chmod 600 "$receipt.tmp.$$"
+mv "$receipt.tmp.$$" "$receipt"
+log_event "VALIDATION_RECEIPT_RECORDED task=$task_id label=$label exit=$status receipt=$receipt fingerprint=$validation_fingerprint"
+exit "$status"

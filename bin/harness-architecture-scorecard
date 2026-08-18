@@ -17,7 +17,12 @@ if [[ "${2:-}" == --source-only ]]; then
 		--proposal "$output_dir/rebuild-proposal.md" "${benchmark_args[@]}"
 	architecture_rebuild_record_candidate "$generation" \
 		"$output_dir/scorecard.tsv" "$output_dir/rebuild-proposal.md"
+	if project_plan_uses_dag; then
+		"$HARNESS_BIN/harness-decomposition-metrics" "$HARNESS_ENV_FILE" > "$output_dir/throughput.tsv"
+		chmod 600 "$output_dir/throughput.tsv"
+	fi
 	cat "$output_dir/scorecard.tsv"
+	[[ ! -f "$output_dir/throughput.tsv" ]] || printf 'throughput_scorecard\t%s\n' "$output_dir/throughput.tsv"
 	printf 'proposal\t%s\n' "$output_dir/rebuild-proposal.md"
 	exit 0
 fi
@@ -32,5 +37,10 @@ python3 "$HARNESS_HOME/tools/architecture_scorecard.py" --database "$generation_
 	"${benchmark_args[@]}"
 architecture_rebuild_record_candidate "$generation" \
 	"$output_dir/scorecard.tsv" "$output_dir/rebuild-proposal.md"
+if project_plan_uses_dag; then
+	"$HARNESS_BIN/harness-decomposition-metrics" "$HARNESS_ENV_FILE" > "$output_dir/throughput.tsv"
+	chmod 600 "$output_dir/throughput.tsv"
+fi
 cat "$output_dir/scorecard.tsv"
+[[ ! -f "$output_dir/throughput.tsv" ]] || printf 'throughput_scorecard\t%s\n' "$output_dir/throughput.tsv"
 printf 'proposal\t%s\n' "$output_dir/rebuild-proposal.md"

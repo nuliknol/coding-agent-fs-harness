@@ -65,6 +65,18 @@ if [[ -n "$metrics_report" ]]; then
 	printf '  Zero-gain iterations: %s/%s (%s%%)\n' \
 		"$(metric "$metrics_report" identical_zero_gain_iterations)" "$(metric "$metrics_report" goal_iterations)" \
 		"$(metric "$metrics_report" zero_gain_iteration_percent N/A)"
+	printf '  Ready width: dependency=%s, conflict-safe=%s, active=%s, capacity=%s\n' \
+		"$(metric "$metrics_report" dependency_ready_width)" \
+		"$(metric "$metrics_report" safe_ready_width)" \
+		"$(metric "$metrics_report" active_width)" "$(acp_scheduler_capacity)"
+	printf '  DAG critical path / maximum width: %s / %s\n' \
+		"$(metric "$metrics_report" critical_path_length UNAVAILABLE)" \
+		"$(metric "$metrics_report" maximum_dag_width UNAVAILABLE)"
+	printf '  Implementation yield: %s%%; control amplification: %s per completed node\n' \
+		"$(metric "$metrics_report" implementation_yield_percent N/A)" \
+		"$(metric "$metrics_report" control_amplification_per_completed_node N/A)"
+	printf '  Worker-slot utilization: %s%%\n' \
+		"$(metric "$metrics_report" worker_slot_utilization_percent N/A)"
 else
 	printf '\nDecomposition and delivery\n  DAG statistics: pending plan registration\n'
 fi

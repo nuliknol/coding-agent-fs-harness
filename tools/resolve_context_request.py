@@ -26,6 +26,7 @@ REQUEST_KINDS = {
     "PRODUCER",
     "CONSUMER",
     "REPRESENTATION_WRITER",
+    "SOURCE_WINDOW",
 }
 
 
@@ -133,7 +134,7 @@ def tail_window(repository: Path, path: str, maximum: int) -> tuple[int, int] | 
 
 def exact_symbols(connection: sqlite3.Connection, identifier: str) -> list[sqlite3.Row]:
     return connection.execute(
-        "SELECT symbol_id,display_name,provider FROM symbols "
+        "SELECT symbol_id,display_name,symbol_kind,provider FROM symbols "
         "WHERE display_name=? COLLATE NOCASE OR symbol_id=? ORDER BY symbol_id",
         (identifier, identifier),
     ).fetchall()
@@ -166,6 +167,34 @@ def references(connection: sqlite3.Connection, symbol_ids: list[str]) -> list[sq
         "ORDER BY f.repository_path,r.start_line,s.symbol_id",
         symbol_ids,
     ).fetchall()
+
+
+def direct_semantic_neighbors(connection: sqlite3.Connection, seed_ids: set[str],
+                              requested_ids: list[str]) -> set[str]:
+    """Return requested symbols joined to a seed by one authoritative graph hop."""
+    if not seed_ids or not requested_ids:
+        return set()
+    neighbors: set[str] = set()
+    for requested in requested_ids:
+        for seed in seed_ids:
+            row = connection.execute(
+                "SELECT 1 FROM ("
+                "SELECT caller_symbol_id AS a,callee_symbol_id AS b FROM call_edges "
+                "UNION ALL SELECT source_symbol_id,type_symbol_id FROM type_edges "
+                "UNION ALL SELECT source_symbol_id,target_symbol_id FROM mutation_edges"
+                ") WHERE (a=? AND b=?) OR (a=? AND b=?) LIMIT 1",
+                (seed, requested, requested, seed),
+            ).fetchone()
+            if row is not None:
+                neighbors.add(requested)
+                break
+    return neighbors
+
+
+def rows_inside_boundary(repository: Path, rows: list[sqlite3.Row],
+                         boundaries: set[str]) -> list[sqlite3.Row]:
+    return [row for row in rows if inside_declared_boundary(
+        repository, row["repository_path"], boundaries)]
 
 
 def indexed_lexical_function_definitions(connection: sqlite3.Connection,
@@ -256,6 +285,8 @@ def main() -> int:
     seed_paths = declared_paths | closure_paths
     validation_paths = declared_validation_paths(
         repository, assignment.get("Focused-Validation", ""))
+    validation_command = assignment.get("Focused-Validation", "")
+    read_boundaries = seed_paths | validation_paths
 
     connection = sqlite3.connect(args.database)
     connection.row_factory = sqlite3.Row
@@ -282,6 +313,10 @@ def main() -> int:
             authorized = {row[0] for row in rows}
             if authorized:
                 relation = "direct-type-symbol-definition"
+        if not authorized:
+            authorized = direct_semantic_neighbors(connection, seed_ids, requested_ids)
+            if authorized:
+                relation = "direct-semantic-neighbor-definition"
         if authorized:
             relation = relation or "exact-required-symbol"
             for row in definitions(connection, sorted(authorized)):
@@ -295,7 +330,16 @@ def main() -> int:
                 if records:
                     relation = "exact-required-symbol-lexical-definition-fallback"
         else:
-            relation = "symbol-outside-assignment-boundary"
+            bounded_definitions = rows_inside_boundary(
+                repository, definitions(connection, requested_ids), read_boundaries)
+            if bounded_definitions:
+                relation = "exact-symbol-inside-declared-read-boundary"
+                for row in bounded_definitions:
+                    records.append(("SYMBOL_DEFINITION", row["repository_path"],
+                                    row["start_line"], row["end_line"],
+                                    row["display_name"], row["provider"]))
+            else:
+                relation = "symbol-outside-assignment-boundary"
     elif args.request_kind == "TYPE_DEFINITION":
         if not requested_ids:
             relation = "missing-exact-symbol"
@@ -315,6 +359,19 @@ def main() -> int:
                 for row in definitions(connection, sorted(adjacent)):
                     records.append(("TYPE_DEFINITION", row["repository_path"], row["start_line"],
                                     row["end_line"], row["display_name"], row["provider"]))
+            if not records:
+                requested_type_ids = [row["symbol_id"] for row in requested
+                                      if (row["symbol_kind"] or "").lower() in {
+                                          "type", "struct", "class", "union", "enum",
+                                          "typedef", "interface", "protocol"}]
+                bounded_definitions = rows_inside_boundary(
+                    repository, definitions(connection, requested_type_ids), read_boundaries)
+                if bounded_definitions:
+                    relation = "exact-type-inside-declared-read-boundary"
+                    for row in bounded_definitions:
+                        records.append(("TYPE_DEFINITION", row["repository_path"],
+                                        row["start_line"], row["end_line"],
+                                        row["display_name"], row["provider"]))
     elif args.request_kind == "CALLER_CONTRACT":
         authorized = set(requested_ids) & seed_ids
         if authorized:
@@ -374,12 +431,14 @@ def main() -> int:
             (identifier, identifier),
         ).fetchall()
         for row in test_rows:
-            if (row["repository_path"] and
-                    inside_declared_boundary(repository, row["repository_path"], seed_paths) and
-                    row["start_line"]):
+            validation_names_identifier = identifier in validation_command
+            if (row["repository_path"] and row["start_line"] and
+                    (inside_declared_boundary(repository, row["repository_path"], seed_paths) or
+                     validation_names_identifier)):
                 records.append((args.request_kind, row["repository_path"], row["start_line"],
                                 row["end_line"], row["name"], row["provider"]))
-        relation = "named-test-inside-assignment-boundary"
+        relation = ("named-test-in-focused-validation" if records and identifier in validation_command
+                    else "named-test-inside-assignment-boundary")
         if not records:
             # Some importers cannot discover framework-specific test macros or
             # selectors. Search only indexed files inside the already declared
@@ -430,12 +489,14 @@ def main() -> int:
             (identifier, identifier),
         ).fetchall()
         for row in rows:
-            if (row["repository_path"] and
-                    inside_declared_boundary(repository, row["repository_path"], seed_paths) and
-                    row["definition_path"]):
+            if (row["repository_path"] and row["definition_path"] and
+                    (inside_declared_boundary(repository, row["repository_path"], seed_paths) or
+                     identifier in validation_command)):
                 records.append(("BUILD_TARGET", row["definition_path"], 1, 200,
                                 row["name"], row["provider"]))
-        relation = "named-build-target-owning-assignment-path"
+        relation = ("named-build-target-in-focused-validation" if records and
+                    identifier in validation_command else
+                    "named-build-target-owning-assignment-path")
     elif args.request_kind in {"BUILD_OWNER", "OWNER"}:
         if identifier in seed_paths | validation_paths:
             declared_entry = safe_entry(repository, identifier)
@@ -479,7 +540,8 @@ def main() -> int:
                                 window[0], window[1], identifier,
                                 "declared-context-tail"))
                 relation = "exact-declared-path-complement"
-        authorized = set(requested_ids) & seed_ids
+        authorized = ((set(requested_ids) & seed_ids) |
+                      direct_semantic_neighbors(connection, seed_ids, requested_ids))
         if authorized and not records:
             marks = ",".join("?" for _ in authorized)
             writers = connection.execute(
@@ -491,7 +553,8 @@ def main() -> int:
                 records.append((args.request_kind, row["repository_path"], row["start_line"],
                                 row["end_line"], row["display_name"], row["provider"]))
     elif args.request_kind == "CONSUMER":
-        authorized = set(requested_ids) & seed_ids
+        authorized = ((set(requested_ids) & seed_ids) |
+                      direct_semantic_neighbors(connection, seed_ids, requested_ids))
         if authorized:
             marks = ",".join("?" for _ in authorized)
             consumers = connection.execute(
@@ -503,6 +566,16 @@ def main() -> int:
             for row in definitions(connection, [item[0] for item in consumers]):
                 records.append(("CONSUMER", row["repository_path"], row["start_line"],
                                 row["end_line"], row["display_name"], row["provider"]))
+    elif args.request_kind == "SOURCE_WINDOW":
+        normalized_identifier = identifier.split("#", 1)[0].rstrip("/")
+        if normalized_identifier in read_boundaries:
+            window = tail_window(repository, normalized_identifier, args.max_bytes)
+            if window:
+                records.append(("SOURCE_WINDOW", normalized_identifier, window[0], window[1],
+                                normalized_identifier, "declared-read-window"))
+                relation = "exact-declared-read-path"
+        else:
+            relation = "path-outside-declared-read-boundary"
     connection.close()
 
     # Extensions may expose a direct graph neighbor outside the original source

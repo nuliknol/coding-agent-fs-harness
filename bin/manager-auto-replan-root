@@ -365,6 +365,41 @@ else
 	criteria_instruction="This is an oversized legacy root without an explicit criterion inventory. Create CRITERIA_OUTPUT as criterion_id<TAB>title<TAB>acceptance_evidence with the exact header and at least two ordered, independently verifiable remaining child milestones. The first row must be the bounded target. Do not include completed work as a remaining criterion. Pass CRITERIA_OUTPUT as the final manager-publish-task argument."
 fi
 
+# A trusted Context Closure compiler has already made the only admissible
+# path/symbol/validation choice. Do not spend a manager inference transcribing
+# that deterministic transaction. Compile the continuation from the archived
+# assignment and let manager-publish-task recompile and validate the same cuts.
+if (( deterministic_closure_graft == 1 || deterministic_closure_cut == 1 )); then
+	closure_child_id="$(awk -F '\t' 'NR > 1 {print $1; exit}' "$trigger_closure_repair_children")"
+	[[ -n "$closure_child_id" ]] || die 'deterministic closure continuation has no first child'
+	deterministic_target="$first_unmet"
+	if (( deterministic_closure_graft == 1 )); then
+		deterministic_target="$first_unmet.$closure_child_id"
+	fi
+	deterministic_args=(
+		--assignment "$trigger_assignment"
+		--repair-children "$trigger_closure_repair_children"
+		--output "$task_output"
+		--task-id "$expected_task_id"
+		--task-root "$root"
+		--target-criterion "$deterministic_target"
+		--supersedes "$trigger_task"
+	)
+	[[ "$recovery_mode" != MANAGER_REMEDIATION ]] || deterministic_args+=(--manager-remediation)
+	(( deterministic_closure_cut == 0 )) || deterministic_args+=(--closure-cut)
+	python3 "$HARNESS_HOME/tools/compile_deterministic_continuation.py" \
+		"${deterministic_args[@]}" >/dev/null
+	publish_args=("$HARNESS_ENV_FILE" "$expected_task_id" "$task_output" "$publish_flag")
+	if (( deterministic_closure_graft == 1 )); then
+		publish_args+=(- "$decomposition_output")
+	fi
+	"$HARNESS_BIN/manager-publish-task" "${publish_args[@]}" >/dev/null
+	log_event "DETERMINISTIC_CLOSURE_CONTINUATION_PUBLISHED root=$root task=$expected_task_id trigger=$trigger_task child=$closure_child_id mode=$recovery_mode graft=$deterministic_closure_graft cut=$deterministic_closure_cut"
+	printf 'Deterministic Context Closure continuation %s published for root %s.\n' \
+		"$expected_task_id" "$root"
+	exit 0
+fi
+
 cat > "$prompt_file.tmp.$$" <<PROMPT
 The root hit a convergence guard after its latest outcome was safely archived. Perform one automatic recovery turn in a fresh bounded manager context. Durable files provide all continuity; do not replay a previous review or planning thread. Preserve checkpoints and the project plan.
 

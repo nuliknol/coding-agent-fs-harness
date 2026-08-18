@@ -20,6 +20,12 @@ max_files="$(metadata_value "$running" Expected-Max-Implementation-Files)"
 base="$(task_base "$task_id")"
 patch="$(project_dir)/control/$base.proposed.patch"
 paths="$(project_dir)/control/$base.proposed-paths"
-python3 "$HARNESS_HOME/tools/apply_worker_patch.py" --repository "$REPOSITORY" --response "$response" \
-	--allowed-scope "$scope" --patch-output "$patch" --paths-output "$paths" --max-files "$max_files"
+patch_args=(--repository "$REPOSITORY" --response "$response" --allowed-scope "$scope" \
+	--patch-output "$patch" --paths-output "$paths" --max-files "$max_files")
+plan_item="$(project_plan_item_for_root "$(task_root_id "$task_id")" 2>/dev/null || true)"
+mutation_capabilities="$(project_dir)/control/mutation-capabilities.tsv"
+if [[ -n "$plan_item" && -f "$mutation_capabilities" ]]; then
+	patch_args+=(--mutation-capabilities "$mutation_capabilities" --plan-node "$plan_item")
+fi
+python3 "$HARNESS_HOME/tools/apply_worker_patch.py" "${patch_args[@]}"
 printf 'PATCH=%s\nPATHS=%s\n' "$patch" "$paths"

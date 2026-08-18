@@ -713,7 +713,7 @@ prepare_typed_context_expansion()
 	reason="$(sed -n 's/^Context-Request-Reason:[[:space:]]*//p' "$response" | head -n 1)"
 	reason="$(tr '\t\r\n' '   ' <<< "${reason:-decisive implementation fact is absent from the compiled capsule}" | head -c 256)"
 	case "$kind" in
-		TYPE_DEFINITION|SYMBOL_DEFINITION|CALLER_CONTRACT|CALLEE_CONTRACT|FAILING_ASSERTION|TEST_TARGET|TEST_OWNER|BUILD_TARGET|BUILD_OWNER|OWNER|PRODUCER|CONSUMER|REPRESENTATION_WRITER) ;;
+		TYPE_DEFINITION|SYMBOL_DEFINITION|CALLER_CONTRACT|CALLEE_CONTRACT|FAILING_ASSERTION|TEST_TARGET|TEST_OWNER|BUILD_TARGET|BUILD_OWNER|OWNER|PRODUCER|CONSUMER|REPRESENTATION_WRITER|SOURCE_WINDOW) ;;
 		*) return 1 ;;
 	esac
 	if (( context_expansion_count >= HARNESS_MAX_CONTEXT_EXPANSIONS_PER_LEAF )); then
@@ -1012,6 +1012,11 @@ while true; do
 		"$HARNESS_BIN/codex-exec-jsonl" "$HARNESS_ENV_FILE" "$execution_role" "$current_model" "$invocation_prompt_file" "$json_log" "$stderr_log" "$last_message" "${resume_args[@]}"
 	status=$?
 	set -e
+	# This transition describes actual Codex process occupancy, independently of
+	# whether the surrounding task publishes, negotiates, retries, or pauses.
+	# Keeping it beside every STARTED event makes slot-utilization reconstructible
+	# after supervisor restart.
+	log_event "WORKER_AGENT_PROCESS_EXITED task=$task_id session=$session status=$status attempt=$attempt"
 	observed_thread_id="$(codex_thread_id_from_jsonl "$json_log" 2>/dev/null || true)"
 	if (( status == 0 && luna_bounded_execution == 1 )); then
 		structural_acp_status=1

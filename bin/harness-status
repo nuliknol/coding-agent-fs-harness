@@ -607,6 +607,8 @@ elif (( waiting_dependency_count > 0 )); then
 	project_status_line='Project status: WAITING_DEPENDENCY. Exact cross-harness prerequisites are recorded; no agent runs or review-cycle gain accrues until they validate.'
 elif (( human_count > 0 )); then
 	project_status_line='Project status: NEEDS_HUMAN. A documented authorization, secret, external-state, or product/specification decision requires a person; verified work is preserved.'
+elif [[ -n "$manager_review_stalled" ]]; then
+	project_status_line='Project status: REVIEW_STALLED. A completed result exhausted its bounded fresh corrective manager review without a terminal action; the result is explicitly paused until relevant state or the deployed review boundary changes.'
 elif (( manager_remediation_active_count > 0 )); then
 	project_status_line='Project status: MANAGER_REMEDIATION. A manager-model task is repairing a directly implicated local prerequisite while preserving the original acceptance gate.'
 elif (( blocked_count > 0 )); then
@@ -627,8 +629,6 @@ elif [[ -f "$oracle_invocation_failure" ]]; then
 	project_status_line='Project status: ORACLE_AUDIT_FAILED. The final independent audit invocation failed locally; verified work is preserved and the audit requires an automatic retry or supervisor restart.'
 elif [[ -f "$manager_plan_structural_error" || -f "$manager_plan_stalled" || -f "$manager_plan_failed" ]]; then
 	project_status_line='Project status: PLANNING_STALLED. No task was published; unchanged-state retries are suppressed until the plan, decomposition DAG, or architecture bindings are repaired.'
-elif [[ -n "$manager_review_stalled" ]]; then
-	project_status_line='Project status: REVIEW_STALLED. A completed result received no terminal manager action and made no durable state change; retries are suppressed until the review boundary changes.'
 elif [[ -f "$dir/control/manager-plan.running" ]]; then
 	project_status_line='Project status: PLANNING. The manager is preparing the next bounded task.'
 elif (( active_count > 0 )); then
@@ -708,6 +708,22 @@ active_status_roots="$(
 		"$(project_plan_state_file)" 2>/dev/null | paste -sd, - || true
 )"
 active_status_root="${active_status_roots%%,*}"
+if project_plan_uses_dag; then
+	parallelism_status="$(python3 "$HARNESS_HOME/tools/analyze_decomposition_parallelism.py" \
+		--plan "$(project_decomposition_plan_file)" --state "$(project_plan_state_file)" \
+		--events "$(project_dir)/logs/events.log" --capacity "$(acp_scheduler_capacity)" \
+		--conflicts "$(project_dir)/control/project-conflict-graph.tsv" 2>/dev/null || true)"
+	if [[ -n "$parallelism_status" ]]; then
+		printf '\nParallelism: active=%s dependency-ready=%s conflict-safe-ready=%s capacity=%s; critical-path=%s maximum-width=%s; observed slot utilization=%s%%.\n' \
+			"$(awk -F= '$1=="active_width"{print $2}' <<< "$parallelism_status")" \
+			"$(awk -F= '$1=="dependency_ready_width"{print $2}' <<< "$parallelism_status")" \
+			"$(awk -F= '$1=="safe_ready_width"{print $2}' <<< "$parallelism_status")" \
+			"$(acp_scheduler_capacity)" \
+			"$(awk -F= '$1=="critical_path_length"{print $2}' <<< "$parallelism_status")" \
+			"$(awk -F= '$1=="maximum_dag_width"{print $2}' <<< "$parallelism_status")" \
+			"$(awk -F= '$1=="worker_slot_utilization_percent"{print $2}' <<< "$parallelism_status")"
+	fi
+fi
 if [[ -n "$active_status_root" ]]; then
 	printf '\nActive cohort roots: %s (capacity %s).\n' "$active_status_roots" "$(acp_scheduler_capacity)"
 	active_leaf="$(task_first_unmet_criterion "$active_status_root" 2>/dev/null || true)"

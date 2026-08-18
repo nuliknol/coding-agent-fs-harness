@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+source "$SCRIPT_DIR/../lib/harness-repository-index.sh"
+
+[[ $# -eq 3 ]] || {
+	printf 'Usage: %s ENV_FILE SOURCE_TO_TARGET|TARGET_TO_SOURCE|MINIMAL_TARGET|TEST_SELECTOR|DEPENDENCY_ARTIFACT|FIRST_CAUSAL_ERROR VALUE\n' "${0##*/}" >&2
+	exit 2
+}
+load_harness_env "$1"
+query="$2"
+value="$3"
+ensure_project
+args=(--pointer "$(repository_index_project_pointer_file)" --query "$query" --value "$value")
+[[ "$query" != FIRST_CAUSAL_ERROR ]] || args+=(--diagnostics-root "$(project_dir)/logs/worker-command-output")
+set +e
+python3 "$HARNESS_HOME/tools/query_build_broker.py" "${args[@]}"
+status=$?
+set -e
+log_event "BUILD_BROKER_QUERY query=$query value=$(printf '%q' "$value") status=$status"
+exit "$status"

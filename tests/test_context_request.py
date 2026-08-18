@@ -100,6 +100,44 @@ class ContextRequestTest(unittest.TestCase):
         self.assertIn("Authorization-Relation: direct-type-symbol-definition", extension)
         self.assertIn("typedef struct Number", extension)
 
+    def test_exact_symbol_inside_declared_read_boundary_is_admitted(self):
+        (self.repository / "other.c").write_text(
+            "int isolated_helper(void) { return 7; }\n", encoding="utf-8")
+        connection = sqlite3.connect(self.database)
+        connection.execute("INSERT INTO files VALUES(2,'g','other.c','c',NULL,1,0)")
+        connection.execute(
+            "INSERT INTO source_regions VALUES(4,2,'definition','isolated_helper',1,0,1,40,NULL,'scip')")
+        connection.execute(
+            "INSERT INTO symbols VALUES('isolated','g','isolated_helper','Function','c','-','scip')")
+        connection.execute(
+            "INSERT INTO symbol_definitions VALUES('isolated',4,'definition','scip')")
+        connection.commit()
+        connection.close()
+        self.assignment.write_text(
+            "Task-ID: t1\nAllowed-Scope: calc.c\nContext-Paths: calc.c,other.c\n"
+            "Required-Symbols: add\n", encoding="utf-8")
+
+        result = self.resolve("SYMBOL_DEFINITION", "isolated_helper")
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        extension = (self.root / "extension.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "Authorization-Relation: exact-symbol-inside-declared-read-boundary",
+            extension,
+        )
+        self.assertIn("int isolated_helper(void)", extension)
+
+    def test_exact_source_window_inside_declared_read_boundary_is_admitted(self):
+        result = self.resolve("SOURCE_WINDOW", "calc.c")
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        extension = (self.root / "extension.md").read_text(encoding="utf-8")
+        self.assertIn("Authorization-Relation: exact-declared-read-path", extension)
+        self.assertIn("int caller(void)", extension)
+
+    def test_source_window_outside_declared_read_boundary_is_rejected(self):
+        result = self.resolve("SOURCE_WINDOW", "CMakeLists.txt")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("path-outside-declared-read-boundary", result.stdout)
+
     def test_exact_required_hip_definition_falls_back_to_indexed_file(self):
         (self.repository / "backend.hip").write_text(
             'extern "C" int missing_backend(int value)\n'

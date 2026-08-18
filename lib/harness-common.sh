@@ -229,7 +229,7 @@ load_harness_env()
 	unset HARNESS_CONTEXT_EXPANSION_MAX_BYTES HARNESS_MAX_CONTEXT_EXPANSIONS_PER_LEAF
 	unset HARNESS_ACP_ENABLED HARNESS_ACP_MAX_DUPLICATE_REQUESTS HARNESS_ACP_MAX_REQUESTS_PER_LEAF
 	unset HARNESS_ACP_MAX_TOTAL_ADDED_BYTES HARNESS_ACP_MAX_NO_PROGRESS_REQUESTS
-	unset HARNESS_WORKER_PARALLELISM HARNESS_WORKER_PARALLELISM_HARD_MAX HARNESS_WORKER_ISOLATION_MODE
+	unset HARNESS_WORKER_PARALLELISM HARNESS_WORKER_PARALLELISM_HARD_MAX HARNESS_WORKER_ISOLATION_MODE HARNESS_MANAGER_BATCH_SIZE
 	unset HARNESS_TASK_TMP_DIR
 	unset HARNESS_ACP_CANONICAL_REPOSITORY HARNESS_ACP_ISOLATED_TASK_ID
 	unset HARNESS_PATCH_ONLY_MAX_VALIDATION_ROUNDS
@@ -526,6 +526,10 @@ load_harness_env()
 			HARNESS_WORKER_PARALLELISM=4 || HARNESS_WORKER_PARALLELISM=1
 	fi
 	HARNESS_WORKER_PARALLELISM_HARD_MAX="${HARNESS_WORKER_PARALLELISM_HARD_MAX:-4}"
+	# One ephemeral manager inference may review a bounded cohort of independent
+	# completed workers.  Every terminal decision remains a separate validated
+	# transaction; four mirrors the worker cohort and is an absolute default cap.
+	HARNESS_MANAGER_BATCH_SIZE="${HARNESS_MANAGER_BATCH_SIZE:-4}"
 	if [[ -z "${HARNESS_WORKER_ISOLATION_MODE+x}" ]]; then
 		(( HARNESS_WORKER_PARALLELISM > 1 || HARNESS_WORKER_PARALLELISM == 0 )) && \
 			HARNESS_WORKER_ISOLATION_MODE=worktree || HARNESS_WORKER_ISOLATION_MODE=serial
@@ -874,6 +878,7 @@ load_harness_env()
 	done
 	[[ "$HARNESS_WORKER_PARALLELISM" =~ ^[0-9]+$ ]] || die 'HARNESS_WORKER_PARALLELISM must be a non-negative integer'
 	[[ "$HARNESS_WORKER_ISOLATION_MODE" =~ ^(serial|worktree)$ ]] || die 'HARNESS_WORKER_ISOLATION_MODE must be serial or worktree'
+	[[ "$HARNESS_MANAGER_BATCH_SIZE" =~ ^[1-4]$ ]] || die 'HARNESS_MANAGER_BATCH_SIZE must be between 1 and 4'
 	if (( HARNESS_WORKER_PARALLELISM == 0 || HARNESS_WORKER_PARALLELISM > 1 )) && [[ "$HARNESS_WORKER_ISOLATION_MODE" != worktree ]]; then
 		die 'HARNESS_WORKER_PARALLELISM zero or above 1 requires HARNESS_WORKER_ISOLATION_MODE=worktree'
 	fi
@@ -1102,6 +1107,7 @@ load_harness_env()
 	export HARNESS_ACP_ENABLED HARNESS_ACP_MAX_DUPLICATE_REQUESTS HARNESS_ACP_MAX_REQUESTS_PER_LEAF
 	export HARNESS_ACP_MAX_TOTAL_ADDED_BYTES HARNESS_ACP_MAX_NO_PROGRESS_REQUESTS
 	export HARNESS_WORKER_PARALLELISM HARNESS_WORKER_PARALLELISM_HARD_MAX HARNESS_WORKER_ISOLATION_MODE
+	export HARNESS_MANAGER_BATCH_SIZE
 	export HARNESS_PATCH_ONLY_MAX_VALIDATION_ROUNDS
 	export HARNESS_CONTEXT_CLOSURE_PROMOTION_MIN_SAMPLES HARNESS_CONTEXT_CLOSURE_MIN_FILE_RECALL_PERCENT
 	export HARNESS_CONTEXT_CLOSURE_MIN_LUNA_SUCCESS_PERCENT HARNESS_CONTEXT_CLOSURE_MAX_FALSE_BLOCK_PERCENT
@@ -5543,7 +5549,15 @@ project_plan_first_ready_item()
 
 project_plan_items_have_scope_conflict()
 {
-	local left="$1" right="$2" left_file right_file
+	local left="$1" right="$2" left_file right_file graph
+	graph="$(project_dir)/control/project-conflict-graph.tsv"
+	if [[ -f "$graph" ]]; then
+		awk -F '\t' -v left="$left" -v right="$right" '
+			NR > 1 && (($1 == left && $2 == right) || ($1 == right && $2 == left)) {found=1; exit}
+			END {exit found ? 0 : 1}
+		' "$graph"
+		return
+	fi
 	left_file="$(mktemp)"; right_file="$(mktemp)"
 	printf '%s\n' "$(project_plan_node_value "$left" allowed_paths)" | tr ',' '\n' | \
 		sed 's/^[[:space:]]*//;s/[[:space:]]*$//;/^[-]*$/d' | LC_ALL=C sort -u > "$left_file"
@@ -6194,7 +6208,10 @@ initialize_project_plan_v2()
 	local allowed_paths required_symbols leaf_type complexity_class worker_route dependency
 	local node_count luna_count luna_percent coding_count luna_coding_count luna_coding_percent has_leaf_type=0 has_complexity=0 route_column=11 type_column=9
 	local obligation_violations provenance provenance_tmp route_violations zero_write_scope
+	local parallelism_report parallelism_tmp maximum_width conflict_width critical_path capacity rationale
+	local mutation_capabilities mutation_capabilities_tmp conflict_graph architecture_bindings
 	local -a fields=()
+	local -a conflict_args=()
 	expected_header="$(decomposition_typed_header)"
 	complexity_header="$(decomposition_complexity_header)"
 	legacy_header=$'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tcomplexity_class\tworker_route'
@@ -6388,15 +6405,61 @@ initialize_project_plan_v2()
 	fi
 	architecture_require_registered
 	architecture_validate_forced_redesign_plan "$dag_tmp" "${coverage_source:-$coverage_tmp}"
+	mutation_capabilities="$(project_dir)/control/mutation-capabilities.tsv"
+	mutation_capabilities_tmp="$mutation_capabilities.tmp.$$"
+	python3 "$HARNESS_HOME/tools/compile_mutation_capabilities.py" \
+		--plan "$dag_tmp" --pointer "$(project_dir)/control/repository-index.env" \
+		--output "$mutation_capabilities_tmp" --require-exact-luna || {
+		rm -f -- "$mutation_capabilities_tmp"
+		die 'decomposition uses broad Luna mutation authority despite exact indexed symbol definitions'
+	}
+	chmod 600 "$mutation_capabilities_tmp"
 	chmod 600 "$definition_tmp" "$state_tmp" "$dag_tmp"
 	mv "$definition_tmp" "$definition"
 	mv "$state_tmp" "$state"
 	mv "$dag_tmp" "$dag"
+	mv "$mutation_capabilities_tmp" "$mutation_capabilities"
 	[[ ! -f "$coverage_tmp" ]] || mv "$coverage_tmp" "$coverage"
 	[[ ! -f "$complexity_tmp" ]] || mv "$complexity_tmp" "$complexity_report"
 	if ! ( architecture_validate_against_plan ); then
-		rm -f -- "$definition" "$state" "$dag" "$coverage" "$complexity_report"
+		rm -f -- "$definition" "$state" "$dag" "$coverage" "$complexity_report" "$mutation_capabilities"
 		die 'decomposition DAG conflicts with architecture registries; incomplete plan registration was rolled back'
+	fi
+	conflict_graph="$(project_dir)/control/project-conflict-graph.tsv"
+	architecture_bindings=""
+	if (( HARNESS_ARCHITECTURE_GUARDS == 1 )); then
+		architecture_bindings="$(architecture_node_bindings_file)"
+	fi
+	conflict_args=(--plan "$dag" --capabilities "$mutation_capabilities" --output "$conflict_graph.tmp.$$")
+	[[ -z "$architecture_bindings" ]] || conflict_args+=(--architecture-bindings "$architecture_bindings")
+	python3 "$HARNESS_HOME/tools/compile_plan_conflicts.py" "${conflict_args[@]}"
+	chmod 600 "$conflict_graph.tmp.$$"
+	mv "$conflict_graph.tmp.$$" "$conflict_graph"
+	parallelism_report="$(project_dir)/control/decomposition-parallelism.env"
+	parallelism_tmp="$parallelism_report.tmp.$$"
+	capacity="$(acp_scheduler_capacity)"
+	python3 "$HARNESS_HOME/tools/analyze_decomposition_parallelism.py" \
+		--plan "$dag" --state "$state" --events "$(project_dir)/logs/events.log" \
+		--capacity "$capacity" --conflicts "$conflict_graph" > "$parallelism_tmp"
+	chmod 600 "$parallelism_tmp"
+	mv "$parallelism_tmp" "$parallelism_report"
+	maximum_width="$(kv_file_value "$parallelism_report" maximum_dag_width 2>/dev/null || printf UNAVAILABLE)"
+	conflict_width="$(kv_file_value "$parallelism_report" conflict_reduced_max_width 2>/dev/null || printf UNAVAILABLE)"
+	critical_path="$(kv_file_value "$parallelism_report" critical_path_length 2>/dev/null || printf UNAVAILABLE)"
+	if [[ "$conflict_width" =~ ^[0-9]+$ ]] && (( conflict_width < capacity )); then
+		rationale="$(project_dir)/control/decomposition-serial-rationale.md"
+		{
+			printf '# Decomposition Parallelism Diagnostic\n\n'
+			printf 'Configured-Capacity: %s\nMaximum-DAG-Width: %s\nConflict-Reduced-Max-Width: %s\nCritical-Path-Length: %s\n\n' \
+				"$capacity" "$maximum_width" "$conflict_width" "$critical_path"
+			printf 'The installed dependency and mutation-authority graph exposes fewer independent nodes than configured worker capacity. This is accepted only as an explicit machine-recorded serial boundary; decomposition repair should split independent adopters from shared contract producers whenever governing semantics permit it.\n'
+		} > "$rationale.tmp.$$"
+		chmod 600 "$rationale.tmp.$$"
+		mv "$rationale.tmp.$$" "$rationale"
+		log_event "DECOMPOSITION_PARALLELISM_LIMITED capacity=$capacity maximum_width=$maximum_width conflict_width=$conflict_width critical_path=$critical_path rationale=$rationale"
+	else
+		rm -f -- "$(project_dir)/control/decomposition-serial-rationale.md"
+		log_event "DECOMPOSITION_PARALLELISM_READY capacity=$capacity maximum_width=$maximum_width conflict_width=$conflict_width critical_path=$critical_path"
 	fi
 	provenance="$(decomposition_provenance_file)"
 	provenance_tmp="$provenance.tmp.$$"
@@ -6570,6 +6633,7 @@ write_project_snapshot()
 		printf 'acp_protocol_version=%s\n' "$ACP_PROTOCOL_VERSION"
 		printf 'worker_parallelism=%s\n' "$HARNESS_WORKER_PARALLELISM"
 		printf 'worker_parallelism_hard_max=%s\n' "$HARNESS_WORKER_PARALLELISM_HARD_MAX"
+		printf 'manager_batch_size=%s\n' "$HARNESS_MANAGER_BATCH_SIZE"
 		printf 'worker_isolation_mode=%s\n' "$HARNESS_WORKER_ISOLATION_MODE"
 		printf 'patch_only_max_validation_rounds=%s\n' "$HARNESS_PATCH_ONLY_MAX_VALIDATION_ROUNDS"
 		printf 'repository_index_root=%s\n' "$HARNESS_REPOSITORY_INDEX_ROOT"
@@ -6622,6 +6686,7 @@ write_manager_snapshot()
 		printf 'acp_max_total_added_bytes=%s\n' "$HARNESS_ACP_MAX_TOTAL_ADDED_BYTES"
 		printf 'worker_parallelism=%s\n' "$HARNESS_WORKER_PARALLELISM"
 		printf 'worker_parallelism_hard_max=%s\n' "$HARNESS_WORKER_PARALLELISM_HARD_MAX"
+		printf 'manager_batch_size=%s\n' "$HARNESS_MANAGER_BATCH_SIZE"
 		printf 'worker_isolation_mode=%s\n' "$HARNESS_WORKER_ISOLATION_MODE"
 		printf 'max_specification_review_processed_tokens_per_invocation=%s\n' "$HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION"
 		printf 'max_decomposition_processed_tokens_per_invocation=%s\n' "$HARNESS_MAX_DECOMPOSITION_PROCESSED_TOKENS_PER_INVOCATION"

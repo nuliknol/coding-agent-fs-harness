@@ -41,6 +41,13 @@ if [[ -f "$ledger" ]]; then
 	AGENT_COMMIT_PRIOR_PATHS="$(awk -F '\t' -v task="$task_id" 'NR > 1 && $2 == task {print $5}' "$ledger" | paste -sd, -)"
 fi
 AGENT_COMMIT_ACTOR="task=$task_id session=$session"
+plan_item="$(project_plan_item_for_root "$(task_root_id "$task_id")" 2>/dev/null || true)"
+mutation_capabilities="$dir/control/mutation-capabilities.tsv"
+if [[ -n "$plan_item" && -f "$mutation_capabilities" ]]; then
+	python3 "$HARNESS_HOME/tools/verify_workspace_mutation_regions.py" \
+		--repository "$REPOSITORY" --capabilities "$mutation_capabilities" \
+		--plan-node "$plan_item" "$@"
+fi
 commit="$(agent_commit_source "$message_file" "$@")"
 
 if [[ ! -f "$ledger" ]]; then

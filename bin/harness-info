@@ -108,6 +108,7 @@ printf '\nAgent routing\n'
 printf '  Model policy: %s\n' "$HARNESS_MODEL_POLICY"
 printf '  Escalation policy: %s\n' "$HARNESS_ESCALATION_POLICY"
 printf '  Manager: %s (%s)\n' "$MANAGER_MODEL" "$MANAGER_REASONING_EFFORT"
+printf '  Manager result batch size: %s\n' "$HARNESS_MANAGER_BATCH_SIZE"
 printf '  Decomposition: %s (%s)\n' "$DECOMPOSITION_MODEL" "$DECOMPOSITION_REASONING_EFFORT"
 printf '  Luna worker: %s (%s)\n' "$LUNA_WORKER_MODEL" "$LUNA_WORKER_REASONING_EFFORT"
 if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then

@@ -6,6 +6,7 @@ import argparse
 from pathlib import Path
 import re
 import subprocess
+import csv
 
 
 DIFF_BLOCK = re.compile(r"```(?:diff|patch)\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
@@ -160,6 +161,51 @@ def validate_zero_context_hunks(repository: Path, patch: str) -> bool:
     return needs_unidiff_zero
 
 
+def validate_mutation_regions(patch: str, capabilities_path: Path, plan_node: str) -> None:
+    """Require changed lines to stay inside indexed regions when available.
+
+    Unified-diff context is evidence rather than mutation, so only removed lines
+    and insertion anchors are checked.  Files without an indexed capability
+    remain governed by exact Allowed-Scope; optional region authority never
+    turns an incomplete index into an accidental write denial.
+    """
+    regions: dict[str, list[tuple[int, int, str]]] = {}
+    with capabilities_path.open(encoding="utf-8", newline="") as stream:
+        for row in csv.DictReader(stream, delimiter="\t"):
+            if row.get("node_id") != plan_node:
+                continue
+            regions.setdefault(row["repository_path"], []).append(
+                (int(row["start_line"]), int(row["end_line"]), row["symbol"]))
+    if not regions:
+        return
+    current_path: str | None = None
+    old_line: int | None = None
+    for raw in patch.splitlines():
+        if raw.startswith("+++ b/"):
+            current_path = raw[6:]
+            old_line = None
+            continue
+        match = HUNK_HEADER.fullmatch(raw)
+        if match:
+            old_line = int(match.group(1))
+            continue
+        if current_path not in regions or old_line is None:
+            continue
+        if raw.startswith(" "):
+            old_line += 1
+        elif raw.startswith("-") and not raw.startswith("---"):
+            if not any(start <= old_line <= end for start, end, _ in regions[current_path]):
+                raise ValueError(
+                    f"patch removal is outside indexed Mutation-Regions: "
+                    f"{current_path}:{old_line} node={plan_node}")
+            old_line += 1
+        elif raw.startswith("+") and not raw.startswith("+++"):
+            if not any(start <= old_line <= end + 1 for start, end, _ in regions[current_path]):
+                raise ValueError(
+                    f"patch insertion is outside indexed Mutation-Regions: "
+                    f"{current_path}:{old_line} node={plan_node}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repository", required=True)
@@ -168,6 +214,8 @@ def main() -> None:
     parser.add_argument("--patch-output", required=True)
     parser.add_argument("--paths-output", required=True)
     parser.add_argument("--max-files", type=int, required=True)
+    parser.add_argument("--mutation-capabilities")
+    parser.add_argument("--plan-node")
     args = parser.parse_args()
     repository = Path(args.repository).resolve()
     patch_output = Path(args.patch_output)
@@ -183,6 +231,9 @@ def main() -> None:
             raise ValueError(f"binary/object path is prohibited: {path}")
         if path.startswith(("build/", ".git/")) or "/build/" in path:
             raise ValueError(f"generated/build path is prohibited: {path}")
+    if args.mutation_capabilities and args.plan_node:
+        validate_mutation_regions(patch_output.read_text(encoding="utf-8", errors="replace"),
+                                  Path(args.mutation_capabilities), args.plan_node)
     needs_unidiff_zero = validate_zero_context_hunks(repository, patch_output.read_text(
         encoding="utf-8", errors="replace"))
     unidiff_args = ["--unidiff-zero"] if needs_unidiff_zero else []

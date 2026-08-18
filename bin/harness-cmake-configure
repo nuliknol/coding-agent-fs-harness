@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+# Preserve an assignment's exact CMake command, but invalidate an absolute
+# build directory only when its cache belongs to a different source tree.  A
+# normal configure is incremental; --fresh is reserved for an observed cache
+# identity mismatch.
+source_dir=""
+build_dir=""
+requested_generator=""
+requested_toolchain=""
+args=("$@")
+for ((index = 0; index < ${#args[@]}; index++)); do
+	case "${args[index]}" in
+	-S)
+		(( index + 1 < ${#args[@]} )) && source_dir="${args[index + 1]}"
+		;;
+	-S*) source_dir="${args[index]#-S}" ;;
+	-B)
+		(( index + 1 < ${#args[@]} )) && build_dir="${args[index + 1]}"
+		;;
+	-B*) build_dir="${args[index]#-B}" ;;
+	-G)
+		(( index + 1 < ${#args[@]} )) && requested_generator="${args[index + 1]}"
+		;;
+	-G*) requested_generator="${args[index]#-G}" ;;
+	--toolchain)
+		(( index + 1 < ${#args[@]} )) && requested_toolchain="${args[index + 1]}"
+		;;
+	--toolchain=*) requested_toolchain="${args[index]#--toolchain=}" ;;
+	-DCMAKE_TOOLCHAIN_FILE=*) requested_toolchain="${args[index]#-DCMAKE_TOOLCHAIN_FILE=}" ;;
+	esac
+done
+
+# Isolated workers must never race through one assignment's absolute build
+# directory.  Both configure (-B) and consume (--build) map that logical path
+# into a stable source-worktree-private namespace supplied by the runner.
+if [[ -n "${HARNESS_CMAKE_PRIVATE_BUILD_ROOT:-}" ]]; then
+	requested_build="$build_dir"
+	if [[ -z "$requested_build" ]]; then
+		for ((index = 0; index < ${#args[@]}; index++)); do
+			if [[ "${args[index]}" == --build ]] && (( index + 1 < ${#args[@]} )); then
+				requested_build="${args[index + 1]}"
+				break
+			fi
+		done
+	fi
+	if [[ -n "$requested_build" ]]; then
+		build_key="$(realpath -m -- "$requested_build" | sha256sum | awk '{print $1}')"
+		private_build="$HARNESS_CMAKE_PRIVATE_BUILD_ROOT/$build_key"
+		mkdir -p "$HARNESS_CMAKE_PRIVATE_BUILD_ROOT"
+		for ((index = 0; index < ${#args[@]}; index++)); do
+			case "${args[index]}" in
+			-B)
+				args[index + 1]="$private_build"
+				;;
+			-B*) args[index]="-B$private_build" ;;
+			--build)
+				args[index + 1]="$private_build"
+				;;
+			esac
+		done
+		build_dir="$private_build"
+		printf 'HARNESS_CMAKE_PRIVATE_BUILD requested=%s private=%s\n' \
+			"$requested_build" "$private_build" >&2
+	fi
+fi
+
+if [[ -n "$source_dir" && -n "$build_dir" ]]; then
+	canonical_source="$(realpath -m -- "$source_dir")"
+	canonical_build="$(realpath -m -- "$build_dir")"
+	cache="$canonical_build/CMakeCache.txt"
+	identity="$canonical_build/.harness-cmake-identity.env"
+	graph_fingerprint="$({
+		find "$canonical_source" -xdev -type f \( -name CMakeLists.txt -o -name '*.cmake' \) \
+			-not -path '*/.git/*' -not -path '*/build/*' -print0 2>/dev/null | LC_ALL=C sort -z |
+			while IFS= read -r -d '' graph_file; do
+				printf '%s\0' "${graph_file#"$canonical_source"/}"
+				sha256sum "$graph_file"
+			done
+	} | sha256sum | awk '{print "sha256:" $1}')"
+	fresh_reason=""
+	if [[ -f "$cache" ]]; then
+		cached_source="$(awk -F= '$1 == "CMAKE_HOME_DIRECTORY:INTERNAL" {print $2; exit}' "$cache")"
+		if [[ -n "$cached_source" && "$(realpath -m -- "$cached_source")" != "$canonical_source" ]]; then
+			fresh_reason=source
+		fi
+		cached_generator="$(awk -F= '$1 == "CMAKE_GENERATOR:INTERNAL" {print $2; exit}' "$cache")"
+		if [[ -z "$fresh_reason" && -n "$requested_generator" && -n "$cached_generator" &&
+			"$requested_generator" != "$cached_generator" ]]; then
+			fresh_reason=generator
+		fi
+		cached_toolchain="$(awk -F= '$1 == "CMAKE_TOOLCHAIN_FILE:FILEPATH" {print $2; exit}' "$cache")"
+		if [[ -z "$fresh_reason" && -n "$requested_toolchain" && -n "$cached_toolchain" &&
+			"$(realpath -m -- "$requested_toolchain")" != "$(realpath -m -- "$cached_toolchain")" ]]; then
+			fresh_reason=toolchain
+		fi
+		if [[ -z "$fresh_reason" && -f "$identity" ]]; then
+			prior_graph="$(awk -F= '$1=="cmake_graph_fingerprint" {print $2; exit}' "$identity")"
+			[[ -z "$prior_graph" || "$prior_graph" == "$graph_fingerprint" ]] || fresh_reason=cmake-graph
+		fi
+	fi
+	cmake_args=("${args[@]}")
+	if [[ -n "$fresh_reason" ]]; then
+		printf 'HARNESS_CMAKE_CACHE_MISMATCH reason=%s source=%s build=%s\n' \
+			"$fresh_reason" "$canonical_source" "$canonical_build" >&2
+		if [[ -n "${HARNESS_CMAKE_EVENT_FILE:-}" ]]; then
+			printf '%s\tCMAKE_VALIDATION_FRESH_CONFIGURE task=%s label=%s reason=%s source=%s build=%s\n' \
+				"$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${HARNESS_CMAKE_TASK_ID:--}" \
+				"${HARNESS_CMAKE_LABEL:--}" "$fresh_reason" "$canonical_source" \
+				"$canonical_build" >> "$HARNESS_CMAKE_EVENT_FILE"
+		fi
+		cmake_args=(--fresh "${args[@]}")
+	fi
+	if command -v ccache >/dev/null 2>&1; then
+		export CMAKE_C_COMPILER_LAUNCHER="${CMAKE_C_COMPILER_LAUNCHER:-ccache}"
+		export CMAKE_CXX_COMPILER_LAUNCHER="${CMAKE_CXX_COMPILER_LAUNCHER:-ccache}"
+	fi
+	set +e
+	cmake "${cmake_args[@]}"
+	status=$?
+	set -e
+	if (( status == 0 )); then
+		mkdir -p "$canonical_build"
+		{
+			printf 'source=%s\n' "$canonical_source"
+			printf 'cmake_graph_fingerprint=%s\n' "$graph_fingerprint"
+			printf 'generator=%s\n' "${requested_generator:-${cached_generator:-default}}"
+			printf 'toolchain=%s\n' "${requested_toolchain:--}"
+			printf 'ccache=%s\n' "$([[ -n "$(command -v ccache 2>/dev/null || true)" ]] && printf enabled || printf unavailable)"
+		} > "$identity.tmp.$$"
+		mv "$identity.tmp.$$" "$identity"
+	fi
+	exit "$status"
+fi
+
+exec cmake "${args[@]}"

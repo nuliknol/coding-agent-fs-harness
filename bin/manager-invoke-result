@@ -40,8 +40,10 @@ blocked="$project_path/archive/$base.blocked.md"
 superseded="$project_path/archive/$base.superseded.md"
 architecture_reassessment="$(task_root_architecture_reassessment_file "$task_id")"
 root_replan_marker="$(task_root_replan_file "$task_id")"
+review_retry_file="$project_path/control/$base.manager-review-retry.env"
 pending_exit_status=3
 [[ -f "$result" ]] || die "result file does not exist: $result"
+result_content_fingerprint="sha256:$(sha256sum "$result" | awk '{print $1}')"
 [[ ! -e "$running" ]] || die "result is not committed; running assignment still exists: $running"
 [[ ! -e "$lease" ]] || die "result is not committed; worker lease still exists: $lease"
 [[ -f "$assignment_archive" ]] || die "result is not committed; archived assignment is missing: $assignment_archive"
@@ -445,6 +447,14 @@ fi
 chmod 600 "$prompt_file.tmp.$$"
 mv "$prompt_file.tmp.$$" "$prompt_file"
 
+# Batch review compiles these exact per-event packets and schemas first, then
+# gives one ephemeral logical-manager inference several independent terminal
+# transactions.  Preparation performs no semantic provider call.
+if [[ "${HARNESS_MANAGER_PREPARE_ONLY:-0}" == 1 ]]; then
+	printf '%s\n' "$prompt_file"
+	exit 0
+fi
+
 attempt=1
 provider_retries=0
 quota_waits=0
@@ -458,6 +468,17 @@ current_model="$MANAGER_MODEL"
 review_thread_id=""
 fresh_context_pending=1
 wrong_task_recovery_retry=0
+uncommitted_review_retry=0
+if [[ -f "$review_retry_file" ]]; then
+	recorded_result_fingerprint="$(kv_file_value "$review_retry_file" result_fingerprint 2>/dev/null || true)"
+	recorded_corrective_attempts="$(kv_file_value "$review_retry_file" corrective_attempts 2>/dev/null || printf 0)"
+	if [[ "$recorded_result_fingerprint" == "$result_content_fingerprint" &&
+		"$recorded_corrective_attempts" =~ ^[1-9][0-9]*$ ]]; then
+		uncommitted_review_retry=1
+	else
+		rm -f -- "$review_retry_file"
+	fi
+fi
 manager_rotation_reason=bounded_review
 if (( review_state_changed == 1 )); then
 	manager_rotation_reason=review_state_changed
@@ -532,6 +553,7 @@ while true; do
 
 	if (( status == 0 )); then
 		if manager_action_committed; then
+			rm -f -- "$review_retry_file"
 			commit_fresh_manager_context
 			log_event "MANAGER_REVIEW_FINISHED task=$task_id attempt=$attempt"
 			trace_event MANAGER_REVIEW_COMMITTED "task_id=$task_id" "attempt=$attempt" "status=$status"
@@ -558,6 +580,34 @@ Corrective retry: the previous turn changed root-level recovery state but did no
 PROMPT
 			log_event "MANAGER_REVIEW_WRONG_TASK_ACTION_RETRY task=$task_id root=$task_root attempt=$attempt"
 			trace_event MANAGER_REVIEW_WRONG_TASK_ACTION_RETRY "task_id=$task_id" "task_root=$task_root" "attempt=$attempt"
+			continue
+		fi
+
+		if (( uncommitted_review_retry == 0 )) && [[ -f "$result" ]]; then
+			# A successful provider turn that did not execute one terminal review
+			# command is not a durable control-plane transition. Give it exactly one
+			# fresh-context corrective attempt before surfacing an explicit paused
+			# review. This closes the silent-liveness gap without permitting an
+			# unchanged manager loop.
+			uncommitted_review_retry=1
+			{
+				printf 'task_id=%s\n' "$task_id"
+				printf 'result_fingerprint=%s\n' "$result_content_fingerprint"
+				printf 'corrective_attempts=1\n'
+				printf 'scheduled_at=%s\n' "$(timestamp_utc)"
+			} > "$review_retry_file.tmp.$$"
+			chmod 600 "$review_retry_file.tmp.$$"
+			mv "$review_retry_file.tmp.$$" "$review_retry_file"
+			attempt=$((attempt + 1))
+			review_thread_id=""
+			fresh_context_pending=1
+			manager_rotation_reason=uncommitted_review_recovery
+			cat >> "$prompt_file" <<PROMPT
+
+Corrective retry: the previous review turn returned successfully but did not consume RESULT_FILE and did not execute an ACCEPT, CHECKPOINT, REJECT, or BLOCK terminal command. Review exactly TASK_ID=$task_id in fresh context. You must now execute exactly one validator-compatible terminal review command. Do not merely report a recommendation or leave the result pending.
+PROMPT
+			log_event "MANAGER_REVIEW_UNCOMMITTED_RETRY task=$task_id root=$task_root attempt=$attempt"
+			trace_event MANAGER_REVIEW_UNCOMMITTED_RETRY "task_id=$task_id" "task_root=$task_root" "attempt=$attempt"
 			continue
 		fi
 

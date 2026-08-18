@@ -9,6 +9,12 @@ load_harness_env "$1"
 ensure_project
 project_plan_uses_dag || die 'decomposition metrics require a v2 decomposition DAG'
 
+rate()
+{
+	local numerator="$1" denominator="$2"
+	if (( denominator == 0 )); then printf 'N/A\n'; else awk -v n="$numerator" -v d="$denominator" 'BEGIN {printf "%.2f", n * 100 / d}'; fi
+}
+
 dir="$(project_dir)"
 report="$dir/control/decomposition-metrics.tsv"
 nodes_total="$(project_plan_total_count)"
@@ -58,6 +64,18 @@ acp_manager_avoided=0
 acp_initial_context_bytes=0
 acp_context_amplification_percent=N/A
 tokens_per_verified_facet=UNAVAILABLE
+critical_path_length=UNAVAILABLE
+maximum_dag_width=UNAVAILABLE
+conflict_reduced_max_width=UNAVAILABLE
+average_ready_width=UNAVAILABLE
+dependency_ready_width=0
+safe_ready_width=0
+active_width=0
+worker_invocations=0
+manager_invocations=0
+worker_occupied_seconds=0
+worker_observation_seconds=0
+worker_slot_utilization_percent=N/A
 if specification_ir_available; then
 	specification_obligations="$(specification_obligation_count)"
 	specification_relations="$(specification_review_state_value relation_count 0)"
@@ -155,11 +173,28 @@ if (( HARNESS_ARCHITECTURE_GUARDS == 1 )); then
 	architecture_debt_expired="$(architecture_expired_debt_count)"
 fi
 
-rate()
+parallelism_report="$(python3 "$HARNESS_HOME/tools/analyze_decomposition_parallelism.py" \
+	--plan "$(project_decomposition_plan_file)" --state "$(project_plan_state_file)" \
+	--events "$dir/logs/events.log" --capacity "$(acp_scheduler_capacity)" \
+	--conflicts "$dir/control/project-conflict-graph.tsv")"
+parallelism_metric()
 {
-	local numerator="$1" denominator="$2"
-	if (( denominator == 0 )); then printf 'N/A\n'; else awk -v n="$numerator" -v d="$denominator" 'BEGIN {printf "%.2f", n * 100 / d}'; fi
+	local metric="$1"
+	awk -F= -v wanted="$metric" '$1 == wanted {print substr($0, index($0, "=") + 1); exit}' \
+		<<< "$parallelism_report"
 }
+critical_path_length="$(parallelism_metric critical_path_length)"
+maximum_dag_width="$(parallelism_metric maximum_dag_width)"
+conflict_reduced_max_width="$(parallelism_metric conflict_reduced_max_width)"
+average_ready_width="$(parallelism_metric average_ready_width)"
+dependency_ready_width="$(parallelism_metric dependency_ready_width)"
+safe_ready_width="$(parallelism_metric safe_ready_width)"
+active_width="$(parallelism_metric active_width)"
+worker_invocations="$(parallelism_metric worker_invocations)"
+manager_invocations="$(parallelism_metric manager_invocations)"
+worker_occupied_seconds="$(parallelism_metric worker_occupied_seconds)"
+worker_observation_seconds="$(parallelism_metric worker_observation_seconds)"
+worker_slot_utilization_percent="$(parallelism_metric worker_slot_utilization_percent)"
 per_item()
 {
 	local value="$1"
@@ -191,6 +226,21 @@ per_item()
 	printf 'zero_gain_iteration_percent\t%s\n' "$(rate "$identical_iterations" "$total_iterations")"
 	printf 'automatic_replans\t%s\n' "$replans"
 	printf 'verified_items\t%s\n' "$verified_items"
+	printf 'worker_invocations\t%s\n' "$worker_invocations"
+	printf 'manager_invocations\t%s\n' "$manager_invocations"
+	printf 'implementation_yield_percent\t%s\n' "$(rate "$nodes_complete" "$worker_invocations")"
+	printf 'control_amplification_per_completed_node\t%s\n' "$(awk -v m="$manager_invocations" -v r="$replans" -v n="$nodes_complete" 'BEGIN {if(n==0) print "N/A"; else printf "%.2f", (m+r)/n}')"
+	printf 'negotiation_to_implementation_percent\t%s\n' "$(rate "$((acp_requests + replans))" "$worker_invocations")"
+	printf 'critical_path_length\t%s\n' "$critical_path_length"
+	printf 'maximum_dag_width\t%s\n' "$maximum_dag_width"
+	printf 'conflict_reduced_max_width\t%s\n' "$conflict_reduced_max_width"
+	printf 'average_ready_width\t%s\n' "$average_ready_width"
+	printf 'dependency_ready_width\t%s\n' "$dependency_ready_width"
+	printf 'safe_ready_width\t%s\n' "$safe_ready_width"
+	printf 'active_width\t%s\n' "$active_width"
+	printf 'worker_occupied_seconds\t%s\n' "$worker_occupied_seconds"
+	printf 'worker_observation_seconds\t%s\n' "$worker_observation_seconds"
+	printf 'worker_slot_utilization_percent\t%s\n' "$worker_slot_utilization_percent"
 	printf 'specification_obligations\t%s\n' "$specification_obligations"
 	printf 'specification_relations\t%s\n' "$specification_relations"
 	printf 'specification_obligations_mapped\t%s\n' "$specification_obligations_mapped"

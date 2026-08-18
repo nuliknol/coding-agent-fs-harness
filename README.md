@@ -1076,7 +1076,8 @@ harness-acp-status project.env
 
 The broker supports exact symbol/type definitions, callers, callees, failing
 assertions, named/indexed tests, build targets and owners, concept owners, producers, consumers, and
-representation writers. SCIP, build-index, and on-demand Joern evidence is
+representation writers. `SOURCE_WINDOW` adds a bounded tail window only for an
+exact declared/proven path. SCIP, build-index, and on-demand Joern evidence is
 queried deterministically; accepted excerpts remain subject to the per-request
 and cumulative added-context limits. The same provider thread resumes after a
 context grant. Structural requests terminate the ephemeral Luna process and
@@ -1105,6 +1106,21 @@ worktree, where focused validation must pass before a fast-forward. Conflicts,
 external main mutation, or a failed integration gate create a project integrity
 anomaly. `HARNESS_WORKER_PARALLELISM=0` selects online CPU capacity capped by
 `HARNESS_WORKER_PARALLELISM_HARD_MAX` (four by default), never unbounded launch.
+New v2 plans compile indexed symbol mutation regions and a durable semantic
+conflict graph. The scheduler greedily fills dependency-ready, conflict-free
+slots; exact region authority can distinguish disjoint symbols in one file,
+while architecture decisions, edge contracts, ownership, and unresolved paths
+remain conservative conflicts. `harness-decomposition-metrics` and
+`harness-statistics` report safe width, critical path, maximum width, control
+amplification, implementation yield, and observed slot utilization.
+`harness-rebuild-throughput-state ENV_FILE` backfills these sidecars for an
+installed plan.
+
+Independent completed results may be reviewed by one ephemeral manager
+inference in batches of up to `HARNESS_MANAGER_BATCH_SIZE` (four by default).
+Each result retains its own packet, validation, review note, terminal validator,
+idempotency identity, and append-only manager-inbox transaction; a partial batch
+cannot make a sibling decision authoritative.
 The normative envelope is documented in `formats/acp-v1.md`.
 
 ACP metrics also report initial/added context bytes, amplification, authority
@@ -1707,6 +1723,16 @@ be run without shell-operator escape mistakes through:
 ```bash
 harness-run-assigned-validation ENV_FILE TASK_ID LABEL
 ```
+
+The runner configures CMake incrementally and uses `--fresh` only after a source,
+generator, toolchain, or CMake-graph identity mismatch. Isolated worktrees map
+logical build paths to private persistent namespaces and enable `ccache` when
+installed. Successful checks produce receipts bound to repository path,
+HEAD/workspace, exact command, build/cache identity, and toolchain; only an
+exact identity match is reusable. Indexed build evidence can be queried without
+an agent turn through `harness-build-query ENV_FILE QUERY VALUE`, where `QUERY`
+is `SOURCE_TO_TARGET`, `TARGET_TO_SOURCE`, `MINIMAL_TARGET`, `TEST_SELECTOR`,
+`DEPENDENCY_ARTIFACT`, or `FIRST_CAUSAL_ERROR`.
 
 Chronological implementation history:
 
