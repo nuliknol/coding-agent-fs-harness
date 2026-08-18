@@ -583,7 +583,11 @@ load_harness_env()
 	HARNESS_MAX_LUNA_COMPLEXITY_SCORE="${HARNESS_MAX_LUNA_COMPLEXITY_SCORE:-24}"
 	HARNESS_MAX_LUNA_RISK_DOMAINS="${HARNESS_MAX_LUNA_RISK_DOMAINS:-2}"
 	HARNESS_COMPLEXITY_TOKENS_PER_SCORE_POINT="${HARNESS_COMPLEXITY_TOKENS_PER_SCORE_POINT:-10000}"
-	HARNESS_COMPLEXITY_CALIBRATION_MIN_SAMPLES="${HARNESS_COMPLEXITY_CALIBRATION_MIN_SAMPLES:-10}"
+	# A nearest-rank p95 needs at least twenty observations before its upper
+	# tail contains more than one sample.  With ten to nineteen samples, one
+	# accepted outlier becomes the fleet-wide admission rate and can make even
+	# the minimum executable Luna leaf exceed the fixed token ceiling.
+	HARNESS_COMPLEXITY_CALIBRATION_MIN_SAMPLES="${HARNESS_COMPLEXITY_CALIBRATION_MIN_SAMPLES:-20}"
 	HARNESS_MAX_COMPLEXITY_DECOMPOSITION_PASSES="${HARNESS_MAX_COMPLEXITY_DECOMPOSITION_PASSES:-3}"
 	# Build and test commands retain their complete output on disk. Only a
 	# bounded diagnostic summary is allowed back into an agent transcript.

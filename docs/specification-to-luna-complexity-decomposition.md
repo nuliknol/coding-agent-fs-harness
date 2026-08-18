@@ -602,7 +602,7 @@ effective_p95_tokens = max(
 )
 ```
 
-The cold-start calibration rate defaults to 10,000 tokens per score point. After enough clean accepted samples, the cross-project nearest-rank p95 tokens-per-score can make admission stricter, never looser.
+The cold-start calibration rate defaults to 10,000 tokens per score point. After at least 20 clean accepted samples, the cross-project nearest-rank p95 tokens-per-score can make admission stricter, never looser. Twenty is the minimum at which the nearest-rank p95 upper tail contains more than one observation, preventing a single accepted outlier from pricing every executable leaf out of the Luna budget.
 
 For a source-changing leaf, predicted actions are floored at six so the plan leaves room for bounded inspection, editing, validation, commit, and result publication.
 
