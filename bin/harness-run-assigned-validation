@@ -37,6 +37,18 @@ validation="$(metadata_value "$assignment" Focused-Validation)"
 validation_is_executable_command "$validation" ||
 	die 'Focused-Validation is not one machine-executable shell command; correct the assignment instead of interpreting Markdown or prose at runtime'
 
+# ACP validates the same immutable command in disposable worker and integration
+# worktrees.  A configured CMake build directory records its source directory,
+# so reusing an assignment's absolute build path otherwise produces a false
+# source-cache mismatch on the second worktree.  CMake's --fresh option keeps
+# the declared build path and validation semantics while rebuilding that cache
+# for the current source tree.
+fresh_validation="$(sed -E 's/(^|[;&|][[:space:]]*)cmake([[:space:]]+)-S/\1cmake\2--fresh -S/g' <<< "$validation")"
+if [[ "$fresh_validation" != "$validation" ]]; then
+	validation="$fresh_validation"
+	log_event "CMAKE_VALIDATION_FRESH_CONFIGURE task=$task_id label=$label"
+fi
+
 # Execute the complete machine-recorded expression inside the capture wrapper.
 # Shell operators therefore cannot escape logging through the caller's shell.
 # Validation commands are specified relative to the repository root.  This

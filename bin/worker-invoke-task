@@ -1219,7 +1219,23 @@ while true; do
 					"$HARNESS_BIN/harness-commit-source" "$HARNESS_ENV_FILE" "$task_id" "$session" "$patch_message" "${patch_paths[@]}" \
 						> "$dir/logs/patch-only-commit-$task_id-$stamp.log"
 					rm -f "$patch_message"
-					printf '\n<!-- Harness patch-only validation: PASS; patch=%s -->\n' "$patch_file" >> "$last_message"
+					# Patch application, focused validation, and source commit are all
+					# trusted harness operations.  Publish their measured outcome now.
+					# Retaining arbitrary model prose here can fail the result protocol,
+					# trigger a second model turn against the pre-patch baseline, and
+					# contradict the commit that was already created.
+					{
+						printf '# Worker Task Result\n\nTask-ID: %s\nStatus: COMPLETED\n' "$task_id"
+						if (( goal_mode == 1 )); then printf 'Goal-ID: %s\nGoal-Outcome: COMPLETE\n' "$goal_id"; fi
+						emit_synthetic_impact_manifest
+						printf '\n## Summary\n\nThe trusted patch applicator committed a bounded source change after focused validation passed.\n'
+						printf '\n## Modified files\n\n'
+						printf -- '- `%s`\n' "${patch_paths[@]}"
+						printf '\n## Implemented behavior\n\nThe validated patch implements the assigned bounded criterion.\n'
+						printf '\n## Validation performed\n\nTrusted validation passed; complete output is retained at `%s`.\n' "$patch_validation_capture"
+						printf '\n## Deviations from assignment\n\nNone.\n\n## Remaining concerns\n\nNone for this bounded criterion.\n'
+						printf '\n## Worker assessment\n\nCOMPLETE based on trusted patch application, validation, and source commit.\n'
+					} > "$last_message"
 					log_event "PATCH_ONLY_APPLIED task=$task_id patch=$patch_file paths=$patch_paths_file validation_round=$patch_validation_round"
 				fi
 			else

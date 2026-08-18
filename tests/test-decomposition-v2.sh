@@ -254,6 +254,29 @@ grep -Fq 'VALIDATION_LOG label=assigned-compound exit=0 lines=2001' <<< "$assign
 assigned_path="$(awk -F'log=' '/^VALIDATION_LOG / {print $2; exit}' <<< "$assigned_output")"
 test "$(wc -l < "$assigned_path")" -eq 2001
 
+# An immutable assignment may use one absolute CMake build directory in both
+# an ACP worker worktree and a later integration worktree.  The validation
+# runner refreshes that cache for the current source instead of reporting a
+# false source-directory mismatch.
+mkdir -p "$TEST_ROOT/cmake-wrong-source" "$TEST_ROOT/cmake-shared-build"
+printf 'cmake_minimum_required(VERSION 3.24)\nproject(wrong NONE)\n' > \
+	"$TEST_ROOT/cmake-wrong-source/CMakeLists.txt"
+printf 'cmake_minimum_required(VERSION 3.24)\nproject(correct NONE)\n' > \
+	"$TEST_ROOT/repo/CMakeLists.txt"
+cmake -S "$TEST_ROOT/cmake-wrong-source" -B "$TEST_ROOT/cmake-shared-build" >/dev/null
+cat > "$project_dir/archive/decompv2-task-cmake-fresh.assignment.md" <<ASSIGNMENT
+Task-ID: cmake-fresh
+Focused-Validation: cmake -S . -B $TEST_ROOT/cmake-shared-build
+ASSIGNMENT
+cmake_output="$("$HARNESS_BIN/harness-run-assigned-validation" \
+	"$TEST_ROOT/harness.env" cmake-fresh assigned-cmake-fresh)"
+grep -Fq 'VALIDATION_LOG label=assigned-cmake-fresh exit=0' <<< "$cmake_output"
+grep -Fq 'CMAKE_VALIDATION_FRESH_CONFIGURE task=cmake-fresh label=assigned-cmake-fresh' \
+	"$project_dir/logs/events.log"
+grep -Fqx "CMAKE_HOME_DIRECTORY:INTERNAL=$TEST_ROOT/repo" \
+	"$TEST_ROOT/cmake-shared-build/CMakeCache.txt"
+rm -f "$TEST_ROOT/repo/CMakeLists.txt"
+
 # Outlier ranking distinguishes authoritative and estimated worker episodes and
 # exposes command-output amplification without replaying command contents.
 cat > "$project_dir/logs/worker-task-synthetic-20260814T000000Z-attempt-001.jsonl" <<'JSON'
@@ -364,6 +387,61 @@ fi
 grep -Fq 'source commit would exceed Expected-Max-Implementation-Files (1/0)' \
 	"$TEST_ROOT/read-only-commit.out"
 git -C "$TEST_ROOT/repo" restore --worktree -- src/a.c
+
+# A repeated validation-command prerequisite can enter manager remediation even
+# when the immutable root is explicitly read-only.  The recovery schema must
+# not force the manager to invent a repository mutation path for that case.
+sed \
+	-e 's/export PROJECT="decompv2"/export PROJECT="decompreadonlyremediation"/' \
+	-e "s|export HARNESS_ROOT=\"$TEST_ROOT/state\"|export HARNESS_ROOT=\"$TEST_ROOT/read-only-remediation-state\"|" \
+	"$TEST_ROOT/harness.env" > "$TEST_ROOT/read-only-remediation-harness.env"
+chmod 600 "$TEST_ROOT/read-only-remediation-harness.env"
+"$HARNESS_BIN/harness-init" "$TEST_ROOT/read-only-remediation-harness.env" >/dev/null
+cat > "$TEST_ROOT/read-only-remediation-plan.tsv" <<'PLAN'
+node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route	behavioral_concerns	failure_paths	ownership_transitions	concurrency_boundaries	validation_surfaces	implementation_files	predicted_worker_actions	predicted_p95_tokens	terra_exception
+n1	-	-	Verify existing target	target source exists	test -f src/a.c	-	-	VERIFICATION_ONLY	LOW	LUNA	1	0	0	0	1	0	3	12000	-
+PLAN
+"$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/read-only-remediation-harness.env" \
+	"$TEST_ROOT/read-only-remediation-plan.tsv" >/dev/null
+sed \
+	-e 's/^Goal-Success-Evidence:.*$/Goal-Success-Evidence: target source exists/' \
+	-e 's#^Focused-Validation:.*#Focused-Validation: test -f src/a.c#' \
+	-e 's#^Allowed-Scope:.*#Allowed-Scope: -#' \
+	-e 's/^Leaf-Type: LOCAL_IMPLEMENTATION$/Leaf-Type: VERIFICATION_ONLY/' \
+	-e 's/^Deliverable:.*$/Deliverable: Verify existing target/' \
+	-e 's/^Required-Symbols:.*$/Required-Symbols: -/' \
+	-e 's#^Context-Paths:.*#Context-Paths: -#' \
+	-e 's/^Expected-Max-Implementation-Files: 1$/Expected-Max-Implementation-Files: 0/' \
+	-e 's/^Expected-Max-Agent-Actions: 5$/Expected-Max-Agent-Actions: 3/' \
+	-e 's/^Predicted-P95-Tokens: 100000$/Predicted-P95-Tokens: 12000/' \
+	"$TEST_ROOT/task.md" > "$TEST_ROOT/read-only-remediation-root.md"
+"$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/read-only-remediation-harness.env" 001 \
+	"$TEST_ROOT/read-only-remediation-root.md" n1 >/dev/null
+read_only_remediation_project="$TEST_ROOT/read-only-remediation-state/projects/decompreadonlyremediation"
+mv "$read_only_remediation_project/tasks/decompreadonlyremediation-task-001.ready.md" \
+	"$read_only_remediation_project/archive/decompreadonlyremediation-task-001.assignment.md"
+cat > "$read_only_remediation_project/control/progress/decompreadonlyremediation-task-001.needs-replan.md" <<'MARKER'
+# Root Task Needs Replanning
+
+Task-Root: 001
+Triggered-By: 001
+Trigger-Outcome: DETERMINISTIC_BLOCKER
+Blocking-Fingerprint: sha256:readonly-validation
+MARKER
+sed \
+	-e 's/^Task-ID: 001$/Task-ID: 001-revision-01/' \
+	-e 's/^Goal-ID: n1.goal$/Goal-ID: n1.readonly.repair/' \
+	-e 's#^Allowed-Scope: -$#Allowed-Scope: src#' \
+	-e 's#^Context-Paths: -$#Context-Paths: src/a.c#' \
+	-e '/^Root-Criterion: n1.done$/a Manager-Remediation: 1\nBlocker-Class: LOCAL_INTEGRATION_PREREQUISITE\nRemediation-Scope: src\nReplan-Strategy-ID: readonly.validation.repair\nStrategy-Change: REPAIR_PREREQUISITE\nSupersedes-Task: 001' \
+	"$TEST_ROOT/read-only-remediation-root.md" > "$TEST_ROOT/read-only-remediation-recovery.md"
+"$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/read-only-remediation-harness.env" \
+	001-revision-01 "$TEST_ROOT/read-only-remediation-recovery.md" --manager-remediation >/dev/null
+read_only_remediation_ready="$read_only_remediation_project/tasks/decompreadonlyremediation-task-001-revision-01.ready.md"
+grep -Fqx 'Allowed-Scope: -' "$read_only_remediation_ready"
+grep -Fqx 'Remediation-Scope: -' "$read_only_remediation_ready"
+grep -Fq 'READ_ONLY_MANAGER_REMEDIATION_SCOPE_NORMALIZED root=001 task=001-revision-01' \
+	"$read_only_remediation_project/logs/events.log"
 
 # A resource fuse that observes durable source progress must schedule a
 # read-only verification transaction. Recovery planners sometimes copy the

@@ -251,6 +251,7 @@ def build_closure(args: argparse.Namespace) -> str:
     seed_symbol_ids: set[str] = set()
     authority_records: list[tuple[str, str, str, dict[str, str]]] = []
     ownership_boundaries: set[tuple[str, str, str, str]] = set()
+    evidence_cut = values.get("Context-Closure-Cut", "").strip() not in ("", "-", "NONE")
     selected_tests: set[str] = set()
     bounded_test_candidates_omitted = 0
     expanded_seed_ids: set[str] = set()
@@ -342,7 +343,13 @@ def build_closure(args: argparse.Namespace) -> str:
                 producer = record.get("producer_node", "-") or "-"
                 consumer = record.get("consumer_node", "-") or "-"
                 ownership = record.get("ownership_model", "-") or "-"
-                ownership_boundaries.add((identifier, producer, consumer, ownership))
+                # The publisher binds Context-Closure-Cut to the first exact
+                # compiler-produced repair seam.  Normative edge contracts stay
+                # in authority.tsv/context.md, but root-wide ownership topology
+                # must not recreate the parent closure and exhaust the same
+                # budget again for that bounded execution cut.
+                if not evidence_cut:
+                    ownership_boundaries.add((identifier, producer, consumer, ownership))
                 # Public symbols and artifacts remain in the compiled edge
                 # record. They become source evidence only when the bounded
                 # assignment explicitly names the corresponding symbol/path.

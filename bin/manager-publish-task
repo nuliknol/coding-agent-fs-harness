@@ -1326,6 +1326,18 @@ normalize_revision_execution_metadata()
 		log_event "RESOURCE_PROGRESS_VERIFICATION_METADATA_NORMALIZED root=$root task=$task_id requested_files=${requested_files:--} expected_files=0"
 	fi
 
+	# Manager remediation is sometimes selected after a malformed validation
+	# command repeats, even though the immutable root is explicitly read-only.
+	# A VERIFICATION_ONLY continuation cannot acquire source mutation authority
+	# merely because the manager is repairing that execution prerequisite.
+	if (( manager_remediation == 1 )) && [[ "$requested_leaf" == VERIFICATION_ONLY &&
+		"$requested_files" == 0 && "$root_max_files" == 0 && "$root_scope" == - &&
+		"$normalized_scope" != - ]]; then
+		normalized_scope=-
+		changed=1
+		log_event "READ_ONLY_MANAGER_REMEDIATION_SCOPE_NORMALIZED root=$root task=$task_id requested=$(printf '%q' "$requested_scope") authority=-"
+	fi
+
 	# Generated build trees are validation workspaces, never source mutation
 	# authority. Keep them in Context-Paths and validation commands while
 	# preserving the root's tracked-source authority.
@@ -1352,8 +1364,12 @@ normalize_revision_execution_metadata()
 	tmp="$task_file.execution-authority.$$"
 	HARNESS_NORMALIZED_ALLOWED_SCOPE="$normalized_scope" \
 	HARNESS_NORMALIZED_EXPECTED_FILES="$normalized_files" \
-	HARNESS_NORMALIZED_EXPECTED_TURNS="$normalized_turns" awk -F': ' '
+	HARNESS_NORMALIZED_EXPECTED_TURNS="$normalized_turns" \
+	HARNESS_NORMALIZE_REMEDIATION_SCOPE="$manager_remediation" awk -F': ' '
 		$1 == "Allowed-Scope" {print "Allowed-Scope: " ENVIRON["HARNESS_NORMALIZED_ALLOWED_SCOPE"]; next}
+		$1 == "Remediation-Scope" && ENVIRON["HARNESS_NORMALIZE_REMEDIATION_SCOPE"] == 1 {
+			print "Remediation-Scope: " ENVIRON["HARNESS_NORMALIZED_ALLOWED_SCOPE"]; next
+		}
 		$1 == "Expected-Max-Implementation-Files" {print "Expected-Max-Implementation-Files: " ENVIRON["HARNESS_NORMALIZED_EXPECTED_FILES"]; next}
 		$1 == "Expected-Max-Worker-Turns" {print "Expected-Max-Worker-Turns: " ENVIRON["HARNESS_NORMALIZED_EXPECTED_TURNS"]; next}
 		{print}
@@ -1922,8 +1938,10 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 				"$context_path_entry" != *$'\t'* ]] ||
 				die 'Context-Paths must contain only comma-separated repository-relative paths or symbols'
 		done
-		scope_is_within_root_authority "$goal_allowed_scope" "$leaf_context_paths" ||
-			die 'Context-Paths must cover every Allowed-Scope path so the worker capsule includes each editable file'
+		if [[ "$goal_allowed_scope" != - ]]; then
+			scope_is_within_root_authority "$goal_allowed_scope" "$leaf_context_paths" ||
+				die 'Context-Paths must cover every Allowed-Scope path so the worker capsule includes each editable file'
+		fi
 		if [[ "$leaf_worker_route" == LUNA ]]; then
 			[[ "$leaf_complexity" == LOW ]] || die 'Luna leaves must have Complexity-Class: LOW'
 			[[ "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY)$ ]] ||
@@ -2118,7 +2136,14 @@ if (( recovery_publish == 1 )); then
 		remediation_scope="$(single_metadata_value "$task_file" Remediation-Scope)"
 		[[ "$remediation_scope" != *$'\t'* ]] ||
 			die 'manager remediation Remediation-Scope must not contain a tab'
-		if (( HARNESS_DECOMPOSITION_V2 == 1 )); then
+		read_only_remediation=0
+		if [[ "$(metadata_value "$task_file" Leaf-Type)" == VERIFICATION_ONLY &&
+			"$(metadata_value "$task_file" Expected-Max-Implementation-Files)" == 0 &&
+			"$(metadata_value "$root_assignment" Allowed-Scope)" == - &&
+			"$remediation_scope" == - ]]; then
+			read_only_remediation=1
+		fi
+		if (( HARNESS_DECOMPOSITION_V2 == 1 && read_only_remediation == 0 )); then
 			IFS=',' read -r -a remediation_scope_entries <<< "$(canonical_scope_path_set "$remediation_scope")"
 			for remediation_scope_entry in "${remediation_scope_entries[@]}"; do
 				remediation_scope_entry="$(trim_surrounding_whitespace "$remediation_scope_entry")"

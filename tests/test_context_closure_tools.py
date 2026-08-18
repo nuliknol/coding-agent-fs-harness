@@ -55,7 +55,8 @@ class ContextClosureToolsTest(unittest.TestCase):
                 luna_only: bool = False, context_paths: str = "calc.c",
                 required_symbols: str = "add",
                 allowed_scope: str = "calc.c",
-                decisions: Path | None = None) -> tuple[str, Path]:
+                decisions: Path | None = None,
+                edges: Path | None = None) -> tuple[str, Path]:
         assignment = self.root / "assignment.md"
         assignment.write_text(
             f"Task-ID: t1\nPlan-Node: n1\nWorker-Route: LUNA\nAllowed-Scope: {allowed_scope}\n"
@@ -68,10 +69,37 @@ class ContextClosureToolsTest(unittest.TestCase):
             max_ownership_boundaries=2, max_direct_relationships=8, max_tests=4,
             max_build_targets=4, max_tokens=10000, obligations_file=None, relations_file=None,
             invariants_file=None, decisions_file=str(decisions) if decisions else None,
-            edges_file=None, health_gates_file=None,
+            edges_file=str(edges) if edges else None, health_gates_file=None,
             node_bindings_file=None, omissions_file=str(omissions) if omissions else None,
             overlay_file=str(overlay) if overlay else None, luna_only=luna_only)
         return build_closure(arguments), output
+
+    def test_deterministic_evidence_cut_preserves_edges_without_parent_ownership_budget(self):
+        edges = self.root / "edges.tsv"
+        edges.write_text(
+            "edge_id\tproducer_node\tconsumer_node\tcontract_artifact\tpublic_symbols\t"
+            "ownership_model\trepresentation\tversioning_rule\tcompatibility_validation\t"
+            "decision_ids\tinvariant_ids\n"
+            "EDGE-1\tn1\tn2\tcalc.h\tadd\tOWNER_ONE\tC\tSTABLE\ttrue\t-\t-\n"
+            "EDGE-2\tn1\tn3\tcalc.h\tadd\tOWNER_TWO\tC\tSTABLE\ttrue\t-\t-\n"
+            "EDGE-3\tn1\tn4\tcalc.h\tadd\tOWNER_THREE\tC\tSTABLE\ttrue\t-\t-\n",
+            encoding="utf-8")
+        status, output = self.closure(
+            extra="Edge-Contracts: EDGE-1,EDGE-2,EDGE-3\n", edges=edges)
+        self.assertEqual("NEEDS_FURTHER_DECOMPOSITION", status)
+        self.assertIn("ownership-boundary-budget-exceeded",
+                      (output / "manifest.env").read_text(encoding="utf-8"))
+
+        cut_status, cut_output = self.closure(
+            extra="Edge-Contracts: EDGE-1,EDGE-2,EDGE-3\nContext-Closure-Cut: CCR-cut001\n",
+            edges=edges)
+        self.assertEqual("READY", cut_status)
+        authority = (cut_output / "authority.tsv").read_text(encoding="utf-8")
+        self.assertIn("EDGE_CONTRACT\tEDGE-1", authority)
+        self.assertIn("EDGE_CONTRACT\tEDGE-3", authority)
+        self.assertEqual(
+            "edge_id\tproducer_node\tconsumer_node\townership_model\n",
+            (cut_output / "ownership-boundaries.tsv").read_text(encoding="utf-8"))
 
     def test_decomposition_aggregate_keeps_provider_only_graph_cut_repair(self):
         dag = self.root / "dag.tsv"

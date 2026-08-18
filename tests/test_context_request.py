@@ -102,6 +102,17 @@ class ContextRequestTest(unittest.TestCase):
         self.assertIn("int add(Number n)",
                       (self.root / "extension.md").read_text(encoding="utf-8"))
 
+    def test_requested_direct_callee_contract_is_admitted(self):
+        self.assignment.write_text(
+            "Task-ID: t1\nAllowed-Scope: calc.c\nContext-Paths: calc.c\n"
+            "Required-Symbols: caller\n", encoding="utf-8")
+        result = self.resolve("CALLEE_CONTRACT", "add")
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        extension = (self.root / "extension.md").read_text(encoding="utf-8")
+        self.assertIn("Authorization-Relation: requested-direct-callee-of-required-symbol",
+                      extension)
+        self.assertIn("int add(Number n)", extension)
+
     def test_indexed_test_owner_is_admitted(self):
         result = self.resolve("TEST_OWNER", "add")
         self.assertEqual(0, result.returncode, result.stderr + result.stdout)

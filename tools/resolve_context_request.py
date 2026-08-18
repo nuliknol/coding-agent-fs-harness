@@ -251,8 +251,26 @@ def main() -> int:
                 records.append(("CALLER_CONTRACT", row["repository_path"], row["start_line"],
                                 row["end_line"], row["display_name"], row["provider"]))
     elif args.request_kind == "CALLEE_CONTRACT":
+        # Workers name the missing callee whose contract they need, while the
+        # assignment normally seeds the caller.  Admit that exact callee when
+        # the index proves a direct seed->requested edge.  Keep the historical
+        # caller-name form as a compatibility fallback.
+        adjacent: set[str] = set()
+        if requested_ids and seed_ids:
+            seed_marks = ",".join("?" for _ in seed_ids)
+            request_marks = ",".join("?" for _ in requested_ids)
+            rows = connection.execute(
+                f"SELECT DISTINCT callee_symbol_id FROM call_edges WHERE "
+                f"caller_symbol_id IN ({seed_marks}) AND callee_symbol_id IN ({request_marks}) "
+                "ORDER BY callee_symbol_id", [*sorted(seed_ids), *requested_ids]).fetchall()
+            adjacent = {row[0] for row in rows}
         authorized = set(requested_ids) & seed_ids
-        if authorized:
+        if adjacent:
+            relation = "requested-direct-callee-of-required-symbol"
+            for row in definitions(connection, sorted(adjacent)):
+                records.append(("CALLEE_CONTRACT", row["repository_path"], row["start_line"],
+                                row["end_line"], row["display_name"], row["provider"]))
+        elif authorized:
             marks = ",".join("?" for _ in authorized)
             callees = connection.execute(
                 f"SELECT DISTINCT callee_symbol_id FROM call_edges WHERE caller_symbol_id IN ({marks}) "
