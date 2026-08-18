@@ -487,25 +487,20 @@ grep -q '^classification=success$' "$TMP/manager-command-output.classification"
 grep -q '^command_output_limit=1024$' "$TMP/manager-command-output.classification"
 
 # Manager review/replan prompts promise the validation transcript boundary.
-# Enforce that same lower cap in the process monitor even when the generic
-# manager-command ceiling is larger.
+# The process monitor includes fixed headroom for harness-run-logged provenance
+# around that payload, while the generic manager-command ceiling still wins.
 cp "$TMP/env" "$TMP/env-manager-validation-output"
-printf 'export HARNESS_MAX_MANAGER_COMMAND_OUTPUT_BYTES="1024"\nexport HARNESS_VALIDATION_OUTPUT_MAX_BYTES="32"\n' \
+printf 'export HARNESS_MAX_MANAGER_COMMAND_OUTPUT_BYTES="8192"\nexport HARNESS_VALIDATION_OUTPUT_MAX_BYTES="32"\n' \
 	>> "$TMP/env-manager-validation-output"
 printf 'TASK_ID=manager-validation-output-root\nTASK_ROOT=manager-validation-output-root\n' \
 	> "$TMP/manager-validation-output-prompt"
-set +e
 MOCK_MODE=command_output_completed "$ROOT/bin/codex-exec-jsonl" "$TMP/env-manager-validation-output" \
 	manager_review gpt-5.5 "$TMP/manager-validation-output-prompt" \
 	"$TMP/manager-validation-output.jsonl" "$TMP/manager-validation-output.stderr" \
 	"$TMP/manager-validation-output.last"
-manager_validation_output_status=$?
-set -e
-(( manager_validation_output_status != 0 ))
-grep -q '^classification=agent_command_output_budget_exceeded$' \
+grep -q '^classification=success$' \
 	"$TMP/manager-validation-output.classification"
-grep -q '^command_output_limit=32$' "$TMP/manager-validation-output.classification"
-rm -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-manager-validation-output-root.token-usage-anomaly.md"
+grep -q '^command_output_limit=4128$' "$TMP/manager-validation-output.classification"
 
 printf 'TASK_ID=token-root\nTASK_ROOT=token-root\n' > "$resource_prompt"
 printf 'export HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION="100"\n' >> "$TMP/env-resource"
