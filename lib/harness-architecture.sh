@@ -643,8 +643,17 @@ architecture_validate_against_plan()
 		architecture_list_contains "$(architecture_node_value "$producer" edge_contracts)" "$edge" || die "edge $edge is absent from producer binding $producer"
 		architecture_list_contains "$(architecture_node_value "$consumer" edge_contracts)" "$edge" || die "edge $edge is absent from consumer binding $consumer"
 	done < "$(architecture_edges_file)"
-	while IFS=$'\t' read -r decision _ producer_node _ _ _ _ evidence; do
+	while IFS=$'\t' read -r decision decision_status producer_node _ _ _ _ evidence; do
 		[[ "$decision" != decision_id ]] || continue
+		if [[ "$producer_node" == - ]]; then
+			[[ "$decision_status" == ACCEPTED ]] ||
+				die "unaccepted decision $decision requires a plan producer"
+			# Accepted baseline decisions are observed repository authority.  Their
+			# evidence was already required to be committed by registry validation;
+			# forcing a new plan node to pretend it produced them makes every
+			# implementation DAG contain a fictitious contract-design leaf.
+			continue
+		fi
 		[[ -n "$(project_plan_node_value "$producer_node" deliverable)" ]] || die "decision $decision has unknown producer: $producer_node"
 		architecture_list_contains "$(architecture_node_value "$producer_node" produces_decisions)" "$decision" || die "decision $decision is absent from producer binding $producer_node"
 		# A decision producer must be able to publish its durable evidence.  Merely

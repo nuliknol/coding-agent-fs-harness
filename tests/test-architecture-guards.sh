@@ -250,6 +250,28 @@ fi
 grep -Fq 'edge EDGE-widget contract artifact references unknown decision: ADR-missing' \
 	"$TEST_ROOT/unknown-decision.out"
 test ! -e "$TEST_ROOT/state/projects/archguard/control/architecture"
+
+# Accepted decisions may describe committed baseline authority and therefore
+# have no plan producer.  They remain consumable, but no implementation leaf
+# is forced to claim that it produced pre-existing repository evidence.
+baseline_env="$TEST_ROOT/baseline-harness.env"
+sed -e 's/export PROJECT="archguard"/export PROJECT="archguardbaseline"/' \
+	-e "s|export HARNESS_ROOT=\"$TEST_ROOT/state\"|export HARNESS_ROOT=\"$TEST_ROOT/baseline-state\"|" \
+	"$TEST_ROOT/harness.env" > "$baseline_env"
+chmod 600 "$baseline_env"
+baseline_architecture="$TEST_ROOT/baseline-architecture"
+cp -a "$TEST_ROOT/architecture" "$baseline_architecture"
+awk -F '\t' 'BEGIN {OFS=FS} $1 == "ADR-widget" {$2="ACCEPTED"; $3="-"; $8="src/widget.c"} {print}' \
+	"$baseline_architecture/decisions.tsv" > "$baseline_architecture/decisions.tsv.tmp"
+mv "$baseline_architecture/decisions.tsv.tmp" "$baseline_architecture/decisions.tsv"
+awk -F '\t' 'BEGIN {OFS=FS} $1 == "contract" {$4="-"} {print}' \
+	"$baseline_architecture/node-bindings.tsv" > "$baseline_architecture/node-bindings.tsv.tmp"
+mv "$baseline_architecture/node-bindings.tsv.tmp" "$baseline_architecture/node-bindings.tsv"
+"$HARNESS_BIN/harness-init" "$baseline_env" >/dev/null
+"$HARNESS_BIN/manager-init-architecture" "$baseline_env" "$baseline_architecture" >/dev/null
+"$HARNESS_BIN/manager-init-project-plan" "$baseline_env" "$TEST_ROOT/plan.tsv" >/dev/null
+test -f "$TEST_ROOT/baseline-state/projects/archguardbaseline/control/project-decomposition-v2.tsv"
+
 "$HARNESS_BIN/manager-init-architecture" "$TEST_ROOT/harness.env" "$TEST_ROOT/architecture" >/dev/null
 # A decision producer must authorize the exact durable evidence path. Without
 # this cross-registry check, a decision-only DAG can authorize source files but
