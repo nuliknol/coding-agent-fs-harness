@@ -109,7 +109,11 @@ chmod 600 "$merged_dag"
 merged_coverage="$repair_dir/coverage.tsv"
 awk -F '\t' -v OFS='\t' -v mapping_file="$mapping_source" -v replacement_file="$replacement_source" -v coverage_file="$coverage_source" '
 	function trim(v) {gsub(/^[[:space:]]+|[[:space:]]+$/, "", v); return v}
-	function add(out,id) {return id=="" || seen[id] ? out : (seen[id]=1, out (out?",":"") id)}
+	function add(out,id) {
+		if(id=="" || seen[id]) return out
+		seen[id]=1
+		return out (out?",":"") id
+	}
 	BEGIN {
 		while ((getline line < coverage_file)>0) {
 			split(line,c,"\t"); if(c[1]!="obligation_id" && c[1]!="") obligation[c[1]]=1
