@@ -85,6 +85,7 @@ if (( read_only_verification == 1 )); then
 		printf 'export REPOSITORY=%q\n' "$worktree"
 		printf 'export HARNESS_ACP_CANONICAL_REPOSITORY=%q\n' "$REPOSITORY"
 		printf 'export HARNESS_ACP_ISOLATED_TASK_ID=%q\n' "$task_id"
+		printf 'export HARNESS_ACP_READ_ONLY_VERIFICATION=1\n'
 		printf 'export HARNESS_TASK_TMP_DIR=%q\n' "$PROJECT_TMP_DIR/acp-workers/$task_id"
 	} > "$worker_env"
 	chmod 600 "$worker_env"

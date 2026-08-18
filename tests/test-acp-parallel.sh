@@ -101,6 +101,7 @@ task_file="$(sed -n 's/^TASK_FILE=//p' <<< "$claim")"
 source "$env_file"
 PROJECT_TMP_DIR="$HARNESS_TASK_TMP_DIR"
 if [[ "$task_id" == c ]]; then
+	[[ "${HARNESS_ACP_READ_ONLY_VERIFICATION:-0}" == 1 ]]
 	result="$PROJECT_TMP_DIR/result.md"
 	mkdir -p "$PROJECT_TMP_DIR"
 	cat > "$result" <<RESULT

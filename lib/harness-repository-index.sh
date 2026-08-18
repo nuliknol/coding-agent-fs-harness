@@ -505,6 +505,26 @@ repository_index_verify_generation()
 # are active now.  Callers may report REPOSITORY_INDEX_POINTER_REASON.
 repository_index_project_pointer_is_current()
 {
+	local isolated_repository status
+	if [[ "${HARNESS_ACP_READ_ONLY_VERIFICATION:-0}" == 1 &&
+		-n "${HARNESS_ACP_CANONICAL_REPOSITORY:-}" &&
+		"$REPOSITORY" != "$HARNESS_ACP_CANONICAL_REPOSITORY" ]]; then
+		# A detached zero-write worktree has the same committed source as the
+		# canonical checkout, but generated compile-input manifests may contain
+		# checkout-root coordinates.  Validate the immutable shared index at its
+		# canonical generation root; capsule evidence remains repository-relative
+		# and is read from the isolated worktree afterwards.
+		isolated_repository="$REPOSITORY"
+		REPOSITORY="$HARNESS_ACP_CANONICAL_REPOSITORY"
+		if repository_index_project_pointer_is_current_at_repository; then status=0; else status=$?; fi
+		REPOSITORY="$isolated_repository"
+		return "$status"
+	fi
+	repository_index_project_pointer_is_current_at_repository
+}
+
+repository_index_project_pointer_is_current_at_repository()
+{
 	local pointer generation_dir recorded_revision recorded_compdb recorded_generated manifest normalized generated_inputs
 	local current_compdb current_generated current_scip_clang current_scip current_importer current_build_importer current_build_importer_path current_build_scanner_path current_schema current_joern current_recoll current_providers
 	local current_revision history_overlay=0
