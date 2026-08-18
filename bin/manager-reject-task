@@ -315,6 +315,16 @@ if [[ -f "$rejected" ]]; then
 			"the same $result_resource_guard-bounded execution context exhausted repeatedly without criterion gain" \
 			"assignment=$assignment_archive review=$rejected evidence=$dir/control/$base.worker-evidence-digest.md" >/dev/null
 		printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
+	elif (( manager_remediation_decomposition == 1 )); then
+		# Compile the typed transition before enforcing aggregate liveness. If
+		# liveness pauses the root, the architecture marker must retain the exact
+		# remediation request needed for an authorized recovery.
+		replan_marker="$(mark_manager_remediation_decomposition_replan "$result_archive")"
+		if ! enforce_root_liveness_or_reassess "$task_id"; then
+			printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
+		else
+			printf '%s\n' "$replan_marker"
+		fi
 	elif ! enforce_root_liveness_or_reassess "$task_id"; then
 		printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
 	elif [[ "$goal_outcome" == HARD_BLOCKED ]]; then
@@ -322,9 +332,6 @@ if [[ -f "$rejected" ]]; then
 			'a worker-reported hard boundary was not accepted; inspect the smallest adjacent repository-local declaration, producer, consumer, or validation prerequisite with fresh manager context before another implementation attempt' \
 			HARD_BLOCK_SCOPE_DIAGNOSTIC LOCAL_SCOPE_PREREQUISITE \
 			"adjacent contract or implementation authority outside $(metadata_value "$assignment_archive" Allowed-Scope)"
-	elif [[ "$goal_outcome" == NEEDS_DECOMPOSITION ]] &&
-		assignment_is_manager_remediation "$assignment_archive"; then
-		mark_manager_remediation_decomposition_replan "$result_archive"
 	elif ! enforce_root_liveness_or_reassess "$task_id"; then
 		printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
 	elif [[ -f "$result_archive" &&
@@ -391,6 +398,17 @@ elif (( resource_decomposition_circuit_breaker == 1 )); then
 		"the same $result_resource_guard-bounded execution context exhausted repeatedly without criterion gain" \
 		"assignment=$assignment_archive review=$rejected evidence=$dir/control/$base.worker-evidence-digest.md" >/dev/null
 	printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
+# A typed manager-remediation transition must exist before the aggregate
+# liveness guard creates its durable marker. That lets an explicitly audited
+# re-arm restore the precise bounded request instead of losing its identity.
+elif [[ "$goal_outcome" == NEEDS_DECOMPOSITION ]] &&
+	assignment_is_manager_remediation "$assignment_archive"; then
+	replan_marker="$(mark_manager_remediation_decomposition_replan "$result_archive")"
+	if ! enforce_root_liveness_or_reassess "$task_id"; then
+		printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
+	else
+		printf '%s\n' "$replan_marker"
+	fi
 # All other specialized recovery remains subordinate to the monotonic root
 # boundary. HARD_BLOCKED and ordinary typed decompositions cannot recursively
 # mint leaves after the configured root limits are exhausted.
@@ -401,10 +419,6 @@ elif [[ "$goal_outcome" == HARD_BLOCKED ]]; then
 		'a worker-reported hard boundary was not accepted; inspect the smallest adjacent repository-local declaration, producer, consumer, or validation prerequisite with fresh manager context before another implementation attempt' \
 		HARD_BLOCK_SCOPE_DIAGNOSTIC LOCAL_SCOPE_PREREQUISITE \
 		"adjacent contract or implementation authority outside $(metadata_value "$assignment_archive" Allowed-Scope)")"
-	printf '%s\n' "$replan_marker"
-elif [[ "$goal_outcome" == NEEDS_DECOMPOSITION ]] &&
-	assignment_is_manager_remediation "$assignment_archive"; then
-	replan_marker="$(mark_manager_remediation_decomposition_replan "$result_archive")"
 	printf '%s\n' "$replan_marker"
 elif (( circuit_breaker_recovery == 1 )); then
 	replan_marker="$(mark_root_needs_replan "$task_id" \

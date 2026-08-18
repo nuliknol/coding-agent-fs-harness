@@ -828,6 +828,16 @@ remediation_limit_output="$("$HARNESS_BIN/manager-reject-task" "$TEST_ROOT/harne
 [[ "$remediation_limit_output" == \
 	"$project/control/progress/livenessproj-task-remediationlimit.architecture-reassessment-required.md" ]]
 grep -Fqx 'Category: TOTAL_ROOT_REVIEWS' "$remediation_limit_output"
+grep -Fqx 'Pending-Replan-Trigger: MANAGER_REMEDIATION_CONTEXT_INCOMPLETE' \
+	"$remediation_limit_output"
+grep -Fqx 'Pending-Replan-Triggered-By: remediationlimit-revision-04' \
+	"$remediation_limit_output"
+grep -Fqx 'Pending-Replan-Blocker-Class: LOCAL_CODE_PREREQUISITE' \
+	"$remediation_limit_output"
+grep -Fqx 'Pending-Replan-Remediation-Scope: src/consumer/smoke.c' \
+	"$remediation_limit_output"
+grep -Fqx 'Pending-Replan-Context-Paths: src/consumer/smoke.c' \
+	"$remediation_limit_output"
 [[ ! -f "$project/control/progress/livenessproj-task-remediationlimit.needs-replan.md" ]]
 
 # An operator-audited manager remediation may persist only the exact bounded
