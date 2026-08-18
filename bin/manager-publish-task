@@ -567,11 +567,18 @@ section_has_content()
 
 assignment_material_fingerprint()
 {
-	local file="$1" fallback_target="${2:--}" material_target
+	local file="$1" fallback_target="${2:--}" material_target closure_cut
 	material_target="$(awk -F': ' '$1 == "Target-Criterion" {print $2; exit}' "$file")"
 	[[ -n "$material_target" ]] || material_target="$fallback_target"
+	closure_cut="$(awk -F': ' '$1 == "Context-Closure-Cut" {print $2; exit}' "$file")"
 	{
 		printf '%s\n' "$material_target"
+		# A Context-Closure-Cut is material only after the publisher has
+		# recompiled and validated it against the trusted repair ledger.  Include
+		# that exact cut identity here so an evidence-only continuation is not
+		# rejected merely because it intentionally retains the immutable
+		# objective and validation prose of its parent criterion.
+		[[ -z "$closure_cut" ]] || printf 'Context-Closure-Cut: %s\n' "$closure_cut"
 		awk '
 			/^## (Objective|Acceptance criteria|Validation commands)$/ {inside=1; print; next}
 			inside && /^## / {inside=0}

@@ -638,6 +638,17 @@ grep -Fqx 'Context-Closure-Cut: CCR-cut001' "$cut_ready"
 grep -Fqx 'Allowed-Scope: src/a.c' "$cut_ready"
 grep -Fqx 'Goal-Success-Evidence: compiled "quoted" cut validation passes' "$cut_ready"
 grep -Fqx 'Focused-Validation: build_dir="$(mktemp -d /tmp/decompcut.XXXXXX)" && test "$(./focused-smoke)" = 1' "$cut_ready"
+# The closure cut is the material change.  Its objective/acceptance/validation
+# prose deliberately remains identical to the immutable triggering assignment;
+# the generic recovery fingerprint must therefore include the already-validated
+# cut identity instead of rejecting this deterministic evidence continuation.
+for cut_section in '## Objective' '## Acceptance criteria' '## Validation commands'; do
+	diff -u \
+		<(awk -v heading="$cut_section" '$0 == heading {inside=1} inside {if (seen && /^## /) exit; print; seen=1}' \
+			"$cut_project/archive/decompcut-task-001.assignment.md") \
+		<(awk -v heading="$cut_section" '$0 == heading {inside=1} inside {if (seen && /^## /) exit; print; seen=1}' \
+			"$cut_ready")
+done
 grep -Fq 'DETERMINISTIC_CLOSURE_CUT_VALIDATED root=001 task=001-revision-01' \
 	"$cut_project/logs/events.log"
 grep -Fq 'DETERMINISTIC_CLOSURE_CONTINUATION_PUBLISHED root=001 task=001-revision-01' \
