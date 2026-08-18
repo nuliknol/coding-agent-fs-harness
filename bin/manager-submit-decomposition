@@ -31,6 +31,24 @@ architecture_fit_is_accepted || die 'decomposition submission requires an accept
 project_plan_exists && { printf '%s\n' "$(project_plan_definition_file)"; exit 0; }
 acquire_project_lock
 
+architecture_registry_matches_source()
+{
+	local source_dir="$1" file
+	architecture_registered || return 1
+	for file in invariants.tsv decisions.tsv edges.tsv node-bindings.tsv health-gates.tsv debt.tsv; do
+		[[ -f "$source_dir/$file" ]] && cmp -s "$source_dir/$file" "$(architecture_dir)/$file" || return 1
+	done
+}
+
+restore_prior_architecture_registry()
+{
+	local prior_dir="$1"
+	[[ -d "$prior_dir" ]] || return 0
+	rm -rf -- "$(architecture_dir)"
+	mv "$prior_dir" "$(architecture_dir)"
+	log_event "ARCHITECTURE_ORPHAN_REGISTRY_RESTORED directory=$(architecture_dir)"
+}
+
 state="$(decomposition_candidate_state_file)"
 if (( recover == 1 )); then
 	decomposition_candidate_matches_current_inputs || die 'no staged decomposition candidate matches the current inputs'
@@ -99,6 +117,7 @@ fi
 
 registered_by_candidate="$(decomposition_candidate_state_value architecture_registered_by_candidate 0)"
 rejection_log="$candidate_dir/rejection.log"
+prior_architecture_dir="$candidate_dir/architecture-before-candidate"
 rm -f "$rejection_log"
 set +e
 architecture_report_unscoped_candidate_validations "$dag_stage" "$architecture_stage" \
@@ -115,25 +134,52 @@ if (( scope_status != 0 )); then
 	printf 'REJECTION_LOG=%s\n' "$rejection_log" >&2
 	die 'decomposition candidate contains unscoped broad validation'
 fi
-if (( HARNESS_ARCHITECTURE_GUARDS == 1 )) && [[ "$architecture_stage" != - ]] && ! architecture_registered; then
-	set +e
-	(
-		architecture_initialize "$architecture_stage"
-	) > "$rejection_log" 2>&1
-	architecture_status=$?
-	set -e
-	if (( architecture_status != 0 )); then
-		head -n "$HARNESS_VALIDATION_OUTPUT_MAX_LINES" "$rejection_log" | head -c "$HARNESS_VALIDATION_OUTPUT_MAX_BYTES" >&2
-		sed -i 's/^status=.*/status=REJECTED/' "$state"
-		sed -i '/^rejection_stage=/d; /^rejection_log=/d' "$state"
-		printf 'rejection_stage=architecture\n' >> "$state"
-		printf 'rejection_log=%s\n' "$rejection_log" >> "$state"
-		log_event "DECOMPOSITION_CANDIDATE_REJECTED directory=$candidate_dir stage=architecture status=$architecture_status"
-		printf 'REJECTION_LOG=%s\n' "$rejection_log" >&2
-		die 'decomposition candidate architecture registry was rejected'
+if (( HARNESS_ARCHITECTURE_GUARDS == 1 )) && [[ "$architecture_stage" != - ]] &&
+	(( registered_by_candidate == 0 )); then
+	# A failed startup may leave a complete architecture registry without a
+	# durable project plan.  It belongs to the rejected candidate, not to every
+	# future candidate.  Compare the registry by content; otherwise preserve it
+	# and install the new candidate before plan validation.  The backup also
+	# makes a killed submission recoverable at every point in this transaction.
+	if architecture_registry_matches_source "$architecture_stage"; then
+		registered_by_candidate=1
+		sed -i 's/^architecture_registered_by_candidate=.*/architecture_registered_by_candidate=1/' "$state"
+		log_event "ARCHITECTURE_CANDIDATE_REGISTRY_RECOVERED directory=$(architecture_dir)"
+	else
+		if [[ -e "$(architecture_dir)" ]]; then
+			[[ ! -e "$prior_architecture_dir" ]] ||
+				die 'architecture candidate transaction has both an unmatched installed registry and a preserved prior registry'
+			mv "$(architecture_dir)" "$prior_architecture_dir"
+			log_event "ARCHITECTURE_ORPHAN_REGISTRY_PRESERVED directory=$prior_architecture_dir"
+		fi
+		set +e
+		(
+			architecture_initialize "$architecture_stage"
+		) > "$rejection_log" 2>&1
+		architecture_status=$?
+		set -e
+		if (( architecture_status != 0 )); then
+			head -n "$HARNESS_VALIDATION_OUTPUT_MAX_LINES" "$rejection_log" | head -c "$HARNESS_VALIDATION_OUTPUT_MAX_BYTES" >&2
+			restore_prior_architecture_registry "$prior_architecture_dir"
+			sed -i 's/^status=.*/status=REJECTED/' "$state"
+			sed -i '/^rejection_stage=/d; /^rejection_log=/d' "$state"
+			printf 'rejection_stage=architecture\n' >> "$state"
+			printf 'rejection_log=%s\n' "$rejection_log" >> "$state"
+			log_event "DECOMPOSITION_CANDIDATE_REJECTED directory=$candidate_dir stage=architecture status=$architecture_status"
+			printf 'REJECTION_LOG=%s\n' "$rejection_log" >&2
+			die 'decomposition candidate architecture registry was rejected'
+		fi
+		registered_by_candidate=1
+		sed -i 's/^architecture_registered_by_candidate=.*/architecture_registered_by_candidate=1/' "$state"
 	fi
-	registered_by_candidate=1
-	sed -i 's/^architecture_registered_by_candidate=.*/architecture_registered_by_candidate=1/' "$state"
+	# Content equality above handles a process killed after installation but
+	# before the durable candidate flag was updated.
+	architecture_registry_matches_source "$architecture_stage" ||
+		die 'installed architecture registry does not match the staged decomposition candidate'
+	log_event "ARCHITECTURE_CANDIDATE_REGISTRY_ACTIVE directory=$(architecture_dir)"
+elif (( HARNESS_ARCHITECTURE_GUARDS == 1 )) && [[ "$architecture_stage" != - ]] &&
+	! architecture_registry_matches_source "$architecture_stage"; then
+	die 'staged decomposition claims an installed architecture registry whose content does not match the candidate'
 fi
 
 if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" != off ]]; then
@@ -168,6 +214,9 @@ if (( plan_status != 0 )); then
 	head -n "$HARNESS_VALIDATION_OUTPUT_MAX_LINES" "$rejection_log" | head -c "$HARNESS_VALIDATION_OUTPUT_MAX_BYTES" >&2
 	if [[ "$registered_by_candidate" == 1 ]] && ! project_plan_exists; then
 		rm -rf -- "$(architecture_dir)"
+		restore_prior_architecture_registry "$prior_architecture_dir"
+		registered_by_candidate=0
+		sed -i 's/^architecture_registered_by_candidate=.*/architecture_registered_by_candidate=0/' "$state"
 	fi
 	sed -i 's/^status=.*/status=REJECTED/' "$state"
 	sed -i '/^rejection_stage=/d; /^rejection_log=/d' "$state"
