@@ -11,13 +11,14 @@ else
 	trap 'rm -rf -- "$TEST_ROOT"' EXIT
 fi
 
-mkdir -p "$TEST_ROOT/repo/src" "$TEST_ROOT/repo/include" "$TEST_ROOT/manager-home" "$TEST_ROOT/worker-home"
+mkdir -p "$TEST_ROOT/repo/src/cmake" "$TEST_ROOT/repo/include" "$TEST_ROOT/manager-home" "$TEST_ROOT/worker-home"
 printf 'Implement one focused behavior.\n' > "$TEST_ROOT/repo/spec.md"
 printf 'int target_symbol(void) { return 0; }\n' > "$TEST_ROOT/repo/src/a.c"
 printf 'int target_symbol(void);\n' > "$TEST_ROOT/repo/include/a.h"
-printf 'add_custom_target(fixture-check)\n' > "$TEST_ROOT/repo/src/CMakeLists.txt"
+printf 'include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/registration.cmake)\nadd_custom_target(fixture-check)\n' > "$TEST_ROOT/repo/src/CMakeLists.txt"
+printf 'add_custom_target(registration-check)\n' > "$TEST_ROOT/repo/src/cmake/registration.cmake"
 git -C "$TEST_ROOT/repo" init -q
-git -C "$TEST_ROOT/repo" add spec.md src/a.c src/CMakeLists.txt include/a.h
+git -C "$TEST_ROOT/repo" add spec.md src/a.c src/CMakeLists.txt src/cmake/registration.cmake include/a.h
 git -C "$TEST_ROOT/repo" -c user.name=test -c user.email=test@example.invalid commit -qm seed
 
 cat > "$TEST_ROOT/harness.env" <<ENV
@@ -430,7 +431,7 @@ Triggered-By: 001
 Trigger-Outcome: MANAGER_REMEDIATION_CONTEXT_INCOMPLETE
 Blocking-Fingerprint: sha256:readonly-validation
 Remediation-Scope: -
-Context-Paths: -
+Context-Paths: src/CMakeLists.txt
 MARKER
 sed \
 	-e 's/^Task-ID: 001$/Task-ID: 001-revision-01/' \
@@ -449,12 +450,13 @@ read_only_remediation_ready="$read_only_remediation_project/tasks/decompreadonly
 grep -Fqx 'Allowed-Scope: -' "$read_only_remediation_ready"
 grep -Fqx 'Remediation-Scope: -' "$read_only_remediation_ready"
 grep -Fqx 'Required-Symbols: -' "$read_only_remediation_ready"
-grep -Fqx 'Context-Paths: src/CMakeLists.txt' "$read_only_remediation_ready"
+grep -Fqx 'Context-Paths: src/CMakeLists.txt,src/cmake/registration.cmake' \
+	"$read_only_remediation_ready"
 grep -Fq 'READ_ONLY_MANAGER_REMEDIATION_SCOPE_NORMALIZED root=001 task=001-revision-01' \
 	"$read_only_remediation_project/logs/events.log"
 grep -Fq 'READ_ONLY_VALIDATION_LABEL_NORMALIZED root=001 task=001-revision-01 label=source-audit-evidence-check' \
 	"$read_only_remediation_project/logs/events.log"
-grep -Fq 'READ_ONLY_CONTEXT_ROOT_NORMALIZED root=001 task=001-revision-01 requested=src context=src/CMakeLists.txt' \
+grep -Fq 'READ_ONLY_CONTEXT_ROOT_EXPANDED root=001 task=001-revision-01 requested=src prior=src/CMakeLists.txt direct_includes=1' \
 	"$read_only_remediation_project/logs/events.log"
 
 # A resource fuse that observes durable source progress must schedule a

@@ -1428,15 +1428,18 @@ normalize_read_only_validation_labels
 normalize_recovery_context_paths()
 {
 	local requested required allowed validation normalized normalized_allowed entry symbol candidate tmp changed=0
-	local found duplicate exact_file stem directory matching_count
+	local found duplicate exact_file stem directory matching_count replan_outcome prior_context_paths
+	local cmake_root include_path
 	local -a entries=() kept=() symbols=() candidates=() source_directories=() exact_files=()
-	local -a normalized_allowed_entries=()
+	local -a normalized_allowed_entries=() direct_includes=() deduplicated=()
 	(( recovery_publish == 1 )) || return 0
 	[[ "$HARNESS_MODEL_POLICY" == luna_only ]] || return 0
 	requested="$(metadata_value "$task_file" Context-Paths)"
 	required="$(metadata_value "$task_file" Required-Symbols)"
 	allowed="$(metadata_value "$task_file" Allowed-Scope)"
 	validation="$(metadata_value "$task_file" Focused-Validation)"
+	replan_outcome="$(metadata_value "$(task_root_replan_file "$root")" Trigger-Outcome)"
+	prior_context_paths="$(metadata_value "$(task_root_replan_file "$root")" Context-Paths)"
 	[[ -n "$requested" && "$requested" != - ]] || return 0
 
 	# Generated validation workspaces are not repository evidence.  A manager
@@ -1470,14 +1473,31 @@ normalize_recovery_context_paths()
 		if [[ "$entry" != /* && -d "$REPOSITORY/$entry" ]]; then
 			# Read-only command/registration verification sometimes names a
 			# configured source root after a context-incomplete transition. Its
-			# CMake registration file is the exact bounded evidence seed; expanding
-			# the whole directory exceeds the capsule before a worker can run.
+			# CMake registration file is the exact bounded evidence seed. If that
+			# exact file was already rejected as incomplete, add its directly included
+			# registration fragments instead of normalizing back to the same capsule.
 			if [[ "$allowed" == - && "$(metadata_value "$task_file" Leaf-Type)" == VERIFICATION_ONLY &&
 				( "$required" == - || -z "$required" ) && -f "$REPOSITORY/$entry/CMakeLists.txt" ]]; then
-				kept+=("$entry/CMakeLists.txt")
-				exact_files+=("$entry/CMakeLists.txt")
+				cmake_root="$entry/CMakeLists.txt"
+				kept+=("$cmake_root")
+				exact_files+=("$cmake_root")
 				changed=1
-				log_event "READ_ONLY_CONTEXT_ROOT_NORMALIZED root=$root task=$task_id requested=$(printf '%q' "$entry") context=$(printf '%q' "$entry/CMakeLists.txt")"
+				if [[ "$replan_outcome" == MANAGER_REMEDIATION_CONTEXT_INCOMPLETE ]] &&
+					scope_is_within_root_authority "$cmake_root" "$prior_context_paths"; then
+					mapfile -t direct_includes < <(
+						sed -n 's@.*${CMAKE_CURRENT_SOURCE_DIR}/\([^\")[:space:]]*\.cmake\).*@\1@p' \
+							"$REPOSITORY/$cmake_root" |
+							awk 'NF && !seen[$0]++' | head -n 7
+					)
+					for include_path in "${direct_includes[@]}"; do
+						[[ -f "$REPOSITORY/$entry/$include_path" ]] || continue
+						kept+=("$entry/$include_path")
+						exact_files+=("$entry/$include_path")
+					done
+					log_event "READ_ONLY_CONTEXT_ROOT_EXPANDED root=$root task=$task_id requested=$(printf '%q' "$entry") prior=$(printf '%q' "$cmake_root") direct_includes=${#direct_includes[@]}"
+				else
+					log_event "READ_ONLY_CONTEXT_ROOT_NORMALIZED root=$root task=$task_id requested=$(printf '%q' "$entry") context=$(printf '%q' "$cmake_root")"
+				fi
 				continue
 			fi
 			# A directory is mutation authority, not an exact closure evidence
@@ -1490,6 +1510,18 @@ normalize_recovery_context_paths()
 		kept+=("$entry")
 		[[ "$entry" == /* || ! -f "$REPOSITORY/$entry" ]] || exact_files+=("$entry")
 	done
+
+	# A directory request and its explicit retained root can select the same
+	# exact file. Preserve first-seen order while preventing that duplicate from
+	# masquerading as the required context expansion.
+	for candidate in "${kept[@]}"; do
+		duplicate=0
+		for entry in "${deduplicated[@]}"; do
+			[[ "$entry" != "$candidate" ]] || duplicate=1
+		done
+		(( duplicate == 1 )) || deduplicated+=("$candidate")
+	done
+	kept=("${deduplicated[@]}")
 
 	# Required-Symbols and explicit Context-Paths form one compiled closure
 	# contract.  If none of the declared repository files contains a required
