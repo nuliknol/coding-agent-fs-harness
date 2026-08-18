@@ -84,7 +84,7 @@ $HARNESS_BIN/manager-submit-decomposition "$HARNESS_ENV_FILE" "$repair_dir/dag.t
 tail -n $HARNESS_VALIDATION_OUTPUT_MAX_LINES "\$SUBMISSION_TRANSCRIPT" | head -c $HARNESS_VALIDATION_OUTPUT_MAX_BYTES
 (( submit_status == 0 ))
 
-If deterministic validation rejects it, read only the new candidate rejection log reported by the command, make at most one further local correction, and submit once more. After success, terminate. Never launch tests, builds, workers, or repository searches.
+If deterministic validation rejects it with rejection_stage=context_closure or reports a Context Closure repair.tsv, terminate immediately after preserving that candidate. The harness routes architecture-bound closure failures back through recursive pre-binding DAG decomposition; a schema repair must never append children while retaining a non-ready executable parent. For any other deterministic rejection, read only the new candidate rejection log reported by the command, make at most one further local correction, and submit once more. After success, terminate. Never launch tests, builds, workers, or repository searches.
 PROMPT
 if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then
 	cat >> "$prompt.tmp.$$" <<PROMPT
