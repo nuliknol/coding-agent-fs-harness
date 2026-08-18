@@ -90,13 +90,17 @@ awk -F '\t' -v OFS='\t' \
 		next
 	}
 	FILENAME == dag_file {
-		if (FNR > 1) add_node($1)
+		if (FNR > 1 && !dag_seen[$1]++) dag_order[++dag_nodes]=$1
 		next
 	}
 	END {
 		print header
-		for (node_index=1; node_index<=nodes; node_index++) {
-			node=order[node_index]
+		# The DAG is the node-key authority.  Retaining an obsolete binding
+		# row makes the next validator report that stale node before it can
+		# report any registry that still refers to it.  Emit exactly one row
+		# for every current DAG node, in DAG order.
+		for (node_index=1; node_index<=dag_nodes; node_index++) {
+			node=dag_order[node_index]
 			printf "%s", node
 			for (column=2; column<=6; column++)
 				printf "%s%s", OFS, (merged[node,column] == "" ? "-" : merged[node,column])
