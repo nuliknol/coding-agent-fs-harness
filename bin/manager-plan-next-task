@@ -11,6 +11,7 @@ usage()
 }
 
 [[ $# -eq 1 ]] || usage
+requested_plan_item="${HARNESS_BATCH_PLAN_ITEM:-}"
 load_harness_env "$1"
 ensure_project
 require_registered_specification_ir
@@ -63,6 +64,24 @@ development_policy_file="$REPOSITORY/design/development-policy.txt"
 prompt_file="$project_path/control/manager-plan-next-task.prompt.md"
 active_item_before="$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" {print $1; exit}' "$plan_state")"
 active_root_before="$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" {print $3; exit}' "$plan_state")"
+if [[ -n "$requested_plan_item" ]]; then
+	requested_status="$(project_plan_item_status "$requested_plan_item")"
+	case "$requested_status" in
+		ACTIVE)
+			active_item_before="$requested_plan_item"
+			active_root_before="$(project_plan_item_root "$requested_plan_item")"
+			ready_plan_node=""
+			;;
+		PENDING)
+			project_plan_dependencies_satisfied "$requested_plan_item" ||
+				die "requested batch plan item is not dependency-ready: $requested_plan_item"
+			active_item_before=""
+			active_root_before=""
+			ready_plan_node="$requested_plan_item"
+			;;
+		*) die "requested batch plan item is not plannable from state $requested_status: $requested_plan_item" ;;
+	esac
+fi
 active_progress_file=""
 active_criteria_file=""
 active_criteria_definition_file=""
@@ -214,6 +233,13 @@ mv "$prompt_file.tmp.$$" "$prompt_file"
 
 task_published()
 {
+	if [[ -n "$requested_plan_item" ]]; then
+		compgen -G "$project_path/tasks/$PROJECT-task-$publish_task_id.ready.md" >/dev/null ||
+			compgen -G "$project_path/running/$PROJECT-task-$publish_task_id.running.md" >/dev/null ||
+			compgen -G "$project_path/results/$PROJECT-task-$publish_task_id.result.md" >/dev/null ||
+			[[ "$(project_plan_item_status "$requested_plan_item")" == WAITING_DEPENDENCY ]]
+		return
+	fi
 	compgen -G "$project_path/tasks/$PROJECT-task-*.ready.md" >/dev/null ||
 		compgen -G "$project_path/running/$PROJECT-task-*.running.md" >/dev/null ||
 		compgen -G "$project_path/results/$PROJECT-task-*.result.md" >/dev/null ||

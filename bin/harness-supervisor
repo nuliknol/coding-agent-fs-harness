@@ -670,6 +670,65 @@ process_planning_gap()
 	mv "$tmp" "$alert"
 }
 
+root_has_live_control_activity()
+{
+	local root="$1" file file_task
+	for file in \
+		"$dir/tasks/$PROJECT-task-"*.ready.md \
+		"$dir/running/$PROJECT-task-"*.running.md \
+		"$dir/results/$PROJECT-task-"*.result.md; do
+		[[ -f "$file" ]] || continue
+		file_task="$(task_id_from_filename "$file")"
+		[[ "$(task_root_id "$file_task")" == "$root" ]] && return 0
+	done
+	for file in "$dir/control/progress/$PROJECT-task-$root."*.md; do
+		[[ -f "$file" ]] && return 0
+	done
+	return 1
+}
+
+process_parallel_planning_capacity()
+{
+	local capacity active_count item status root candidate plan_status
+	[[ "$HARNESS_WORKER_ISOLATION_MODE" == worktree ]] || return 0
+	capacity="$(acp_scheduler_capacity)"
+	(( capacity > 1 )) || return 0
+	{ project_has_token_usage_anomaly || project_has_integrity_anomaly || project_is_blocked; } && return 0
+
+	# First restore any active root whose previous leaf was reviewed and which
+	# now needs its next bounded revision. Multiple ACTIVE rows must not let the
+	# first row monopolize the single logical manager.
+	while IFS=$'\t' read -r item status root _; do
+		[[ "$status" == ACTIVE && -n "$root" && "$root" != - ]] || continue
+		root_has_live_control_activity "$root" && continue
+		log_event "ACP_BATCH_PLAN_CONTINUATION item=$item root=$root capacity=$capacity"
+		set +e
+		HARNESS_BATCH_PLAN_ITEM="$item" "$manager_plan_invoker" "$HARNESS_ENV_FILE" 8>&-
+		plan_status=$?
+		set -e
+		if (( plan_status != 0 )); then
+			log_event "ACP_BATCH_PLAN_FAILED item=$item root=$root status=$plan_status"
+			return 0
+		fi
+	done < "$(project_plan_state_file)"
+
+	while true; do
+		active_count="$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" {count++} END {print count + 0}' "$(project_plan_state_file)")"
+		(( active_count < capacity )) || break
+		candidate="$(project_plan_next_parallel_ready_item 2>/dev/null || true)"
+		[[ -n "$candidate" ]] || break
+		log_event "ACP_BATCH_PLAN_NEW item=$candidate active=$active_count capacity=$capacity"
+		set +e
+		HARNESS_BATCH_PLAN_ITEM="$candidate" "$manager_plan_invoker" "$HARNESS_ENV_FILE" 8>&-
+		plan_status=$?
+		set -e
+		if (( plan_status != 0 )); then
+			log_event "ACP_BATCH_PLAN_FAILED item=$candidate status=$plan_status"
+			break
+		fi
+	done
+}
+
 handle_project_completion()
 {
 	local completion_file completed_task oracle_status pending_file pending_fingerprint alert tmp
@@ -764,6 +823,7 @@ while true; do
 	reclassify_legacy_convergence_human_markers
 	process_context_closure_provider_repairs
 	process_auto_replans
+	process_parallel_planning_capacity
 	if handle_project_completion; then
 		break
 	fi

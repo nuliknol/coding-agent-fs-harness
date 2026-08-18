@@ -1057,14 +1057,15 @@ decomposition without enabling repository tools.
 Luna-only mode enables ACP v1 by default. ACP generalizes the patch-only typed
 fact request into negotiated task readiness while preserving strict initial
 Context Closure. The worker may request one exact deterministic fact or report
-a typed `SCOPE`, `PREREQUISITE`, or `SPLIT` boundary. A worker request is an
+a typed `SCOPE`, `PREREQUISITE`, `SPLIT`, `CHALLENGE`, or `CANCEL` boundary. A worker request is an
 untrusted claim: only the deterministic broker can grant bounded read evidence,
 and only manager policy can change mutation authority or append decomposition.
 Sol remains the global architecture/decomposition critic over compiled evidence
 and is never an implementation fallback for Luna work.
 
 ACP state lives under `control/acp/`: `events.tsv` is the append-only protocol
-ledger, evidence artifacts are content-addressed, `discovered-graph.tsv`
+ledger, evidence artifacts are content-addressed, `transactions.tsv` is the
+request/outcome dataset, `discovered-graph.tsv`
 preserves claimed prerequisite/split history and manager dispositions, and
 `metrics.env` reports request/grant/denial counts and broker hit rate. Inspect
 it without launching a model:
@@ -1074,12 +1075,17 @@ harness-acp-status project.env
 ```
 
 The broker supports exact symbol/type definitions, callers, callees, failing
-assertions, indexed tests, build/concept owners, producers, consumers, and
+assertions, named/indexed tests, build targets and owners, concept owners, producers, consumers, and
 representation writers. SCIP, build-index, and on-demand Joern evidence is
 queried deterministically; accepted excerpts remain subject to the per-request
 and cumulative added-context limits. The same provider thread resumes after a
 context grant. Structural requests terminate the ephemeral Luna process and
-enter append-only manager decomposition without granting scope.
+enter append-only manager adjudication without granting scope. Manager terminal
+actions compile into explicit `GRANT_SCOPE`, `CREATE_PREREQUISITE`,
+`SPLIT_TASK`, denial/cancellation, reassessment, or clarification decisions.
+A suspended prerequisite records the discovered node and `X -> B` edge, runs X
+without a waiting inference process, and resumes B with its saved thread after
+the manager publishes the authorized continuation.
 
 Protocol fuses detect duplicate requests, stale workspace authority, excessive
 request count, context amplification, and repeated negotiation without verified
@@ -1089,13 +1095,23 @@ gain. They complement—and do not change—the 500,000 authoritative per-turn,
 avoided, added context bytes, discovered/planned graph ratio, requests per
 verified item, and the project `tokens_per_verified_facet` convergence metric.
 
-ACP does not imply unsafe concurrency. `HARNESS_WORKER_PARALLELISM` defaults to
-one, `HARNESS_WORKER_PARALLELISM_HARD_MAX` defaults to four, and a requested
-value above one requires `HARNESS_WORKER_ISOLATION_MODE=worktree` and is
-currently rejected until isolated workspace capability leases and deterministic
-integration are configured. Zero resolves to the safe scheduler capacity
-(currently one), never unbounded launches. The normative envelope is documented
-in `formats/acp-v1.md`.
+ACP decomposition-v2 projects default to four isolated workers;
+legacy/non-ACP projects remain serial. Each dependency-ready worker acquires a
+write-capability lease compiled from `Allowed-Scope`, and ancestor/descendant
+overlap is deferred without an agent launch. Workers use immutable-base Git
+worktrees and private build/temp roots. Completed commits are replayed under a
+single integration lock onto the current main HEAD in a separate candidate
+worktree, where focused validation must pass before a fast-forward. Conflicts,
+external main mutation, or a failed integration gate create a project integrity
+anomaly. `HARNESS_WORKER_PARALLELISM=0` selects online CPU capacity capped by
+`HARNESS_WORKER_PARALLELISM_HARD_MAX` (four by default), never unbounded launch.
+The normative envelope is documented in `formats/acp-v1.md`.
+
+ACP metrics also report initial/added context bytes, amplification, authority
+decisions, suspensions/resumptions, capability deferrals, integrations, and the
+discovered/planned edge ratio. `estimated_tokens_saved` is explicitly a
+byte-based proxy for deterministic discovery displaced; actual model economics
+remain measured by `tokens_per_verified_facet`.
 
 When focused validation rejects a patch, the trusted runner rolls it back and
 resumes the same thread with only normalized typed diagnostics. It permits at

@@ -25,12 +25,21 @@ flock -n 8 || die "a worker supervisor is already running for project: $PROJECT"
 printf '%s\n' "$$" > "$dir/control/worker-supervisor.pid"
 printf '%s\n' "$HARNESS_ENV_FILE" > "$dir/control/worker-supervisor.env-file"
 watch_pid=""
+declare -A worker_pids=()
+declare -A worker_tasks=()
+declare -A worker_markers=()
 cleanup()
 {
 	local status="${worker_supervisor_exit_status:-0}"
 	if [[ -n "$watch_pid" ]]; then
 		kill "$watch_pid" 2>/dev/null || true
 	fi
+	for worker_pid in "${!worker_pids[@]}"; do
+		kill -TERM "$worker_pid" 2>/dev/null || true
+	done
+	for worker_pid in "${!worker_pids[@]}"; do
+		wait "$worker_pid" 2>/dev/null || true
+	done
 	rm -f "$dir/control/worker-supervisor.pid" "$dir/control/worker-supervisor.env-file"
 	trace_script_exit "$status"
 }
@@ -43,17 +52,95 @@ fingerprint()
 	stat -c '%i:%s:%Y' "$file"
 }
 
+active_worker_count()
+{
+	printf '%s\n' "${#worker_pids[@]}"
+}
+
+capability_lease_fingerprint()
+{
+	find "$(acp_capability_lease_dir)" -maxdepth 1 -type f -name '*.lease.env' -print0 2>/dev/null |
+		LC_ALL=C sort -z | xargs -0 -r sha256sum | sha256sum | awk '{print "sha256:" $1}'
+}
+
+finish_worker_invocation()
+{
+	local invocation_pid="$1" status="$2" task_id base invocation_marker marker alert tmp integrity_marker deferred
+	task_id="${worker_tasks[$invocation_pid]}"
+	invocation_marker="${worker_markers[$invocation_pid]}"
+	base="$(task_base "$task_id")"
+	marker="$dir/control/$base.worker-triggered"
+	rm -f "$invocation_marker"
+	unset 'worker_pids[$invocation_pid]' 'worker_tasks[$invocation_pid]' 'worker_markers[$invocation_pid]'
+	trace_event WORKER_SUPERVISOR_INVOKE_EXIT "task_id=$task_id" "status=$status"
+	if (( status == 75 )); then
+		# Capability overlap is ordinary scheduler backpressure. Remove the edge
+		# trigger so the same immutable READY file can be reconsidered after the
+		# conflicting lease is released, without creating a failure report.
+		rm -f "$marker"
+		deferred="$dir/control/$base.capability-deferred.env"
+		{
+			printf 'task_id=%s\nlease_fingerprint=%s\ndeferred_at=%s\n' \
+				"$task_id" "$(capability_lease_fingerprint)" "$(timestamp_utc)"
+		} > "$deferred.tmp.$$"
+		chmod 600 "$deferred.tmp.$$"; mv "$deferred.tmp.$$" "$deferred"
+		log_event "WORKER_SUPERVISOR_DEFERRED task=$task_id reason=capability-conflict"
+		return 0
+	fi
+	if (( status != 0 )); then
+		alert="$dir/control/$base.worker-supervisor-failed.md"
+		tmp="$alert.tmp.$$"
+		{
+			printf '# Worker Supervisor Invocation Failed\n\nProject: %s\n\nTask-ID: %s\n\n' "$PROJECT" "$task_id"
+			printf 'Environment-File: %s\n\nFailed-At: %s\n\nExit-Status: %s\n\n' \
+				"$HARNESS_ENV_FILE" "$(timestamp_utc)" "$status"
+			printf 'Provider quota and transient provider/network failures retry inside worker-invoke-task. This failure was terminal, non-provider, or an isolated integration failure.\n'
+		} > "$tmp"
+		chmod 600 "$tmp"; mv "$tmp" "$alert"
+		if [[ -f "$dir/running/$base.running.md" || -f "$dir/control/$base.lease" ]]; then
+			integrity_marker="$(mark_project_integrity_anomaly WORKER_TRANSACTION_ORPHANED "$task_id" \
+				'terminal worker invocation exited while its running assignment or lease remained live' \
+				"exit_status=$status alert=$alert running=$dir/running/$base.running.md lease=$dir/control/$base.lease")"
+			log_event "WORKER_TRANSACTION_ORPHANED task=$task_id status=$status alert=$alert marker=$integrity_marker"
+		fi
+		printf 'Worker invocation failed for task %s; see %s\n' "$task_id" "$alert" >&2
+	fi
+}
+
+reap_worker_invocations()
+{
+	local invocation_pid status running_pids
+	running_pids="$(jobs -pr | tr '\n' ' ')"
+	for invocation_pid in "${!worker_pids[@]}"; do
+		[[ " $running_pids " == *" $invocation_pid "* ]] && continue
+		set +e
+		wait "$invocation_pid"
+		status=$?
+		set -e
+		finish_worker_invocation "$invocation_pid" "$status"
+	done
+}
+
 process_tasks()
 {
-	local file task_id base marker current previous status alert tmp invocation_marker invocation_pid
+	local file task_id base marker current previous tmp invocation_marker invocation_pid capacity runner deferred deferred_fingerprint
+	reap_worker_invocations
 	{ project_has_token_usage_anomaly || project_has_integrity_anomaly; } && return 0
+	capacity="$(acp_scheduler_capacity)"
 	shopt -s nullglob
 	for file in "$dir/tasks/$PROJECT-task-"*.ready.md; do
+		(( $(active_worker_count) < capacity )) || break
 		task_id="$(task_id_from_filename "$file")"
 		if task_root_is_paused "$task_id" || task_has_resource_anomaly "$task_id"; then
 			continue
 		fi
 		base="$(task_base "$task_id")"
+		deferred="$dir/control/$base.capability-deferred.env"
+		if [[ -f "$deferred" ]]; then
+			deferred_fingerprint="$(kv_file_value "$deferred" lease_fingerprint 2>/dev/null || true)"
+			[[ "$deferred_fingerprint" != "$(capability_lease_fingerprint)" ]] || continue
+			rm -f "$deferred"
+		fi
 		marker="$dir/control/$base.worker-triggered"
 		current="$(fingerprint "$file")"
 		previous=""
@@ -67,6 +154,7 @@ process_tasks()
 		} > "$tmp"
 		chmod 600 "$tmp"
 		mv "$tmp" "$marker"
+		rm -f "$deferred"
 		log_event "WORKER_SUPERVISOR_TRIGGER task=$task_id fingerprint=$current"
 		trace_event WORKER_SUPERVISOR_INVOKE "task_id=$task_id" "fingerprint=$current" "worker_invoker=$worker_invoker"
 
@@ -83,8 +171,12 @@ process_tasks()
 		} > "$invocation_marker.tmp.$$"
 		chmod 600 "$invocation_marker.tmp.$$"
 		mv "$invocation_marker.tmp.$$" "$invocation_marker"
-		set +e
-		"$worker_invoker" "$HARNESS_ENV_FILE" "$task_id" 8>&- &
+		if [[ "$HARNESS_WORKER_ISOLATION_MODE" == worktree ]]; then
+			runner=("$HARNESS_BIN/harness-acp-worker-run" "$HARNESS_ENV_FILE" "$task_id" "$worker_invoker")
+		else
+			runner=("$worker_invoker" "$HARNESS_ENV_FILE" "$task_id")
+		fi
+		"${runner[@]}" 8>&- &
 		invocation_pid=$!
 		{
 			printf 'task_id=%s\n' "$task_id"
@@ -94,37 +186,10 @@ process_tasks()
 		} > "$invocation_marker.tmp.$$"
 		chmod 600 "$invocation_marker.tmp.$$"
 		mv "$invocation_marker.tmp.$$" "$invocation_marker"
-		wait "$invocation_pid"
-		status=$?
-		rm -f "$invocation_marker"
-		set -e
-		trace_event WORKER_SUPERVISOR_INVOKE_EXIT "task_id=$task_id" "status=$status"
-		if (( status != 0 )); then
-			alert="$dir/control/$base.worker-supervisor-failed.md"
-			tmp="$alert.tmp.$$"
-			{
-				printf '# Worker Supervisor Invocation Failed\n\n'
-				printf 'Project: %s\n\n' "$PROJECT"
-				printf 'Task-ID: %s\n\n' "$task_id"
-				printf 'Environment-File: %s\n\n' "$HARNESS_ENV_FILE"
-				printf 'Failed-At: %s\n\n' "$(timestamp_utc)"
-				printf 'Exit-Status: %s\n\n' "$status"
-				printf 'Provider quota and transient provider/network failures retry indefinitely inside worker-invoke-task. This failure was classified as terminal or non-provider.\n'
-			} > "$tmp"
-			chmod 600 "$tmp"
-			mv "$tmp" "$alert"
-			# A terminal invoker exit while ownership is still live is an
-			# interrupted transaction, not an active worker.  Surface it as a
-			# durable integrity pause so status cannot report a dead .running
-			# artifact as useful activity and no other agent races the orphan.
-			if [[ -f "$dir/running/$base.running.md" || -f "$dir/control/$base.lease" ]]; then
-				integrity_marker="$(mark_project_integrity_anomaly WORKER_TRANSACTION_ORPHANED "$task_id" \
-					'terminal worker invocation exited while its running assignment or lease remained live' \
-					"exit_status=$status alert=$alert running=$dir/running/$base.running.md lease=$dir/control/$base.lease")"
-				log_event "WORKER_TRANSACTION_ORPHANED task=$task_id status=$status alert=$alert marker=$integrity_marker"
-			fi
-			printf 'Worker invocation failed for task %s; see %s\n' "$task_id" "$alert" >&2
-		fi
+		worker_pids[$invocation_pid]=1
+		worker_tasks[$invocation_pid]="$task_id"
+		worker_markers[$invocation_pid]="$invocation_marker"
+		log_event "WORKER_COHORT_LAUNCHED task=$task_id pid=$invocation_pid active=$(active_worker_count) capacity=$capacity isolation=$HARNESS_WORKER_ISOLATION_MODE"
 	done
 }
 

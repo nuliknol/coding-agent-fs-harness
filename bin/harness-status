@@ -699,8 +699,10 @@ if [[ -f "$project_efficiency_file" ]]; then
 		"$(kv_file_value "$project_efficiency_file" verified_facets 2>/dev/null || printf 0)"
 fi
 
-active_status_root="$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" && $3 != "-" {print $3; exit}' "$(project_plan_state_file)" 2>/dev/null || true)"
+active_status_roots="$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" && $3 != "-" {print $3}' "$(project_plan_state_file)" 2>/dev/null | paste -sd, -)"
+active_status_root="${active_status_roots%%,*}"
 if [[ -n "$active_status_root" ]]; then
+	printf '\nActive cohort roots: %s (capacity %s).\n' "$active_status_roots" "$(acp_scheduler_capacity)"
 	active_leaf="$(task_first_unmet_criterion "$active_status_root" 2>/dev/null || true)"
 	verified_items="$(task_verified_item_count "$active_status_root")"
 	replans_without_gain="$(root_auto_replans_without_verified_gain "$active_status_root")"

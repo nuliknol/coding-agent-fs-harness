@@ -18,15 +18,31 @@ require_registered_specification_ir
 [[ -f "$candidate" ]] || die "task file does not exist: $candidate"
 
 plan_state="$(project_plan_state_file)"
-active_item="$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" {print $1; exit}' "$plan_state")"
-active_root="$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" {print $3; exit}' "$plan_state")"
+requested_plan_item="${HARNESS_BATCH_PLAN_ITEM:-}"
+if [[ -n "$requested_plan_item" ]]; then
+	requested_status="$(project_plan_item_status "$requested_plan_item")"
+	case "$requested_status" in
+		ACTIVE)
+			active_item="$requested_plan_item"
+			active_root="$(project_plan_item_root "$requested_plan_item")"
+			;;
+		PENDING)
+			active_item=""
+			active_root=""
+			;;
+		*) die "requested batch plan item is not publishable from state $requested_status: $requested_plan_item" ;;
+	esac
+else
+	active_item="$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" {print $1; exit}' "$plan_state")"
+	active_root="$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" {print $3; exit}' "$plan_state")"
+fi
 if [[ -n "$active_item" && -n "$active_root" && "$active_root" != - ]]; then
 	plan_item_id="$active_item"
 	task_id="$(next_task_revision_id "$active_root")"
 	root_assignment="$(task_root_assignment_file "$active_root")"
 	[[ -f "$root_assignment" ]] || die "active root assignment is missing: $active_root"
 else
-	plan_item_id="$(project_plan_first_ready_item 2>/dev/null || true)"
+	plan_item_id="${requested_plan_item:-$(project_plan_first_ready_item 2>/dev/null || true)}"
 	[[ -n "$plan_item_id" ]] || die 'no dependency-ready pending plan node exists'
 	task_id="$plan_item_id"
 	active_root=""

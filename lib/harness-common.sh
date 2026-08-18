@@ -218,6 +218,8 @@ load_harness_env()
 	unset HARNESS_ACP_ENABLED HARNESS_ACP_MAX_DUPLICATE_REQUESTS HARNESS_ACP_MAX_REQUESTS_PER_LEAF
 	unset HARNESS_ACP_MAX_TOTAL_ADDED_BYTES HARNESS_ACP_MAX_NO_PROGRESS_REQUESTS
 	unset HARNESS_WORKER_PARALLELISM HARNESS_WORKER_PARALLELISM_HARD_MAX HARNESS_WORKER_ISOLATION_MODE
+	unset HARNESS_TASK_TMP_DIR
+	unset HARNESS_ACP_CANONICAL_REPOSITORY HARNESS_ACP_ISOLATED_TASK_ID
 	unset HARNESS_PATCH_ONLY_MAX_VALIDATION_ROUNDS
 	unset HARNESS_CONTEXT_CLOSURE_PROMOTION_MIN_SAMPLES HARNESS_CONTEXT_CLOSURE_MIN_FILE_RECALL_PERCENT
 	unset HARNESS_CONTEXT_CLOSURE_MIN_LUNA_SUCCESS_PERCENT HARNESS_CONTEXT_CLOSURE_MAX_FALSE_BLOCK_PERCENT
@@ -289,7 +291,12 @@ load_harness_env()
 	HARNESS_ROOT="${HARNESS_ROOT:-${XDG_RUNTIME_DIR:-/tmp}/coding-harness-${UID}}"
 	HARNESS_ROOT="$(resolve_from_env_dir "$HARNESS_ROOT")"
 	REPOSITORY="$(resolve_from_env_dir "$REPOSITORY")"
-	PROJECT_TMP_DIR="/tmp/$PROJECT"
+	PROJECT_TMP_DIR="${HARNESS_TASK_TMP_DIR:-/tmp/$PROJECT}"
+	if [[ "$PROJECT_TMP_DIR" != /* ]]; then
+		PROJECT_TMP_DIR="$(realpath -m "$HARNESS_ENV_DIR/$PROJECT_TMP_DIR")"
+	else
+		PROJECT_TMP_DIR="$(realpath -m "$PROJECT_TMP_DIR")"
+	fi
 
 	SPECIFICATION="${SPECIFICATION:-}"
 	if [[ -n "$SPECIFICATION" ]]; then
@@ -497,12 +504,20 @@ load_harness_env()
 	HARNESS_ACP_MAX_REQUESTS_PER_LEAF="${HARNESS_ACP_MAX_REQUESTS_PER_LEAF:-8}"
 	HARNESS_ACP_MAX_TOTAL_ADDED_BYTES="${HARNESS_ACP_MAX_TOTAL_ADDED_BYTES:-32768}"
 	HARNESS_ACP_MAX_NO_PROGRESS_REQUESTS="${HARNESS_ACP_MAX_NO_PROGRESS_REQUESTS:-4}"
-	# Negotiation and concurrency are independent. Default to serial execution.
+	# Negotiation and concurrency are independent. ACP projects default to a
+	# bounded cohort of four isolated workers; legacy/non-ACP projects retain
+	# their serial behavior. Zero selects machine capacity capped by HARD_MAX.
 	# A value of zero means scheduler-selected, but remains capped by HARD_MAX;
 	# it never means unbounded process creation.
-	HARNESS_WORKER_PARALLELISM="${HARNESS_WORKER_PARALLELISM:-1}"
+	if [[ -z "${HARNESS_WORKER_PARALLELISM+x}" ]]; then
+		(( HARNESS_ACP_ENABLED == 1 && HARNESS_DECOMPOSITION_V2 == 1 )) && \
+			HARNESS_WORKER_PARALLELISM=4 || HARNESS_WORKER_PARALLELISM=1
+	fi
 	HARNESS_WORKER_PARALLELISM_HARD_MAX="${HARNESS_WORKER_PARALLELISM_HARD_MAX:-4}"
-	HARNESS_WORKER_ISOLATION_MODE="${HARNESS_WORKER_ISOLATION_MODE:-serial}"
+	if [[ -z "${HARNESS_WORKER_ISOLATION_MODE+x}" ]]; then
+		(( HARNESS_WORKER_PARALLELISM > 1 || HARNESS_WORKER_PARALLELISM == 0 )) && \
+			HARNESS_WORKER_ISOLATION_MODE=worktree || HARNESS_WORKER_ISOLATION_MODE=serial
+	fi
 	# A patch-only Luna receives compact typed diagnostics and may repair the
 	# same bounded patch transaction. Repeated identical failure sets terminate
 	# early; this value is a hard ceiling, not an unconditional retry count.
@@ -847,11 +862,8 @@ load_harness_env()
 	done
 	[[ "$HARNESS_WORKER_PARALLELISM" =~ ^[0-9]+$ ]] || die 'HARNESS_WORKER_PARALLELISM must be a non-negative integer'
 	[[ "$HARNESS_WORKER_ISOLATION_MODE" =~ ^(serial|worktree)$ ]] || die 'HARNESS_WORKER_ISOLATION_MODE must be serial or worktree'
-	if (( HARNESS_WORKER_PARALLELISM > 1 )) && [[ "$HARNESS_WORKER_ISOLATION_MODE" != worktree ]]; then
-		die 'HARNESS_WORKER_PARALLELISM above 1 requires HARNESS_WORKER_ISOLATION_MODE=worktree'
-	fi
-	if (( HARNESS_WORKER_PARALLELISM > 1 )); then
-		die 'parallel worker cohorts are not admitted until isolated capability-lease and deterministic integration providers are configured; keep HARNESS_WORKER_PARALLELISM at 0 or 1'
+	if (( HARNESS_WORKER_PARALLELISM == 0 || HARNESS_WORKER_PARALLELISM > 1 )) && [[ "$HARNESS_WORKER_ISOLATION_MODE" != worktree ]]; then
+		die 'HARNESS_WORKER_PARALLELISM zero or above 1 requires HARNESS_WORKER_ISOLATION_MODE=worktree'
 	fi
 	if (( HARNESS_WORKER_PARALLELISM > HARNESS_WORKER_PARALLELISM_HARD_MAX )); then
 		die 'HARNESS_WORKER_PARALLELISM exceeds HARNESS_WORKER_PARALLELISM_HARD_MAX'
@@ -1326,7 +1338,19 @@ ensure_project()
 	stored_repository="$(kv_file_value "$config" repository)"
 	stored_mode="$(kv_file_value "$config" harness_mode 2>/dev/null || true)"
 	[[ "$stored_project" == "$PROJECT" ]] || die "ENV_FILE project '$PROJECT' does not match initialized project '$stored_project'"
-	[[ "$stored_repository" == "$REPOSITORY" ]] || die "REPOSITORY changed from '$stored_repository' to '$REPOSITORY'; rerun harness-init with $HARNESS_ENV_FILE"
+	if [[ "$stored_repository" != "$REPOSITORY" ]]; then
+		[[ "${HARNESS_ACP_CANONICAL_REPOSITORY:-}" == "$stored_repository" &&
+			-n "${HARNESS_ACP_ISOLATED_TASK_ID:-}" ]] ||
+			die "REPOSITORY changed from '$stored_repository' to '$REPOSITORY'; rerun harness-init with $HARNESS_ENV_FILE"
+		validate_task_id "$HARNESS_ACP_ISOLATED_TASK_ID"
+		case "$REPOSITORY" in
+			"$(acp_worktree_dir)/$HARNESS_ACP_ISOLATED_TASK_ID"|"$(acp_integration_dir)/$HARNESS_ACP_ISOLATED_TASK_ID-"*) ;;
+			*) die 'ACP isolated repository is outside its task-owned worktree/integration domain' ;;
+		esac
+		git -C "$stored_repository" worktree list --porcelain | \
+			awk -v wanted="$REPOSITORY" '$1 == "worktree" && $2 == wanted {found=1} END {exit !found}' ||
+			die 'ACP isolated repository is not a registered Git worktree'
+	fi
 	[[ -z "$stored_mode" || "$stored_mode" == "$HARNESS_MODE" ]] ||
 		die "project state was initialized in HARNESS_MODE=$stored_mode, not $HARNESS_MODE"
 }
@@ -5531,6 +5555,38 @@ project_plan_first_ready_item()
 	return 1
 }
 
+project_plan_items_have_scope_conflict()
+{
+	local left="$1" right="$2" left_file right_file
+	left_file="$(mktemp)"; right_file="$(mktemp)"
+	printf '%s\n' "$(project_plan_node_value "$left" allowed_paths)" | tr ',' '\n' | \
+		sed 's/^[[:space:]]*//;s/[[:space:]]*$//;/^[-]*$/d' | LC_ALL=C sort -u > "$left_file"
+	printf '%s\n' "$(project_plan_node_value "$right" allowed_paths)" | tr ',' '\n' | \
+		sed 's/^[[:space:]]*//;s/[[:space:]]*$//;/^[-]*$/d' | LC_ALL=C sort -u > "$right_file"
+	if acp_capability_paths_conflict "$left_file" "$right_file"; then
+		rm -f "$left_file" "$right_file"; return 0
+	fi
+	rm -f "$left_file" "$right_file"; return 1
+}
+
+project_plan_next_parallel_ready_item()
+{
+	local candidate status active conflict
+	while IFS=$'\t' read -r candidate status _; do
+		[[ -n "$candidate" && "$candidate" != \#* && "$status" == PENDING ]] || continue
+		project_plan_dependencies_satisfied "$candidate" || continue
+		conflict=0
+		while IFS=$'\t' read -r active active_status _; do
+			[[ "$active_status" == ACTIVE ]] || continue
+			if project_plan_items_have_scope_conflict "$candidate" "$active"; then conflict=1; break; fi
+		done < "$(project_plan_state_file)"
+		(( conflict == 0 )) || continue
+		printf '%s\n' "$candidate"
+		return 0
+	done < "$(project_plan_state_file)"
+	return 1
+}
+
 project_plan_exists()
 {
 	[[ -f "$(project_plan_definition_file)" && -f "$(project_plan_state_file)" ]]
@@ -6342,7 +6398,7 @@ activate_project_plan_item()
 {
 	local item_id="$1"
 	local root="$2"
-	local state status existing_root tmp
+	local state status existing_root tmp active_count active_item active_status
 	state="$(project_plan_state_file)"
 	project_plan_exists || die 'project plan is missing; initialize it before publishing tasks'
 	status="$(project_plan_item_status "$item_id")"
@@ -6354,7 +6410,17 @@ activate_project_plan_item()
 	[[ "$status" == PENDING ]] || die "project plan item is not pending: $item_id ($status)"
 	project_plan_dependencies_satisfied "$item_id" || die "project plan dependencies are not complete for item: $item_id"
 	[[ -z "$(project_plan_item_for_root "$root")" ]] || die "task root is already assigned to a project plan item: $root"
-	[[ -z "$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" {print $1; exit}' "$state")" ]] || die 'another project plan item is already active'
+	if [[ "$HARNESS_WORKER_ISOLATION_MODE" == worktree ]]; then
+		active_count="$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" {count++} END {print count + 0}' "$state")"
+		(( active_count < $(acp_scheduler_capacity) )) || die 'active project plan cohort is already at scheduler capacity'
+		while IFS=$'\t' read -r active_item active_status _; do
+			[[ "$active_status" == ACTIVE ]] || continue
+			project_plan_items_have_scope_conflict "$item_id" "$active_item" &&
+				die "project plan item $item_id overlaps active write authority with $active_item"
+		done < "$state"
+	else
+		[[ -z "$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" {print $1; exit}' "$state")" ]] || die 'another project plan item is already active'
+	fi
 	tmp="$state.tmp.$$"
 	awk -F '\t' -v OFS='\t' -v item="$item_id" -v root="$root" -v now="$(timestamp_utc)" '
 		/^#/ {print; next}

@@ -109,6 +109,19 @@ class ContextRequestTest(unittest.TestCase):
         self.assertIn("Authorization-Relation: indexed-test-of-required-symbol", extension)
         self.assertIn("int caller(void)", extension)
 
+    def test_named_test_target_is_admitted(self):
+        result = self.resolve("TEST_TARGET", "test_add")
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        extension = (self.root / "extension.md").read_text(encoding="utf-8")
+        self.assertIn("Context-Request-Kind: TEST_TARGET", extension)
+
+    def test_named_build_target_is_admitted(self):
+        result = self.resolve("BUILD_TARGET", "calc")
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        extension = (self.root / "extension.md").read_text(encoding="utf-8")
+        self.assertIn("Authorization-Relation: named-build-target-owning-assignment-path", extension)
+        self.assertIn("add_library(calc calc.c)", extension)
+
     def test_direct_consumer_is_admitted(self):
         result = self.resolve("CONSUMER", "add")
         self.assertEqual(0, result.returncode, result.stderr + result.stdout)

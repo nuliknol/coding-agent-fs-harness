@@ -17,7 +17,9 @@ REQUEST_KINDS = {
     "CALLER_CONTRACT",
     "CALLEE_CONTRACT",
     "FAILING_ASSERTION",
+    "TEST_TARGET",
     "TEST_OWNER",
+    "BUILD_TARGET",
     "BUILD_OWNER",
     "OWNER",
     "PRODUCER",
@@ -259,7 +261,7 @@ def main() -> int:
             for row in definitions(connection, [item[0] for item in callees]):
                 records.append(("CALLEE_CONTRACT", row["repository_path"], row["start_line"],
                                 row["end_line"], row["display_name"], row["provider"]))
-    elif args.request_kind == "FAILING_ASSERTION":
+    elif args.request_kind in {"FAILING_ASSERTION", "TEST_TARGET"}:
         test_rows = connection.execute(
             "SELECT t.name,f.repository_path,r.start_line,r.end_line,t.provider,t.test_id "
             "FROM tests t LEFT JOIN files f ON f.file_id=t.file_id "
@@ -271,7 +273,7 @@ def main() -> int:
             if (row["repository_path"] and
                     inside_declared_boundary(repository, row["repository_path"], seed_paths) and
                     row["start_line"]):
-                records.append(("FAILING_ASSERTION", row["repository_path"], row["start_line"],
+                records.append((args.request_kind, row["repository_path"], row["start_line"],
                                 row["end_line"], row["name"], row["provider"]))
         relation = "named-test-inside-assignment-boundary"
         if not records:
@@ -296,7 +298,7 @@ def main() -> int:
             for candidate_path in sorted(candidate_paths):
                 window = exact_identifier_window(repository, candidate_path, identifier)
                 if window:
-                    records.append(("FAILING_ASSERTION", candidate_path, window[0], window[1],
+                    records.append((args.request_kind, candidate_path, window[0], window[1],
                                     identifier, "declared-context-search"))
             if records:
                 relation = "exact-test-identifier-inside-assignment-boundary"
@@ -315,6 +317,21 @@ def main() -> int:
                 if row["repository_path"] and row["start_line"]:
                     records.append(("TEST_OWNER", row["repository_path"], row["start_line"],
                                     row["end_line"], row["name"], row["provider"]))
+    elif args.request_kind == "BUILD_TARGET":
+        rows = connection.execute(
+            "SELECT DISTINCT bt.name,bt.definition_path,bt.provider,f.repository_path "
+            "FROM build_targets bt LEFT JOIN build_target_files btf ON btf.target_id=bt.target_id "
+            "LEFT JOIN files f ON f.file_id=btf.file_id "
+            "WHERE bt.name=? COLLATE NOCASE OR bt.target_id=? ORDER BY bt.name,f.repository_path",
+            (identifier, identifier),
+        ).fetchall()
+        for row in rows:
+            if (row["repository_path"] and
+                    inside_declared_boundary(repository, row["repository_path"], seed_paths) and
+                    row["definition_path"]):
+                records.append(("BUILD_TARGET", row["definition_path"], 1, 200,
+                                row["name"], row["provider"]))
+        relation = "named-build-target-owning-assignment-path"
     elif args.request_kind in {"BUILD_OWNER", "OWNER"}:
         if identifier in seed_paths | validation_paths:
             declared_entry = safe_entry(repository, identifier)

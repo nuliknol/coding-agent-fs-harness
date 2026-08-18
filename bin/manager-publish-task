@@ -129,7 +129,9 @@ fi
 if [[ "$task_id" == "$root" ]]; then
 	[[ -n "$plan_item_id" ]] || die 'a new root task requires PROJECT_PLAN_ITEM_ID'
 	[[ "$(project_plan_item_status "$plan_item_id")" == PENDING ]] || die "project plan item is not pending: $plan_item_id"
-	[[ -z "$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" {print $1; exit}' "$(project_plan_state_file)")" ]] || die 'another project plan item is already active'
+	if [[ "$HARNESS_WORKER_ISOLATION_MODE" != worktree ]]; then
+		[[ -z "$(awk -F '\t' '!/^#/ && $2 == "ACTIVE" {print $1; exit}' "$(project_plan_state_file)")" ]] || die 'another project plan item is already active'
+	fi
 else
 	mapped_item="$(project_plan_item_for_root "$root")"
 	[[ -n "$mapped_item" ]] || die "revision root is not assigned to the project plan: $root"
@@ -2347,7 +2349,14 @@ if (( recovery_publish == 1 )); then
 		fi
 	fi
 	record_root_convergence_baseline "$root"
-	clear_worker_thread_for_root "$root" automatic-replan
+	# An ACP structural request is a negotiated suspension. Its saved provider
+	# thread is the continuation identity and must survive creation of the
+	# prerequisite/split/scope-repair assignment. Ordinary replans still rotate.
+	if ! acp_root_is_suspended "$root"; then
+		clear_worker_thread_for_root "$root" automatic-replan
+	else
+		log_event "ACP_WORKER_THREAD_PRESERVED root=$root task=$task_id reason=negotiated-suspension"
+	fi
 	ensure_root_replan_ledger_schema "$root"
 	replan_ledger="$(task_replan_ledger_file "$root")"
 	printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
@@ -2462,6 +2471,7 @@ if (( recovery_publish == 1 )); then
 	rm -f "$(task_root_replan_file "$root")" "$(task_root_replanning_file "$root")"
 fi
 activate_project_plan_item "$plan_item_id" "$root"
+acp_record_task_publication "$task_id" "$ready" "$manager_remediation"
 # A successful atomic publication is itself the durable state change that
 # resolves a prior planning-gap circuit breaker. Do not let its stale marker
 # mask READY work in status output or suppress future planning transitions.

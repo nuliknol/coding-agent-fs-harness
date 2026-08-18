@@ -1,0 +1,187 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TASK_ID WORKER_INVOKER\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 3 ]] || usage
+original_env="$1"
+task_id="$2"
+worker_invoker="$3"
+load_harness_env "$original_env"
+ensure_project
+validate_task_id "$task_id"
+[[ -x "$worker_invoker" ]] || die "worker invoker is not executable: $worker_invoker"
+
+if [[ "$HARNESS_WORKER_ISOLATION_MODE" == serial ]]; then
+	exec "$worker_invoker" "$HARNESS_ENV_FILE" "$task_id"
+fi
+
+ensure_acp_state
+dir="$(project_dir)"
+base="$(task_base "$task_id")"
+ready="$dir/tasks/$base.ready.md"
+[[ -f "$ready" ]] || die "task is not ready: $task_id"
+lease="$(acp_capability_lease_dir)/$task_id.lease.env"
+paths="$dir/control/acp/$task_id.capabilities"
+worktree="$(acp_worktree_dir)/$task_id"
+integration="$(acp_integration_dir)/$task_id-$$"
+worker_env="$dir/control/acp/$task_id.worker.env"
+integration_env="$dir/control/acp/$task_id.integration.env"
+integration_lock="$(acp_integration_dir)/integration.lock"
+capability_lock="$(acp_capability_lease_dir)/leases.lock"
+base_revision="$(git -C "$REPOSITORY" rev-parse HEAD)"
+status=0
+worker_pid=""
+capability_acquired=0
+
+cleanup()
+{
+	local cleanup_status="${status:-$?}"
+	if [[ -n "$worker_pid" ]]; then
+		kill -TERM "$worker_pid" 2>/dev/null || true
+		wait "$worker_pid" 2>/dev/null || true
+	fi
+	git -C "$REPOSITORY" worktree remove --force "$integration" >/dev/null 2>&1 || true
+	git -C "$REPOSITORY" worktree remove --force "$worktree" >/dev/null 2>&1 || true
+	rm -f "$worker_env" "$integration_env" "$paths"
+	(
+		flock -x 9
+		rm -f "$lease"
+	) 9>"$capability_lock"
+	if (( capability_acquired == 1 )); then
+		acp_event_append - "$task_id" - 0 CAPABILITY_RELEASED SCOPE WRITE - \
+			"status=$cleanup_status lease=$lease"
+	fi
+}
+trap 'status=$?; cleanup' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+acp_normalize_capability_paths "$ready" > "$paths"
+[[ -s "$paths" ]] || die 'parallel ACP worker requires a nonempty explicit Allowed-Scope capability set'
+
+(
+	flock -x 9
+	for other in "$(acp_capability_lease_dir)"/*.lease.env; do
+		[[ -f "$other" && "$other" != "$lease" ]] || continue
+		other_pid="$(kv_file_value "$other" pid 2>/dev/null || true)"
+		other_paths="$(kv_file_value "$other" paths_file 2>/dev/null || true)"
+		if [[ ! "$other_pid" =~ ^[1-9][0-9]*$ ]] || ! kill -0 "$other_pid" 2>/dev/null; then
+			rm -f "$other"
+			continue
+		fi
+		[[ -f "$other_paths" ]] || die "live ACP capability lease has no path set: $other"
+		if acp_capability_paths_conflict "$paths" "$other_paths"; then
+			exit 75
+		fi
+	done
+	{
+		printf 'project=%s\ntask_id=%s\npid=%s\npaths_file=%s\n' "$PROJECT" "$task_id" "$$" "$paths"
+		printf 'base_revision=%s\nacquired_at=%s\n' "$base_revision" "$(timestamp_utc)"
+	} > "$lease.tmp.$$"
+	chmod 600 "$lease.tmp.$$"
+	mv "$lease.tmp.$$" "$lease"
+) 9>"$capability_lock" || {
+	status=$?
+	if (( status == 75 )); then
+		log_event "ACP_CAPABILITY_DEFERRED task=$task_id reason=overlapping-write-authority"
+		acp_event_append - "$task_id" - 0 CAPABILITY_DEFERRED SCOPE WRITE - \
+			"reason=overlapping-write-authority"
+		exit 75
+	fi
+	exit "$status"
+}
+capability_acquired=1
+acp_event_append - "$task_id" - 0 CAPABILITY_ACQUIRED SCOPE WRITE - \
+	"base=$base_revision paths=$(paste -sd, "$paths")"
+
+git -C "$REPOSITORY" diff --quiet --ignore-submodules -- ||
+	die 'parallel worker admission requires a clean main worktree'
+git -C "$REPOSITORY" diff --cached --quiet --ignore-submodules -- ||
+	die 'parallel worker admission requires a clean main index'
+git -C "$REPOSITORY" worktree add --detach "$worktree" "$base_revision" >/dev/null
+{
+	printf 'source %q\n' "$HARNESS_ENV_FILE"
+	printf 'export REPOSITORY=%q\n' "$worktree"
+	printf 'export HARNESS_ACP_CANONICAL_REPOSITORY=%q\n' "$REPOSITORY"
+	printf 'export HARNESS_ACP_ISOLATED_TASK_ID=%q\n' "$task_id"
+	printf 'export HARNESS_TASK_TMP_DIR=%q\n' "$PROJECT_TMP_DIR/acp-workers/$task_id"
+} > "$worker_env"
+chmod 600 "$worker_env"
+mkdir -p "$PROJECT_TMP_DIR/acp-workers/$task_id"
+
+set +e
+"$worker_invoker" "$worker_env" "$task_id" &
+worker_pid=$!
+wait "$worker_pid"
+status=$?
+worker_pid=""
+set -e
+(( status == 0 )) || exit "$status"
+
+# Preserve the worker commit identity for audit even after its worktree is
+# removed. Integration replays those commits onto the then-current main HEAD.
+worker_head="$(git -C "$worktree" rev-parse HEAD)"
+git -C "$REPOSITORY" update-ref "refs/harness-acp/tasks/$PROJECT/$task_id" "$worker_head"
+
+(
+	flock -x 9
+	integration_base="$(git -C "$REPOSITORY" rev-parse HEAD)"
+	git -C "$REPOSITORY" diff --quiet --ignore-submodules -- ||
+		die 'ACP integration requires a clean main worktree'
+	git -C "$REPOSITORY" diff --cached --quiet --ignore-submodules -- ||
+		die 'ACP integration requires a clean main index'
+	git -C "$REPOSITORY" worktree add --detach "$integration" "$integration_base" >/dev/null
+	mapfile -t commits < <(git -C "$worktree" rev-list --reverse "$base_revision..$worker_head")
+	for commit in "${commits[@]}"; do
+		if ! git -C "$integration" cherry-pick "$commit" >/dev/null 2>&1; then
+			git -C "$integration" cherry-pick --abort >/dev/null 2>&1 || true
+			mark_project_integrity_anomaly ACP_INTEGRATION_CONFLICT "$task_id" \
+				'isolated worker commit did not integrate cleanly despite capability admission' \
+				"base=$base_revision current=$integration_base commit=$commit lease=$lease" >/dev/null
+			exit 76
+		fi
+	done
+	{
+		printf 'source %q\n' "$HARNESS_ENV_FILE"
+		printf 'export REPOSITORY=%q\n' "$integration"
+		printf 'export HARNESS_ACP_CANONICAL_REPOSITORY=%q\n' "$REPOSITORY"
+		printf 'export HARNESS_ACP_ISOLATED_TASK_ID=%q\n' "$task_id"
+		printf 'export HARNESS_TASK_TMP_DIR=%q\n' "$PROJECT_TMP_DIR/acp-integration/$task_id"
+	} > "$integration_env"
+	chmod 600 "$integration_env"
+	mkdir -p "$PROJECT_TMP_DIR/acp-integration/$task_id"
+	validation_log="$dir/logs/acp-integration-$task_id-$(timestamp_compact_utc).log"
+	if ! "$HARNESS_BIN/harness-run-assigned-validation" "$integration_env" "$task_id" \
+		acp-post-merge > "$validation_log" 2>&1; then
+		mark_project_integrity_anomaly ACP_INTEGRATION_VALIDATION_FAILED "$task_id" \
+			'post-integration focused validation rejected an isolated worker candidate' \
+			"base=$integration_base candidate=$(git -C "$integration" rev-parse HEAD) log=$validation_log" >/dev/null
+		exit 77
+	fi
+	candidate_head="$(git -C "$integration" rev-parse HEAD)"
+	[[ "$(git -C "$REPOSITORY" rev-parse HEAD)" == "$integration_base" ]] ||
+		die 'main HEAD changed outside the serialized ACP integration barrier'
+	git -C "$REPOSITORY" merge --ff-only "$candidate_head" >/dev/null
+	receipt="$(acp_integration_dir)/$task_id.integrated.env"
+	{
+		printf 'task_id=%s\nworker_base=%s\nworker_head=%s\nintegration_base=%s\n' \
+			"$task_id" "$base_revision" "$worker_head" "$integration_base"
+		printf 'integrated_head=%s\nvalidation_log=%s\nintegrated_at=%s\n' \
+			"$candidate_head" "$validation_log" "$(timestamp_utc)"
+	} > "$receipt.tmp.$$"
+	chmod 600 "$receipt.tmp.$$"
+	mv "$receipt.tmp.$$" "$receipt"
+	acp_event_append - "$task_id" - 0 INTEGRATED SCOPE WRITE - \
+		"worker_head=$worker_head integrated_head=$candidate_head validation=$validation_log"
+) 9>"$integration_lock"
+
+status=0
+exit 0

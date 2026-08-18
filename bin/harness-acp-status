@@ -14,6 +14,7 @@ printf 'Project: %s\nACP-Version: %s\n' "$PROJECT" "$ACP_PROTOCOL_VERSION"
 printf 'Enabled: %s\nContext-Closure-Mode: %s\n' "$HARNESS_ACP_ENABLED" "$HARNESS_CONTEXT_CLOSURE_MODE"
 printf 'Parallelism: %s (hard max %s; isolation %s)\n' \
 	"$HARNESS_WORKER_PARALLELISM" "$HARNESS_WORKER_PARALLELISM_HARD_MAX" "$HARNESS_WORKER_ISOLATION_MODE"
+printf 'Scheduler-Capacity: %s\n' "$(acp_scheduler_capacity)"
 printf '\nMetrics\n'
 sed 's/^/  /' "$(acp_metrics_file)"
 if [[ -f "$(project_efficiency_metrics_file)" ]]; then
@@ -30,3 +31,22 @@ for request in "$(acp_pending_dir)"/*.request.md; do
 		"$(metadata_value "$request" Identifier)"
 done
 (( pending > 0 )) || printf '  -\n'
+printf '\nSuspended workers\n'
+suspended=0
+for suspension in "$(acp_suspension_dir)"/*.suspended.env; do
+	[[ -f "$suspension" ]] || continue
+	suspended=$((suspended + 1))
+	printf '  %s\t%s\t%s\t%s\n' "$(kv_file_value "$suspension" task_id)" \
+		"$(kv_file_value "$suspension" request_type)" "$(kv_file_value "$suspension" state)" \
+		"$(kv_file_value "$suspension" identifier)"
+done
+(( suspended > 0 )) || printf '  -\n'
+printf '\nCapability leases\n'
+leases=0
+for capability_lease in "$(acp_capability_lease_dir)"/*.lease.env; do
+	[[ -f "$capability_lease" ]] || continue
+	leases=$((leases + 1))
+	printf '  %s\tpid=%s\tpaths=%s\n' "$(kv_file_value "$capability_lease" task_id)" \
+		"$(kv_file_value "$capability_lease" pid)" "$(kv_file_value "$capability_lease" paths_file)"
+done
+(( leases > 0 )) || printf '  -\n'

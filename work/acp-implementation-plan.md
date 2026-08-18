@@ -14,7 +14,7 @@ Generalize the harness's existing typed Context Closure expansion and dependency
 - Duplicate requests, context/scope amplification, no-progress negotiation, stale authority, and conflicting capability leases are hard protocol anomalies.
 - ACP messages reference bounded data-plane artifacts by digest/path; they do not carry repository dumps.
 - Discovered DAG history is append-only and distinguishable from planned nodes and edges.
-- Parallel execution is opt-in and isolated. The safe default remains one worker until a repository supplies disjoint workspaces, capability leases, and deterministic integration.
+- ACP decomposition-v2 execution uses a bounded default cohort of four. Every concurrent worker requires a disjoint capability lease, an immutable-base Git worktree, task-private temporary/build state, and serialized validated integration; legacy/non-ACP execution remains serial.
 
 ## Delivery phases
 

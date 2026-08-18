@@ -400,7 +400,7 @@ The context boundary is enforceable. Direct rg/grep/find/sed inspection is limit
 When required Context Closure is READY but one exact decisive read fact is absent,
 request it before any discovery search by ending the turn with no result and:
 
-Context-Request-Kind: TYPE_DEFINITION|SYMBOL_DEFINITION|CALLER_CONTRACT|CALLEE_CONTRACT|FAILING_ASSERTION|TEST_OWNER|BUILD_OWNER|OWNER|PRODUCER|CONSUMER|REPRESENTATION_WRITER
+Context-Request-Kind: TYPE_DEFINITION|SYMBOL_DEFINITION|CALLER_CONTRACT|CALLEE_CONTRACT|FAILING_ASSERTION|TEST_TARGET|TEST_OWNER|BUILD_TARGET|BUILD_OWNER|OWNER|PRODUCER|CONSUMER|REPRESENTATION_WRITER
 Context-Request-Identifier: one exact symbol, test, or declared path
 Context-Request-Reason: one sentence explaining why that fact is decisive
 
@@ -433,7 +433,7 @@ harness performs it after applying the patch.
 
 Before reporting CONTEXT_INCOMPLETE, you may request exactly one missing fact by emitting no patch and exactly these metadata lines:
 
-Context-Request-Kind: TYPE_DEFINITION|SYMBOL_DEFINITION|CALLER_CONTRACT|CALLEE_CONTRACT|FAILING_ASSERTION|TEST_OWNER|BUILD_OWNER|OWNER|PRODUCER|CONSUMER|REPRESENTATION_WRITER
+Context-Request-Kind: TYPE_DEFINITION|SYMBOL_DEFINITION|CALLER_CONTRACT|CALLEE_CONTRACT|FAILING_ASSERTION|TEST_TARGET|TEST_OWNER|BUILD_TARGET|BUILD_OWNER|OWNER|PRODUCER|CONSUMER|REPRESENTATION_WRITER
 Context-Request-Identifier: one exact symbol, test, or declared path
 Context-Request-Reason: one sentence explaining why that fact is decisive
 
@@ -443,7 +443,7 @@ If the evidence instead proves that this leaf needs mutation authority outside
 Allowed-Scope, a repository-local prerequisite, or semantic subdivision, emit
 no patch and exactly these lines:
 
-ACP-Request-Type: SCOPE|PREREQUISITE|SPLIT
+ACP-Request-Type: SCOPE|PREREQUISITE|SPLIT|CHALLENGE|CANCEL
 ACP-Request-Kind: one short machine-readable classification
 ACP-Request-Identifier: one exact path, prerequisite criterion, or split boundary
 ACP-Request-Reason: one sentence citing the decisive supplied evidence
@@ -462,7 +462,7 @@ needs mutation authority outside Allowed-Scope, a repository-local prerequisite,
 or semantic subdivision, do not broaden the task. End the turn without a normal
 result and emit exactly:
 
-ACP-Request-Type: SCOPE|PREREQUISITE|SPLIT
+ACP-Request-Type: SCOPE|PREREQUISITE|SPLIT|CHALLENGE|CANCEL
 ACP-Request-Kind: one short machine-readable classification
 ACP-Request-Identifier: one exact path, prerequisite criterion, or split boundary
 ACP-Request-Reason: one sentence citing the decisive bounded evidence
@@ -769,7 +769,7 @@ prepare_typed_context_expansion()
 	reason="$(sed -n 's/^Context-Request-Reason:[[:space:]]*//p' "$response" | head -n 1)"
 	reason="$(tr '\t\r\n' '   ' <<< "${reason:-decisive implementation fact is absent from the compiled capsule}" | head -c 256)"
 	case "$kind" in
-		TYPE_DEFINITION|SYMBOL_DEFINITION|CALLER_CONTRACT|CALLEE_CONTRACT|FAILING_ASSERTION|TEST_OWNER|BUILD_OWNER|OWNER|PRODUCER|CONSUMER|REPRESENTATION_WRITER) ;;
+		TYPE_DEFINITION|SYMBOL_DEFINITION|CALLER_CONTRACT|CALLEE_CONTRACT|FAILING_ASSERTION|TEST_TARGET|TEST_OWNER|BUILD_TARGET|BUILD_OWNER|OWNER|PRODUCER|CONSUMER|REPRESENTATION_WRITER) ;;
 		*) return 1 ;;
 	esac
 	if (( context_expansion_count >= HARNESS_MAX_CONTEXT_EXPANSIONS_PER_LEAF )); then
@@ -802,6 +802,9 @@ prepare_typed_context_expansion()
 		patch_apply_output="ACP context request rejected before resolution: $(tr '\n' ' ' <<< "$acp_request" | head -c 512)"
 		return 2
 	fi
+	acp_event_append "$(metadata_value "$acp_request" Request-ID)" "$task_id" "$acp_thread" \
+		"$request_number" BROKER_STARTED CONTEXT "$kind" - \
+		"initial_context_bytes=$(du -sb "$closure_path" 2>/dev/null | awk '{print $1 + 0}') identifier=$identifier"
 	set +e
 	resolver_output="$(python3 "$HARNESS_HOME/tools/resolve_context_request.py" \
 		--assignment "$task_file" --closure "$closure_path/closure.tsv" \
@@ -908,7 +911,7 @@ prepare_structural_acp_handoff()
 	kind="$(sed -n 's/^ACP-Request-Kind:[[:space:]]*//p' "$response")"
 	identifier="$(sed -n 's/^ACP-Request-Identifier:[[:space:]]*//p' "$response")"
 	reason="$(sed -n 's/^ACP-Request-Reason:[[:space:]]*//p' "$response")"
-	case "$type" in SCOPE|PREREQUISITE|SPLIT) ;; *) return 1 ;; esac
+	case "$type" in SCOPE|PREREQUISITE|SPLIT|CHALLENGE|CANCEL) ;; *) return 1 ;; esac
 	kind="$(tr '\t\r\n' '   ' <<< "$kind" | head -c 256)"
 	identifier="$(tr '\t\r\n' '   ' <<< "$identifier" | head -c 256)"
 	reason="$(tr '\t\r\n' '   ' <<< "$reason" | head -c 256)"
@@ -942,10 +945,12 @@ prepare_structural_acp_handoff()
 		SCOPE) outcome=SCOPE_INCOMPLETE ;;
 		PREREQUISITE) outcome=VALIDATION_PREREQUISITE ;;
 		SPLIT) outcome=TASK_TOO_BROAD ;;
+		CHALLENGE|CANCEL) outcome=HARD_BLOCKED ;;
 	esac
 	acp_request_id="$(metadata_value "$request_path" Request-ID)"
 	acp_resolve_request "$request_path" DEFERRED persistent-manager - \
 		"worker claim requires authority/decomposition adjudication; outcome=$outcome" >/dev/null
+	acp_register_suspension "$acp_request_id" "$task_id" "$acp_thread" "$type" "$kind" "$identifier"
 	acp_write_metrics
 	if (( goal_mode == 1 )) && [[ "$acp_thread" =~ ^[A-Za-z0-9-]+$ ]]; then
 		goal_state_set "$goal_state" thread_id "$acp_thread"
@@ -955,7 +960,11 @@ prepare_structural_acp_handoff()
 	{
 		printf '# Worker Task Result\n\nTask-ID: %s\nStatus: COMPLETED\n' "$task_id"
 		if (( goal_mode == 1 )); then
-			printf 'Goal-ID: %s\nGoal-Outcome: NEEDS_DECOMPOSITION\nDecomposition-Reason: %s\n' "$goal_id" "$outcome"
+			if [[ "$outcome" == HARD_BLOCKED ]]; then
+				printf 'Goal-ID: %s\nGoal-Outcome: HARD_BLOCKED\n' "$goal_id"
+			else
+				printf 'Goal-ID: %s\nGoal-Outcome: NEEDS_DECOMPOSITION\nDecomposition-Reason: %s\n' "$goal_id" "$outcome"
+			fi
 		fi
 		printf 'ACP-Request-Type: %s\nACP-Request-Kind: %s\nACP-Request-Identifier: %s\nACP-Request-Reason: %s\n' \
 			"$type" "$kind" "$identifier" "$reason"
@@ -1349,6 +1358,11 @@ while true; do
 	if (( luna_bounded_execution == 1 )) && [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only ]]; then
 		patch_only_tool_calls="$(jq -rs '[.[] | select(.type=="item.started" and .item.type=="command_execution")] | length' "$json_log" 2>/dev/null || printf 0)"
 		[[ "$patch_only_tool_calls" =~ ^[0-9]+$ ]] || patch_only_tool_calls=0
+		if (( HARNESS_ACP_ENABLED == 1 )); then
+			acp_event_append - "$task_id" "${observed_thread_id:--}" "$attempt" \
+				WORKER_DISCOVERY_OBSERVED CONTEXT REPOSITORY_EXPLORATION - \
+				"tool_calls=$patch_only_tool_calls policy=patch_only"
+		fi
 		if (( patch_only_tool_calls > 0 )); then
 			mark_project_integrity_anomaly MODEL_POLICY_VIOLATION "$task_id" \
 				'patch-only Luna executed repository/shell tools despite a compiled no-tools Context Closure contract' \
