@@ -2581,7 +2581,8 @@ acp_record_task_publication "$task_id" "$ready" "$manager_remediation"
 # resolves a prior planning-gap circuit breaker. Do not let its stale marker
 # mask READY work in status output or suppress future planning transitions.
 rm -f "$dir/control/manager-plan-stalled.md" \
-	"$dir/control/manager-plan-structural-error.md"
+	"$dir/control/manager-plan-structural-error.md" \
+	"$dir/control/manager-plan-failed.md"
 
 published_decomposition_model="$leaf_planner_model"
 [[ "$HARNESS_MODEL_POLICY" != luna_only ]] || published_decomposition_model="$LUNA_WORKER_MODEL"
