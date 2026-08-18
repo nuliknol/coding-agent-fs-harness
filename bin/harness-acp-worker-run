@@ -40,6 +40,7 @@ base_revision="$(git -C "$REPOSITORY" rev-parse HEAD)"
 status=0
 worker_pid=""
 capability_acquired=0
+read_only_verification=0
 
 cleanup()
 {
@@ -65,7 +66,50 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 acp_normalize_capability_paths "$ready" > "$paths"
-[[ -s "$paths" ]] || die 'parallel ACP worker requires a nonempty explicit Allowed-Scope capability set'
+if [[ ! -s "$paths" ]]; then
+	[[ "$(metadata_value "$ready" Leaf-Type)" == VERIFICATION_ONLY &&
+		"$(metadata_value "$ready" Expected-Max-Implementation-Files)" == 0 &&
+		"$(metadata_value "$ready" Allowed-Scope)" == - ]] ||
+		die 'parallel ACP worker requires a nonempty explicit Allowed-Scope capability set'
+	read_only_verification=1
+fi
+
+if (( read_only_verification == 1 )); then
+	git -C "$REPOSITORY" diff --quiet --ignore-submodules -- ||
+		die 'parallel read-only worker admission requires a clean main worktree'
+	git -C "$REPOSITORY" diff --cached --quiet --ignore-submodules -- ||
+		die 'parallel read-only worker admission requires a clean main index'
+	git -C "$REPOSITORY" worktree add --detach "$worktree" "$base_revision" >/dev/null
+	{
+		printf 'source %q\n' "$HARNESS_ENV_FILE"
+		printf 'export REPOSITORY=%q\n' "$worktree"
+		printf 'export HARNESS_ACP_CANONICAL_REPOSITORY=%q\n' "$REPOSITORY"
+		printf 'export HARNESS_ACP_ISOLATED_TASK_ID=%q\n' "$task_id"
+		printf 'export HARNESS_TASK_TMP_DIR=%q\n' "$PROJECT_TMP_DIR/acp-workers/$task_id"
+	} > "$worker_env"
+	chmod 600 "$worker_env"
+	mkdir -p "$PROJECT_TMP_DIR/acp-workers/$task_id"
+	acp_event_append - "$task_id" - 0 CAPABILITY_ACQUIRED SCOPE READ - \
+		"base=$base_revision paths=- verification_only=1"
+	set +e
+	"$worker_invoker" "$worker_env" "$task_id" &
+	worker_pid=$!
+	wait "$worker_pid"
+	status=$?
+	worker_pid=""
+	set -e
+	(( status == 0 )) || exit "$status"
+	[[ "$(git -C "$worktree" rev-parse HEAD)" == "$base_revision" ]] ||
+		die 'read-only verification worker created a commit'
+	git -C "$worktree" diff --quiet --ignore-submodules -- ||
+		die 'read-only verification worker modified its isolated worktree'
+	git -C "$worktree" diff --cached --quiet --ignore-submodules -- ||
+		die 'read-only verification worker modified its isolated index'
+	acp_event_append - "$task_id" - 0 VERIFIED SCOPE READ - \
+		"base=$base_revision paths=- verification_only=1"
+	status=0
+	exit 0
+fi
 
 (
 	flock -x 9

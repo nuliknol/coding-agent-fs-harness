@@ -68,6 +68,18 @@ Focused-Validation: grep -Fqx task-$task $task.txt
 Expected-Max-Implementation-Files: 1
 TASK
 done
+cat > "$project/tasks/acpparallel-task-c.ready.md" <<'TASK'
+# Task Assignment
+
+Task-ID: c
+Task-Root: c
+Allowed-Scope: -
+Context-Paths: -
+Required-Symbols: -
+Focused-Validation: FOCUSED: bounded read-only evidence
+Leaf-Type: VERIFICATION_ONLY
+Expected-Max-Implementation-Files: 0
+TASK
 
 cat > "$TEST_ROOT/mock-worker" <<'WORKER'
 #!/usr/bin/env bash
@@ -78,6 +90,46 @@ claim="$($HARNESS_BIN/worker-claim-task "$env_file" "$task_id" "$session")"
 task_file="$(sed -n 's/^TASK_FILE=//p' <<< "$claim")"
 source "$env_file"
 PROJECT_TMP_DIR="$HARNESS_TASK_TMP_DIR"
+if [[ "$task_id" == c ]]; then
+	result="$PROJECT_TMP_DIR/result.md"
+	mkdir -p "$PROJECT_TMP_DIR"
+	cat > "$result" <<RESULT
+# Worker Task Result
+
+Task-ID: c
+Status: COMPLETED
+
+## Summary
+
+Verified the isolated baseline without mutation.
+
+## Modified files
+
+None.
+
+## Implemented behavior
+
+Recorded read-only evidence.
+
+## Validation performed
+
+Baseline repository observation passed.
+
+## Deviations from assignment
+
+None.
+
+## Remaining concerns
+
+None.
+
+## Worker assessment
+
+COMPLETE.
+RESULT
+	"$HARNESS_BIN/worker-complete-task" "$env_file" "$task_id" "$session" "$result" >/dev/null
+	exit 0
+fi
 printf 'task-%s\n' "$task_id" >> "$REPOSITORY/$task_id.txt"
 message="$PROJECT_TMP_DIR/commit-message"
 result="$PROJECT_TMP_DIR/result.md"
@@ -127,7 +179,8 @@ printf 'export HARNESS_WORKER_INVOKER=%q\n' "$TEST_ROOT/mock-worker" >> "$TEST_R
 supervisor_pid=$!
 for _ in $(seq 1 200); do
 	[[ -f "$project/control/acp/integration/a.integrated.env" &&
-		-f "$project/control/acp/integration/b.integrated.env" ]] && break
+		-f "$project/control/acp/integration/b.integrated.env" &&
+		-f "$project/results/acpparallel-task-c.result.md" ]] && break
 	if ! kill -0 "$supervisor_pid" 2>/dev/null; then
 		cat "$TEST_ROOT/worker-supervisor.log" >&2
 		exit 1
@@ -144,6 +197,9 @@ grep -Fqx task-b "$TEST_ROOT/repo/b.txt"
 [[ ! -e "$project/control/acp/capability-leases/a.lease.env" ]]
 [[ ! -e "$project/control/acp/capability-leases/b.lease.env" ]]
 grep -Fq $'INTEGRATED\tSCOPE\tWRITE' "$project/control/acp/events.tsv"
+grep -Fq $'CAPABILITY_ACQUIRED\tSCOPE\tREAD' "$project/control/acp/events.tsv"
+grep -Fq $'VERIFIED\tSCOPE\tREAD' "$project/control/acp/events.tsv"
+[[ ! -e "$project/control/acp/integration/c.integrated.env" ]]
 git -C "$TEST_ROOT/repo" diff --quiet
 git -C "$TEST_ROOT/repo" diff --cached --quiet
 
