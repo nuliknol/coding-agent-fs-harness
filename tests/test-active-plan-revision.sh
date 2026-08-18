@@ -12,6 +12,9 @@ printf 'Repair the bounded runtime contract.\n' > "$TEST_ROOT/repo/spec.md"
 printf 'int public_api(void);\n' > "$TEST_ROOT/repo/src/api.h"
 printf '/* stale planner path */\n' > "$TEST_ROOT/repo/src/legacy.h"
 printf 'int public_api(void) { return 0; }\n' > "$TEST_ROOT/repo/src/api.c"
+printf 'int main(void) { return 0; }\n' > "$TEST_ROOT/repo/src/smoke.c"
+printf 'cmake_minimum_required(VERSION 3.16)\nproject(revisionproj C)\nadd_executable(focused-smoke src/smoke.c)\n' \
+	> "$TEST_ROOT/repo/CMakeLists.txt"
 git -C "$TEST_ROOT/repo" init -q
 git -C "$TEST_ROOT/repo" add .
 git -C "$TEST_ROOT/repo" -c user.name=test -c user.email=test@example.invalid commit -qm seed
@@ -175,6 +178,7 @@ sed \
 	-e 's/^Task-ID: contract$/Task-ID: invented-task-name/' \
 	-e 's/^Project-Plan-Item-ID: contract$/Project-Plan-Item-ID: invented-node/' \
 	-e 's#^Focused-Validation: ./focused-smoke --runtime$#Focused-Validation: FOCUSED: run the focused API smoke#' \
+	-e 's#^Validation-Command: ./focused-smoke$#Validation-Command: BUILD_DIR="$(mktemp -d /tmp/revisionproj-fresh.XXXXXX)" \&\& cmake -S . -B "$BUILD_DIR" \&\& cmake --build "$BUILD_DIR" --target focused-smoke \&\& "$BUILD_DIR"/focused-smoke --runtime#' \
 	-e 's/^Worker-Route: TERRA$/Worker-Route: LUNA/' \
 	-e 's/^Architecture-Decisions: NONE$/Architecture-Decisions: -/' \
 	-e 's/^Mandatory-Git-Refs: -$/Mandatory-Git-Refs: none/' \
@@ -182,7 +186,9 @@ sed \
 # A legacy accepted root may predate harness-owned diagnostic capture.  Its
 # immutable behavioral command is retained while only external redirection is
 # removed, allowing a current planner to publish without weakening the guard.
-sed -i 's#^Focused-Validation: ./focused-smoke --runtime$#Focused-Validation: ./focused-smoke --runtime > /tmp/revision-runtime.log 2>\&1#' \
+mkdir -p "$TEST_ROOT/stale-build"
+printf 'CMAKE_HOME_DIRECTORY:INTERNAL=%s\n' "$TEST_ROOT/repo" > "$TEST_ROOT/stale-build/CMakeCache.txt"
+sed -i "s#^Focused-Validation: ./focused-smoke --runtime\$#Focused-Validation: cmake --build $TEST_ROOT/stale-build --target focused-smoke \&\& $TEST_ROOT/stale-build/focused-smoke --runtime > /tmp/revision-runtime.log 2>\\\&1#" \
 	"$project/control/progress/revisionproj-task-contract.root-assignment.md"
 printf '# stale planning marker\n' > "$project/control/manager-plan-stalled.md"
 "$HARNESS_BIN/manager-publish-planned-task" "$TEST_ROOT/harness.env" \
@@ -195,7 +201,9 @@ grep -Fqx 'Worker-Route: TERRA' "$planned"
 grep -Fqx 'Leaf-Type: FOCUSED_BUG' "$planned"
 grep -Fqx 'Architecture-Decisions: NONE' "$planned"
 grep -Fqx 'Mandatory-Git-Refs: -' "$planned"
-grep -Fqx 'Focused-Validation: ./focused-smoke --runtime' "$planned"
+grep -Fqx 'Focused-Validation: BUILD_DIR="$(mktemp -d /tmp/revisionproj-fresh.XXXXXX)" && cmake -S . -B "$BUILD_DIR" && cmake --build "$BUILD_DIR" --target focused-smoke && "$BUILD_DIR"/focused-smoke --runtime' "$planned"
+grep -Fq 'PLANNED_VALIDATION_COMMAND_PROMOTED item=contract task=contract-revision-01 root=contract source=explicit-continuation' \
+	"$project/logs/events.log"
 grep -Fq 'LEGACY_ROOT_VALIDATION_CAPTURE_NORMALIZED root=contract task=contract-revision-01' \
 	"$project/logs/events.log"
 [[ ! -e "$project/control/manager-plan-stalled.md" ]]

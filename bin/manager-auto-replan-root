@@ -399,6 +399,8 @@ Read DEVELOPMENT_POLICY_FILE when present, PLAN_NODE_CONTEXT_FILE once, TRIGGER_
 
 Any new child criterion must preserve the semantic type, cardinality, ownership domain, and unit of its parent. Do not infer record counts from argument arity, source-span lengths from role counts, hardware counts from boolean diagnostics, or producer ownership from a downstream facade. If the trigger evidence disproves such an inherited premise, remove that premise and target the first actual failing contract instead of decomposing it again.
 
+Remediation-Scope and Allowed-Scope entries are repository authority paths. Every entry must name an existing repository-relative file or directory; never put command names, test labels, target names, symbols, or prospective/invented paths in a scope field.
+
 Preserve the last independently executable validation root. A relative CMake source path must contain CMakeLists.txt from the repository-root command boundary, and a static cmake --build or ctest --test-dir path must already exist or be configured earlier in the same command. Never rewrite an established path such as component/build to repository-root build merely for brevity.
 
 $criteria_instruction
@@ -555,6 +557,12 @@ manager_remediation_candidate_exceeds_authority()
 	for entry in "${candidate_entries[@]}"; do
 		entry="$(trim_surrounding_whitespace "$entry")"
 		[[ -n "$entry" ]] || continue
+		# Remediation scope is repository authority.  Command names, test labels,
+		# symbols, and invented paths must go through publication correction; they
+		# are not evidence of an architectural scope expansion.
+		if [[ "$entry" == /* || "$entry" == .. || "$entry" == ../* || "$entry" == */../* || ! -e "$REPOSITORY/$entry" ]]; then
+			return 1
+		fi
 		allowed=0
 		for authority_entry in "${authority_entries[@]}"; do
 			authority_entry="$(trim_surrounding_whitespace "$authority_entry")"

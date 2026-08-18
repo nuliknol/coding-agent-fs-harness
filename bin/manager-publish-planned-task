@@ -98,6 +98,22 @@ planned_scope_is_within_root_authority()
 	done
 }
 
+continuation_validation_preserves_root_boundary()
+{
+	local root_validation="$1" candidate_validation="$2" root_targets candidate_targets
+	validation_is_review_descriptor "$root_validation" && return 0
+	[[ "$candidate_validation" == "$root_validation" ]] && return 0
+	# A continuation may repair a stale CMake build directory, but it must keep
+	# the immutable root's exact build target. Other executable-root changes are
+	# restored until a plan-node revision explicitly changes their authority.
+	root_targets="$({ grep -oE -- '--target(=|[[:space:]]+)[A-Za-z0-9_.:+-]+' <<< "$root_validation" || true; } |
+		sed -E 's/^--target(=|[[:space:]]+)//' | sort -u)"
+	[[ -n "$root_targets" ]] || return 1
+	candidate_targets="$({ grep -oE -- '--target(=|[[:space:]]+)[A-Za-z0-9_.:+-]+' <<< "$candidate_validation" || true; } |
+		sed -E 's/^--target(=|[[:space:]]+)//' | sort -u)"
+	[[ "$candidate_targets" == "$root_targets" ]]
+}
+
 # Durable state owns publication identity. The planner authors the task, but
 # it must not infer revision numbering or the active plan-node identifier.
 normalize_metadata "$publish_file" Task-ID "$task_id"
@@ -238,15 +254,16 @@ if [[ -n "$root_assignment" ]]; then
 	fi
 	candidate_validation="$(metadata_value "$publish_file" Focused-Validation)"
 	explicit_validation="$(metadata_value "$publish_file" Validation-Command)"
-	if validation_is_review_descriptor "$root_validation" &&
-		! validation_is_executable_command "$candidate_validation" &&
+	if ! validation_is_executable_command "$candidate_validation" &&
 		[[ -n "$explicit_validation" ]] && validation_is_executable_command "$explicit_validation"; then
-		normalize_metadata "$publish_file" Focused-Validation "$explicit_validation"
-		candidate_validation="$explicit_validation"
-		log_event "PLANNED_VALIDATION_COMMAND_PROMOTED item=$plan_item_id task=$task_id root=$active_root"
+		if continuation_validation_preserves_root_boundary "$root_validation" "$explicit_validation"; then
+			normalize_metadata "$publish_file" Focused-Validation "$explicit_validation"
+			candidate_validation="$explicit_validation"
+			log_event "PLANNED_VALIDATION_COMMAND_PROMOTED item=$plan_item_id task=$task_id root=$active_root source=explicit-continuation"
+		fi
 	fi
-	if validation_is_executable_command "$root_validation" ||
-		[[ -z "$candidate_validation" ]] || validation_is_review_descriptor "$candidate_validation"; then
+	if ! validation_is_executable_command "$candidate_validation" ||
+		! continuation_validation_preserves_root_boundary "$root_validation" "$candidate_validation"; then
 		normalize_metadata "$publish_file" Focused-Validation "$root_validation"
 	fi
 	# Legacy roots could be reclassified from Terra to Luna before the

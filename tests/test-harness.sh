@@ -2097,8 +2097,10 @@ grep -Eq $'^P0\tCOMPLETE\t001\t' "$checkpoint_project/control/project-plan-state
 # manager-model remediation task repairs the local prerequisite; any unique
 # verified increment or criterion resets the ordinary-replan budget.
 AUTO_ROOT="$TEST_ROOT/auto-replan"
-mkdir -p "$AUTO_ROOT/repo" "$AUTO_ROOT/manager-home" "$AUTO_ROOT/worker-home"
+mkdir -p "$AUTO_ROOT/repo/src" "$AUTO_ROOT/manager-home" "$AUTO_ROOT/worker-home"
 printf 'test specification\n' > "$AUTO_ROOT/repo/spec.md"
+printf 'int root_owned;\n' > "$AUTO_ROOT/repo/src/root-owned.c"
+printf 'int outside_root_authority;\n' > "$AUTO_ROOT/repo/src/outside-root-authority.c"
 cat > "$AUTO_ROOT/harness.env" <<ENV
 export PROJECT="autoreplanproj"
 export REPOSITORY="$AUTO_ROOT/repo"

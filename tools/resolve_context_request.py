@@ -228,8 +228,19 @@ def main() -> int:
     relation = ""
     if args.request_kind == "SYMBOL_DEFINITION":
         authorized = set(requested_ids) & seed_ids
+        if not authorized and seed_ids and requested_ids:
+            marks = ",".join("?" for _ in seed_ids)
+            request_marks = ",".join("?" for _ in requested_ids)
+            rows = connection.execute(
+                f"SELECT type_symbol_id FROM type_edges WHERE "
+                f"source_symbol_id IN ({marks}) AND type_symbol_id IN ({request_marks})",
+                [*sorted(seed_ids), *requested_ids],
+            ).fetchall()
+            authorized = {row[0] for row in rows}
+            if authorized:
+                relation = "direct-type-symbol-definition"
         if authorized:
-            relation = "exact-required-symbol"
+            relation = relation or "exact-required-symbol"
             for row in definitions(connection, sorted(authorized)):
                 records.append(("SYMBOL_DEFINITION", row["repository_path"], row["start_line"],
                                 row["end_line"], row["display_name"], row["provider"]))

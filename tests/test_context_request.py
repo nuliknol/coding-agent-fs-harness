@@ -93,6 +93,13 @@ class ContextRequestTest(unittest.TestCase):
         self.assertIn("Authorization-Relation: exact-required-symbol", extension)
         self.assertIn("int add(Number n)", extension)
 
+    def test_direct_type_symbol_definition_is_admitted(self):
+        result = self.resolve("SYMBOL_DEFINITION", "Number")
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        extension = (self.root / "extension.md").read_text(encoding="utf-8")
+        self.assertIn("Authorization-Relation: direct-type-symbol-definition", extension)
+        self.assertIn("typedef struct Number", extension)
+
     def test_direct_callee_contract_is_admitted(self):
         self.assignment.write_text(
             "Task-ID: t1\nAllowed-Scope: calc.c\nContext-Paths: calc.c\n"
