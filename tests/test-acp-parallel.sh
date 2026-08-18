@@ -47,6 +47,16 @@ chmod 600 "$TEST_ROOT/harness.env"
 "$ROOT/bin/harness-init" "$TEST_ROOT/harness.env" >/dev/null
 project="$TEST_ROOT/state/projects/acpparallel"
 
+# Generated review IR is durable canonical authority and is intentionally not
+# copied into detached worker worktrees.  Isolated workers resolve those
+# sidecars through the canonical repository while code/history remain bound to
+# their detached base.
+mkdir -p "$TEST_ROOT/repo/spec-review" "$TEST_ROOT/authority-worktree"
+printf 'obligation_id\n' > "$TEST_ROOT/repo/spec-review/obligations.tsv"
+authority_dir="$(bash -c 'source "$1/lib/harness-common.sh"; REPOSITORY="$2"; HARNESS_ACP_CANONICAL_REPOSITORY="$3"; specification_review_repository_dir' \
+	_ "$ROOT" "$TEST_ROOT/authority-worktree" "$TEST_ROOT/repo")"
+[[ "$authority_dir" == "$TEST_ROOT/repo/spec-review" ]]
+
 # A healthy unblocked project is the ordinary parallel-planning state.  Keep
 # the three negative guard predicates in an explicit conditional so their
 # expected false return cannot escape through the supervisor ERR trap.

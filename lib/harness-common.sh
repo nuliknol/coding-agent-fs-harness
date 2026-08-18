@@ -4799,7 +4799,7 @@ domain_profiles_sha256()
 
 specification_review_repository_dir()
 {
-	printf '%s/spec-review' "$REPOSITORY"
+	printf '%s/spec-review' "${HARNESS_ACP_CANONICAL_REPOSITORY:-$REPOSITORY}"
 }
 
 architecture_redesign_repository_dir()
@@ -5217,7 +5217,7 @@ specification_obligations_file()
 	local relative
 	relative="$(specification_review_state_value obligations)"
 	[[ -n "$relative" ]] || return 1
-	printf '%s/%s\n' "$REPOSITORY" "$relative"
+	printf '%s/%s\n' "${HARNESS_ACP_CANONICAL_REPOSITORY:-$REPOSITORY}" "$relative"
 }
 
 specification_relations_file()
@@ -5225,7 +5225,7 @@ specification_relations_file()
 	local relative
 	relative="$(specification_review_state_value relations)"
 	[[ -n "$relative" ]] || return 1
-	printf '%s/%s\n' "$REPOSITORY" "$relative"
+	printf '%s/%s\n' "${HARNESS_ACP_CANONICAL_REPOSITORY:-$REPOSITORY}" "$relative"
 }
 
 specification_repository_inventory_file()
@@ -5233,7 +5233,7 @@ specification_repository_inventory_file()
 	local relative
 	relative="$(specification_review_state_value inventory)"
 	[[ -n "$relative" ]] || return 1
-	printf '%s/%s\n' "$REPOSITORY" "$relative"
+	printf '%s/%s\n' "${HARNESS_ACP_CANONICAL_REPOSITORY:-$REPOSITORY}" "$relative"
 }
 
 specification_domain_manifest_file()
@@ -5241,7 +5241,7 @@ specification_domain_manifest_file()
 	local relative
 	relative="$(specification_review_state_value domain_manifest)"
 	[[ -n "$relative" ]] || return 1
-	printf '%s/%s\n' "$REPOSITORY" "$relative"
+	printf '%s/%s\n' "${HARNESS_ACP_CANONICAL_REPOSITORY:-$REPOSITORY}" "$relative"
 }
 
 specification_coverage_file()
