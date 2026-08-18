@@ -402,6 +402,8 @@ grep -Fq 'COMPLEXITY_REPORT=$complexity_report' \
 grep -Fq 'manager-repair-decomposition-terra-exceptions' "$HARNESS_BIN/harness-start"
 grep -Fq 'manager-route-decomposition-complexity-repair' "$HARNESS_BIN/harness-start"
 grep -Fq 'manager-route-decomposition-context-repair' "$HARNESS_BIN/harness-start"
+grep -Fq 'DECOMPOSITION_COVERAGE_REPAIR_PROGRESS' "$HARNESS_BIN/harness-start"
+grep -Fq 'coverage_candidate_after' "$HARNESS_BIN/harness-start"
 grep -Fq 'Recovering an interrupted decomposition submission with no completed rejection diagnostic.' \
 	"$HARNESS_BIN/harness-start"
 grep -Fq 'decision .* evidence path is outside producer .* allowed_paths' \

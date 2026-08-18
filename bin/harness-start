@@ -343,7 +343,23 @@ while ! project_plan_exists; do
 			if [[ -f "$dag_rejection_log" ]] &&
 				grep -Eq '^ERROR: DAG node is not justified by a normalized specification obligation: ' "$dag_rejection_log"; then
 				printf 'Repairing omitted executable-node coverage without an agent turn.\n'
+				coverage_candidate_before="$(decomposition_dag_candidate_state_value directory)"
 				if "$HARNESS_BIN/manager-repair-decomposition-coverage" "$HARNESS_ENV_FILE"; then
+					continue
+				fi
+				coverage_candidate_after="$(decomposition_dag_candidate_state_value directory -)"
+				if [[ "$coverage_candidate_after" != - &&
+					"$coverage_candidate_after" != "$coverage_candidate_before" ]]; then
+					log_event "DECOMPOSITION_COVERAGE_REPAIR_PROGRESS previous=${coverage_candidate_before##*/} current=${coverage_candidate_after##*/} status=$(decomposition_dag_candidate_state_value status -)"
+					continue
+				fi
+				# Only route the expensive ambiguous mapping turn when the current
+				# durable candidate still has the defect that turn is designed to
+				# repair. A deterministic repair can expose a different validator
+				# class even when its own command returns nonzero.
+				dag_rejection_log="$(decomposition_dag_candidate_state_value rejection_log "$coverage_candidate_after/rejection.log")"
+				if [[ ! -f "$dag_rejection_log" ]] ||
+					! grep -Eq '^ERROR: DAG node is not justified by a normalized specification obligation: ' "$dag_rejection_log"; then
 					continue
 				fi
 				printf 'Requesting one bounded Sol coverage mapping for ambiguous executable leaves.\n'
