@@ -72,7 +72,7 @@ zero safe-ready frontier, not by a missing four-worker process limit.
 
 - The implementation was deployed at commit `2fe2a08`, version 5.18.36. After
   committing the audited rollout records, development and production both
-  matched final HEAD `eb1e696`; the production tree was clean.
+  matched the same final HEAD; the production tree was clean.
 - Closure-cut revisions `CMCLM-003-revision-80` and `N04-revision-163` passed
   deterministic cut validation, published, and launched Luna workers.
 - The retained `DAG-014` worker transaction resumed after deterministic build
