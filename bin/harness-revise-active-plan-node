@@ -170,6 +170,30 @@ fi
 	die 'revised root assignment Focused-Validation does not match the revised DAG'
 [[ "$(require_single_metadata_value "$candidate_assignment" Allowed-Scope 'revised root assignment')" == "$new_paths" ]] ||
 	die 'revised root assignment Allowed-Scope does not match the revised DAG'
+candidate_context_paths="$(require_single_metadata_value "$candidate_assignment" Context-Paths 'revised root assignment')"
+scope_is_covered_by_context()
+{
+	local scope="$1" context="$2" entry context_entry covered
+	local -a scope_entries=() context_entries=()
+	IFS=',' read -r -a scope_entries <<< "${scope//;/,}"
+	IFS=',' read -r -a context_entries <<< "${context//;/,}"
+	for entry in "${scope_entries[@]}"; do
+		entry="$(trim_surrounding_whitespace "$entry")"
+		[[ -n "$entry" && "$entry" != - ]] || continue
+		covered=0
+		for context_entry in "${context_entries[@]}"; do
+			context_entry="$(trim_surrounding_whitespace "$context_entry")"
+			[[ -n "$context_entry" && "$context_entry" != - ]] || continue
+			if [[ "$entry" == "$context_entry" || "$entry" == "$context_entry"/* ]]; then
+				covered=1
+				break
+			fi
+		done
+		(( covered == 1 )) || return 1
+	done
+}
+scope_is_covered_by_context "$new_paths" "$candidate_context_paths" ||
+	die 'revised root assignment Context-Paths must cover every Allowed-Scope path'
 [[ "$(require_single_metadata_value "$candidate_assignment" Deliverable 'revised root assignment')" == "$new_deliverable" ]] ||
 	die 'revised root assignment Deliverable does not match the revised DAG'
 [[ "$(require_single_metadata_value "$candidate_assignment" Required-Symbols 'revised root assignment')" == "$new_symbols" ]] ||

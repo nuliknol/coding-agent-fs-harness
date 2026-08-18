@@ -133,6 +133,18 @@ Invalid-Allowed-Scope: src/legacy.h
 The focused smoke proved that the stale planner path is not part of this active acceptance boundary and that the API implementation source is.
 MD
 
+sed 's/^Context-Paths: src\/api.h,src\/api.c$/Context-Paths: src\/api.h/' \
+	"$TEST_ROOT/revised-root.md" > "$TEST_ROOT/revised-root-missing-context.md"
+if "$HARNESS_BIN/harness-revise-active-plan-node" "$TEST_ROOT/harness.env" \
+	"$TEST_ROOT/revised-plan.tsv" "$TEST_ROOT/revised-root-missing-context.md" \
+	"$TEST_ROOT/resolution.md" >"$TEST_ROOT/missing-context.out" 2>&1; then
+	printf 'active plan revision accepted Allowed-Scope outside Context-Paths\n' >&2
+	exit 1
+fi
+grep -Fq 'Context-Paths must cover every Allowed-Scope path' \
+	"$TEST_ROOT/missing-context.out"
+[[ -f "$marker" ]]
+
 output="$("$HARNESS_BIN/harness-revise-active-plan-node" "$TEST_ROOT/harness.env" \
 	"$TEST_ROOT/revised-plan.tsv" "$TEST_ROOT/revised-root.md" "$TEST_ROOT/resolution.md")"
 grep -Fqx 'Revised active plan node contract for root contract.' <<< "$output"
