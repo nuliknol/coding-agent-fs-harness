@@ -18,7 +18,7 @@ architecture_source="$(decomposition_candidate_state_value architecture_director
 rejection_log="$(decomposition_candidate_state_value rejection_log "$candidate_dir/rejection.log")"
 [[ "$architecture_source" != - && -d "$architecture_source" ]] ||
 	die 'node-binding repair requires an architecture registry'
-grep -Eq 'duplicate architecture node binding:|plan node lacks architecture binding:|edge .* is absent from (consumer|producer) binding|decision .* is absent from producer binding|invariant .* is absent from affected node binding|health gate .* is absent from trigger binding' \
+grep -Eq 'duplicate architecture node binding:|plan node lacks architecture binding:|plan node absent from node-bindings.tsv|edge .* is absent from (consumer|producer) binding|decision .* is absent from producer binding|invariant .* is absent from affected node binding|health gate .* is absent from trigger binding' \
 	"$rejection_log" ||
 	die 'candidate rejection is not a mechanically repairable node-binding defect'
 

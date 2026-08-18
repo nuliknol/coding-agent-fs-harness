@@ -404,11 +404,12 @@ cat > "$TEST_ROOT/cap-plan.tsv" <<'EOF'
 node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route
 n0	-	-	Implement the base contract	Base contract test passes	test -f src/a.c	src/a.c	target_symbol	TEST_IMPLEMENTATION	LOW	LUNA
 n1	-	n0	Verify contract compatibility	Compatibility test passes	test -f src/a.c	src/a.c	target_symbol	TEST_IMPLEMENTATION	LOW	LUNA
+n2	-	n1	Retain contract compatibility evidence	Compatibility evidence remains retained	test -f src/a.c	src/a.c	target_symbol	VERIFICATION_ONLY	LOW	LUNA
 EOF
 cat > "$TEST_ROOT/cap-coverage.tsv" <<'EOF'
 obligation_id	node_ids	evidence_plan
-REQ-1	n0,n1	Base and compatibility tests prove the specified contract
-PROFILE-negative-contract	n1	The downstream compatibility test proves the profile invariant
+REQ-1	n0,n1,n2	Base and compatibility tests prove the specified contract
+PROFILE-negative-contract	n1,n2	The downstream compatibility test proves the profile invariant
 EOF
 if "$HARNESS_BIN/manager-init-project-plan" "$cap_env" "$TEST_ROOT/cap-plan.tsv" \
 	"$TEST_ROOT/cap-coverage.tsv" >"$TEST_ROOT/cap-plan.out" 2>&1; then
@@ -416,6 +417,7 @@ if "$HARNESS_BIN/manager-init-project-plan" "$cap_env" "$TEST_ROOT/cap-plan.tsv"
 	exit 1
 fi
 grep -Fq 'Luna node n1 inherits 2 obligations; maximum is 1' "$TEST_ROOT/cap-plan.out"
+grep -Fq 'Luna node n2 inherits 2 obligations; maximum is 1' "$TEST_ROOT/cap-plan.out"
 
 "$HARNESS_BIN/manager-init-project-plan" "$env_file" "$plan" "$coverage" >/dev/null
 grep -Fqx $'REQ-1\tn1\tFocused negative and nonnegative target_symbol test' "$project_dir/control/specification-coverage.tsv"

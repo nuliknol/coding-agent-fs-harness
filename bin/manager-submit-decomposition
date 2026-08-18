@@ -102,10 +102,11 @@ rejection_log="$candidate_dir/rejection.log"
 rm -f "$rejection_log"
 set +e
 architecture_report_unscoped_candidate_validations "$dag_stage" "$architecture_stage" \
-	> >(tee "$rejection_log") 2>&1
+	> "$rejection_log" 2>&1
 scope_status=$?
 set -e
 if (( scope_status != 0 )); then
+	head -n "$HARNESS_VALIDATION_OUTPUT_MAX_LINES" "$rejection_log" | head -c "$HARNESS_VALIDATION_OUTPUT_MAX_BYTES" >&2
 	sed -i 's/^status=.*/status=REJECTED/' "$state"
 	sed -i '/^rejection_stage=/d; /^rejection_log=/d' "$state"
 	printf 'rejection_stage=validation_scope\n' >> "$state"
@@ -118,10 +119,11 @@ if (( HARNESS_ARCHITECTURE_GUARDS == 1 )) && [[ "$architecture_stage" != - ]] &&
 	set +e
 	(
 		architecture_initialize "$architecture_stage"
-	) > >(tee "$rejection_log") 2>&1
+	) > "$rejection_log" 2>&1
 	architecture_status=$?
 	set -e
 	if (( architecture_status != 0 )); then
+		head -n "$HARNESS_VALIDATION_OUTPUT_MAX_LINES" "$rejection_log" | head -c "$HARNESS_VALIDATION_OUTPUT_MAX_BYTES" >&2
 		sed -i 's/^status=.*/status=REJECTED/' "$state"
 		sed -i '/^rejection_stage=/d; /^rejection_log=/d' "$state"
 		printf 'rejection_stage=architecture\n' >> "$state"
@@ -159,10 +161,11 @@ fi
 set +e
 (
 	initialize_project_plan "$dag_stage" "$coverage_stage"
-) > >(tee "$rejection_log") 2>&1
+) > "$rejection_log" 2>&1
 plan_status=$?
 set -e
 if (( plan_status != 0 )); then
+	head -n "$HARNESS_VALIDATION_OUTPUT_MAX_LINES" "$rejection_log" | head -c "$HARNESS_VALIDATION_OUTPUT_MAX_BYTES" >&2
 	if [[ "$registered_by_candidate" == 1 ]] && ! project_plan_exists; then
 		rm -rf -- "$(architecture_dir)"
 	fi

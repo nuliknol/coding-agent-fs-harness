@@ -18,8 +18,9 @@ decomposition_candidate_matches_current_inputs || die 'no current full decomposi
 candidate_dir="$(decomposition_candidate_state_value directory)"
 context_dir="$candidate_dir/context-admission"
 [[ -s "$context_dir/repair.tsv" ]] || die 'candidate has no typed Context Closure repair report'
-awk -F '\t' 'NR>1 {found=1} END {exit !found}' "$context_dir/repair.tsv" ||
-	die 'candidate Context Closure repair report has no rejected leaves'
+awk -F '\t' 'NR>1 {found=1; if($3!="GRAFT_GRAPH_CUTS") bad=1} END {exit !(found && !bad)}' \
+	"$context_dir/repair.tsv" ||
+	die 'candidate Context Closure report is not a recursive graph-cut repair'
 
 # Re-stage the exact bound DAG/coverage through the pre-binding transaction.
 # Architecture binding can introduce additional ownership seams, so a DAG that

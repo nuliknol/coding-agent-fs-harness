@@ -602,6 +602,14 @@ sed -i '/^rejection_stage=/d; /^rejection_log=/d; /^repair_route=/d; /^repair_ro
 	"$project_dir/control/decomposition-candidate.env"
 printf 'rejection_stage=context_closure\nrejection_log=%s\n' \
 	"$full_context_candidate/context-admission/repair.tsv" >> "$project_dir/control/decomposition-candidate.env"
+cp "$full_context_candidate/context-admission/repair.tsv" "$TEST_ROOT/graph-cut-repair.tsv"
+sed 's/GRAFT_GRAPH_CUTS/REPAIR_AUTHORITY_BINDING/; s/CLOSURE_BUDGET_EXCEEDED/AUTHORITY_EVIDENCE_MISSING/; s/decomposition-compiler/architecture-registry/; s/\t-\t-\townership-boundary-budget-exceeded/\tARCHITECTURE_BINDING\tn01\tplan node absent from node-bindings.tsv/' \
+	"$TEST_ROOT/graph-cut-repair.tsv" > "$full_context_candidate/context-admission/repair.tsv"
+if "$HARNESS_BIN/manager-route-decomposition-context-repair" "$env_file" >/dev/null 2>&1; then
+	printf 'architecture authority repair was incorrectly routed as a DAG graph cut\n' >&2
+	exit 1
+fi
+cp "$TEST_ROOT/graph-cut-repair.tsv" "$full_context_candidate/context-admission/repair.tsv"
 "$HARNESS_BIN/manager-route-decomposition-context-repair" "$env_file" >/dev/null 2>&1
 grep -Fqx 'status=REPAIR_ROUTED' "$project_dir/control/decomposition-candidate.env"
 grep -Fqx 'repair_route=recursive_context_closure' "$project_dir/control/decomposition-candidate.env"

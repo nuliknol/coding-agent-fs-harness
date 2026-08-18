@@ -220,6 +220,20 @@ while ! project_plan_exists; do
 			full_rejection_log="$(decomposition_candidate_state_value rejection_log "$(decomposition_candidate_state_value directory)/rejection.log")"
 			if [[ "$(decomposition_candidate_state_value rejection_stage -)" == context_closure ]] &&
 				[[ -s "$(decomposition_candidate_state_value directory)/context-admission/repair.tsv" ]]; then
+				context_authority_repair="$(decomposition_candidate_state_value directory)/context-admission/repair.tsv"
+				if awk -F '\t' '
+					NR > 1 {
+						found=1
+						if ($2!="AUTHORITY_EVIDENCE_MISSING" || $3!="REPAIR_AUTHORITY_BINDING" ||
+							$5!="ARCHITECTURE_BINDING" || $7 !~ /plan node absent from node-bindings.tsv/) bad=1
+					}
+					END {exit !(found && !bad)}
+				' "$context_authority_repair"; then
+					printf 'Repairing missing architecture node bindings without another decomposition turn.\n'
+					if "$HARNESS_BIN/manager-repair-decomposition-node-bindings" "$HARNESS_ENV_FILE"; then
+						continue
+					fi
+				fi
 				printf 'Routing architecture-bound Context Closure rejection back to recursive DAG decomposition.\n'
 				"$HARNESS_BIN/manager-route-decomposition-context-repair" "$HARNESS_ENV_FILE"
 				continue

@@ -6225,7 +6225,7 @@ initialize_project_plan_v2()
 	local node_id parent_id depends_on deliverable acceptance_evidence focused_validation field_index
 	local allowed_paths required_symbols leaf_type complexity_class worker_route dependency
 	local node_count luna_count luna_percent coding_count luna_coding_count luna_coding_percent has_leaf_type=0 has_complexity=0 route_column=11 type_column=9
-	local obligations_for_node provenance provenance_tmp route_violations zero_write_scope
+	local obligation_violations provenance provenance_tmp route_violations zero_write_scope
 	local -a fields=()
 	expected_header="$(decomposition_typed_header)"
 	complexity_header="$(decomposition_complexity_header)"
@@ -6378,19 +6378,29 @@ initialize_project_plan_v2()
 		[[ -n "$coverage_source" ]] || die 'normalized specification DAG requires a coverage file'
 		validate_specification_coverage_file "$coverage_source" "$dag_tmp"
 		if (( has_leaf_type == 1 )); then
-			while IFS=$'\t' read -r -a fields; do
-				[[ "${fields[10]:-}" == LUNA ]] || continue
-				node_id="${fields[0]}"
-				obligations_for_node="$(awk -F '\t' -v wanted="$node_id" '
-					NR > 1 {
+			# Report the complete semantic fan-in defect class in one bounded
+			# diagnostic. Stopping at the first node spends one Sol repair turn
+			# per offender and can exhaust startup's investigation fuse without
+			# giving the repair agent any new kind of evidence.
+			obligation_violations="$(awk -F '\t' -v route="$route_column" \
+				-v maximum="$HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF" '
+				NR == FNR {
+					if (FNR > 1) {
 						n=split($2, ids, ",")
-						for (i=1; i<=n; i++) if (ids[i] == wanted) {count++; break}
+						for (i=1; i<=n; i++) if (ids[i] != "" && ids[i] != "-" &&
+							!row_seen[FNR SUBSEP ids[i]]++) count[ids[i]]++
 					}
-					END {print count+0}
-				' "$coverage_source")"
-				(( obligations_for_node <= HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF )) ||
-					die "Luna node $node_id inherits $obligations_for_node obligations; maximum is $HARNESS_MAX_LUNA_OBLIGATIONS_PER_LEAF, so split its semantic responsibility"
-			done < <(tail -n +2 "$dag_tmp")
+					next
+				}
+				FNR > 1 && $route == "LUNA" && count[$1] > maximum {
+					printf "Luna node %s inherits %d obligations; maximum is %d, so split its semantic responsibility\n", $1, count[$1], maximum
+				}
+			' "$coverage_source" "$dag_tmp")"
+			if [[ -n "$obligation_violations" ]]; then
+				printf 'ERROR: decomposition obligation fan-in has multiple or unresolved defects:\n%s\n' \
+					"$obligation_violations" >&2
+				return 1
+			fi
 		fi
 		install -m 600 "$coverage_source" "$coverage_tmp"
 	elif [[ -n "$coverage_source" ]]; then
