@@ -186,7 +186,7 @@ done
 agent_workdir="$REPOSITORY"
 agent_add_dirs=(--add-dir "$HARNESS_ROOT" --add-dir "$PROJECT_TMP_DIR")
 agent_repository_args=()
-if [[ "$role" =~ ^worker && "$(prompt_value CONTEXT_CLOSURE_MODE)" == patch_only ]]; then
+if [[ "$role" =~ ^worker && "$(prompt_value PATCH_ONLY_EXECUTION)" == 1 ]]; then
 	sandbox=read-only
 	agent_workdir="$PROJECT_TMP_DIR/patch-only-$(prompt_value TASK_ID)"
 	mkdir -p "$agent_workdir"

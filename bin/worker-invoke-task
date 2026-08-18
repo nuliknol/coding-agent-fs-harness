@@ -418,6 +418,11 @@ $HARNESS_BIN/harness-run-assigned-validation "$HARNESS_ENV_FILE" "$task_id" LABE
 Use that command when Focused-Validation is executable. When it is descriptive, run a concrete validation through harness-run-logged. A compound command must be passed as one quoted /bin/bash -lc argument; placing a logical operator after the harness-run-logged invocation is forbidden because the following command escapes capture. Never invoke a potentially verbose build/test command directly. Validation-Class CLEAN_GLOBAL authorizes observation only in a Terra integration leaf; it never broadens implementation scope. Commit every task-owned source/source-related change with harness-commit-source before a terminal result. Use harness-publish-branch when Publish-Branch is declared. Never run direct Git index/history mutations. Generated output, object files, binaries, ignored files, and paths outside Allowed-Scope must remain uncommitted. Write scratch files and the result report under PROJECT_TMP_DIR, publish the result with worker-complete-task, and terminate. If an exact mandatory cross-harness Git ref is absent, use worker-wait-dependency with a precise requirements TSV and supplier note instead of repeating absence audits or claiming gain. Do not wait for another task.
 PROMPT
 fi
+# CONTEXT_CLOSURE_MODE describes the project policy.  The launcher may exempt a
+# zero-write VERIFICATION_ONLY leaf from patch compilation while retaining the
+# required compiled capsule.  Publish the effective per-invocation decision so
+# codex-exec-jsonl does not infer repository isolation from the broader policy.
+printf '\nPATCH_ONLY_EXECUTION=%s\n' "$patch_only_execution" >> "$prompt_file.tmp.$$"
 if (( patch_only_execution == 1 )); then
 	cat >> "$prompt_file.tmp.$$" <<'PROMPT'
 

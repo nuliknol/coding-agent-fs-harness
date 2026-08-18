@@ -196,10 +196,17 @@ run_case() {
 run_case success success
 # Patch-only workers run in a non-repository scratch directory and therefore
 # must explicitly waive Codex's Git worktree startup check.
-printf 'CONTEXT_CLOSURE_MODE=patch_only\nTASK_ID=001\n' > "$TMP/patch-only-prompt"
+printf 'CONTEXT_CLOSURE_MODE=patch_only\nPATCH_ONLY_EXECUTION=1\nTASK_ID=001\n' > "$TMP/patch-only-prompt"
 MOCK_MODE=arg_capture "$ROOT/bin/codex-exec-jsonl" "$TMP/env" worker_luna gpt-5.5 \
 	"$TMP/patch-only-prompt" "$TMP/patch-only.jsonl" "$TMP/patch-only.stderr" "$TMP/patch-only.last"
 grep -q -- '--skip-git-repo-check' "$TMP/patch-only.last"
+# Project patch-only policy can retain normal bounded repository access for a
+# zero-write verification leaf; only the launcher's effective decision isolates
+# the process in the tool-less scratch directory.
+printf 'CONTEXT_CLOSURE_MODE=patch_only\nPATCH_ONLY_EXECUTION=0\nTASK_ID=002\n' > "$TMP/verification-prompt"
+MOCK_MODE=arg_capture "$ROOT/bin/codex-exec-jsonl" "$TMP/env" worker_luna gpt-5.5 \
+	"$TMP/verification-prompt" "$TMP/verification.jsonl" "$TMP/verification.stderr" "$TMP/verification.last"
+! grep -q -- '--skip-git-repo-check' "$TMP/verification.last"
 # Durable capsule paths named by a manager prompt are also exported into its
 # shell, preventing repeated harness-state path discovery.
 printf 'REVIEW_CONTEXT_CAPSULE_FILE=%s\nRESULT_FILE=%s\n' "$TMP/review-capsule.md" "$TMP/result.md" > "$TMP/env-capture-prompt"
