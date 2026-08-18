@@ -890,7 +890,7 @@ load_harness_env()
 	[[ "$HARNESS_WORKER_ISOLATION_MODE" =~ ^(serial|worktree)$ ]] || die 'HARNESS_WORKER_ISOLATION_MODE must be serial or worktree'
 	[[ "$HARNESS_MANAGER_BATCH_SIZE" =~ ^[1-4]$ ]] || die 'HARNESS_MANAGER_BATCH_SIZE must be between 1 and 4'
 	[[ "$HARNESS_SCTM_ENABLED" =~ ^[01]$ ]] || die 'HARNESS_SCTM_ENABLED must be 0 or 1'
-	[[ "$HARNESS_SCTM_SUBMIT_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_SCTM_SUBMIT_TIMEOUT_SECONDS must be positive'
+	[[ "$HARNESS_SCTM_SUBMIT_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_SCTM_SUBMIT_TIMEOUT_SECONDS must be a non-negative integer'
 	[[ "$HARNESS_SCTM_MAX_CONFLICT_DELTA_BYTES" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_SCTM_MAX_CONFLICT_DELTA_BYTES must be positive'
 	if (( HARNESS_SCTM_ENABLED == 1 )) && [[ "$HARNESS_WORKER_ISOLATION_MODE" != worktree ]]; then
 		die 'HARNESS_SCTM_ENABLED=1 requires HARNESS_WORKER_ISOLATION_MODE=worktree'

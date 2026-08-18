@@ -1120,7 +1120,8 @@ sctm-status project.env
 The durable ledger is under
 `$HARNESS_ROOT/projects/$PROJECT/control/sctm/transactions/`. ACP decomposition
 v2 enables SCTM by default. `HARNESS_SCTM_SUBMIT_TIMEOUT_SECONDS` controls the
-synchronous worker wait (the configured Codex wall timeout, or 3,600 seconds), while
+synchronous worker wait (the configured Codex wall timeout, or 3,600 seconds);
+zero permits an unlimited wait while daemon liveness continues to be checked.
 `HARNESS_SCTM_MAX_CONFLICT_DELTA_BYTES` bounds repair evidence (65,536 bytes by
 default). The normative protocol is documented in `formats/sctm-v1.md`.
 

@@ -94,7 +94,8 @@ deadline=$(( $(date +%s) + HARNESS_SCTM_SUBMIT_TIMEOUT_SECONDS ))
 next_daemon_check=0
 while [[ ! -f "$result" ]]; do
 	now="$(date +%s)"
-	(( now < deadline )) || die "timed out waiting for SCTM transaction: $transaction_id"
+	(( HARNESS_SCTM_SUBMIT_TIMEOUT_SECONDS == 0 || now < deadline )) ||
+		die "timed out waiting for SCTM transaction: $transaction_id"
 	if (( now >= next_daemon_check )); then
 		sctm_pid_is_live || "$HARNESS_BIN/sctm-daemon-start" "$HARNESS_ENV_FILE" >/dev/null
 		next_daemon_check=$((now + 2))

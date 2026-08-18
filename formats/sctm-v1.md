@@ -63,4 +63,5 @@ committing twice; any third state becomes `INTERNAL_ERROR`.
 
 Operators use `sctm-daemon-start`, `sctm-daemon-stop`, and `sctm-status` with a
 harness environment file. `harness-start` and `harness-stop` manage the daemon
-automatically when `HARNESS_SCTM_ENABLED=1`.
+automatically when `HARNESS_SCTM_ENABLED=1`. A submit timeout of zero means an
+unlimited wait with periodic daemon-liveness recovery.
