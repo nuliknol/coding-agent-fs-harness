@@ -438,7 +438,7 @@ sed \
 	-e 's/^Goal-ID: n1.goal$/Goal-ID: n1.readonly.repair/' \
 	-e 's#^Focused-Validation:.*#Focused-Validation: command -v source-audit-evidence-check#' \
 	-e 's#^Allowed-Scope: -$#Allowed-Scope: src#' \
-	-e 's#^Context-Paths: -$#Context-Paths: src#' \
+	-e 's#^Context-Paths: -$#Context-Paths: src/CMakeLists.txt#' \
 	-e 's/^Required-Symbols: -$/Required-Symbols: source-audit-evidence-check/' \
 	-e 's/^Make target_symbol return one\.$/Verify the bounded registration source without repository edits./' \
 	-e 's/^- The focused evidence passes\.$/- The bounded registration source is inspected before command resolution./' \
@@ -456,7 +456,7 @@ grep -Fq 'READ_ONLY_MANAGER_REMEDIATION_SCOPE_NORMALIZED root=001 task=001-revis
 	"$read_only_remediation_project/logs/events.log"
 grep -Fq 'READ_ONLY_VALIDATION_LABEL_NORMALIZED root=001 task=001-revision-01 label=source-audit-evidence-check' \
 	"$read_only_remediation_project/logs/events.log"
-grep -Fq 'READ_ONLY_CONTEXT_ROOT_EXPANDED root=001 task=001-revision-01 requested=src prior=src/CMakeLists.txt direct_includes=1' \
+grep -Fq 'READ_ONLY_CMAKE_CONTEXT_EXPANDED root=001 task=001-revision-01 prior=src/CMakeLists.txt direct_includes=1' \
 	"$read_only_remediation_project/logs/events.log"
 
 # A resource fuse that observes durable source progress must schedule a

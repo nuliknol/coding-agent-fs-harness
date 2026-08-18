@@ -1429,7 +1429,7 @@ normalize_recovery_context_paths()
 {
 	local requested required allowed validation normalized normalized_allowed entry symbol candidate tmp changed=0
 	local found duplicate exact_file stem directory matching_count replan_outcome prior_context_paths
-	local cmake_root include_path
+	local cmake_root cmake_directory include_path
 	local -a entries=() kept=() symbols=() candidates=() source_directories=() exact_files=()
 	local -a normalized_allowed_entries=() direct_includes=() deduplicated=()
 	(( recovery_publish == 1 )) || return 0
@@ -1505,6 +1505,32 @@ normalize_recovery_context_paths()
 			# it with tracked source files below.
 			source_directories+=("$entry")
 			changed=1
+			continue
+		fi
+		# A correction may retain the exact root file without repeating its parent
+		# directory. When that file is the already-incomplete capsule, compile the
+		# same bounded direct-include closure as the directory form above.
+		if [[ "$entry" != /* && "$entry" == */CMakeLists.txt &&
+			"$allowed" == - && "$(metadata_value "$task_file" Leaf-Type)" == VERIFICATION_ONLY &&
+			( "$required" == - || -z "$required" ) &&
+			"$replan_outcome" == MANAGER_REMEDIATION_CONTEXT_INCOMPLETE &&
+			-f "$REPOSITORY/$entry" ]] &&
+			scope_is_within_root_authority "$entry" "$prior_context_paths"; then
+			kept+=("$entry")
+			exact_files+=("$entry")
+			cmake_directory="${entry%/CMakeLists.txt}"
+			mapfile -t direct_includes < <(
+				sed -n 's@.*${CMAKE_CURRENT_SOURCE_DIR}/\([^\")[:space:]]*\.cmake\).*@\1@p' \
+					"$REPOSITORY/$entry" |
+					awk 'NF && !seen[$0]++' | head -n 7
+			)
+			for include_path in "${direct_includes[@]}"; do
+				[[ -f "$REPOSITORY/$cmake_directory/$include_path" ]] || continue
+				kept+=("$cmake_directory/$include_path")
+				exact_files+=("$cmake_directory/$include_path")
+			done
+			changed=1
+			log_event "READ_ONLY_CMAKE_CONTEXT_EXPANDED root=$root task=$task_id prior=$(printf '%q' "$entry") direct_includes=${#direct_includes[@]}"
 			continue
 		fi
 		kept+=("$entry")
