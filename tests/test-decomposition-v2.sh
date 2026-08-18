@@ -192,6 +192,16 @@ fi
 grep -Fq 'Focused-Validation must not redirect stdout or stderr' \
 	"$TEST_ROOT/suppressed-validation.out"
 sed \
+	-e 's#^Focused-Validation:.*#Focused-Validation: /tmp/harness-run-logged env-file task-id label#' \
+	"$TEST_ROOT/task.md" > "$TEST_ROOT/malformed-logged-validation-task.md"
+if "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" 001 \
+	"$TEST_ROOT/malformed-logged-validation-task.md" n1 > "$TEST_ROOT/malformed-logged-validation.out" 2>&1; then
+	printf 'harness-run-logged validation without a command separator was accepted\n' >&2
+	exit 1
+fi
+grep -Fq 'harness-run-logged without its required ENV_FILE TASK_ID LABEL -- COMMAND contract' \
+	"$TEST_ROOT/malformed-logged-validation.out"
+sed \
 	-e 's#^Goal-Success-Evidence:.*#Goal-Success-Evidence: fixture execution reports the expected runtime status#' \
 	-e 's#^Focused-Validation:.*#Focused-Validation: cmake -S . -B /tmp/decompv2-build \&\& cmake --build /tmp/decompv2-build --target focused-smoke#' \
 	"$TEST_ROOT/task.md" > "$TEST_ROOT/build-only-runtime-task.md"
