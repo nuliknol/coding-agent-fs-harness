@@ -8,6 +8,7 @@ source "$SCRIPT_DIR/../lib/harness-common.sh"
 load_harness_env "$1"
 ensure_project
 require_manager_configuration
+dir="$(project_dir)"
 project_plan_exists && { printf 'Decomposition DAG already exists.\n'; exit 0; }
 decomposition_candidate_matches_current_inputs || die 'no current full decomposition candidate exists'
 [[ "$(decomposition_candidate_state_value status)" == REJECTED ]] ||
