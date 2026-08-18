@@ -1593,6 +1593,7 @@ normalize_exhausted_luna_recovery_route
 enforce_revision_authority()
 {
 	local root_scope effective_root_scope root_architecture scope_override additional_scope reason="" category=IMMUTABLE_ROOT_AUTHORITY
+	local recovery_trigger="" recovery_marker
 	[[ "$task_id" != "$root" && -f "$root_assignment" ]] || return 0
 	root_scope="$(metadata_value "$root_assignment" Allowed-Scope)"
 	effective_root_scope="$root_scope"
@@ -1623,6 +1624,23 @@ enforce_revision_authority()
 		reason="revision introduces architecture authority not granted by the root: root=[$root_architecture] revision=[$leaf_architecture_decisions]"
 	fi
 	if [[ -n "$reason" ]]; then
+		recovery_marker="$(task_root_replan_file "$root")"
+		[[ -f "$recovery_marker" ]] || recovery_marker="$(task_root_replanning_file "$root")"
+		recovery_trigger="$(metadata_value "$recovery_marker" Trigger-Outcome 2>/dev/null || true)"
+		# MANAGER_REMEDIATION_SCOPE_EXHAUSTED machine-forbids every candidate
+		# contained by the prior remediation path. Once the fresh manager names a
+		# concrete adjacent path outside immutable root authority, no legal local
+		# correction exists: reverting would republish the exhausted path and a
+		# second manager turn would repeat the same impossible choice. Preserve the
+		# candidate as an explicit architecture authority decision immediately.
+		if (( recovery_publish == 1 && manager_remediation == 1 )) &&
+			[[ "$recovery_trigger" == MANAGER_REMEDIATION_SCOPE_EXHAUSTED ]]; then
+			mark_root_architecture_reassessment "$task_id" MANAGER_REMEDIATION_SCOPE_EXPANSION \
+				"$reason" "root_assignment=$root_assignment candidate=$task_file" >/dev/null
+			log_event "RECOVERY_SCOPE_EXPANSION_REQUIRED root=$root task=$task_id trigger=$recovery_trigger reason=$(printf '%q' "$reason")"
+			printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
+			exit 6
+		fi
 		# Recovery publication is a bounded correction transaction. Reject the
 		# first over-broad candidate without pausing the root so the same manager
 		# turn can remove a misspelled build target, speculative context path, or

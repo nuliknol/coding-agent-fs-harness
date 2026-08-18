@@ -592,6 +592,23 @@ while true; do
 	set -e
 	classification="$(kv_file_value "${json_log%.jsonl}.classification" classification 2>/dev/null || true)"
 	record_root_agent_tokens "$root" manager_replan "${json_log%.jsonl}.classification"
+	# An exhausted-scope transaction cannot legally fall back to the prior path.
+	# Promote the first concrete adjacent out-of-authority candidate immediately,
+	# including providers that write the candidate but do not invoke the publisher
+	# themselves. This prevents fresh turns from alternating forever between one
+	# forbidden old path and one unauthorized adjacent path.
+	if [[ "$trigger_outcome" == MANAGER_REMEDIATION_SCOPE_EXHAUSTED ]] &&
+		manager_remediation_candidate_exceeds_authority; then
+		candidate_scope="$(metadata_value "$task_output" Remediation-Scope)"
+		root_scope="$(metadata_value "$root_assignment" Allowed-Scope)"
+		mark_root_architecture_reassessment "$expected_task_id" \
+			MANAGER_REMEDIATION_SCOPE_EXPANSION \
+			"bounded manager recovery identified the exact adjacent remediation scope outside immutable root authority: root=[$root_scope] revision=[$candidate_scope]" \
+			"root_assignment=$root_assignment candidate=$task_output trigger=$trigger_task" >/dev/null
+		log_event "MANAGER_RECOVERY_SCOPE_EXPANSION_PROMOTED root=$root trigger=$trigger_task expected_task=$expected_task_id candidate_scope=$(printf '%q' "$candidate_scope")"
+		printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
+		exit 0
+	fi
 	if task_published; then
 		new_thread_id="$(codex_thread_id_from_jsonl "$json_log" 2>/dev/null || true)"
 		if [[ "$new_thread_id" =~ ^[A-Za-z0-9-]+$ ]]; then

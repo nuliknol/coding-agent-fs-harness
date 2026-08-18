@@ -2427,7 +2427,10 @@ Blocker-Class: LOCAL_SCOPE_PREREQUISITE
 Remediation-Scope: src/root-owned.c
 MARKER
 printf 'export MOCK_REPLAN_LEAVE_OUT_OF_SCOPE="1"\n' >> "$AUTO_ROOT/harness.env"
-printf 'export HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS="2"\n' >> "$AUTO_ROOT/harness.env"
+# An exhausted-scope recovery has no legal in-authority fallback. Its first
+# concrete adjacent path must become an explicit authority decision without a
+# second manager turn or a correction back to the forbidden prior path.
+printf 'export HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS="3"\n' >> "$AUTO_ROOT/harness.env"
 scope_expansion_marker="$("$HARNESS_BIN/manager-auto-replan-root" "$AUTO_ROOT/harness.env" 001)"
 [[ "$scope_expansion_marker" == \
 	"$auto_progress/autoreplanproj-task-001.architecture-reassessment-required.md" ]]
@@ -2435,6 +2438,8 @@ grep -Fqx 'Category: MANAGER_REMEDIATION_SCOPE_EXPANSION' "$scope_expansion_mark
 grep -Fq 'revision=[src/outside-root-authority.c]' "$scope_expansion_marker"
 grep -Fq 'MANAGER_RECOVERY_SCOPE_EXPANSION_PROMOTED root=001 trigger=001-revision-12' \
 	"$auto_project/logs/events.log"
+[[ "$(grep -c 'MANAGER_REPLAN_STARTED root=001 trigger=001-revision-12' \
+	"$auto_project/logs/events.log")" == 1 ]]
 [[ ! -f "$auto_project/control/autoreplanproj-task-001.manager-replan-failed.md" ]]
 
 # A broad immutable leaf can be refined only by appending ordered children.
