@@ -2173,9 +2173,13 @@ if (( recovery_publish == 1 )); then
 			exhausted_remediation_scope="$(metadata_value "$(task_root_replan_file "$root")" Remediation-Scope)"
 			[[ -n "$exhausted_remediation_scope" ]] ||
 				die 'exhausted manager remediation marker is missing Remediation-Scope'
-			[[ "$(canonical_scope_path_set "$remediation_scope")" != \
-				"$(canonical_scope_path_set "$exhausted_remediation_scope")" ]] ||
-				die "manager remediation scope is exhausted for this criterion; name the exact adjacent producer, representation, consumer, or validation seam instead of republishing: $exhausted_remediation_scope"
+			if (( read_only_remediation == 0 )); then
+				[[ "$(canonical_scope_path_set "$remediation_scope")" != \
+					"$(canonical_scope_path_set "$exhausted_remediation_scope")" ]] ||
+					die "manager remediation scope is exhausted for this criterion; name the exact adjacent producer, representation, consumer, or validation seam instead of republishing: $exhausted_remediation_scope"
+			else
+				log_event "READ_ONLY_EXHAUSTED_SCOPE_REFINED root=$root task=$task_id target=$target_criterion scope=-"
+			fi
 		elif [[ "$replan_trigger_outcome" == MANAGER_REMEDIATION_CONTEXT_INCOMPLETE ]]; then
 			retained_remediation_scope="$(metadata_value "$(task_root_replan_file "$root")" Remediation-Scope)"
 			prior_context_paths="$(metadata_value "$(task_root_replan_file "$root")" Context-Paths)"
