@@ -164,7 +164,7 @@ def main() -> int:
                     worker_invocations += 1
                     first_event = when if first_event is None else min(first_event, when)
                     last_event = when if last_event is None else max(last_event, when)
-                elif event == "WORKER_AGENT_PROCESS_EXITED":
+                elif event in {"WORKER_INVOCATION_FINISHED", "WORKER_AGENT_PROCESS_EXITED"}:
                     key = (values.get("task", "-"), values.get("session", "-"),
                            values.get("attempt", "-"))
                     if starts[key]:
@@ -174,12 +174,13 @@ def main() -> int:
                                "MANAGER_REPLAN_STARTED", "MANAGER_BOOTSTRAP_STARTED",
                                "MANAGER_GOAL_CONTINUATION_REVIEW_STARTED"}:
                     manager_invocations += 1
-    now = datetime.now(timezone.utc)
-    for pending in starts.values():
-        while pending:
-            began = pending.popleft()
-            worker_seconds += max(0.0, (now - began).total_seconds())
-            last_event = now
+    # Releases before durable process-exit events contain starts without a
+    # trustworthy matching end (resource fuses and interrupted supervisors are
+    # common examples).  Extending every historical open interval to `now`
+    # wildly overstates occupancy and can report utilization above 100%.  Count
+    # only measured closed intervals.  New releases emit PROCESS_EXITED on every
+    # path; INVOCATION_FINISHED remains the exact legacy-compatible endpoint.
+    unclosed_intervals = sum(len(pending) for pending in starts.values())
     wall_seconds = 0.0 if first_event is None or last_event is None else max(
         0.0, (last_event - first_event).total_seconds())
     capacity = max(1, args.capacity)
@@ -198,6 +199,7 @@ def main() -> int:
     print(f"manager_invocations={manager_invocations}")
     print(f"worker_occupied_seconds={int(worker_seconds)}")
     print(f"worker_observation_seconds={int(wall_seconds)}")
+    print(f"worker_unclosed_intervals={unclosed_intervals}")
     print(f"worker_slot_utilization_percent={utilization}")
     return 0
 

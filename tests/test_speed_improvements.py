@@ -35,7 +35,11 @@ class SpeedImprovementTests(unittest.TestCase):
             conflicts.write_text("left_node\tright_node\treasons\na\tb\tarchitecture:test\n",
                                  encoding="utf-8")
             events = root / "events.log"
-            events.write_text("", encoding="utf-8")
+            events.write_text(
+                "2026-08-18T00:00:00Z\tWORKER_INVOCATION_STARTED task=a session=s1 attempt=1\n"
+                "2026-08-18T00:01:00Z\tWORKER_INVOCATION_FINISHED task=a session=s1 attempt=1\n"
+                "2026-08-18T00:02:00Z\tWORKER_INVOCATION_STARTED task=b session=legacy attempt=1\n",
+                encoding="utf-8")
             output = subprocess.check_output([
                 "python3", str(ROOT / "tools/analyze_decomposition_parallelism.py"),
                 "--plan", str(plan), "--state", str(state), "--events", str(events),
@@ -46,6 +50,9 @@ class SpeedImprovementTests(unittest.TestCase):
             self.assertEqual(metrics["dependency_ready_width"], "2")
             self.assertEqual(metrics["safe_ready_width"], "1")
             self.assertEqual(metrics["conflict_reduced_max_width"], "2")
+            self.assertEqual(metrics["worker_occupied_seconds"], "60")
+            self.assertEqual(metrics["worker_unclosed_intervals"], "1")
+            self.assertEqual(metrics["worker_slot_utilization_percent"], "12.50")
 
     def test_disjoint_indexed_regions_remove_same_file_conflict(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
