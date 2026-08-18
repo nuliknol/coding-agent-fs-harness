@@ -354,6 +354,9 @@ while IFS= read -r -d '' env_file; do
 		description="$task${route:+ [$route]} is active."
 	else [[ "$manager" == running* ]] && display_status='m/running' || display_status='m/stopped'; description="Planning next dependency-ready leaf ($complete/$total)."
 	fi
+	if [[ "$project_status" == ACTIVE_WITH_PAUSED_ROOTS.* ]]; then
+		description+=$'\n''Other independent root(s) remain paused for architecture reassessment.'
+	fi
 	trace="$(latest_trace "$dir")"
 	if [[ "$display_status" != done && -n "$trace" && -f "$trace" ]]; then age=$(( $(date +%s) - $(stat -c %Y "$trace") )); (( age >= 0 )) || age=0; action="$(latest_trace_action "$trace")"; description+=$'\n'"Activity $(human_duration "$age") ago."; [[ -z "$action" ]] || description+=$'\n'"$action"; fi
 	print_row "$project" "$cycle" "$display_status" "$completion" "$description"

@@ -597,6 +597,8 @@ elif project_completion_recorded && project_plan_all_complete; then
 	else
 		project_status_line='Project status: COMPLETE. Every project-plan item is accepted.'
 	fi
+elif (( architecture_reassessment_count > 0 && active_count > 0 )); then
+	project_status_line='Project status: ACTIVE_WITH_PAUSED_ROOTS. Independent roots remain active while one or more roots await explicit architecture reassessment.'
 elif (( architecture_reassessment_count > 0 )); then
 	project_status_line='Project status: ARCHITECTURE_REASSESSMENT_REQUIRED. The monotonic root liveness, immutable authority, or accepted-dependency boundary was reached; verified work is preserved and further agent launches are suppressed.'
 elif (( waiting_dependency_count > 0 )); then

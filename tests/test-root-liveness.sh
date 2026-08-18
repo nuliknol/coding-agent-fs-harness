@@ -234,6 +234,17 @@ grep -Fq 'Project status: ARCHITECTURE_REASSESSMENT_REQUIRED.' \
 grep -Eq '^Active root progress: [0-9]+% \([0-9]+ verified item\(s\)\)\.$' \
 	< <("$HARNESS_BIN/harness-status" --machine "$TEST_ROOT/harness.env")
 
+# A root-local architecture fuse must not make an independent runnable root
+# disappear from project status or the multi-root scheduler view.
+cat > "$project/tasks/livenessproj-task-independent.ready.md" <<'MD'
+Task-ID: independent
+Task-Root: independent
+Worker-Route: LUNA
+MD
+grep -Fq 'Project status: ACTIVE_WITH_PAUSED_ROOTS.' \
+	< <("$HARNESS_BIN/harness-status" --machine "$TEST_ROOT/harness.env")
+rm -f "$project/tasks/livenessproj-task-independent.ready.md"
+
 cat > "$TEST_ROOT/resolution.md" <<'MD'
 The operator reviewed the bounded evidence and approved a revised architecture boundary.
 MD

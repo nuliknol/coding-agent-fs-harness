@@ -1313,36 +1313,40 @@ def build_closure(args: argparse.Namespace) -> str:
     # indexed cut with the immutable assignment scope and carries a separate
     # exact context path field.
     repair_children: list[dict[str, str]] = []
+    read_only_repair = values.get("Leaf-Type", "").strip() == "VERIFICATION_ONLY" and not allowed_scopes
     for cut in suggested_cuts:
         cut_paths = split_list(cut["allowed_paths"])
-        mutable_paths = [path for path in cut_paths if path_is_allowed(path, allowed_scopes)]
-        if not mutable_paths:
+        candidate_paths = cut_paths if read_only_repair else [
+            path for path in cut_paths if path_is_allowed(path, allowed_scopes)
+        ]
+        if not candidate_paths:
             continue
         symbols_by_path: dict[str, list[str]] = {}
         for item in ordered_items:
-            if item["path"] in mutable_paths and item["symbol"] != "-":
+            if item["path"] in candidate_paths and item["symbol"] != "-":
                 symbols_by_path.setdefault(item["path"], []).append(item["symbol"])
         boundaries: list[tuple[list[str], list[str]]] = []
         if cut["route_hint"] == "LUNA":
-            mutable_symbols = sorted({symbol for path in mutable_paths
+            mutable_symbols = sorted({symbol for path in candidate_paths
                                       for symbol in symbols_by_path.get(path, [])})
-            boundaries.append((mutable_paths, mutable_symbols))
-        elif len(mutable_paths) > 1:
-            for path in mutable_paths:
+            boundaries.append((candidate_paths, mutable_symbols))
+        elif len(candidate_paths) > 1:
+            for path in candidate_paths:
                 boundaries.append(([path], sorted(set(symbols_by_path.get(path, [])))))
-        elif mutable_paths:
-            path_symbols = sorted(set(symbols_by_path.get(mutable_paths[0], [])))
+        elif candidate_paths:
+            path_symbols = sorted(set(symbols_by_path.get(candidate_paths[0], [])))
             if len(path_symbols) > 1:
-                boundaries.extend((mutable_paths, [symbol]) for symbol in path_symbols)
+                boundaries.extend((candidate_paths, [symbol]) for symbol in path_symbols)
             else:
-                boundaries.append((mutable_paths, path_symbols))
-        for child_paths, child_symbols in boundaries:
+                boundaries.append((candidate_paths, path_symbols))
+        for child_context_paths, child_symbols in boundaries:
+            child_allowed_paths = [] if read_only_repair else child_context_paths
             child_id = "CCR-" + stable_id(task_id, cut["cut_id"],
-                                           ",".join(child_paths),
+                                           ",".join(child_context_paths),
                                            ",".join(child_symbols))[:12]
             child_source_bytes = 0
             for item in ordered_items:
-                if item["path"] not in child_paths:
+                if item["path"] not in child_context_paths:
                     continue
                 source = safe_source_path(repository, item["path"])
                 if source:
@@ -1351,8 +1355,8 @@ def build_closure(args: argparse.Namespace) -> str:
                 "child_id": child_id,
                 "parent_task": task_id,
                 "sequence": "0",
-                "allowed_paths": ",".join(child_paths) or "-",
-                "context_paths": ",".join(child_paths) or "-",
+                "allowed_paths": ",".join(child_allowed_paths) or "-",
+                "context_paths": ",".join(child_context_paths) or "-",
                 "required_symbols": ",".join(child_symbols) or "-",
                 "acceptance_evidence": cut["acceptance_hint"],
                 "focused_validation": cut["acceptance_hint"],

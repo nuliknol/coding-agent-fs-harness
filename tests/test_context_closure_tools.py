@@ -222,6 +222,34 @@ class ContextClosureToolsTest(unittest.TestCase):
         self.assertEqual({"calc.c"}, {child["context_paths"] for child in children})
         self.assertNotIn("calc.h", {child["allowed_paths"] for child in children})
 
+    def test_verification_only_repair_splits_context_without_write_scope(self):
+        connection = sqlite3.connect(self.database)
+        connection.execute("INSERT INTO files VALUES(2,'g','src/other.c','c',NULL,1,0)")
+        connection.execute(
+            "INSERT INTO source_regions VALUES(2,2,'symbol_definition','other',1,0,1,40,NULL,'scip-clang')")
+        connection.execute(
+            "INSERT INTO symbols VALUES('other-sym','g','other','Function','c','-','scip-clang')")
+        connection.execute(
+            "INSERT INTO symbol_definitions VALUES('other-sym',2,'definition','scip-clang')")
+        connection.commit()
+        connection.close()
+
+        status, output = self.closure(
+            extra="Leaf-Type: VERIFICATION_ONLY\n",
+            max_bytes=32,
+            luna_only=True,
+            context_paths="calc.c,src/other.c",
+            required_symbols="add,other",
+            allowed_scope="-",
+        )
+
+        self.assertEqual("NEEDS_FURTHER_DECOMPOSITION", status)
+        with (output / "repair-children.tsv").open(encoding="utf-8", newline="") as stream:
+            children = list(csv.DictReader(stream, delimiter="\t"))
+        self.assertEqual(2, len(children))
+        self.assertEqual({"-"}, {child["allowed_paths"] for child in children})
+        self.assertEqual({"calc.c", "src/other.c"}, {child["context_paths"] for child in children})
+
     def test_discovered_test_evidence_is_capped_before_capsule_rendering(self):
         connection = sqlite3.connect(self.database)
         for index in range(6):
