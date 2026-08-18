@@ -3,6 +3,7 @@
 set -Eeuo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/harness-architecture.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/harness-acp.sh"
 
 die()
 {
@@ -214,6 +215,9 @@ load_harness_env()
 	unset HARNESS_CONTEXT_CLOSURE_MAX_DIRECT_RELATIONSHIPS HARNESS_CONTEXT_CLOSURE_MAX_TESTS
 	unset HARNESS_CONTEXT_CLOSURE_MAX_BUILD_TARGETS HARNESS_CONTEXT_CLOSURE_MAX_ESTIMATED_TOKENS
 	unset HARNESS_CONTEXT_EXPANSION_MAX_BYTES HARNESS_MAX_CONTEXT_EXPANSIONS_PER_LEAF
+	unset HARNESS_ACP_ENABLED HARNESS_ACP_MAX_DUPLICATE_REQUESTS HARNESS_ACP_MAX_REQUESTS_PER_LEAF
+	unset HARNESS_ACP_MAX_TOTAL_ADDED_BYTES HARNESS_ACP_MAX_NO_PROGRESS_REQUESTS
+	unset HARNESS_WORKER_PARALLELISM HARNESS_WORKER_PARALLELISM_HARD_MAX HARNESS_WORKER_ISOLATION_MODE
 	unset HARNESS_PATCH_ONLY_MAX_VALIDATION_ROUNDS
 	unset HARNESS_CONTEXT_CLOSURE_PROMOTION_MIN_SAMPLES HARNESS_CONTEXT_CLOSURE_MIN_FILE_RECALL_PERCENT
 	unset HARNESS_CONTEXT_CLOSURE_MIN_LUNA_SUCCESS_PERCENT HARNESS_CONTEXT_CLOSURE_MAX_FALSE_BLOCK_PERCENT
@@ -483,6 +487,22 @@ load_harness_env()
 	HARNESS_CONTEXT_CLOSURE_MAX_ESTIMATED_TOKENS="${HARNESS_CONTEXT_CLOSURE_MAX_ESTIMATED_TOKENS:-250000}"
 	HARNESS_CONTEXT_EXPANSION_MAX_BYTES="${HARNESS_CONTEXT_EXPANSION_MAX_BYTES:-8192}"
 	HARNESS_MAX_CONTEXT_EXPANSIONS_PER_LEAF="${HARNESS_MAX_CONTEXT_EXPANSIONS_PER_LEAF:-2}"
+	# ACP extends strict Context Closure with typed, durable negotiation.  It is
+	# enabled by default only for Luna-only projects; legacy deployments remain
+	# unchanged. These are investigation fuses, not routine retry budgets.
+	if [[ -z "${HARNESS_ACP_ENABLED+x}" ]]; then
+		[[ "$HARNESS_MODEL_POLICY" == luna_only ]] && HARNESS_ACP_ENABLED=1 || HARNESS_ACP_ENABLED=0
+	fi
+	HARNESS_ACP_MAX_DUPLICATE_REQUESTS="${HARNESS_ACP_MAX_DUPLICATE_REQUESTS:-2}"
+	HARNESS_ACP_MAX_REQUESTS_PER_LEAF="${HARNESS_ACP_MAX_REQUESTS_PER_LEAF:-8}"
+	HARNESS_ACP_MAX_TOTAL_ADDED_BYTES="${HARNESS_ACP_MAX_TOTAL_ADDED_BYTES:-32768}"
+	HARNESS_ACP_MAX_NO_PROGRESS_REQUESTS="${HARNESS_ACP_MAX_NO_PROGRESS_REQUESTS:-4}"
+	# Negotiation and concurrency are independent. Default to serial execution.
+	# A value of zero means scheduler-selected, but remains capped by HARD_MAX;
+	# it never means unbounded process creation.
+	HARNESS_WORKER_PARALLELISM="${HARNESS_WORKER_PARALLELISM:-1}"
+	HARNESS_WORKER_PARALLELISM_HARD_MAX="${HARNESS_WORKER_PARALLELISM_HARD_MAX:-4}"
+	HARNESS_WORKER_ISOLATION_MODE="${HARNESS_WORKER_ISOLATION_MODE:-serial}"
 	# A patch-only Luna receives compact typed diagnostics and may repair the
 	# same bounded patch transaction. Repeated identical failure sets terminate
 	# early; this value is a hard ceiling, not an unconditional retry count.
@@ -819,6 +839,23 @@ load_harness_env()
 		die 'HARNESS_REPOSITORY_OVERLAY_MODE must be off or tracked'
 	[[ "$HARNESS_CONTEXT_CLOSURE_MODE" =~ ^(off|advisory|required|patch_only)$ ]] ||
 		die 'HARNESS_CONTEXT_CLOSURE_MODE must be off, advisory, required, or patch_only'
+	[[ "$HARNESS_ACP_ENABLED" =~ ^[01]$ ]] || die 'HARNESS_ACP_ENABLED must be 0 or 1'
+	for acp_limit_name in HARNESS_ACP_MAX_DUPLICATE_REQUESTS HARNESS_ACP_MAX_REQUESTS_PER_LEAF \
+		HARNESS_ACP_MAX_TOTAL_ADDED_BYTES HARNESS_ACP_MAX_NO_PROGRESS_REQUESTS \
+		HARNESS_WORKER_PARALLELISM_HARD_MAX; do
+		[[ "${!acp_limit_name}" =~ ^[1-9][0-9]*$ ]] || die "$acp_limit_name must be a positive integer"
+	done
+	[[ "$HARNESS_WORKER_PARALLELISM" =~ ^[0-9]+$ ]] || die 'HARNESS_WORKER_PARALLELISM must be a non-negative integer'
+	[[ "$HARNESS_WORKER_ISOLATION_MODE" =~ ^(serial|worktree)$ ]] || die 'HARNESS_WORKER_ISOLATION_MODE must be serial or worktree'
+	if (( HARNESS_WORKER_PARALLELISM > 1 )) && [[ "$HARNESS_WORKER_ISOLATION_MODE" != worktree ]]; then
+		die 'HARNESS_WORKER_PARALLELISM above 1 requires HARNESS_WORKER_ISOLATION_MODE=worktree'
+	fi
+	if (( HARNESS_WORKER_PARALLELISM > 1 )); then
+		die 'parallel worker cohorts are not admitted until isolated capability-lease and deterministic integration providers are configured; keep HARNESS_WORKER_PARALLELISM at 0 or 1'
+	fi
+	if (( HARNESS_WORKER_PARALLELISM > HARNESS_WORKER_PARALLELISM_HARD_MAX )); then
+		die 'HARNESS_WORKER_PARALLELISM exceeds HARNESS_WORKER_PARALLELISM_HARD_MAX'
+	fi
 	[[ "$HARNESS_RECOLL_ENABLED" =~ ^[01]$ ]] || die 'HARNESS_RECOLL_ENABLED must be 0 or 1'
 	[[ "$HARNESS_JOERN_ENABLED" =~ ^[01]$ ]] || die 'HARNESS_JOERN_ENABLED must be 0 or 1'
 	[[ "$HARNESS_JOERN_EXECUTION_MODE" =~ ^(eager|on_demand)$ ]] ||
@@ -1038,6 +1075,9 @@ load_harness_env()
 	export HARNESS_CONTEXT_CLOSURE_MAX_BUILD_TARGETS
 	export HARNESS_CONTEXT_CLOSURE_MAX_ESTIMATED_TOKENS
 	export HARNESS_CONTEXT_EXPANSION_MAX_BYTES HARNESS_MAX_CONTEXT_EXPANSIONS_PER_LEAF
+	export HARNESS_ACP_ENABLED HARNESS_ACP_MAX_DUPLICATE_REQUESTS HARNESS_ACP_MAX_REQUESTS_PER_LEAF
+	export HARNESS_ACP_MAX_TOTAL_ADDED_BYTES HARNESS_ACP_MAX_NO_PROGRESS_REQUESTS
+	export HARNESS_WORKER_PARALLELISM HARNESS_WORKER_PARALLELISM_HARD_MAX HARNESS_WORKER_ISOLATION_MODE
 	export HARNESS_PATCH_ONLY_MAX_VALIDATION_ROUNDS
 	export HARNESS_CONTEXT_CLOSURE_PROMOTION_MIN_SAMPLES HARNESS_CONTEXT_CLOSURE_MIN_FILE_RECALL_PERCENT
 	export HARNESS_CONTEXT_CLOSURE_MIN_LUNA_SUCCESS_PERCENT HARNESS_CONTEXT_CLOSURE_MAX_FALSE_BLOCK_PERCENT
@@ -4581,8 +4621,9 @@ initialize_project_state()
 	chmod 700 "$HARNESS_ROOT"
 	mkdir -p "$(project_tmp_dir)"
 	chmod 700 "$(project_tmp_dir)"
-	mkdir -p "$(project_dir)"/{tasks,running,results,archive/goal-iterations,archive/goals,control/sessions,control/progress,control/goals,logs}
-	chmod 700 "$(project_dir)" "$(project_dir)"/{tasks,running,results,archive,archive/goal-iterations,archive/goals,control,control/sessions,control/progress,control/goals,logs}
+	mkdir -p "$(project_dir)"/{tasks,running,results,archive/goal-iterations,archive/goals,control/sessions,control/progress,control/goals,control/acp/pending,control/acp/archive,control/acp/artifacts,logs}
+	chmod 700 "$(project_dir)" "$(project_dir)"/{tasks,running,results,archive,archive/goal-iterations,archive/goals,control,control/sessions,control/progress,control/goals,control/acp,control/acp/pending,control/acp/archive,control/acp/artifacts,logs}
+	ensure_acp_state
 
 	write_project_snapshot
 	write_manager_snapshot
@@ -6437,6 +6478,11 @@ write_project_snapshot()
 		printf 'architecture_guards=%s\n' "$HARNESS_ARCHITECTURE_GUARDS"
 		printf 'repository_index_mode=%s\n' "$HARNESS_REPOSITORY_INDEX_MODE"
 		printf 'context_closure_mode=%s\n' "$HARNESS_CONTEXT_CLOSURE_MODE"
+		printf 'acp_enabled=%s\n' "$HARNESS_ACP_ENABLED"
+		printf 'acp_protocol_version=%s\n' "$ACP_PROTOCOL_VERSION"
+		printf 'worker_parallelism=%s\n' "$HARNESS_WORKER_PARALLELISM"
+		printf 'worker_parallelism_hard_max=%s\n' "$HARNESS_WORKER_PARALLELISM_HARD_MAX"
+		printf 'worker_isolation_mode=%s\n' "$HARNESS_WORKER_ISOLATION_MODE"
 		printf 'patch_only_max_validation_rounds=%s\n' "$HARNESS_PATCH_ONLY_MAX_VALIDATION_ROUNDS"
 		printf 'repository_index_root=%s\n' "$HARNESS_REPOSITORY_INDEX_ROOT"
 		printf 'compile_commands=%s\n' "$HARNESS_COMPILE_COMMANDS"
@@ -6482,6 +6528,13 @@ write_manager_snapshot()
 		printf 'max_agent_processed_tokens_per_invocation=%s\n' "$HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION"
 		printf 'max_agent_estimated_processed_tokens_per_invocation=%s\n' "$HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION"
 		printf 'max_worker_task_processed_tokens=%s\n' "$HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS"
+		printf 'acp_enabled=%s\n' "$HARNESS_ACP_ENABLED"
+		printf 'acp_max_duplicate_requests=%s\n' "$HARNESS_ACP_MAX_DUPLICATE_REQUESTS"
+		printf 'acp_max_requests_per_leaf=%s\n' "$HARNESS_ACP_MAX_REQUESTS_PER_LEAF"
+		printf 'acp_max_total_added_bytes=%s\n' "$HARNESS_ACP_MAX_TOTAL_ADDED_BYTES"
+		printf 'worker_parallelism=%s\n' "$HARNESS_WORKER_PARALLELISM"
+		printf 'worker_parallelism_hard_max=%s\n' "$HARNESS_WORKER_PARALLELISM_HARD_MAX"
+		printf 'worker_isolation_mode=%s\n' "$HARNESS_WORKER_ISOLATION_MODE"
 		printf 'max_specification_review_processed_tokens_per_invocation=%s\n' "$HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION"
 		printf 'max_decomposition_processed_tokens_per_invocation=%s\n' "$HARNESS_MAX_DECOMPOSITION_PROCESSED_TOKENS_PER_INVOCATION"
 		printf 'max_root_child_criteria=%s\n' "$HARNESS_MAX_ROOT_CHILD_CRITERIA"

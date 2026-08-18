@@ -204,6 +204,7 @@ if [[ "$complete_flag" == '--complete-project' ]]; then
 	(( unfinished_other_items == 0 )) || die "refusing --complete-project; $unfinished_other_items other project plan item(s) remain unfinished"
 fi
 mv "$result" "$result_archive"
+acp_record_manager_disposition "$result_archive" MANAGER_ACCEPT "${note_file:--}"
 
 tmp="$accepted.tmp.$$"
 {

@@ -266,6 +266,7 @@ fi
 goal_outcome="$(metadata_value "$result" Goal-Outcome)"
 
 mv "$result" "$result_archive"
+acp_record_manager_disposition "$result_archive" MANAGER_REPLAN "$note_file"
 tmp="$rejected.tmp.$$"
 {
 	printf '# Rejected Task\n\n'

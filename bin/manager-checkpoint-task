@@ -426,6 +426,7 @@ checkpoint_commit_verified_artifact "$task_id" "$artifact_tmp"
 mv "$artifact_tmp" "$artifact_dir"
 
 mv "$result" "$result_archive"
+acp_record_manager_disposition "$result_archive" MANAGER_CHECKPOINT "$note_file"
 tmp="$checkpointed.tmp.$$"
 {
 	printf '# Checkpointed Task Increment\n\n'

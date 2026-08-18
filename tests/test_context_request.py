@@ -53,6 +53,8 @@ class ContextRequestTest(unittest.TestCase):
         INSERT INTO type_edges VALUES('add','type','PARAMETER','scip');
         INSERT INTO call_edges VALUES('caller','add',3,'scip','AUTHORITATIVE');
         INSERT INTO mutation_edges VALUES('add','type','n.value',2,'joern','DERIVED');
+        INSERT INTO tests VALUES('test-add','g','test_add',1,3,'target','test_add','scip');
+        INSERT INTO test_symbol_edges VALUES('test-add','add','TESTS','scip');
         INSERT INTO build_targets VALUES('target','g','calc','STATIC_LIBRARY','CMakeLists.txt','cmake');
         INSERT INTO build_target_files VALUES('target',1,'c','COMPILE_SOURCE',NULL,'cmake');
         """
@@ -80,6 +82,35 @@ class ContextRequestTest(unittest.TestCase):
 
     def test_direct_caller_contract_is_admitted(self):
         result = self.resolve("CALLER_CONTRACT", "add")
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        self.assertIn("int caller(void)",
+                      (self.root / "extension.md").read_text(encoding="utf-8"))
+
+    def test_exact_required_symbol_definition_is_admitted(self):
+        result = self.resolve("SYMBOL_DEFINITION", "add")
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        extension = (self.root / "extension.md").read_text(encoding="utf-8")
+        self.assertIn("Authorization-Relation: exact-required-symbol", extension)
+        self.assertIn("int add(Number n)", extension)
+
+    def test_direct_callee_contract_is_admitted(self):
+        self.assignment.write_text(
+            "Task-ID: t1\nAllowed-Scope: calc.c\nContext-Paths: calc.c\n"
+            "Required-Symbols: caller\n", encoding="utf-8")
+        result = self.resolve("CALLEE_CONTRACT", "caller")
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        self.assertIn("int add(Number n)",
+                      (self.root / "extension.md").read_text(encoding="utf-8"))
+
+    def test_indexed_test_owner_is_admitted(self):
+        result = self.resolve("TEST_OWNER", "add")
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        extension = (self.root / "extension.md").read_text(encoding="utf-8")
+        self.assertIn("Authorization-Relation: indexed-test-of-required-symbol", extension)
+        self.assertIn("int caller(void)", extension)
+
+    def test_direct_consumer_is_admitted(self):
+        result = self.resolve("CONSUMER", "add")
         self.assertEqual(0, result.returncode, result.stderr + result.stdout)
         self.assertIn("int caller(void)",
                       (self.root / "extension.md").read_text(encoding="utf-8"))

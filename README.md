@@ -1052,6 +1052,51 @@ same thread. `HARNESS_MAX_CONTEXT_EXPANSIONS_PER_LEAF` prevents exploratory or
 unchanged request loops; a rejected or exhausted request returns to smaller
 decomposition without enabling repository tools.
 
+### Agent Coordination Protocol (ACP)
+
+Luna-only mode enables ACP v1 by default. ACP generalizes the patch-only typed
+fact request into negotiated task readiness while preserving strict initial
+Context Closure. The worker may request one exact deterministic fact or report
+a typed `SCOPE`, `PREREQUISITE`, or `SPLIT` boundary. A worker request is an
+untrusted claim: only the deterministic broker can grant bounded read evidence,
+and only manager policy can change mutation authority or append decomposition.
+Sol remains the global architecture/decomposition critic over compiled evidence
+and is never an implementation fallback for Luna work.
+
+ACP state lives under `control/acp/`: `events.tsv` is the append-only protocol
+ledger, evidence artifacts are content-addressed, `discovered-graph.tsv`
+preserves claimed prerequisite/split history and manager dispositions, and
+`metrics.env` reports request/grant/denial counts and broker hit rate. Inspect
+it without launching a model:
+
+```bash
+harness-acp-status project.env
+```
+
+The broker supports exact symbol/type definitions, callers, callees, failing
+assertions, indexed tests, build/concept owners, producers, consumers, and
+representation writers. SCIP, build-index, and on-demand Joern evidence is
+queried deterministically; accepted excerpts remain subject to the per-request
+and cumulative added-context limits. The same provider thread resumes after a
+context grant. Structural requests terminate the ephemeral Luna process and
+enter append-only manager decomposition without granting scope.
+
+Protocol fuses detect duplicate requests, stale workspace authority, excessive
+request count, context amplification, and repeated negotiation without verified
+gain. They complement—and do not change—the 500,000 authoritative per-turn,
+500,000 live-estimated per-turn, and 500,000 cumulative worker-task token fuses.
+`harness-decomposition-metrics` includes ACP broker hit rate, manager calls
+avoided, added context bytes, discovered/planned graph ratio, requests per
+verified item, and the project `tokens_per_verified_facet` convergence metric.
+
+ACP does not imply unsafe concurrency. `HARNESS_WORKER_PARALLELISM` defaults to
+one, `HARNESS_WORKER_PARALLELISM_HARD_MAX` defaults to four, and a requested
+value above one requires `HARNESS_WORKER_ISOLATION_MODE=worktree` and is
+currently rejected until isolated workspace capability leases and deterministic
+integration are configured. Zero resolves to the safe scheduler capacity
+(currently one), never unbounded launches. The normative envelope is documented
+in `formats/acp-v1.md`.
+
 When focused validation rejects a patch, the trusted runner rolls it back and
 resumes the same thread with only normalized typed diagnostics. It permits at
 most `HARNESS_PATCH_ONLY_MAX_VALIDATION_ROUNDS` total validation rounds and

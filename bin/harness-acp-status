@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+[[ $# -eq 1 ]] || { printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+ensure_acp_state
+acp_write_metrics
+
+printf 'Project: %s\nACP-Version: %s\n' "$PROJECT" "$ACP_PROTOCOL_VERSION"
+printf 'Enabled: %s\nContext-Closure-Mode: %s\n' "$HARNESS_ACP_ENABLED" "$HARNESS_CONTEXT_CLOSURE_MODE"
+printf 'Parallelism: %s (hard max %s; isolation %s)\n' \
+	"$HARNESS_WORKER_PARALLELISM" "$HARNESS_WORKER_PARALLELISM_HARD_MAX" "$HARNESS_WORKER_ISOLATION_MODE"
+printf '\nMetrics\n'
+sed 's/^/  /' "$(acp_metrics_file)"
+if [[ -f "$(project_efficiency_metrics_file)" ]]; then
+	printf '  tokens_per_verified_facet=%s\n' \
+		"$(kv_file_value "$(project_efficiency_metrics_file)" tokens_per_verified_facet 2>/dev/null || printf UNAVAILABLE)"
+fi
+printf '\nPending requests\n'
+pending=0
+for request in "$(acp_pending_dir)"/*.request.md; do
+	[[ -f "$request" ]] || continue
+	pending=$((pending + 1))
+	printf '  %s\t%s\t%s\t%s\n' "$(metadata_value "$request" Request-ID)" \
+		"$(metadata_value "$request" Task-ID)" "$(metadata_value "$request" Request-Type)" \
+		"$(metadata_value "$request" Identifier)"
+done
+(( pending > 0 )) || printf '  -\n'

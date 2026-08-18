@@ -397,6 +397,17 @@ When CONTEXT_CLOSURE_STATUS=READY, a deterministic repository-index closure is e
 
 The context boundary is enforceable. Direct rg/grep/find/sed inspection is limited to Context-Paths and Allowed-Scope, and every complete shell command must return at most OUTPUT_MAX_LINES lines and OUTPUT_MAX_BYTES bytes in aggregate. The cap applies to the combined stdout/stderr of the whole command, not separately to each command joined by a newline, semicolon, pipe, subshell, or logical operator. Inspect exactly one source file or one exact source window per agent action. A command that joins multiple source reads with logical operators, semicolons, a loop, or printed section markers is invalid even when all files are listed in Context-Paths. The embedded capsule's Required symbol locations are machine-derived repository coordinates: start at those coordinates and do not spend actions rediscovering them. Start from Required-Symbols in the smallest implicated file; do not dump every Context-Paths file or a whole large function as an initial survey. If one required symbol spans too much behavior to understand from one bounded local window, terminate NEEDS_DECOMPOSITION and name the exact sub-boundary needed instead of walking the file in successive broad windows. Do not concatenate multiple individually capped reads; issue one bounded read per agent action or wrap the entire compound command in one final head -n OUTPUT_MAX_LINES followed by head -c OUTPUT_MAX_BYTES. A line cap alone is invalid because minified/generated source can contain giant lines. Bound a source search before launching it with exact patterns, --max-count, rg --max-columns 512 --max-columns-preview, and a final head -c OUTPUT_MAX_BYTES; use a similarly explicit byte cap for non-rg output. An unbounded contextual search such as rg -C N PATTERN FILES is prohibited even across listed files because many matches multiply the context; inspect one exact line window and byte-cap it. Never print a repository-wide content search. If an exact required symbol is absent from the supplied context, one filename-only discovery command such as rg -l --fixed-strings SYMBOL BOUNDED_REPOSITORY_SUBTREE piped to head -n 20 is permitted; inspect only the smallest exact match. If more than one such discovery is needed, or a required contract still cannot be located, terminate with NEEDS_DECOMPOSITION and name the missing symbols/context paths. If a required test observation is absent from the supplied public/test surface and producing it requires a production contract outside Allowed-Scope, terminate HARD_BLOCKED immediately with that exact local prerequisite; do not consume the remaining episode on exploratory reads. Reserve at least one action for a source edit and one for focused validation. If the remaining action budget cannot reach both, terminate NEEDS_DECOMPOSITION with the missing implementation-ready fact. Interpret diagnostic values according to their declared source type: a field such as has_two_devices=1 is a true boolean, not a one-device count. Do not use broad exploration to repair an incomplete planner capsule. Create any new build tree under PROJECT_TMP_DIR; an existing configured build tree may be consumed, but do not create an untracked build directory in REPOSITORY.
 
+When required Context Closure is READY but one exact decisive read fact is absent,
+request it before any discovery search by ending the turn with no result and:
+
+Context-Request-Kind: TYPE_DEFINITION|SYMBOL_DEFINITION|CALLER_CONTRACT|CALLEE_CONTRACT|FAILING_ASSERTION|TEST_OWNER|BUILD_OWNER|OWNER|PRODUCER|CONSUMER|REPRESENTATION_WRITER
+Context-Request-Identifier: one exact symbol, test, or declared path
+Context-Request-Reason: one sentence explaining why that fact is decisive
+
+The deterministic broker admits only an assignment seed or direct indexed
+neighbor and resumes this thread with a bounded artifact. Never request broad
+search results or use repository exploration as a substitute for a denied fact.
+
 Preserve verified work and continue from STARTING_PROGRESS_PERCENT rather than reimplementing the root task from zero. Implement exactly the remaining bounded assignment. Run build and test validation through this command so complete output is retained on disk and only a bounded summary enters this transcript:
 
 $HARNESS_BIN/harness-run-assigned-validation "$HARNESS_ENV_FILE" "$task_id" LABEL
@@ -422,11 +433,43 @@ harness performs it after applying the patch.
 
 Before reporting CONTEXT_INCOMPLETE, you may request exactly one missing fact by emitting no patch and exactly these metadata lines:
 
-Context-Request-Kind: TYPE_DEFINITION|CALLER_CONTRACT|FAILING_ASSERTION|BUILD_OWNER|REPRESENTATION_WRITER
+Context-Request-Kind: TYPE_DEFINITION|SYMBOL_DEFINITION|CALLER_CONTRACT|CALLEE_CONTRACT|FAILING_ASSERTION|TEST_OWNER|BUILD_OWNER|OWNER|PRODUCER|CONSUMER|REPRESENTATION_WRITER
 Context-Request-Identifier: one exact symbol, test, or declared path
 Context-Request-Reason: one sentence explaining why that fact is decisive
 
 The trusted harness accepts only an assignment seed or its direct indexed graph neighbor, compiles a bounded provenance-bearing extension, and resumes this same thread. Do not request broad files, searches, or multiple identifiers. The per-leaf maximum is HARNESS_MAX_CONTEXT_EXPANSIONS_PER_LEAF from the execution header.
+
+If the evidence instead proves that this leaf needs mutation authority outside
+Allowed-Scope, a repository-local prerequisite, or semantic subdivision, emit
+no patch and exactly these lines:
+
+ACP-Request-Type: SCOPE|PREREQUISITE|SPLIT
+ACP-Request-Kind: one short machine-readable classification
+ACP-Request-Identifier: one exact path, prerequisite criterion, or split boundary
+ACP-Request-Reason: one sentence citing the decisive supplied evidence
+
+These are untrusted claims. The harness records them, releases this ephemeral
+Luna process, and sends them through policy/manager adjudication. Never grant
+yourself scope, invent a dependency edge, or continue exploring after a request.
+PROMPT
+fi
+if (( HARNESS_ACP_ENABLED == 1 && luna_bounded_execution == 1 )) &&
+	[[ "$HARNESS_CONTEXT_CLOSURE_MODE" != patch_only ]]; then
+	cat >> "$prompt_file.tmp.$$" <<'PROMPT'
+
+ACP negotiated readiness is active. If supplied evidence proves that this leaf
+needs mutation authority outside Allowed-Scope, a repository-local prerequisite,
+or semantic subdivision, do not broaden the task. End the turn without a normal
+result and emit exactly:
+
+ACP-Request-Type: SCOPE|PREREQUISITE|SPLIT
+ACP-Request-Kind: one short machine-readable classification
+ACP-Request-Identifier: one exact path, prerequisite criterion, or split boundary
+ACP-Request-Reason: one sentence citing the decisive bounded evidence
+
+The request is an untrusted claim. The harness records it, releases this
+ephemeral process, and routes it through authority/decomposition policy. It is
+not permission to inspect more files, add a dependency edge, or change scope.
 PROMPT
 fi
 if (( manager_remediation == 1 )); then
@@ -714,7 +757,8 @@ normalize_last_message_result()
 prepare_typed_context_expansion()
 {
 	local response="$1" kind identifier reason pointer generation_dir extension_dir extension_file
-	local resolver_output resolver_status request_number
+	local resolver_output resolver_status request_number acp_thread acp_request acp_status
+	local workspace_before workspace_after total_added_bytes
 	context_expansion_pending=0
 	[[ -s "$response" ]] || return 1
 	[[ "$(grep -Ec '^Context-Request-Kind:[[:space:]]*' "$response" || true)" == 1 ]] || return 1
@@ -723,8 +767,9 @@ prepare_typed_context_expansion()
 	kind="$(sed -n 's/^Context-Request-Kind:[[:space:]]*//p' "$response")"
 	identifier="$(sed -n 's/^Context-Request-Identifier:[[:space:]]*//p' "$response")"
 	reason="$(sed -n 's/^Context-Request-Reason:[[:space:]]*//p' "$response" | head -n 1)"
+	reason="$(tr '\t\r\n' '   ' <<< "${reason:-decisive implementation fact is absent from the compiled capsule}" | head -c 256)"
 	case "$kind" in
-		TYPE_DEFINITION|CALLER_CONTRACT|FAILING_ASSERTION|BUILD_OWNER|REPRESENTATION_WRITER) ;;
+		TYPE_DEFINITION|SYMBOL_DEFINITION|CALLER_CONTRACT|CALLEE_CONTRACT|FAILING_ASSERTION|TEST_OWNER|BUILD_OWNER|OWNER|PRODUCER|CONSUMER|REPRESENTATION_WRITER) ;;
 		*) return 1 ;;
 	esac
 	if (( context_expansion_count >= HARNESS_MAX_CONTEXT_EXPANSIONS_PER_LEAF )); then
@@ -738,8 +783,25 @@ prepare_typed_context_expansion()
 	}
 	generation_dir="$(kv_file_value "$pointer" generation_dir)"
 	request_number="$((context_expansion_count + 1))"
+	if (( request_number > HARNESS_ACP_MAX_REQUESTS_PER_LEAF )); then
+		patch_apply_output="ACP request count fuse reached ($request_number/$HARNESS_ACP_MAX_REQUESTS_PER_LEAF)"
+		mark_task_resource_anomaly "$task_id" ACP_REQUEST_AMPLIFICATION "$patch_apply_output" \
+			"kind=$kind identifier=$identifier" >/dev/null
+		return 2
+	fi
 	extension_dir="$closure_path/extensions"
 	extension_file="$extension_dir/request-$(printf '%03d' "$request_number").md"
+	acp_thread="${observed_thread_id:-${worker_resume_thread_id:-$session}}"
+	workspace_before="$(acp_workspace_fingerprint "$task_file")"
+	set +e
+	acp_request="$(acp_publish_request "$task_id" "$acp_thread" "$request_number" CONTEXT \
+		"$kind" "$identifier" "$reason" "$task_file" - 2>&1)"
+	acp_status=$?
+	set -e
+	if (( acp_status != 0 )) || [[ ! -f "$acp_request" ]]; then
+		patch_apply_output="ACP context request rejected before resolution: $(tr '\n' ' ' <<< "$acp_request" | head -c 512)"
+		return 2
+	fi
 	set +e
 	resolver_output="$(python3 "$HARNESS_HOME/tools/resolve_context_request.py" \
 		--assignment "$task_file" --closure "$closure_path/closure.tsv" \
@@ -750,21 +812,153 @@ prepare_typed_context_expansion()
 	set -e
 	if (( resolver_status != 0 )) || [[ ! -s "$extension_file" ]]; then
 		patch_apply_output="typed Context Closure request rejected: $(tr '\n' ' ' <<< "$resolver_output" | head -c 512)"
+		acp_resolve_request "$acp_request" DENIED deterministic-context-broker - "$patch_apply_output" >/dev/null
+		acp_write_metrics
 		log_event "CONTEXT_EXPANSION_REJECTED task=$task_id kind=$kind identifier=$(printf '%q' "$identifier") reason=$(printf '%q' "$reason") resolver_status=$resolver_status resolver=$(printf '%q' "$resolver_output")"
 		return 2
 	fi
+	workspace_after="$(acp_workspace_fingerprint "$task_file")"
+	if [[ "$workspace_after" != "$workspace_before" ]]; then
+		patch_apply_output='ACP context request became stale while deterministic evidence was compiled'
+		acp_resolve_request "$acp_request" DENIED deterministic-context-broker - "$patch_apply_output" >/dev/null
+		mark_project_integrity_anomaly ACP_STALE_AUTHORITY "$task_id" "$patch_apply_output" \
+			"before=$workspace_before after=$workspace_after request=$acp_request" >/dev/null
+		return 2
+	fi
+	total_added_bytes="$(find "$extension_dir" -maxdepth 1 -type f -name 'request-*.md' -printf '%s\n' 2>/dev/null | awk '{sum += $1} END {print sum + 0}')"
+	if (( total_added_bytes > HARNESS_ACP_MAX_TOTAL_ADDED_BYTES )); then
+		patch_apply_output="ACP context amplification fuse reached ($total_added_bytes/$HARNESS_ACP_MAX_TOTAL_ADDED_BYTES bytes)"
+		acp_resolve_request "$acp_request" DENIED deterministic-context-broker "$extension_file" "$patch_apply_output" >/dev/null
+		mark_task_resource_anomaly "$task_id" CONTEXT_AMPLIFICATION "$patch_apply_output" \
+			"request=$acp_request extension=$extension_file" >/dev/null
+		return 2
+	fi
+	acp_resolve_request "$acp_request" GRANTED deterministic-context-broker "$extension_file" \
+		"bounded indexed evidence; added_bytes=$(stat -c %s "$extension_file") total_added_bytes=$total_added_bytes" >/dev/null
+	acp_write_metrics
 	context_expansion_count="$request_number"
 	context_followup_prompt="$PROJECT_TMP_DIR/$base.context-followup-$request_number.md"
 	{
-		printf 'The trusted harness accepted typed Context Closure request %s of %s. Use only the extension below plus the prior thread context. Do not use tools or request the same fact again. Produce the required single fenced Git diff and normal terminal result metadata. If another decisive fact is absent, you may use the same typed request protocol within the remaining expansion budget.\n\n' \
-			"$request_number" "$HARNESS_MAX_CONTEXT_EXPANSIONS_PER_LEAF"
+		if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only ]]; then
+			printf 'The trusted harness accepted typed Context Closure request %s of %s. Use only the extension below plus the prior thread context. Do not use tools or request the same fact again. Produce the required single fenced Git diff and normal terminal result metadata. If another decisive fact is absent, you may use the same typed request protocol within the remaining expansion budget.\n\n' \
+				"$request_number" "$HARNESS_MAX_CONTEXT_EXPANSIONS_PER_LEAF"
+		else
+			printf 'The deterministic broker accepted typed Context Closure request %s of %s. Use the exact extension below plus the prior thread context. Do not repeat the request or compensate with repository-wide exploration. Continue the same bounded task and publish its normal result, or request one other exact decisive fact within the remaining budget.\n\n' \
+				"$request_number" "$HARNESS_MAX_CONTEXT_EXPANSIONS_PER_LEAF"
+		fi
 		cat "$extension_file"
 	} > "$context_followup_prompt.tmp.$$"
 	chmod 600 "$context_followup_prompt.tmp.$$"
 	mv "$context_followup_prompt.tmp.$$" "$context_followup_prompt"
 	context_expansion_pending=1
 	followup_reason=context_extension
-	log_event "CONTEXT_EXPANSION_READY task=$task_id kind=$kind identifier=$(printf '%q' "$identifier") reason=$(printf '%q' "$reason") count=$context_expansion_count extension=$extension_file resolver=$(printf '%q' "$resolver_output")"
+	log_event "CONTEXT_EXPANSION_READY task=$task_id kind=$kind identifier=$(printf '%q' "$identifier") reason=$(printf '%q' "$reason") count=$context_expansion_count extension=$extension_file resolver=$(printf '%q' "$resolver_output") acp=1"
+	return 0
+}
+
+publish_context_request_rejection_handoff()
+{
+	local detail="$1" handoff
+	handoff="$PROJECT_TMP_DIR/$base.context-request-rejected.$$"
+	{
+		printf '# Worker Task Result\n\nTask-ID: %s\nStatus: COMPLETED\n' "$task_id"
+		if (( goal_mode == 1 )); then
+			printf 'Goal-ID: %s\nGoal-Outcome: NEEDS_DECOMPOSITION\nDecomposition-Reason: CONTEXT_INCOMPLETE\n' "$goal_id"
+		fi
+		emit_synthetic_impact_manifest
+		printf '\n## Summary\n\nThe deterministic Context Broker could not authorize or bound the requested fact.\n'
+		printf '\n## Modified files\n\nNo implementation claim is made by this protocol transition.\n'
+		printf '\n## Implemented behavior\n\nNone beyond any independently committed task-owned increment.\n'
+		printf '\n## Validation performed\n\nACP envelope, index currency, graph adjacency, and evidence limits were checked.\n'
+		printf '\n## Deviations from assignment\n\nThe worker stopped instead of exploring outside the compiled context.\n'
+		printf '\n## Remaining concerns\n\n%s\n' "$detail"
+		printf '\n## Worker assessment\n\nNEEDS_DECOMPOSITION (CONTEXT_INCOMPLETE); repair the capsule or split the leaf.\n'
+	} > "$handoff"
+	chmod 600 "$handoff"
+	"$HARNESS_BIN/worker-complete-task" "$HARNESS_ENV_FILE" "$task_id" "$session" "$handoff" >/dev/null
+	rm -f "$handoff"
+}
+
+prepare_structural_acp_handoff()
+{
+	local response="$1" type kind identifier reason acp_thread request_path request_status
+	local sequence outcome handoff existing_count structural_deferred_count acp_request_id
+	(( HARNESS_ACP_ENABLED == 1 )) || return 1
+	[[ -s "$response" && -f "$running" && -f "$lease" ]] || return 1
+	[[ "$(grep -Ec '^ACP-Request-Type:[[:space:]]*' "$response" || true)" == 1 ]] || return 1
+	[[ "$(grep -Ec '^ACP-Request-Kind:[[:space:]]*' "$response" || true)" == 1 ]] || return 1
+	[[ "$(grep -Ec '^ACP-Request-Identifier:[[:space:]]*' "$response" || true)" == 1 ]] || return 1
+	[[ "$(grep -Ec '^ACP-Request-Reason:[[:space:]]*' "$response" || true)" == 1 ]] || return 1
+	[[ "$(grep -Ec '^```(diff|patch)[[:space:]]*$' "$response" || true)" == 0 ]] || return 1
+	type="$(sed -n 's/^ACP-Request-Type:[[:space:]]*//p' "$response")"
+	kind="$(sed -n 's/^ACP-Request-Kind:[[:space:]]*//p' "$response")"
+	identifier="$(sed -n 's/^ACP-Request-Identifier:[[:space:]]*//p' "$response")"
+	reason="$(sed -n 's/^ACP-Request-Reason:[[:space:]]*//p' "$response")"
+	case "$type" in SCOPE|PREREQUISITE|SPLIT) ;; *) return 1 ;; esac
+	kind="$(tr '\t\r\n' '   ' <<< "$kind" | head -c 256)"
+	identifier="$(tr '\t\r\n' '   ' <<< "$identifier" | head -c 256)"
+	reason="$(tr '\t\r\n' '   ' <<< "$reason" | head -c 256)"
+	ensure_acp_state
+	existing_count="$(awk -F '\t' -v task="$task_id" '!/^#/ && $4 == task && $7 == "REQUESTED" {count++} END {print count + 0}' "$(acp_events_file)" 2>/dev/null || printf 0)"
+	if (( existing_count >= HARNESS_ACP_MAX_REQUESTS_PER_LEAF )); then
+		mark_task_resource_anomaly "$task_id" ACP_REQUEST_AMPLIFICATION \
+			"ACP request count fuse reached ($existing_count/$HARNESS_ACP_MAX_REQUESTS_PER_LEAF)" \
+			"type=$type kind=$kind identifier=$identifier" >/dev/null
+		return 2
+	fi
+	structural_deferred_count="$(awk -F '\t' -v task="$task_id" '!/^#/ && $4 == task && $7 == "DEFERRED" && $8 != "CONTEXT" {count++} END {print count + 0}' "$(acp_events_file)")"
+	if (( structural_deferred_count >= HARNESS_ACP_MAX_NO_PROGRESS_REQUESTS )); then
+		mark_task_resource_anomaly "$task_id" ACP_NO_PROGRESS_LOOP \
+			"structural ACP requests without an accepted facet reached the investigation fuse ($structural_deferred_count/$HARNESS_ACP_MAX_NO_PROGRESS_REQUESTS)" \
+			"type=$type kind=$kind identifier=$identifier" >/dev/null
+		return 2
+	fi
+	sequence="$((existing_count + 1))"
+	acp_thread="${observed_thread_id:-${worker_resume_thread_id:-$session}}"
+	set +e
+	request_path="$(acp_publish_request "$task_id" "$acp_thread" "$sequence" "$type" "$kind" \
+		"$identifier" "$reason" "$task_file" - 2>&1)"
+	request_status=$?
+	set -e
+	if (( request_status != 0 )) || [[ ! -f "$request_path" ]]; then
+		log_event "ACP_STRUCTURAL_REQUEST_REJECTED task=$task_id type=$type kind=$(printf '%q' "$kind") status=$request_status detail=$(printf '%q' "$request_path")"
+		return 2
+	fi
+	case "$type" in
+		SCOPE) outcome=SCOPE_INCOMPLETE ;;
+		PREREQUISITE) outcome=VALIDATION_PREREQUISITE ;;
+		SPLIT) outcome=TASK_TOO_BROAD ;;
+	esac
+	acp_request_id="$(metadata_value "$request_path" Request-ID)"
+	acp_resolve_request "$request_path" DEFERRED persistent-manager - \
+		"worker claim requires authority/decomposition adjudication; outcome=$outcome" >/dev/null
+	acp_write_metrics
+	if (( goal_mode == 1 )) && [[ "$acp_thread" =~ ^[A-Za-z0-9-]+$ ]]; then
+		goal_state_set "$goal_state" thread_id "$acp_thread"
+		goal_thread_store "$task_id" "$acp_thread" acp-suspended
+	fi
+	handoff="$PROJECT_TMP_DIR/$base.acp-handoff.$$"
+	{
+		printf '# Worker Task Result\n\nTask-ID: %s\nStatus: COMPLETED\n' "$task_id"
+		if (( goal_mode == 1 )); then
+			printf 'Goal-ID: %s\nGoal-Outcome: NEEDS_DECOMPOSITION\nDecomposition-Reason: %s\n' "$goal_id" "$outcome"
+		fi
+		printf 'ACP-Request-Type: %s\nACP-Request-Kind: %s\nACP-Request-Identifier: %s\nACP-Request-Reason: %s\n' \
+			"$type" "$kind" "$identifier" "$reason"
+		printf 'ACP-Request-ID: %s\n' "$acp_request_id"
+		emit_synthetic_impact_manifest
+		printf '\n## Summary\n\nLuna discovered a typed %s boundary and exited without broadening its authority.\n' "$type"
+		printf '\n## Modified files\n\nNo additional claim is made by this protocol transition.\n'
+		printf '\n## Implemented behavior\n\nAny already committed task-owned increment is preserved; the requested boundary remains ungranted.\n'
+		printf '\n## Validation performed\n\nThe harness validated the ACP envelope, assignment/workspace fingerprint, duplicate fuse, and authority route.\n'
+		printf '\n## Deviations from assignment\n\nNone authorized. The worker stopped at the discovered boundary.\n'
+		printf '\n## Remaining concerns\n\nThe persistent manager must substantiate or deny `%s`, then append only the necessary criterion/edge or revised scope.\n' "$identifier"
+		printf '\n## Worker assessment\n\nNEEDS_DECOMPOSITION (%s); this is a negotiated suspension, not permission to explore or escalate models.\n' "$outcome"
+	} > "$handoff"
+	chmod 600 "$handoff"
+	"$HARNESS_BIN/worker-complete-task" "$HARNESS_ENV_FILE" "$task_id" "$session" "$handoff" >/dev/null
+	rm -f "$handoff"
+	log_event "ACP_STRUCTURAL_REQUEST_COMMITTED task=$task_id type=$type kind=$(printf '%q' "$kind") identifier=$(printf '%q' "$identifier") outcome=$outcome thread_id=$acp_thread"
 	return 0
 }
 
@@ -841,6 +1035,37 @@ while true; do
 	status=$?
 	set -e
 	observed_thread_id="$(codex_thread_id_from_jsonl "$json_log" 2>/dev/null || true)"
+	if (( status == 0 && luna_bounded_execution == 1 )); then
+		structural_acp_status=1
+		if prepare_structural_acp_handoff "$last_message"; then
+			structural_acp_status=0
+		else
+			structural_acp_status=$?
+		fi
+		if (( structural_acp_status == 0 )); then
+			cleanup_heartbeat
+			printf 'Worker task %s published a typed ACP boundary and released its Luna process.\n' "$task_id"
+			exit 0
+		elif (( structural_acp_status == 2 )); then
+			cleanup_heartbeat
+			exit 75
+		fi
+	fi
+	if (( status == 0 && luna_bounded_execution == 1 )) &&
+		[[ "$HARNESS_CONTEXT_CLOSURE_MODE" == required ]]; then
+		required_context_status=1
+		if prepare_typed_context_expansion "$last_message"; then
+			required_context_status=0
+		else
+			required_context_status=$?
+		fi
+		if (( required_context_status == 2 )); then
+			publish_context_request_rejection_handoff "$patch_apply_output"
+			cleanup_heartbeat
+			printf 'Worker task %s returned a denied ACP context request to decomposition.\n' "$task_id"
+			exit 0
+		fi
+	fi
 	if (( status == 0 && luna_bounded_execution == 1 )) &&
 		[[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only ]]; then
 		context_request_status=1

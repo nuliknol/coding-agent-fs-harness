@@ -13,9 +13,15 @@ import sys
 
 REQUEST_KINDS = {
     "TYPE_DEFINITION",
+    "SYMBOL_DEFINITION",
     "CALLER_CONTRACT",
+    "CALLEE_CONTRACT",
     "FAILING_ASSERTION",
+    "TEST_OWNER",
     "BUILD_OWNER",
+    "OWNER",
+    "PRODUCER",
+    "CONSUMER",
     "REPRESENTATION_WRITER",
 }
 
@@ -203,7 +209,16 @@ def main() -> int:
 
     records: list[tuple[str, str, int, int, str, str]] = []
     relation = ""
-    if args.request_kind == "TYPE_DEFINITION":
+    if args.request_kind == "SYMBOL_DEFINITION":
+        authorized = set(requested_ids) & seed_ids
+        if authorized:
+            relation = "exact-required-symbol"
+            for row in definitions(connection, sorted(authorized)):
+                records.append(("SYMBOL_DEFINITION", row["repository_path"], row["start_line"],
+                                row["end_line"], row["display_name"], row["provider"]))
+        else:
+            relation = "symbol-outside-assignment-boundary"
+    elif args.request_kind == "TYPE_DEFINITION":
         if not requested_ids:
             relation = "missing-exact-symbol"
         else:
@@ -232,6 +247,17 @@ def main() -> int:
             relation = "direct-caller-of-required-symbol"
             for row in definitions(connection, [item[0] for item in callers]):
                 records.append(("CALLER_CONTRACT", row["repository_path"], row["start_line"],
+                                row["end_line"], row["display_name"], row["provider"]))
+    elif args.request_kind == "CALLEE_CONTRACT":
+        authorized = set(requested_ids) & seed_ids
+        if authorized:
+            marks = ",".join("?" for _ in authorized)
+            callees = connection.execute(
+                f"SELECT DISTINCT callee_symbol_id FROM call_edges WHERE caller_symbol_id IN ({marks}) "
+                "ORDER BY callee_symbol_id", sorted(authorized)).fetchall()
+            relation = "direct-callee-of-required-symbol"
+            for row in definitions(connection, [item[0] for item in callees]):
+                records.append(("CALLEE_CONTRACT", row["repository_path"], row["start_line"],
                                 row["end_line"], row["display_name"], row["provider"]))
     elif args.request_kind == "FAILING_ASSERTION":
         test_rows = connection.execute(
@@ -274,7 +300,22 @@ def main() -> int:
                                     identifier, "declared-context-search"))
             if records:
                 relation = "exact-test-identifier-inside-assignment-boundary"
-    elif args.request_kind == "BUILD_OWNER":
+    elif args.request_kind == "TEST_OWNER":
+        authorized = set(requested_ids) & seed_ids
+        if authorized:
+            marks = ",".join("?" for _ in authorized)
+            rows = connection.execute(
+                f"SELECT DISTINCT t.name,f.repository_path,r.start_line,r.end_line,t.provider "
+                f"FROM test_symbol_edges e JOIN tests t ON t.test_id=e.test_id "
+                f"LEFT JOIN files f ON f.file_id=t.file_id "
+                f"LEFT JOIN source_regions r ON r.region_id=t.region_id "
+                f"WHERE e.symbol_id IN ({marks}) ORDER BY t.test_id", sorted(authorized)).fetchall()
+            relation = "indexed-test-of-required-symbol"
+            for row in rows:
+                if row["repository_path"] and row["start_line"]:
+                    records.append(("TEST_OWNER", row["repository_path"], row["start_line"],
+                                    row["end_line"], row["name"], row["provider"]))
+    elif args.request_kind in {"BUILD_OWNER", "OWNER"}:
         if identifier in seed_paths | validation_paths:
             declared_entry = safe_entry(repository, identifier)
             if declared_entry is None:
@@ -291,15 +332,29 @@ def main() -> int:
                 ).fetchall()
                 for row in rows:
                     if row["definition_path"]:
-                        records.append(("BUILD_OWNER", row["definition_path"], 1, 200,
+                        records.append((args.request_kind, row["definition_path"], 1, 200,
                                         row["name"], row["provider"]))
                 relation = "build-owner-of-declared-path"
-    elif args.request_kind == "REPRESENTATION_WRITER":
+        elif args.request_kind == "OWNER":
+            owner_rows = connection.execute(
+                "SELECT owner_kind,owner_id,provider,authority FROM concept_owners "
+                "WHERE concept_id=? ORDER BY authority,owner_kind,owner_id", (identifier,)).fetchall()
+            for owner in owner_rows:
+                if owner["owner_kind"] == "FILE" and inside_declared_boundary(
+                        repository, owner["owner_id"], seed_paths):
+                    records.append(("OWNER", owner["owner_id"], 1, 200, identifier,
+                                    owner["provider"]))
+                elif owner["owner_kind"] == "SYMBOL" and owner["owner_id"] in seed_ids:
+                    for row in definitions(connection, [owner["owner_id"]]):
+                        records.append(("OWNER", row["repository_path"], row["start_line"],
+                                        row["end_line"], row["display_name"], row["provider"]))
+            relation = "registered-or-derived-owner-inside-assignment-boundary"
+    elif args.request_kind in {"REPRESENTATION_WRITER", "PRODUCER"}:
         normalized_identifier = identifier.split("#", 1)[0].rstrip("/")
         if normalized_identifier in seed_paths and safe_path(repository, normalized_identifier):
             window = tail_window(repository, normalized_identifier, args.max_bytes)
             if window:
-                records.append(("REPRESENTATION_WRITER", normalized_identifier,
+                records.append((args.request_kind, normalized_identifier,
                                 window[0], window[1], identifier,
                                 "declared-context-tail"))
                 relation = "exact-declared-path-complement"
@@ -312,7 +367,20 @@ def main() -> int:
                 "ORDER BY source_symbol_id", [*sorted(authorized), *sorted(authorized)]).fetchall()
             relation = "joern-mutation-adjacent-to-required-symbol"
             for row in definitions(connection, [item[0] for item in writers]):
-                records.append(("REPRESENTATION_WRITER", row["repository_path"], row["start_line"],
+                records.append((args.request_kind, row["repository_path"], row["start_line"],
+                                row["end_line"], row["display_name"], row["provider"]))
+    elif args.request_kind == "CONSUMER":
+        authorized = set(requested_ids) & seed_ids
+        if authorized:
+            marks = ",".join("?" for _ in authorized)
+            consumers = connection.execute(
+                f"SELECT DISTINCT caller_symbol_id FROM call_edges WHERE callee_symbol_id IN ({marks}) "
+                "UNION SELECT DISTINCT source_symbol_id FROM mutation_edges "
+                f"WHERE target_symbol_id IN ({marks}) ORDER BY 1",
+                [*sorted(authorized), *sorted(authorized)]).fetchall()
+            relation = "direct-call-or-mutation-consumer-of-required-symbol"
+            for row in definitions(connection, [item[0] for item in consumers]):
+                records.append(("CONSUMER", row["repository_path"], row["start_line"],
                                 row["end_line"], row["display_name"], row["provider"]))
     connection.close()
 

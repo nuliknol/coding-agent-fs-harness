@@ -47,11 +47,40 @@ specification_obligations=0
 specification_relations=0
 specification_obligations_mapped=0
 specification_obligations_verified=0
+acp_requests=0
+acp_context_requests=0
+acp_context_grants=0
+acp_structural_requests=0
+acp_duplicate_rejections=0
+acp_added_context_bytes=0
+acp_discovered_graph_claims=0
+acp_manager_avoided=0
+acp_initial_context_bytes=0
+acp_context_amplification_percent=N/A
+tokens_per_verified_facet=UNAVAILABLE
 if specification_ir_available; then
 	specification_obligations="$(specification_obligation_count)"
 	specification_relations="$(specification_review_state_value relation_count 0)"
 	specification_obligations_mapped="$(specification_coverage_mapped_count)"
 	specification_obligations_verified="$(specification_coverage_verified_count)"
+fi
+
+ensure_acp_state
+acp_write_metrics
+acp_requests="$(kv_file_value "$(acp_metrics_file)" requests 2>/dev/null || printf 0)"
+acp_context_requests="$(kv_file_value "$(acp_metrics_file)" context_requests 2>/dev/null || printf 0)"
+acp_context_grants="$(kv_file_value "$(acp_metrics_file)" context_grants 2>/dev/null || printf 0)"
+acp_structural_requests="$(kv_file_value "$(acp_metrics_file)" structural_requests 2>/dev/null || printf 0)"
+acp_duplicate_rejections="$(kv_file_value "$(acp_metrics_file)" duplicate_rejections 2>/dev/null || printf 0)"
+acp_manager_avoided="$acp_context_grants"
+acp_added_context_bytes="$(awk -F '\t' '!/^#/ && $7 == "GRANTED" && $8 == "CONTEXT" {if (match($11, /added_bytes=[0-9]+/)) {value=substr($11,RSTART+12,RLENGTH-12); total+=value}} END {print total+0}' "$(acp_events_file)")"
+acp_discovered_graph_claims="$(awk -F '\t' '!/^#/ && $7 == "CLAIMED" {count++} END {print count+0}' "$(acp_discovered_graph_file)")"
+if [[ -f "$dir/logs/context-closure-events.tsv" ]]; then
+	acp_initial_context_bytes="$(awk -F '\t' 'NR > 1 && $4 == "READY" {latest[$2]=$6} END {for (task in latest) total+=latest[task]; print total+0}' "$dir/logs/context-closure-events.tsv")"
+	acp_context_amplification_percent="$(rate "$acp_added_context_bytes" "$acp_initial_context_bytes")"
+fi
+if [[ -f "$(project_efficiency_metrics_file)" ]]; then
+	tokens_per_verified_facet="$(kv_file_value "$(project_efficiency_metrics_file)" tokens_per_verified_facet 2>/dev/null || printf UNAVAILABLE)"
 fi
 
 shopt -s nullglob
@@ -175,6 +204,20 @@ per_item()
 	printf 'worker_output_tokens_per_verified_item\t%s\n' "$(per_item "$worker_output")"
 	printf 'manager_input_tokens_per_verified_item\t%s\n' "$(per_item "$manager_input")"
 	printf 'manager_output_tokens_per_verified_item\t%s\n' "$(per_item "$manager_output")"
+	printf 'tokens_per_verified_facet\t%s\n' "$tokens_per_verified_facet"
+	printf 'acp_requests\t%s\n' "$acp_requests"
+	printf 'acp_context_requests\t%s\n' "$acp_context_requests"
+	printf 'acp_context_grants\t%s\n' "$acp_context_grants"
+	printf 'acp_broker_hit_percent\t%s\n' "$(rate "$acp_context_grants" "$acp_context_requests")"
+	printf 'acp_manager_invocations_avoided\t%s\n' "$acp_manager_avoided"
+	printf 'acp_structural_requests\t%s\n' "$acp_structural_requests"
+	printf 'acp_duplicate_rejections\t%s\n' "$acp_duplicate_rejections"
+	printf 'acp_added_context_bytes\t%s\n' "$acp_added_context_bytes"
+	printf 'acp_initial_context_bytes\t%s\n' "$acp_initial_context_bytes"
+	printf 'acp_context_amplification_percent\t%s\n' "$acp_context_amplification_percent"
+	printf 'acp_requests_per_verified_item\t%s\n' "$(per_item "$acp_requests")"
+	printf 'acp_discovered_graph_claims\t%s\n' "$acp_discovered_graph_claims"
+	printf 'acp_discovered_to_planned_node_percent\t%s\n' "$(rate "$acp_discovered_graph_claims" "$nodes_total")"
 	printf 'architecture_guards_enabled\t%s\n' "$HARNESS_ARCHITECTURE_GUARDS"
 	printf 'architecture_profile\t%s\n' "$architecture_profile_name"
 	printf 'architecture_invariants\t%s\n' "$architecture_invariants"
