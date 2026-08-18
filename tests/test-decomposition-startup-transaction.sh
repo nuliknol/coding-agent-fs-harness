@@ -614,8 +614,9 @@ grep -Fqx 'status=STAGED' "$project_dir/control/decomposition-dag-candidate.env"
 staged_dag="$(awk -F= '$1=="dag" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
 cmp -s "$TEST_ROOT/dag.tsv" "$staged_dag"
 
-# Architecture binding receives the complete fixed DAG/coverage inside one
-# compiled capsule and preserves that staged checkpoint on an output guard.
+# Architecture binding receives complete binding-relevant DAG/coverage
+# projections inside one compiled capsule and preserves that staged checkpoint
+# on an output guard. Verbose task/evidence prose remains authoritative by hash.
 binding_guard_mock="$TEST_ROOT/binding-guard-codex"
 binding_guard_env="$TEST_ROOT/configs/startup-binding-guard.env"
 binding_guard_count="$TEST_ROOT/binding-guard-count"
@@ -669,7 +670,13 @@ grep -Fqx 'classification=agent_command_output_budget_exceeded' "$recovery_marke
 grep -Fqx 'status=STAGED' "$project_dir/control/decomposition-dag-candidate.env"
 binding_capsule="$project_dir/control/manager-architecture-binding.context.md"
 grep -Fq '## Complete fixed decomposition DAG binding projection' "$binding_capsule"
-grep -Fq $'node_id\tparent_id\tdepends_on\tdeliverable\tacceptance_evidence\tfocused_validation\tallowed_paths\trequired_symbols\tleaf_type' "$binding_capsule"
+grep -Fq $'node_id\tparent_id\tdepends_on\tallowed_paths\trequired_symbols\tleaf_type\tvalidation_ref' "$binding_capsule"
+grep -Fq $'obligation_id\tnode_ids' "$binding_capsule"
+grep -Fq $'n01\t-\t-\tsrc/a.c\ttarget\tLOCAL_IMPLEMENTATION\tFOCUSED:n01' "$binding_capsule"
+if grep -Fq 'Implement target behavior' "$binding_capsule" || grep -Fq 'focused source validation' "$binding_capsule"; then
+	printf 'architecture-binding capsule replayed verbose fixed-DAG prose\n' >&2
+	exit 1
+fi
 if grep -Fq $'predicted_worker_actions\tpredicted_p95_tokens\tterra_exception' "$binding_capsule"; then
 	printf 'architecture-binding capsule retained redundant machine-owned DAG score columns\n' >&2
 	exit 1

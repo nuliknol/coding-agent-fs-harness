@@ -201,27 +201,37 @@ def append_bounded(output: list[str], lines: list[str], maximum_bytes: int, mark
 
 
 def fixed_dag_binding_projection(path: Path) -> list[str]:
-    """Compile every fixed node without replaying machine-owned score columns."""
+    """Compile every fixed node at the semantic architecture-binding boundary."""
     fields = (
-        "node_id", "parent_id", "depends_on", "deliverable",
-        "acceptance_evidence", "focused_validation", "allowed_paths",
+        "node_id", "parent_id", "depends_on", "allowed_paths",
         "required_symbols", "leaf_type",
     )
     limits = {
-        "node_id": 72,
-        "parent_id": 72,
-        "depends_on": 120,
-        "deliverable": 120,
-        "acceptance_evidence": 120,
-        "focused_validation": 120,
-        "allowed_paths": 120,
-        "required_symbols": 100,
-        "leaf_type": 40,
+        "node_id": 512,
+        "parent_id": 512,
+        "depends_on": 8192,
+        "allowed_paths": 8192,
+        "required_symbols": 8192,
+        "leaf_type": 128,
     }
     rows = read_tsv(path, set(fields))
+    projection = ["\t".join((*fields, "validation_ref"))]
+    projection.extend("\t".join((
+        *(one_line(row.get(field, "-"), limits[field]) for field in fields),
+        f"FOCUSED:{one_line(row.get('node_id', '-'), limits['node_id'])}",
+    )) for row in rows)
+    return projection
+
+
+def fixed_coverage_binding_projection(path: Path) -> list[str]:
+    """Retain complete obligation ownership without replaying evidence prose."""
+    fields = ("obligation_id", "node_ids")
+    rows = read_tsv(path, set(fields))
     projection = ["\t".join(fields)]
-    projection.extend("\t".join(one_line(row.get(field, "-"), limits[field])
-                                for field in fields) for row in rows)
+    projection.extend("\t".join((
+        one_line(row.get("obligation_id", "-"), 512),
+        one_line(row.get("node_ids", "-"), 8192),
+    )) for row in rows)
     return projection
 
 
@@ -353,11 +363,15 @@ def main() -> None:
         append_bounded(lines, detail, args.max_bytes, "architecture relation projection")
     if args.purpose == "architecture-binding":
         fixed_graph = section("## Complete fixed decomposition DAG binding projection", [
-            "Every fixed node is present. Machine-owned complexity vectors and uniform route columns are omitted; "
-            "the publisher restores and validates them from the staged DAG.",
+            "Every fixed node is present at the architecture-binding boundary. Task prose, machine-owned complexity "
+            "vectors, uniform route columns, and full validation commands remain authoritative behind the DAG hash; "
+            "the publisher restores and validates them from the staged DAG. Each deterministic FOCUSED reference names "
+            "that node's immutable focused validation without replaying its command prose.",
             "```tsv", *fixed_dag_binding_projection(dag_path), "```",
             "", "## Complete fixed specification coverage", "",
-            "```tsv", *coverage_path.read_text(encoding="utf-8", errors="replace").splitlines(), "```",
+            "Every obligation-to-node assignment is present. Evidence-plan prose remains authoritative behind the "
+            "coverage hash and the normalized obligation projection above.",
+            "```tsv", *fixed_coverage_binding_projection(coverage_path), "```",
         ])
         fixed_bytes = len("\n".join([*lines, *fixed_graph, ""]).encode("utf-8"))
         if fixed_bytes > args.max_bytes - 10000:
