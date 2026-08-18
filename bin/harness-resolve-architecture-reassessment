@@ -36,6 +36,43 @@ pending_replan_closure_provider="$(metadata_value "$marker" Pending-Replan-Closu
 additional_scope="$(metadata_value "$note_file" Authorized-Additional-Scope)"
 resolution_action="$(metadata_value "$note_file" Resolution-Action)"
 harness_fix_commit="$(metadata_value "$note_file" Harness-Fix-Commit)"
+pending_replan_inferred=0
+# Releases before 5.18.3 checked the aggregate root budget before recording a
+# more specific manager-remediation circuit. Recover the typed continuation
+# from immutable rejected artifacts, but only during the explicit harness-bug
+# resolution of those generic liveness incidents.
+if [[ "$resolution_action" == REARM_AFTER_HARNESS_BUG && -z "$pending_replan_trigger" &&
+	"$category" =~ ^(NO_CRITERION_PROGRESS|TOTAL_ROOT_REVIEWS|TOTAL_ROOT_REPLANS|ROOT_LIFETIME|ROOT_TOKENS)$ ]]; then
+	trigger_base="$(task_base "$trigger_task")"
+	trigger_assignment="$(project_dir)/archive/$trigger_base.assignment.md"
+	trigger_result="$(project_dir)/archive/$trigger_base.rejected-result.md"
+	if [[ -f "$trigger_assignment" && -f "$trigger_result" ]] &&
+		assignment_is_manager_remediation "$trigger_assignment" &&
+		[[ "$(metadata_value "$trigger_result" Goal-Outcome)" == NEEDS_DECOMPOSITION ]]; then
+		trigger_decomposition_reason="$(metadata_value "$trigger_result" Decomposition-Reason)"
+		case "$trigger_decomposition_reason" in
+			CONTEXT_INCOMPLETE)
+				pending_replan_trigger=MANAGER_REMEDIATION_CONTEXT_INCOMPLETE
+				pending_replan_context_paths="$(metadata_value "$trigger_assignment" Context-Paths)"
+				;;
+			SCOPE_INCOMPLETE|VALIDATION_PREREQUISITE)
+				pending_replan_trigger=MANAGER_REMEDIATION_SCOPE_EXHAUSTED
+				;;
+		esac
+		if [[ -n "$pending_replan_trigger" ]]; then
+			pending_replan_task="$trigger_task"
+			pending_replan_blocker_class="$(metadata_value "$trigger_assignment" Blocker-Class)"
+			pending_replan_remediation_scope="$(metadata_value "$trigger_assignment" Remediation-Scope)"
+			[[ -n "$pending_replan_remediation_scope" ]] ||
+				die 'cannot recover the pre-5.18.3 manager-remediation transition: rejected assignment has no Remediation-Scope'
+			if [[ "$pending_replan_trigger" == MANAGER_REMEDIATION_CONTEXT_INCOMPLETE &&
+				-z "$pending_replan_context_paths" ]]; then
+				die 'cannot recover the pre-5.18.3 context transition: rejected assignment has no Context-Paths'
+			fi
+			pending_replan_inferred=1
+		fi
+	fi
+fi
 case "$category" in
 	NO_CRITERION_PROGRESS|TOTAL_ROOT_REVIEWS|TOTAL_ROOT_REPLANS|ROOT_LIFETIME|ROOT_TOKENS)
 		if [[ "$resolution_action" != REARM_AFTER_HARNESS_BUG ]] &&
@@ -105,6 +142,13 @@ stamp="$(timestamp_compact_utc)"
 archive="$archive_dir/$PROJECT-task-$root.$stamp.resolved.md"
 {
 	cat "$marker"
+	if (( pending_replan_inferred == 1 )); then
+		printf '\n## Recovered typed transition\n\n'
+		printf 'Inferred-Pending-Replan-Trigger: %s\n' "$pending_replan_trigger"
+		printf 'Inferred-Pending-Replan-Triggered-By: %s\n' "$pending_replan_task"
+		printf 'Inferred-Pending-Replan-Remediation-Scope: %s\n' "$pending_replan_remediation_scope"
+		printf 'Inference-Evidence: %s %s\n' "$trigger_assignment" "$trigger_result"
+	fi
 	printf '\n## Explicit resolution\n\n'
 	cat "$note_file"
 	printf '\n\nResolved-At: %s\n' "$(timestamp_utc)"
@@ -227,5 +271,5 @@ if [[ -n "$plan_item" && "$(project_plan_item_status "$plan_item")" == ACTIVE ]]
 	fi
 	replan_restored=1
 fi
-log_event "ARCHITECTURE_REASSESSMENT_RESOLVED root=$root resolution=$archive replan_restored=$replan_restored live_artifact=$root_has_live_artifact additional_scope=$(printf '%q' "${additional_scope:--}")"
+log_event "ARCHITECTURE_REASSESSMENT_RESOLVED root=$root resolution=$archive replan_restored=$replan_restored live_artifact=$root_has_live_artifact pending_inferred=$pending_replan_inferred additional_scope=$(printf '%q' "${additional_scope:--}")"
 printf '%s\n' "$archive"

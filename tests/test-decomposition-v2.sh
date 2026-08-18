@@ -501,7 +501,7 @@ MARKER
 mkdir -p "$cut_project/control/context-closures/decompcut-task-001"
 cat > "$cut_project/control/context-closures/decompcut-task-001/repair-children.tsv" <<'TSV'
 child_id	parent_task	sequence	allowed_paths	context_paths	required_symbols	acceptance_evidence	focused_validation	source_cut	seam_kind	estimated_source_bytes	status
-CCR-cut001	001	1	src/a.c	src/a.c	target_symbol	compiled cut validation passes	test "$(./focused-smoke)" = 1	cut-a	SOURCE	40	PROPOSED
+CCR-cut001	001	1	src/a.c	src/a.c	target_symbol	"compiled ""quoted"" cut validation passes"	"build_dir=""$(mktemp -d /tmp/decompcut.XXXXXX)"" && test ""$(./focused-smoke)"" = 1"	cut-a	SOURCE	40	PROPOSED
 CCR-cut002	001	2	include/a.h	include/a.h	target_symbol	public declaration remains exact	test -f include/a.h	cut-h	INTERFACE	30	PROPOSED
 TSV
 sed \
@@ -522,8 +522,8 @@ sed \
 cut_ready="$cut_project/tasks/decompcut-task-001-revision-01.ready.md"
 grep -Fqx 'Context-Closure-Cut: CCR-cut001' "$cut_ready"
 grep -Fqx 'Allowed-Scope: src/a.c' "$cut_ready"
-grep -Fqx 'Goal-Success-Evidence: compiled cut validation passes' "$cut_ready"
-grep -Fqx 'Focused-Validation: test "$(./focused-smoke)" = 1' "$cut_ready"
+grep -Fqx 'Goal-Success-Evidence: compiled "quoted" cut validation passes' "$cut_ready"
+grep -Fqx 'Focused-Validation: build_dir="$(mktemp -d /tmp/decompcut.XXXXXX)" && test "$(./focused-smoke)" = 1' "$cut_ready"
 grep -Fq 'DETERMINISTIC_CLOSURE_CUT_NORMALIZED root=001 task=001-revision-01' \
 	"$cut_project/logs/events.log"
 grep -Fq 'DETERMINISTIC_CLOSURE_CUT_VALIDATED root=001 task=001-revision-01' \

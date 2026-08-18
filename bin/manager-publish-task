@@ -674,11 +674,40 @@ validate_decomposition_for_root()
 	done < <(tail -n +2 "$candidate")
 }
 
+first_closure_repair_child_fields()
+{
+	local repair_file="$1"
+	python3 - "$repair_file" <<'PY'
+import csv
+import sys
+
+fields = (
+    "child_id", "parent_task", "sequence", "allowed_paths", "context_paths",
+    "required_symbols", "acceptance_evidence", "focused_validation", "source_cut",
+    "seam_kind", "estimated_source_bytes", "status",
+)
+with open(sys.argv[1], encoding="utf-8", newline="") as stream:
+    rows = list(csv.DictReader(stream, delimiter="\t"))
+if not rows:
+    raise SystemExit("repair-children.tsv contains no compiled cuts")
+try:
+    row = sorted(rows, key=lambda item: (int(item["sequence"]), item["child_id"]))[0]
+except (KeyError, TypeError, ValueError) as error:
+    raise SystemExit(f"invalid compiled closure cut: {error}")
+for field in fields:
+    value = row.get(field)
+    if value is None or "\0" in value:
+        raise SystemExit(f"invalid compiled closure cut field: {field}")
+    sys.stdout.buffer.write(value.encode("utf-8") + b"\0")
+PY
+}
+
 validate_deterministic_closure_graft()
 {
 	local candidate="$1" parent="$2" marker action trigger assignment repair expected expected_facets
-	local row child_id _parent_task _sequence allowed_paths context_paths required_symbols _acceptance focused_validation
+	local child_id _parent_task _sequence allowed_paths context_paths required_symbols _acceptance focused_validation
 	local _source_cut _seam_kind _estimated _status target
+	local -a repair_row=()
 	marker="$(task_root_replan_file "$root")"
 	action="$(metadata_value "$marker" Closure-Repair-Action)"
 	[[ "$action" == GRAFT_GRAPH_CUTS ]] || return 0
@@ -708,9 +737,20 @@ validate_deterministic_closure_graft()
 		die 'child facet ledger is missing or violates parent-facet conservation'
 	fi
 	rm -f "$expected" "$expected_facets"
-	row="$(tail -n +2 "$repair" | sort -t $'\t' -k3,3n -k1,1 | head -n 1)"
-	IFS=$'\t' read -r child_id _parent_task _sequence allowed_paths context_paths required_symbols _acceptance \
-		focused_validation _source_cut _seam_kind _estimated _status <<< "$row"
+	mapfile -d '' -t repair_row < <(first_closure_repair_child_fields "$repair")
+	(( ${#repair_row[@]} == 12 )) || die 'trusted Context Closure child row could not be decoded'
+	child_id="${repair_row[0]}"
+	_parent_task="${repair_row[1]}"
+	_sequence="${repair_row[2]}"
+	allowed_paths="${repair_row[3]}"
+	context_paths="${repair_row[4]}"
+	required_symbols="${repair_row[5]}"
+	_acceptance="${repair_row[6]}"
+	focused_validation="${repair_row[7]}"
+	_source_cut="${repair_row[8]}"
+	_seam_kind="${repair_row[9]}"
+	_estimated="${repair_row[10]}"
+	_status="${repair_row[11]}"
 	target="$(metadata_value "$task_file" Target-Criterion)"
 	[[ "$target" == "$parent.$child_id" ]] ||
 		die "closure graft continuation must target the first deterministic child: $parent.$child_id"
@@ -727,9 +767,10 @@ validate_deterministic_closure_graft()
 
 validate_deterministic_closure_cut()
 {
-	local parent="$1" marker action trigger repair declared row child_id _parent_task _sequence tmp
+	local parent="$1" marker action trigger repair declared child_id _parent_task _sequence tmp
 	local allowed_paths context_paths required_symbols acceptance focused_validation
 	local _source_cut _seam_kind _estimated _status target parent_depth child_count
+	local -a repair_row=()
 	marker="$(task_root_replan_file "$root")"
 	declared="$(metadata_value "$task_file" Context-Closure-Cut)"
 	if [[ ! -f "$marker" ]]; then
@@ -757,9 +798,20 @@ validate_deterministic_closure_cut()
 		[[ -z "$declared" ]] || die 'Context-Closure-Cut may replace child grafting only after the structural criterion budget is exhausted'
 		return 0
 	fi
-	row="$(tail -n +2 "$repair" | sort -t $'\t' -k3,3n -k1,1 | head -n 1)"
-	IFS=$'\t' read -r child_id _parent_task _sequence allowed_paths context_paths required_symbols acceptance \
-		focused_validation _source_cut _seam_kind _estimated _status <<< "$row"
+	mapfile -d '' -t repair_row < <(first_closure_repair_child_fields "$repair")
+	(( ${#repair_row[@]} == 12 )) || die 'trusted Context Closure cut row could not be decoded'
+	child_id="${repair_row[0]}"
+	_parent_task="${repair_row[1]}"
+	_sequence="${repair_row[2]}"
+	allowed_paths="${repair_row[3]}"
+	context_paths="${repair_row[4]}"
+	required_symbols="${repair_row[5]}"
+	acceptance="${repair_row[6]}"
+	focused_validation="${repair_row[7]}"
+	_source_cut="${repair_row[8]}"
+	_seam_kind="${repair_row[9]}"
+	_estimated="${repair_row[10]}"
+	_status="${repair_row[11]}"
 	if [[ "$declared" != "$child_id" ||
 		"$(metadata_value "$task_file" Allowed-Scope)" != "$allowed_paths" ||
 		"$(metadata_value "$task_file" Context-Paths)" != "$context_paths" ||

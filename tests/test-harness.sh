@@ -989,6 +989,11 @@ Task-Root: 001
 Manager-Remediation: 1
 MD
 	printf 'worker result\n' > "$result"
+	if [[ "$revision" == 04 ]]; then
+		# The specific repeated-remediation circuit must win even when the same
+		# terminal review also crosses a generic aggregate root fuse.
+		printf 'export HARNESS_MAX_TOTAL_ROOT_REVIEWS="1"\n' >> "$CIRCUIT_ROOT/harness.env"
+	fi
 	remediation_output="$("$HARNESS_BIN/manager-reject-task" "$CIRCUIT_ROOT/harness.env" \
 		"001-revision-$revision" "$CIRCUIT_ROOT/review-001.md")"
 	if [[ "$revision" != 04 ]]; then
@@ -1019,6 +1024,10 @@ post_resolution_output="$("$HARNESS_BIN/manager-reject-task" "$CIRCUIT_ROOT/harn
 grep -Fqx 'Category: REPEATED_MANAGER_REMEDIATION_BLOCKER' "$remediation_reassessment"
 grep -q 'TASK_CIRCUIT_BREAKER_ARCHITECTURE_REASSESSMENT task=001-revision-05' \
 	"$CIRCUIT_ROOT/state/projects/circuitproj/logs/events.log"
+
+# Restore a wide aggregate fixture budget for the independent resource and
+# hard-block circuits below.
+printf 'export HARNESS_MAX_TOTAL_ROOT_REVIEWS="100"\n' >> "$CIRCUIT_ROOT/harness.env"
 
 # The following resource-fuse checks are independent fixtures sharing this
 # synthetic root. Remove the expected reassessment marker only for isolation.
@@ -1469,6 +1478,34 @@ adjacent_remediation="$hard_project/tasks/hardblockproj-task-001-revision-04.rea
 grep -Fqx 'Remediation-Scope: src/adjacent-consumer.c' "$adjacent_remediation"
 grep -Fqx 'Worker-Context: FRESH' "$adjacent_remediation"
 grep -Fqx 'Supersedes-Task: 001-revision-03' "$adjacent_remediation"
+
+# A validation prerequisite proves that the current remediation path cannot
+# reach its assigned test boundary. It rotates to the adjacent validation seam
+# exactly like an exhausted mutation scope; it must not republish the same
+# remediation scope as a generic continuation.
+mv "$adjacent_remediation" \
+	"$hard_project/archive/hardblockproj-task-001-revision-04.assignment.md"
+cat > "$hard_project/results/hardblockproj-task-001-revision-04.result.md" <<'RESULT'
+# Task Result
+
+Task-ID: 001-revision-04
+Task-Root: 001
+Status: COMPLETED
+Goal-Outcome: NEEDS_DECOMPOSITION
+Decomposition-Reason: VALIDATION_PREREQUISITE
+RESULT
+cat > "$HARD_ROOT/remediation-validation-prerequisite-review.md" <<'NOTE'
+Progress-Percent: 1%
+Improvement-Percent: 1%
+NOTE
+validation_prerequisite_output="$("$HARNESS_BIN/manager-reject-task" \
+	"$HARD_ROOT/harness.env" 001-revision-04 \
+	"$HARD_ROOT/remediation-validation-prerequisite-review.md")"
+[[ "$validation_prerequisite_output" == *.needs-replan.md ]]
+grep -Fqx 'Trigger-Outcome: MANAGER_REMEDIATION_SCOPE_EXHAUSTED' \
+	"$hard_progress/hardblockproj-task-001.needs-replan.md"
+grep -Fqx 'Remediation-Scope: src/adjacent-consumer.c' \
+	"$hard_progress/hardblockproj-task-001.needs-replan.md"
 
 # A terminal pause requires an enumerated human dependency and concrete
 # evidence; it uses NEEDS_HUMAN rather than the legacy root-block marker.

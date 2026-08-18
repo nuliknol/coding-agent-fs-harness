@@ -175,13 +175,30 @@ mark_manager_remediation_decomposition_replan()
 				'a fresh manager remediation proved its declared mutation scope insufficient; the next remediation must name the exact adjacent producer, representation, consumer, or validation seam and must not republish the exhausted scope unchanged' \
 				MANAGER_REMEDIATION_SCOPE_EXHAUSTED "$blocker_class" "$remediation_scope"
 			;;
-		TASK_TOO_BROAD|VALIDATION_PREREQUISITE|RESOURCE_LIMIT)
+		VALIDATION_PREREQUISITE)
+			mark_root_needs_replan "$task_id" \
+				'a fresh manager remediation proved that its assigned validation cannot reach the named boundary from the current path authority; the next remediation must move to the exact adjacent build, test, producer, or consumer prerequisite and must not republish the exhausted scope unchanged' \
+				MANAGER_REMEDIATION_SCOPE_EXHAUSTED "$blocker_class" "$remediation_scope"
+			;;
+		TASK_TOO_BROAD|RESOURCE_LIMIT)
 			mark_root_needs_replan "$task_id" \
 				"manager remediation requested a bounded follow-up for typed decomposition reason $reason" \
 				MANAGER_REMEDIATION_CONTINUATION "$blocker_class" "$remediation_scope" "$context_paths"
 			;;
 		*) die "invalid manager remediation Decomposition-Reason: $reason" ;;
 	esac
+}
+
+preserve_manager_remediation_transition_before_reassessment()
+{
+	local result_file="$1"
+	[[ -f "$result_file" ]] || return 0
+	[[ "$(metadata_value "$result_file" Goal-Outcome)" == NEEDS_DECOMPOSITION ]] || return 0
+	assignment_is_manager_remediation "$assignment_archive" || return 0
+	# Compile the typed next transition before replacing it with an investigation
+	# marker. mark_root_architecture_reassessment will copy this bounded authority
+	# into the marker and remove the live replan transaction atomically.
+	mark_manager_remediation_decomposition_replan "$result_file" >/dev/null
 }
 
 mark_context_closure_replan()
@@ -227,11 +244,21 @@ if [[ -f "$rejected" ]]; then
 		retain_worker_thread_for_rejection "$task_id"
 	fi
 	trace_event TASK_REJECT_IDEMPOTENT "task_id=$task_id" "rejected_file=$rejected"
-	# Every terminal rejection path is subordinate to the monotonic root
-	# liveness budget.  In particular, a manager-remediation worker may request
-	# another typed decomposition, but that request must not bypass an already
-	# exhausted review/replan/depth boundary and recursively mint Terra leaves.
-	if ! enforce_root_liveness_or_reassess "$task_id"; then
+	# A specific repeated-remediation/resource circuit is itself the stronger
+	# liveness conclusion. Preserve it before the generic aggregate guard so an
+	# idempotent retry cannot erase the precise investigation and recovery type.
+	if (( manager_remediation_circuit_breaker == 1 )); then
+		preserve_manager_remediation_transition_before_reassessment "$result_archive"
+		mark_root_architecture_reassessment "$task_id" REPEATED_MANAGER_REMEDIATION_BLOCKER \
+			"identical manager-remediation blocker $blocking_fingerprint reached the bounded limit ($HARNESS_MAX_IDENTICAL_MANAGER_REMEDIATION_BLOCKERS) without criterion gain" \
+			"assignment=$assignment_archive review=$rejected" >/dev/null
+		printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
+	elif (( resource_decomposition_circuit_breaker == 1 )); then
+		mark_root_architecture_reassessment "$task_id" REPEATED_RESOURCE_DECOMPOSITION_FAILURE \
+			"the same $result_resource_guard-bounded execution context exhausted repeatedly without criterion gain" \
+			"assignment=$assignment_archive review=$rejected evidence=$dir/control/$base.worker-evidence-digest.md" >/dev/null
+		printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
+	elif ! enforce_root_liveness_or_reassess "$task_id"; then
 		printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
 	elif [[ "$goal_outcome" == HARD_BLOCKED ]]; then
 		mark_root_needs_replan "$task_id" \
@@ -292,11 +319,25 @@ else
 fi
 log_event "TASK_REJECTED task=$task_id"
 trace_event TASK_REJECTED "task_id=$task_id" "rejected_file=$rejected" "result_archive=$result_archive" "note_file=$note_file"
-# Check the monotonic root boundary before dispatching any specialized recovery
-# transition.  These branches used to precede the guard, allowing
-# HARD_BLOCKED and manager-remediation NEEDS_DECOMPOSITION outcomes to replan
-# indefinitely after the configured root limits were exceeded.
-if ! enforce_root_liveness_or_reassess "$task_id"; then
+# A repeated-remediation/resource circuit is more specific than an aggregate
+# root-review/replan fuse and must survive as the durable pause reason. The
+# typed remediation transition is first compiled into NEEDS_REPLAN so the
+# architecture marker can preserve it for an explicitly authorized recovery.
+if (( manager_remediation_circuit_breaker == 1 )); then
+	preserve_manager_remediation_transition_before_reassessment "$result_archive"
+	mark_root_architecture_reassessment "$task_id" REPEATED_MANAGER_REMEDIATION_BLOCKER \
+		"identical manager-remediation blocker $blocking_fingerprint reached the bounded limit ($HARNESS_MAX_IDENTICAL_MANAGER_REMEDIATION_BLOCKERS) without criterion gain" \
+		"assignment=$assignment_archive review=$rejected" >/dev/null
+	printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
+elif (( resource_decomposition_circuit_breaker == 1 )); then
+	mark_root_architecture_reassessment "$task_id" REPEATED_RESOURCE_DECOMPOSITION_FAILURE \
+		"the same $result_resource_guard-bounded execution context exhausted repeatedly without criterion gain" \
+		"assignment=$assignment_archive review=$rejected evidence=$dir/control/$base.worker-evidence-digest.md" >/dev/null
+	printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
+# All other specialized recovery remains subordinate to the monotonic root
+# boundary. HARD_BLOCKED and ordinary typed decompositions cannot recursively
+# mint leaves after the configured root limits are exhausted.
+elif ! enforce_root_liveness_or_reassess "$task_id"; then
 	printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
 elif [[ "$goal_outcome" == HARD_BLOCKED ]]; then
 	replan_marker="$(mark_root_needs_replan "$task_id" \
@@ -308,16 +349,6 @@ elif [[ "$goal_outcome" == NEEDS_DECOMPOSITION ]] &&
 	assignment_is_manager_remediation "$assignment_archive"; then
 	replan_marker="$(mark_manager_remediation_decomposition_replan "$result_archive")"
 	printf '%s\n' "$replan_marker"
-elif (( manager_remediation_circuit_breaker == 1 )); then
-	mark_root_architecture_reassessment "$task_id" REPEATED_MANAGER_REMEDIATION_BLOCKER \
-		"identical manager-remediation blocker $blocking_fingerprint reached the bounded limit ($HARNESS_MAX_IDENTICAL_MANAGER_REMEDIATION_BLOCKERS) without criterion gain" \
-		"assignment=$assignment_archive review=$rejected" >/dev/null
-	printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
-elif (( resource_decomposition_circuit_breaker == 1 )); then
-	mark_root_architecture_reassessment "$task_id" REPEATED_RESOURCE_DECOMPOSITION_FAILURE \
-		"the same $result_resource_guard-bounded execution context exhausted repeatedly without criterion gain" \
-		"assignment=$assignment_archive review=$rejected evidence=$dir/control/$base.worker-evidence-digest.md" >/dev/null
-	printf '%s\n' "$(task_root_architecture_reassessment_file "$root")"
 elif (( circuit_breaker_recovery == 1 )); then
 	replan_marker="$(mark_root_needs_replan "$task_id" \
 		"identical local blocker fingerprint $blocking_fingerprint reached limit $HARNESS_MAX_IDENTICAL_BLOCKERS; manager remediation is required" \

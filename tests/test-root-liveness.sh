@@ -257,6 +257,27 @@ Task-ID: $bug_root-revision-$revision
 Task-Root: $bug_root
 MD
 done
+sed -i 's/CONSUMER\tACTIVE\tconsumer/CONSUMER\tACTIVE\tbugroot/' \
+	"$project/control/project-plan-state.tsv"
+sed 's/consumer/bugroot/g' \
+	"$project/control/progress/livenessproj-task-consumer.root-assignment.md" > \
+	"$project/control/progress/livenessproj-task-$bug_root.root-assignment.md"
+cat > "$project/archive/livenessproj-task-$bug_root-revision-02.assignment.md" <<'MD'
+Task-ID: bugroot-revision-02
+Task-Root: bugroot
+Manager-Remediation: 1
+Blocker-Class: LOCAL_CODE_PREREQUISITE
+Remediation-Scope: src/consumer/smoke.c
+Context-Paths: src/consumer/smoke.c
+MD
+cat > "$project/archive/livenessproj-task-$bug_root-revision-02.rejected-result.md" <<'MD'
+# Rejected Task Result
+
+Task-ID: bugroot-revision-02
+Task-Root: bugroot
+Goal-Outcome: NEEDS_DECOMPOSITION
+Decomposition-Reason: VALIDATION_PREREQUISITE
+MD
 bug_marker="$project/control/progress/livenessproj-task-$bug_root.architecture-reassessment-required.md"
 cat > "$bug_marker" <<MD
 # Architecture Reassessment Required
@@ -281,6 +302,11 @@ grep -Fqx 'authorized_reset=1' "$bug_epoch"
 grep -Fqx 'budget_scope=harness-bug-corrected-boundary' "$bug_epoch"
 grep -Fqx "fix_commit=$harness_fix_commit" "$bug_epoch"
 [[ "$(bash -c 'source "$1/lib/harness-common.sh"; load_harness_env "$2"; root_liveness_epoch_delta "$3" reviewed_attempts "$(root_reviewed_attempt_count "$3")"' _ "$HARNESS_HOME" "$TEST_ROOT/harness.env" "$bug_root")" == 0 ]]
+bug_replan="$project/control/progress/livenessproj-task-$bug_root.needs-replan.md"
+grep -Fqx 'Trigger-Outcome: MANAGER_REMEDIATION_SCOPE_EXHAUSTED' "$bug_replan"
+grep -Fqx 'Remediation-Scope: src/consumer/smoke.c' "$bug_replan"
+grep -Fqx 'Inferred-Pending-Replan-Trigger: MANAGER_REMEDIATION_SCOPE_EXHAUSTED' \
+	"$project"/archive/architecture-reassessments/livenessproj-task-bugroot.*.resolved.md
 cat > "$bug_marker" <<MD
 # Architecture Reassessment Required
 
@@ -294,7 +320,9 @@ if "$HARNESS_BIN/harness-resolve-architecture-reassessment" \
 	printf 'the same harness fix commit rearmed one root twice\n' >&2
 	exit 1
 fi
-rm -f "$bug_marker"
+rm -f "$bug_marker" "$bug_replan"
+sed -i 's/CONSUMER\tACTIVE\tbugroot/CONSUMER\tACTIVE\tconsumer/' \
+	"$project/control/project-plan-state.tsv"
 
 # A tokens-without-gain investigation has a separate audited rearm. It resets
 # only the efficiency comparison boundary after an installed harness fix and
