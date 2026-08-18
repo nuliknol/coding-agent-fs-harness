@@ -441,6 +441,8 @@ grep -q 'Transient provider retry seconds: 1 (retries unlimited)' "$TEST_ROOT/ch
 grep -q 'Quota retry seconds: 1 (retries unlimited)' "$TEST_ROOT/check-env.out"
 "$HARNESS_BIN/harness-init" "$TEST_ROOT/harness.env" >/dev/null
 [[ -d "/tmp/testproj" ]]
+grep -Fq 'exec "$HARNESS_BIN/harness-start" --background "$HARNESS_ENV_FILE"' \
+	"$HARNESS_BIN/harness-supervisor-start"
 printf 'must block startup\n' > "$TEST_ROOT/repo/untracked-before-start.txt"
 if "$HARNESS_BIN/harness-start" "$TEST_ROOT/harness.env" \
 	>"$TEST_ROOT/dirty-start.out" 2>"$TEST_ROOT/dirty-start.err"; then

@@ -16,6 +16,15 @@ usage()
 load_harness_env "$1"
 ensure_project
 require_goal_mode_clean_boundary
+
+# The manager supervisor consumes an installed project plan. Route a direct
+# supervisor-start request for a pre-plan project through the detached startup
+# transaction so specification review, recursive decomposition, architecture
+# binding, and bootstrap occur before either supervisor is launched.
+if ! project_plan_exists; then
+	exec "$HARNESS_BIN/harness-start" --background "$HARNESS_ENV_FILE"
+fi
+
 trace_init manager_supervisor_start
 trace_script_start "$@"
 trap 'trace_script_exit $?' EXIT
