@@ -609,6 +609,18 @@ test -s "$dag_rejection_log"
 verification_candidate="$(awk -F= '$1=="directory" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
 grep -q $'^n01\t.*\tVERIFICATION_ONLY\tLOW\tLUNA\t.*\t0\t' "$verification_candidate/dag.tsv"
 
+# Structured test/evidence authorities followed by prose are review-attested
+# focused descriptors. Normalize that exact form before candidate hashing so a
+# later architecture submission cannot pay for a Sol schema-repair turn.
+awk -F '\t' 'BEGIN {OFS=FS} $1=="n01" {$6="IT-A19-CORE-001 existing evidence check"} {print}' \
+	"$TEST_ROOT/verification-dag.tsv" > "$TEST_ROOT/descriptor-dag.tsv"
+"$HARNESS_BIN/manager-stage-decomposition-dag" "$env_file" \
+	"$TEST_ROOT/descriptor-dag.tsv" "$TEST_ROOT/coverage.tsv" >/dev/null
+descriptor_candidate="$(awk -F= '$1=="directory" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
+grep -Fq $'n01\t-\t-\tVerify existing target behavior\tFocused source already exists\tFOCUSED: IT-A19-CORE-001 existing evidence check\t' \
+	"$descriptor_candidate/dag.tsv"
+grep -Fq 'DECOMPOSITION_VALIDATION_DESCRIPTORS_NORMALIZED stage=dag_staging' "$project_dir/logs/events.log"
+
 "$HARNESS_BIN/manager-stage-decomposition-dag" "$env_file" "$TEST_ROOT/dag.tsv" "$TEST_ROOT/coverage.tsv" >/dev/null
 grep -Fqx 'status=STAGED' "$project_dir/control/decomposition-dag-candidate.env"
 staged_dag="$(awk -F= '$1=="dag" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"

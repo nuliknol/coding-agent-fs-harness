@@ -106,7 +106,7 @@ fi
 repair_phase=decomposition_repair
 complexity_repair=0
 context_closure_repair=0
-complexity_context='Correct only the reported deterministic DAG/coverage defect. Every DAG row is executable through LUNA or TERRA; never emit SOL or grouping nodes. Routine LOCAL_IMPLEMENTATION, TEST_IMPLEMENTATION, MECHANICAL_API, FOCUSED_BUG, DOCUMENTATION, and VERIFICATION_ONLY rows remain LOW/LUNA and must be split rather than converted to Terra with an invented exception.'
+complexity_context='Correct only the reported deterministic DAG/coverage defect. Every DAG row is executable through LUNA or TERRA; never emit SOL or grouping nodes. Every focused_validation is either a machine-executable shell command or a review-attested descriptor beginning exactly FOCUSED:, INCREMENTAL:, or CLEAN_GLOBAL:. Routine LOCAL_IMPLEMENTATION, TEST_IMPLEMENTATION, MECHANICAL_API, FOCUSED_BUG, DOCUMENTATION, and VERIFICATION_ONLY rows remain LOW/LUNA and must be split rather than converted to Terra with an invented exception.'
 if [[ "$(decomposition_dag_candidate_state_value rejection_stage -)" == context_closure ]] ||
 	grep -Eq 'CONTEXT_CLOSURE_OVER_BUDGET.*status=OVER_BUDGET' "$rejection_log"; then
 	context_closure_repair=1

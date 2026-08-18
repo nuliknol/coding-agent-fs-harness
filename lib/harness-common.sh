@@ -26,6 +26,24 @@ validation_is_executable_command()
 	architecture_validation_is_command_shaped "$validation"
 }
 
+# Sol sometimes emits a typed test/evidence authority followed by prose in a
+# focused_validation cell (for example, "IT-A19-CORE-001 exact seam check").
+# That is semantically a review-attested focused descriptor, not a shell
+# command. Normalize only this unmistakable multi-segment authority form; leave
+# arbitrary prose and malformed commands for the deterministic validator.
+normalize_decomposition_validation_descriptors()
+{
+	local source_file="$1" output_file="$2"
+	awk -F '\t' -v OFS='\t' '
+		NR == 1 {print; next}
+		$6 !~ /^(FOCUSED:|INCREMENTAL:|CLEAN_GLOBAL:)/ &&
+		$6 ~ /^[A-Z][A-Z0-9._]*-[A-Z0-9._-]+-[A-Z0-9._-]+[[:space:]]/ {
+			$6 = "FOCUSED: " $6
+		}
+		{print}
+	' "$source_file" > "$output_file"
+}
+
 validation_redirects_diagnostics()
 {
 	grep -Eq '(^|[[:space:];&|])([0-9]*>|&>)[[:space:]]*[^&|;]*|[0-9]+>&[0-9]+' <<< "$1"

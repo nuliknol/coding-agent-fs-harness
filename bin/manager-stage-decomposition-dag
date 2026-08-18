@@ -15,6 +15,14 @@ dag_source="$2"
 coverage_source="$3"
 [[ -f "$dag_source" && -f "$coverage_source" ]] || die 'DAG staging requires DAG and coverage TSV files'
 
+normalized_dag="$PROJECT_TMP_DIR/decomposition-validation-normalized-$$.tsv"
+normalize_decomposition_validation_descriptors "$dag_source" "$normalized_dag"
+chmod 600 "$normalized_dag"
+if ! cmp -s "$dag_source" "$normalized_dag"; then
+	dag_source="$normalized_dag"
+	log_event "DECOMPOSITION_VALIDATION_DESCRIPTORS_NORMALIZED stage=dag_staging"
+fi
+
 acquire_project_lock
 candidate_id="$({ sha256sum "$dag_source" "$coverage_source"; } | sha256sum | awk '{print $1}')"
 candidate_dir="$(project_dir)/control/decomposition-dag-candidates/$candidate_id"
@@ -62,6 +70,8 @@ set +e
 		validate_decomposition_measured_schema_file "$candidate_dir/dag.tsv" ||
 			die 'measured decomposition DAG contains invalid or non-executable rows'
 	fi
+	architecture_report_unscoped_candidate_validations "$candidate_dir/dag.tsv" - ||
+		die 'decomposition DAG contains non-executable or unscoped focused validation'
 	specification_relative="$(realpath --relative-to="$REPOSITORY" "$SPECIFICATION" 2>/dev/null || true)"
 	if [[ -n "$specification_relative" && "$specification_relative" != ../* ]]; then
 		awk -F '\t' -v spec="$specification_relative" '

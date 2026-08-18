@@ -43,6 +43,13 @@ if (( recover == 1 )); then
 	architecture_stage="$(decomposition_candidate_state_value architecture_directory -)"
 else
 	[[ -f "$dag_source" && -f "$coverage_source" ]] || die 'decomposition submission requires DAG and coverage TSV files'
+	normalized_dag="$PROJECT_TMP_DIR/decomposition-validation-normalized-$$.tsv"
+	normalize_decomposition_validation_descriptors "$dag_source" "$normalized_dag"
+	chmod 600 "$normalized_dag"
+	if ! cmp -s "$dag_source" "$normalized_dag"; then
+		dag_source="$normalized_dag"
+		log_event "DECOMPOSITION_VALIDATION_DESCRIPTORS_NORMALIZED stage=decomposition_submission"
+	fi
 	if (( HARNESS_ARCHITECTURE_GUARDS == 1 )) && [[ "$architecture_source" != - ]]; then
 		[[ -d "$architecture_source" ]] || die 'guarded decomposition requires an architecture directory or - for the deterministic single-test profile'
 	fi
@@ -141,7 +148,9 @@ if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" != off ]]; then
 		else
 			sed -i 's/^status=.*/status=REJECTED/' "$state"
 			sed -i '/^rejection_stage=/d; /^rejection_log=/d' "$state"
-			printf 'rejection_stage=context_closure\nrejection_log=%s\n' "$candidate_dir/context-admission/repair.tsv" >> "$state"
+			context_rejection_log="$candidate_dir/context-admission/repair.tsv"
+			printf 'rejection_stage=context_closure\nrejection_log=%s\n' "$context_rejection_log" >> "$state"
+			printf 'REJECTION_LOG=%s\n' "$context_rejection_log" >&2
 			die 'architecture-bound Context Closure rejected one or more Luna leaves; continue Sol decomposition'
 		fi
 	fi
