@@ -6,15 +6,16 @@ source "$SCRIPT_DIR/../lib/harness-common.sh"
 
 usage()
 {
-	printf 'Usage: %s ENV_FILE CANDIDATE_DAG REVISED_ROOT_ASSIGNMENT RESOLUTION_NOTE_FILE\n' "${0##*/}" >&2
+	printf 'Usage: %s ENV_FILE CANDIDATE_DAG REVISED_ROOT_ASSIGNMENT RESOLUTION_NOTE_FILE [REVISED_CRITERION_DECOMPOSITION]\n' "${0##*/}" >&2
 	exit 2
 }
 
-[[ $# -eq 4 ]] || usage
+(( $# == 4 || $# == 5 )) || usage
 load_harness_env "$1"
 candidate_dag="$2"
 candidate_assignment="$3"
 resolution_note="$4"
+replacement_decomposition="${5:-}"
 ensure_project
 (( HARNESS_DECOMPOSITION_V2 == 1 )) || die 'active-node revision requires HARNESS_DECOMPOSITION_V2=1'
 project_plan_uses_dag || die 'active-node revision requires an existing decomposition DAG'
@@ -23,6 +24,8 @@ env_has_running_processes && die 'stop this harness and wait for active children
 [[ -s "$candidate_dag" ]] || die "candidate DAG is missing or empty: $candidate_dag"
 [[ -s "$candidate_assignment" ]] || die "revised root assignment is missing or empty: $candidate_assignment"
 [[ -s "$resolution_note" ]] || die "architecture resolution note is missing or empty: $resolution_note"
+[[ -z "$replacement_decomposition" || -s "$replacement_decomposition" ]] ||
+	die "revised criterion decomposition is missing or empty: $replacement_decomposition"
 
 dir="$(project_dir)"
 dag="$(project_decomposition_plan_file)"
@@ -223,6 +226,36 @@ new_criteria="$(awk -F': ' '$1 == "Root-Criterion" {print $2}' "$candidate_assig
 [[ -n "$old_criteria" && "$new_criteria" == "$old_criteria" ]] ||
 	die 'revised root assignment must preserve every Root-Criterion in its original order'
 
+criteria_replaced=0
+criterion_decomposition="$(task_criterion_decomposition_file "$root")"
+if [[ -n "$replacement_decomposition" ]]; then
+	[[ -f "$criterion_decomposition" ]] ||
+		die 'controlled criterion replacement requires an installed decomposition to replace'
+	replacement_parent="$(metadata_value "$resolution_note" Replacement-Criterion-Parent)"
+	if [[ -z "$replacement_parent" && "$(wc -l <<< "$old_criteria" | tr -d ' ')" == 1 ]]; then
+		replacement_parent="$old_criteria"
+	fi
+	[[ -n "$replacement_parent" ]] ||
+		die 'controlled criterion replacement requires Replacement-Criterion-Parent when the root has multiple criteria'
+	grep -Fxq -- "$replacement_parent" <<< "$old_criteria" ||
+		die 'Replacement-Criterion-Parent must be an immutable Root-Criterion'
+	invalid_decomposition_sha="$(metadata_value "$resolution_note" Invalid-Criterion-Decomposition-SHA256)"
+	actual_decomposition_sha="$(sha256sum "$criterion_decomposition" | awk '{print $1}')"
+	[[ "$invalid_decomposition_sha" == "$actual_decomposition_sha" ]] ||
+		die 'resolution must name the exact installed Invalid-Criterion-Decomposition-SHA256'
+	[[ -n "$(metadata_value "$resolution_note" Invalid-Criterion-Decomposition-Evidence)" ]] ||
+		die 'controlled criterion replacement requires Invalid-Criterion-Decomposition-Evidence'
+	harness_fix_commit="$(metadata_value "$resolution_note" Harness-Fix-Commit)"
+	[[ "$harness_fix_commit" =~ ^[0-9a-f]{7,64}$ ]] ||
+		die 'controlled criterion replacement requires Harness-Fix-Commit'
+	git -C "$HARNESS_HOME" cat-file -e "$harness_fix_commit^{commit}" 2>/dev/null ||
+		die "Harness-Fix-Commit is not installed in the harness repository: $harness_fix_commit"
+	git -C "$HARNESS_HOME" merge-base --is-ancestor "$harness_fix_commit" HEAD ||
+		die "Harness-Fix-Commit is not an ancestor of deployed harness HEAD: $harness_fix_commit"
+	validate_criterion_decomposition_candidate "$replacement_decomposition" "$replacement_parent"
+	criteria_replaced=1
+fi
+
 if specification_ir_available; then
 	validate_specification_coverage_file "$(specification_coverage_file)" "$candidate_dag"
 fi
@@ -266,6 +299,27 @@ install -m 600 "$dag" "$archive_dir/project-decomposition-v2.before.tsv"
 install -m 600 "$root_assignment" "$archive_dir/root-assignment.before.md"
 install -m 600 "$marker" "$archive_dir/$incident_name"
 install -m 600 "$resolution_note" "$archive_dir/resolution.md"
+if (( criteria_replaced == 1 )); then
+	mkdir -p "$archive_dir/root-state.before"
+	chmod 700 "$archive_dir/root-state.before"
+	for root_state_file in \
+		"$criterion_decomposition" \
+		"$(task_criterion_ledger_file "$root")" \
+		"$(task_criterion_facets_file "$root")" \
+		"$(task_checkpoint_ledger_file "$root")" \
+		"$(task_replan_ledger_file "$root")" \
+		"$(task_manager_remediation_ledger_file "$root")" \
+		"$(task_progress_file "$root")" \
+		"$(task_hard_block_ledger_file "$root")" \
+		"$(task_convergence_baseline_file "$root")" \
+		"$(task_root_efficiency_baseline_file "$root")" \
+		"$(task_root_efficiency_metrics_file "$root")" \
+		"$(task_root_liveness_epoch_file "$root")"; do
+		[[ -f "$root_state_file" ]] || continue
+		install -m 600 "$root_state_file" "$archive_dir/root-state.before/${root_state_file##*/}"
+	done
+	install -m 600 "$replacement_decomposition" "$archive_dir/criterion-decomposition.replacement.tsv"
+fi
 if [[ -f "$(decomposition_complexity_report_file)" ]]; then
 	install -m 600 "$(decomposition_complexity_report_file)" "$archive_dir/decomposition-complexity.before.tsv"
 fi
@@ -286,6 +340,24 @@ if ! ( architecture_validate_against_plan ); then
 fi
 if [[ -n "$candidate_complexity" ]]; then
 	mv "$candidate_complexity" "$(decomposition_complexity_report_file)"
+fi
+if (( criteria_replaced == 1 )); then
+	install -m 600 "$replacement_decomposition" "$criterion_decomposition.tmp.$$"
+	mv "$criterion_decomposition.tmp.$$" "$criterion_decomposition"
+	rm -f \
+		"$(task_criterion_ledger_file "$root")" \
+		"$(task_criterion_facets_file "$root")" \
+		"$(task_checkpoint_ledger_file "$root")" \
+		"$(task_replan_ledger_file "$root")" \
+		"$(task_manager_remediation_ledger_file "$root")" \
+		"$(task_progress_file "$root")" \
+		"$(task_hard_block_ledger_file "$root")" \
+		"$(task_convergence_baseline_file "$root")" \
+		"$(task_root_efficiency_baseline_file "$root")" \
+		"$(task_root_efficiency_metrics_file "$root")"
+	record_root_liveness_epoch "$root" harness-bug-correction "$harness_fix_commit"
+	record_root_verified_facet_boundary "$root"
+	log_event "INVALID_CRITERION_DECOMPOSITION_REPLACED root=$root prior_sha=$actual_decomposition_sha replacement=$replacement_decomposition archive=$archive_dir"
 fi
 rm -f "$architecture_marker" "$token_marker" "$(task_root_replan_file "$root")" "$(task_root_replanning_file "$root")"
 clear_worker_thread_for_root "$root" active-plan-node-revised
@@ -342,6 +414,7 @@ rm -f "$dir/control/manager-plan-stalled.md"
 	printf 'resolution_note=%s\n' "$archive_dir/resolution.md"
 	printf 'incident=%s\n' "$incident_name"
 	printf 'rotated_goal_threads=%s\n' "$rotated_goal_threads"
+	printf 'criterion_decomposition_replaced=%s\n' "$criteria_replaced"
 } > "$archive_dir/revision.env"
 chmod 600 "$archive_dir/revision.env"
 log_event "ACTIVE_PLAN_NODE_REVISED item=$active_item root=$root old_paths=$(printf '%q' "$old_paths") new_paths=$(printf '%q' "$new_paths") archive=$archive_dir"

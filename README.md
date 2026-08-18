@@ -1464,13 +1464,21 @@ TASK_ROOT RESOLUTION_NOTE_FILE`.
 When reassessment proves that the active DAG node itself omitted legitimate
 repair authority, stop the harness and use
 `harness-revise-active-plan-node ENV_FILE CANDIDATE_DAG
-REVISED_ROOT_ASSIGNMENT RESOLUTION_NOTE_FILE`. The command permits only the
+REVISED_ROOT_ASSIGNMENT RESOLUTION_NOTE_FILE
+[REVISED_CRITERION_DECOMPOSITION]`. The command permits only the
 active node to change, preserves its identity, dependencies, deliverable,
 acceptance evidence, focused validation, and ordered root criteria, and permits
 only additive path and symbol authority. It validates the revised assignment,
 archives the old DAG, assignment, pause marker, and resolution, then clears the
 pause atomically. The next planning turn automatically uses a fresh manager
 context so stale conversational scope cannot override the revised durable DAG.
+The optional criterion decomposition is reserved for a proven harness-generated
+invalid decomposition. It requires the exact installed decomposition digest,
+documented invalidity evidence, an installed `Harness-Fix-Commit`, and (for a
+multi-criterion root) `Replacement-Criterion-Parent` in the resolution note.
+The command archives the old root state and resets only derived criterion,
+checkpoint, replan, remediation, progress, and convergence ledgers before
+starting a fresh liveness epoch; immutable root criteria remain unchanged.
 Merely clearing an immutable-authority marker without revising the conflicting
 authority will cause the same pause to recur. For other proven stale-manager
 cases, stop the harness and run `harness-rotate-manager-context ENV_FILE
@@ -1526,7 +1534,10 @@ If a monotonic architecture/liveness guard pauses the root while that typed
 transition is pending, the architecture marker preserves its trigger, source
 task, blocker class, and exhausted path set. Resolving the liveness epoch
 restores the specific exhausted-scope transition rather than replacing it with
-a generic architecture-resolution replan.
+a generic architecture-resolution replan. Successive audited
+`Authorized-Additional-Scope` decisions for the same root are cumulative: the
+resolver unions them with the existing override (up to four bounded paths)
+rather than silently discarding authority granted by an earlier repair.
 
 Recovery publication corrections are also bounded. If the final correction
 still identifies a concrete remediation path outside immutable root authority,

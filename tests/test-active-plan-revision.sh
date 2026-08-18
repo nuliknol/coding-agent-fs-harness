@@ -220,4 +220,58 @@ grep -Fq 'LEGACY_ROOT_VALIDATION_CAPTURE_NORMALIZED root=contract task=contract-
 	"$project/logs/events.log"
 [[ ! -e "$project/control/manager-plan-stalled.md" ]]
 
+# A disproved generated criterion tree may be replaced only through the same
+# stopped, archived active-node revision transaction and only when the
+# resolution names its exact digest and an installed harness fix.
+mv "$planned" "$project/archive/revisionproj-task-contract-revision-01.assignment.md"
+invalid_criteria="$project/control/progress/revisionproj-task-contract.criterion-decomposition.tsv"
+cat > "$invalid_criteria" <<'TSV'
+parent_criterion	child_criterion	title	acceptance_evidence
+contract.header	contract.header.invented-command	Invent a checker	command -v invented-checker succeeds
+contract.header.invented-command	contract.header.invented-registration	Invent its registration	invented-checker has a registration declaration
+TSV
+cat > "$project/control/progress/revisionproj-task-contract.criteria.tsv" <<'TSV'
+item_id	state	verified_by	evidence_sha256	updated_at
+contract.header.invented-command	PASSED	contract-revision-01	deadbeef	2026-01-01T00:00:00Z
+TSV
+cat > "$project/control/progress/revisionproj-task-contract.progress.md" <<'MD'
+# Root Task Progress
+
+Progress-Percent: 50%
+MD
+bash -c 'source "$1/lib/harness-common.sh"; load_harness_env "$2"; mark_root_architecture_reassessment contract REPEATED_MANAGER_REMEDIATION_BLOCKER "generated criterion assumes a nonexistent executable" "criterion decomposition" >/dev/null' \
+	_ "$HARNESS_HOME" "$TEST_ROOT/harness.env"
+
+sed \
+	-e 's#\t./focused-smoke --runtime\tsrc/api.h,src/api.c\t#\ttest -f src/smoke.c\tsrc/api.h,src/api.c,src/smoke.c\t#' \
+	"$TEST_ROOT/revised-plan.tsv" > "$TEST_ROOT/criterion-revised-plan.tsv"
+sed \
+	-e 's#^Focused-Validation:.*#Focused-Validation: test -f src/smoke.c#' \
+	-e 's#^Allowed-Scope: src/api.h,src/api.c$#Allowed-Scope: src/api.h,src/api.c,src/smoke.c#' \
+	-e 's#^Context-Paths: src/api.h,src/api.c$#Context-Paths: src/api.h,src/api.c,src/smoke.c#' \
+	"$TEST_ROOT/revised-root.md" > "$TEST_ROOT/criterion-revised-root.md"
+cat > "$TEST_ROOT/replacement-criteria.tsv" <<'TSV'
+parent_criterion	child_criterion	title	acceptance_evidence
+contract.header	contract.header.declaration	Verify public declaration	src/api.h declares public_api
+contract.header	contract.header.implementation	Verify bounded implementation	src/api.c implements public_api and the smoke observes it
+TSV
+{
+	printf 'Invalid-Criterion-Decomposition-SHA256: %s\n' "$(sha256sum "$invalid_criteria" | awk '{print $1}')"
+	printf 'Invalid-Criterion-Decomposition-Evidence: The generated tree requires nonexistent invented-checker, which appears in neither the accepted assignment nor repository.\n'
+	printf 'Replacement-Criterion-Parent: contract.header\n'
+	printf 'Harness-Fix-Commit: %s\n' "$(git -C "$HARNESS_HOME" rev-parse HEAD)"
+} > "$TEST_ROOT/criterion-resolution.md"
+
+"$HARNESS_BIN/harness-revise-active-plan-node" "$TEST_ROOT/harness.env" \
+	"$TEST_ROOT/criterion-revised-plan.tsv" "$TEST_ROOT/criterion-revised-root.md" \
+	"$TEST_ROOT/criterion-resolution.md" "$TEST_ROOT/replacement-criteria.tsv" >/dev/null
+cmp -s "$TEST_ROOT/replacement-criteria.tsv" "$invalid_criteria"
+[[ ! -e "$project/control/progress/revisionproj-task-contract.criteria.tsv" ]]
+[[ ! -e "$project/control/progress/revisionproj-task-contract.progress.md" ]]
+grep -Fqx 'authorized_reset=1' \
+	"$project/control/progress/revisionproj-task-contract.liveness-epoch.env"
+latest_revision_archive="$(find "$project/archive/plan-node-revisions/contract" -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
+[[ -s "$latest_revision_archive/root-state.before/revisionproj-task-contract.criterion-decomposition.tsv" ]]
+grep -Fqx 'criterion_decomposition_replaced=1' "$latest_revision_archive/revision.env"
+
 printf 'active plan node revision tests passed\n'

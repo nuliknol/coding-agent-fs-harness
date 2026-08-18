@@ -5924,7 +5924,7 @@ decomposition_has_complexity_contract()
 
 validate_decomposition_measured_schema_file()
 {
-	local dag="$1" node_id leaf_type complexity_class worker_route errors=0 index value
+	local dag="$1" node_id leaf_type complexity_class worker_route errors=0 index value focused_validation
 	local allowed_paths required_symbols zero_write_scope
 	local -a fields=()
 	while IFS=$'\t' read -r -a fields; do
@@ -5936,6 +5936,7 @@ validate_decomposition_measured_schema_file()
 			continue
 		fi
 		leaf_type="${fields[8]}"; complexity_class="${fields[9]}"; worker_route="${fields[10]}"
+		focused_validation="${fields[5]}"
 		allowed_paths="${fields[6]}"; required_symbols="${fields[7]}"
 		if [[ ! "$leaf_type" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY|CONTRACT_DESIGN|CROSS_COMPONENT_ARCHITECTURE|CONCURRENCY_PROTOCOL|INTEGRATION|AMBIGUOUS_SPECIFICATION)$ ]]; then
 			printf 'LUNA_COMPLEXITY_INVALID node=%s has non-executable leaf_type=%s; every DAG row must be an executable Luna or Terra leaf, never a planner/grouping node\n' "$node_id" "$leaf_type"
@@ -5962,6 +5963,11 @@ validate_decomposition_measured_schema_file()
 		fi
 		if [[ -z "$required_symbols" ]]; then
 			printf 'LUNA_COMPLEXITY_INVALID node=%s requires required_symbols or -\n' "$node_id"
+			errors=$((errors + 1))
+		fi
+		if [[ "$leaf_type" == VERIFICATION_ONLY && "$allowed_paths" == - &&
+			"$required_symbols" == - ]] && validation_is_review_descriptor "$focused_validation"; then
+			printf 'LUNA_COMPLEXITY_INVALID node=%s zero-write review descriptor has no executable command, allowed_paths, or required_symbols evidence boundary\n' "$node_id"
 			errors=$((errors + 1))
 		fi
 		if [[ "${HARNESS_MODEL_POLICY:-legacy}" == luna_only && "$worker_route" != LUNA ]]; then
@@ -6332,6 +6338,11 @@ initialize_project_plan_v2()
 		[[ -n "$deliverable" && -n "$acceptance_evidence" && -n "$focused_validation" ]] ||
 			die "node $node_id requires deliverable, acceptance_evidence, and focused_validation"
 		architecture_require_scoped_validation "plan node $node_id focused_validation" "$focused_validation"
+		if (( has_leaf_type == 1 )) && [[ "$leaf_type" == VERIFICATION_ONLY &&
+			"$allowed_paths" == - && "$required_symbols" == - ]] &&
+			validation_is_review_descriptor "$focused_validation"; then
+			die "verification-only node $node_id uses a review descriptor but names no allowed_paths or required_symbols evidence boundary"
+		fi
 		if [[ -z "$allowed_paths" || "$allowed_paths" == - ]]; then
 			zero_write_scope=0
 			if (( has_leaf_type == 1 )) &&

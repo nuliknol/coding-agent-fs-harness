@@ -879,6 +879,25 @@ MD
 scope_override="$project/control/progress/livenessproj-task-$scope_root.architecture-scope-override.env"
 grep -Fqx 'additional_scope=remediation.c' "$scope_override"
 grep -Fqx 'authorized_for=manager_remediation' "$scope_override"
+# A later audited adjacent seam augments the durable authority instead of
+# replacing the first one. Otherwise a multi-step remediation oscillates
+# between already-approved producer and consumer paths.
+cat > "$scope_marker" <<'MD'
+# Architecture Reassessment Required
+
+Project: livenessproj
+Task-Root: scopeexp
+Triggered-By: scopeexp-revision-02
+Category: MANAGER_REMEDIATION_SCOPE_EXPANSION
+MD
+cat > "$TEST_ROOT/scope-resolution-second.md" <<'MD'
+Authorized-Additional-Scope: src/consumer/smoke.c
+
+The adjacent consumer is the second independently audited remediation seam.
+MD
+"$HARNESS_BIN/harness-resolve-architecture-reassessment" \
+	"$TEST_ROOT/harness.env" "$scope_root" "$TEST_ROOT/scope-resolution-second.md" >/dev/null
+grep -Fqx 'additional_scope=remediation.c,src/consumer/smoke.c' "$scope_override"
 # The exact preserved tracked change is now attributable on restart even after
 # the reassessment marker itself has been archived.
 bash -c 'source "$1/lib/harness-common.sh"; load_harness_env "$2"; require_resumable_repository_start_state' \
@@ -906,7 +925,7 @@ effective_files="$(bash -c '
 	source "$1/lib/harness-checkpoint-commit.sh"
 	checkpoint_effective_commit_max_files scopeexp-revision-02 "$3"
 ' _ "$HARNESS_HOME" "$TEST_ROOT/harness.env" "$TEST_ROOT/scope-remediation-assignment.md")"
-[[ "$effective_files" == 2 ]]
+[[ "$effective_files" == 3 ]]
 
 # The root-level allowance remains relevant after the remediation. An ordinary
 # continuation cannot mutate the extra path unless its own scope says so, but
@@ -924,6 +943,6 @@ effective_files="$(bash -c '
 	source "$1/lib/harness-checkpoint-commit.sh"
 	checkpoint_effective_commit_max_files scopeexp-revision-03 "$3"
 ' _ "$HARNESS_HOME" "$TEST_ROOT/harness.env" "$TEST_ROOT/scope-followup-assignment.md")"
-[[ "$effective_files" == 2 ]]
+[[ "$effective_files" == 3 ]]
 
 printf 'root liveness and dependency invalidation tests passed\n'

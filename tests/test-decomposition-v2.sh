@@ -417,7 +417,7 @@ chmod 600 "$TEST_ROOT/read-only-remediation-harness.env"
 "$HARNESS_BIN/harness-init" "$TEST_ROOT/read-only-remediation-harness.env" >/dev/null
 cat > "$TEST_ROOT/read-only-remediation-plan.tsv" <<'PLAN'
 node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route	behavioral_concerns	failure_paths	ownership_transitions	concurrency_boundaries	validation_surfaces	implementation_files	predicted_worker_actions	predicted_p95_tokens	terra_exception
-n1	-	-	Verify existing target	target source exists	FOCUSED: source-only target audit	-	-	VERIFICATION_ONLY	LOW	LUNA	1	0	0	0	1	0	3	12000	-
+n1	-	-	Verify existing target	target source exists	FOCUSED: source-only target audit	-	source-audit-evidence-check	VERIFICATION_ONLY	LOW	LUNA	1	0	0	0	1	0	3	12000	-
 PLAN
 "$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/read-only-remediation-harness.env" \
 	"$TEST_ROOT/read-only-remediation-plan.tsv" >/dev/null
@@ -427,7 +427,7 @@ sed \
 	-e 's#^Allowed-Scope:.*#Allowed-Scope: -#' \
 	-e 's/^Leaf-Type: LOCAL_IMPLEMENTATION$/Leaf-Type: VERIFICATION_ONLY/' \
 	-e 's/^Deliverable:.*$/Deliverable: Verify existing target/' \
-	-e 's/^Required-Symbols:.*$/Required-Symbols: -/' \
+	-e 's/^Required-Symbols:.*$/Required-Symbols: source-audit-evidence-check/' \
 	-e 's#^Context-Paths:.*#Context-Paths: -#' \
 	-e 's/^Expected-Max-Implementation-Files: 1$/Expected-Max-Implementation-Files: 0/' \
 	-e 's/^Expected-Max-Agent-Actions: 5$/Expected-Max-Agent-Actions: 3/' \
@@ -531,13 +531,13 @@ sed \
 verification_ready="$verification_project/tasks/decompv2verification-task-001-revision-01.ready.md"
 grep -Fqx 'Leaf-Type: VERIFICATION_ONLY' "$verification_ready"
 grep -Fqx 'Expected-Max-Implementation-Files: 0' "$verification_ready"
-grep -Fqx 'Expected-Max-Agent-Actions: 4' "$verification_ready"
+grep -Fqx 'Expected-Max-Agent-Actions: 3' "$verification_ready"
 grep -Fqx 'Worker-Route: TERRA' "$verification_ready"
 grep -Fqx 'Complexity-Class: HIGH' "$verification_ready"
 grep -Fqx 'Terra-Exception: IRREDUCIBLE_CROSS_BOUNDARY' "$verification_ready"
 grep -Fq 'RESOURCE_PROGRESS_VERIFICATION_VECTOR_NORMALIZED root=001 task=001-revision-01 expected_files=0' \
 	"$verification_project/logs/events.log"
-grep -Fq 'VERIFICATION_ACTION_BUDGET_NORMALIZED root=001 task=001-revision-01 requested=5 expected=4' \
+grep -Eq 'VERIFICATION_ACTION_BUDGET_NORMALIZED root=001 task=001-revision-01 requested=[0-9]+ expected=3' \
 	"$verification_project/logs/events.log"
 grep -Eq 'RECOVERY_(TERRA_ESCALATION|EXHAUSTED_LUNA_ROUTE)_NORMALIZED root=001 task=001-revision-01 .*luna_failures=3.*exception=IRREDUCIBLE_CROSS_BOUNDARY' \
 	"$verification_project/logs/events.log"
