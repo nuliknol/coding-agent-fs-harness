@@ -157,6 +157,23 @@ ready_status="$($HARNESS_BIN/harness-index-status "$env_a" --details)"
 grep -Fqx $'status\tREADY' <<< "$ready_status"
 grep -Fqx $'schema_version\t5' <<< "$ready_status"
 
+# Writable patch-only ACP workers use detached worktrees, while the immutable
+# compile database and generated-input paths remain rooted at the canonical
+# checkout. They must validate the shared canonical index just like zero-write
+# verification workers do.
+acp_worktree="$TEST_ROOT/state/projects/indexa/control/acp/worktrees/fixture-task"
+mkdir -p "$(dirname "$acp_worktree")"
+git -C "$TEST_ROOT/repo" worktree add --detach "$acp_worktree" HEAD >/dev/null
+cat > "$TEST_ROOT/acp-worker.env" <<ENV
+source "$env_a"
+export REPOSITORY="$acp_worktree"
+export HARNESS_ACP_CANONICAL_REPOSITORY="$TEST_ROOT/repo"
+export HARNESS_ACP_ISOLATED_TASK_ID="fixture-task"
+ENV
+chmod 600 "$TEST_ROOT/acp-worker.env"
+acp_worktree_status="$($HARNESS_BIN/harness-index-status "$TEST_ROOT/acp-worker.env")"
+grep -Fqx $'status\tREADY' <<< "$acp_worktree_status"
+
 # Existing installations acquire the publication marker lazily. Their READY
 # manifest inherits the integrity_check that gated atomic publication, so
 # enrollment opens only the schema header; later calls use immutable artifact

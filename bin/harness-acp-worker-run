@@ -171,6 +171,19 @@ worker_pid=""
 set -e
 (( status == 0 )) || exit "$status"
 
+# Context Closure admission can return a claimed assignment directly to the
+# manager's durable repair path without publishing a worker result. That is a
+# successful handoff, not an isolated source candidate. In particular, do not
+# run post-merge validation against the unchanged base while the manager may be
+# requeueing the same assignment after a provider refresh.
+context_repair="$dir/control/$base.context-closure-repair.env"
+result="$dir/results/$base.result.md"
+if [[ -f "$context_repair" && ! -f "$result" ]]; then
+	log_event "ACP_CONTEXT_CLOSURE_REPAIR_RETURNED task=$task_id record=$context_repair"
+	status=0
+	exit 0
+fi
+
 # Preserve the worker commit identity for audit even after its worktree is
 # removed. Integration replays those commits onto the then-current main HEAD.
 worker_head="$(git -C "$worktree" rev-parse HEAD)"

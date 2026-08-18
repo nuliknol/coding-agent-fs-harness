@@ -40,6 +40,7 @@ export HARNESS_DECOMPOSITION_V2=0
 export HARNESS_SPECIFICATION_REVIEW_ENABLED=0
 export HARNESS_WORKER_GOAL_MODE=0
 export HARNESS_ARCHITECTURE_GUARDS=0
+export HARNESS_ESCALATION_POLICY=decompose
 export HARNESS_AGENT_MIN_INTERVAL_SECONDS=0
 export MAX_ORACLE_RUNS=0
 ENV
@@ -89,6 +90,17 @@ Required-Symbols: -
 Focused-Validation: FOCUSED: bounded read-only evidence
 Leaf-Type: VERIFICATION_ONLY
 Expected-Max-Implementation-Files: 0
+TASK
+cat > "$project/tasks/acpparallel-task-d.ready.md" <<'TASK'
+# Task Assignment
+
+Task-ID: d
+Task-Root: d
+Allowed-Scope: a.txt
+Context-Paths: a.txt
+Required-Symbols: -
+Focused-Validation: grep -Fqx base-a a.txt
+Expected-Max-Implementation-Files: 1
 TASK
 
 cat > "$TEST_ROOT/mock-worker" <<'WORKER'
@@ -141,6 +153,12 @@ RESULT
 	"$HARNESS_BIN/worker-complete-task" "$env_file" "$task_id" "$session" "$result" >/dev/null
 	exit 0
 fi
+if [[ "$task_id" == d ]]; then
+	"$HARNESS_BIN/worker-return-context-repair" "$env_file" "$task_id" "$session" \
+		CLOSURE_BUILD_UNAVAILABLE REFRESH_INDEX_OR_OVERLAY repository-index \
+		generated-inputs-changed >/dev/null
+	exit 0
+fi
 printf 'task-%s\n' "$task_id" >> "$REPOSITORY/$task_id.txt"
 message="$PROJECT_TMP_DIR/commit-message"
 result="$PROJECT_TMP_DIR/result.md"
@@ -191,7 +209,8 @@ supervisor_pid=$!
 for _ in $(seq 1 200); do
 	[[ -f "$project/control/acp/integration/a.integrated.env" &&
 		-f "$project/control/acp/integration/b.integrated.env" &&
-		-f "$project/results/acpparallel-task-c.result.md" ]] && break
+		-f "$project/results/acpparallel-task-c.result.md" &&
+		-f "$project/control/acpparallel-task-d.context-closure-repair.env" ]] && break
 	if ! kill -0 "$supervisor_pid" 2>/dev/null; then
 		cat "$TEST_ROOT/worker-supervisor.log" >&2
 		exit 1
@@ -211,6 +230,9 @@ grep -Fq $'INTEGRATED\tSCOPE\tWRITE' "$project/control/acp/events.tsv"
 grep -Fq $'CAPABILITY_ACQUIRED\tSCOPE\tREAD' "$project/control/acp/events.tsv"
 grep -Fq $'VERIFIED\tSCOPE\tREAD' "$project/control/acp/events.tsv"
 [[ ! -e "$project/control/acp/integration/c.integrated.env" ]]
+[[ ! -e "$project/control/acp/integration/d.integrated.env" ]]
+[[ ! -e "$project/control/project-integrity-anomaly.md" ]]
+grep -Fq 'ACP_CONTEXT_CLOSURE_REPAIR_RETURNED task=d' "$project/logs/events.log"
 git -C "$TEST_ROOT/repo" diff --quiet
 git -C "$TEST_ROOT/repo" diff --cached --quiet
 

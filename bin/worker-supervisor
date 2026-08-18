@@ -57,6 +57,15 @@ active_worker_count()
 	printf '%s\n' "${#worker_pids[@]}"
 }
 
+worker_task_is_active()
+{
+	local task_id="$1" invocation_pid
+	for invocation_pid in "${!worker_tasks[@]}"; do
+		[[ "${worker_tasks[$invocation_pid]}" != "$task_id" ]] || return 0
+	done
+	return 1
+}
+
 capability_lease_fingerprint()
 {
 	find "$(acp_capability_lease_dir)" -maxdepth 1 -type f -name '*.lease.env' -print0 2>/dev/null |
@@ -132,6 +141,12 @@ process_tasks()
 		(( $(active_worker_count) < capacity )) || break
 		task_id="$(task_id_from_filename "$file")"
 		if task_root_is_paused "$task_id" || task_has_resource_anomaly "$task_id"; then
+			continue
+		fi
+		# A provider repair may restore the same immutable READY assignment while
+		# its first ACP cohort is still unwinding. Keep one live cohort per task;
+		# path-capability capacity alone does not prevent a self-duplicate.
+		if worker_task_is_active "$task_id"; then
 			continue
 		fi
 		base="$(task_base "$task_id")"

@@ -506,14 +506,15 @@ repository_index_verify_generation()
 repository_index_project_pointer_is_current()
 {
 	local isolated_repository status
-	if [[ "${HARNESS_ACP_READ_ONLY_VERIFICATION:-0}" == 1 &&
-		-n "${HARNESS_ACP_CANONICAL_REPOSITORY:-}" &&
+	if [[ -n "${HARNESS_ACP_CANONICAL_REPOSITORY:-}" &&
 		"$REPOSITORY" != "$HARNESS_ACP_CANONICAL_REPOSITORY" ]]; then
-		# A detached zero-write worktree has the same committed source as the
-		# canonical checkout, but generated compile-input manifests may contain
-		# checkout-root coordinates.  Validate the immutable shared index at its
-		# canonical generation root; capsule evidence remains repository-relative
-		# and is read from the isolated worktree afterwards.
+		# A detached ACP worktree starts at the same committed source as the
+		# canonical checkout, but its compilation database and generated-input
+		# manifest retain canonical checkout-root coordinates. Validate the
+		# immutable shared index at that generation root for both verification and
+		# patch-only workers; capsule evidence remains repository-relative and is
+		# read from the isolated worktree afterwards. A concurrently advanced
+		# canonical HEAD still fails the source-revision check below.
 		isolated_repository="$REPOSITORY"
 		REPOSITORY="$HARNESS_ACP_CANONICAL_REPOSITORY"
 		if repository_index_project_pointer_is_current_at_repository; then status=0; else status=$?; fi
