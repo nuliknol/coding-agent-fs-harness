@@ -720,7 +720,7 @@ validate_deterministic_closure_graft()
 	# A single indexed seam is evidence that semantic subdivision is still
 	# required; it is not itself a valid child graft and remains a bounded Luna
 	# decomposition task.
-	(( $(awk 'END {print NR > 0 ? NR - 1 : 0}' "$repair") >= 2 )) || return 0
+	(( $(awk 'END {print (NR > 0 ? NR - 1 : 0)}' "$repair") >= 2 )) || return 0
 	expected="$PROJECT_TMP_DIR/$(task_base "$task_id").expected-closure-graft.$$"
 	expected_facets="$expected.facets.tsv"
 	python3 "$HARNESS_HOME/tools/compile_closure_graft.py" \

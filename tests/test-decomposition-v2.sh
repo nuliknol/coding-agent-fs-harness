@@ -930,4 +930,10 @@ done_watch_bad_rows="$(awk '
 (( done_watch_bad_rows == 0 ))
 rm -f -- "$project_dir/control/project.complete"
 
+if rg -n 'print NR > 0 \? NR - 1 : 0' \
+	"$HARNESS_BIN/manager-auto-replan-root" "$HARNESS_BIN/manager-publish-task"; then
+	printf 'closure repair row counts still use a non-portable unparenthesized awk ternary\n' >&2
+	exit 1
+fi
+
 printf 'decomposition v2 tests passed\n'

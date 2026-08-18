@@ -65,14 +65,14 @@ closure_repair=0
 [[ "$trigger_outcome" != CONTEXT_CLOSURE_REPAIR ]] || closure_repair=1
 if (( closure_repair == 1 )) && [[ "$trigger_closure_repair_action" == GRAFT_GRAPH_CUTS ]] &&
 	{ [[ "$trigger_closure_repair_children" == - ]] ||
-		(( $(awk 'END {print NR > 0 ? NR - 1 : 0}' "$trigger_closure_repair_children") == 0 )); }; then
+		(( $(awk 'END {print (NR > 0 ? NR - 1 : 0)}' "$trigger_closure_repair_children") == 0 )); }; then
 	closure_recompile_log="$(project_dir)/logs/context-closure-recompile-$(task_base "$trigger_task")-$(timestamp_compact_utc).log"
 	log_event "CONTEXT_CLOSURE_REPAIR_RECOMPILE_STARTED root=$root trigger=$trigger_task assignment=$trigger_assignment log=$closure_recompile_log"
 	if [[ -f "$trigger_assignment" ]] &&
 		"$HARNESS_BIN/harness-build-context-closure" "$HARNESS_ENV_FILE" "$trigger_assignment" >"$closure_recompile_log" 2>&1; then
 		trigger_closure_repair_children="$(project_dir)/control/context-closures/$(task_base "$trigger_task")/repair-children.tsv"
 		if [[ -s "$trigger_closure_repair_children" ]] &&
-			(( $(awk 'END {print NR > 0 ? NR - 1 : 0}' "$trigger_closure_repair_children") > 0 )); then
+			(( $(awk 'END {print (NR > 0 ? NR - 1 : 0)}' "$trigger_closure_repair_children") > 0 )); then
 			log_event "CONTEXT_CLOSURE_REPAIR_RECOMPILED root=$root trigger=$trigger_task children=$(( $(wc -l < "$trigger_closure_repair_children") - 1 )) log=$closure_recompile_log"
 		else
 			trigger_closure_repair_children=-
@@ -330,7 +330,7 @@ if task_root_uses_assignment_criteria "$root" || [[ -f "$criteria_definition" ]]
 		root_child_count >= HARNESS_MAX_ROOT_CHILD_CRITERIA )); then
 		if [[ "$trigger_closure_repair_action" == GRAFT_GRAPH_CUTS &&
 			"$trigger_closure_repair_children" != - ]] &&
-			(( $(awk 'END {print NR > 0 ? NR - 1 : 0}' "$trigger_closure_repair_children") >= 1 )); then
+			(( $(awk 'END {print (NR > 0 ? NR - 1 : 0)}' "$trigger_closure_repair_children") >= 1 )); then
 			closure_cut_id="$(tail -n +2 "$trigger_closure_repair_children" |
 				sort -t $'\t' -k3,3n -k1,1 | head -n 1 | cut -f1)"
 			deterministic_closure_cut=1
@@ -345,7 +345,7 @@ if task_root_uses_assignment_criteria "$root" || [[ -f "$criteria_definition" ]]
 			{ (( resource_decomposition == 1 || policy_migration == 1 )) &&
 				[[ "$recovery_mode" != MANAGER_REMEDIATION ]]; }; then
 			if [[ "$trigger_closure_repair_action" == GRAFT_GRAPH_CUTS && "$trigger_closure_repair_children" != - ]] &&
-				(( $(awk 'END {print NR > 0 ? NR - 1 : 0}' "$trigger_closure_repair_children") >= 2 )); then
+				(( $(awk 'END {print (NR > 0 ? NR - 1 : 0)}' "$trigger_closure_repair_children") >= 2 )); then
 				python3 "$HARNESS_HOME/tools/compile_closure_graft.py" \
 					--assignment "$trigger_assignment" \
 					--repair-children "$trigger_closure_repair_children" \
