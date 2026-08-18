@@ -100,6 +100,34 @@ class ContextRequestTest(unittest.TestCase):
         self.assertIn("Authorization-Relation: direct-type-symbol-definition", extension)
         self.assertIn("typedef struct Number", extension)
 
+    def test_exact_required_hip_definition_falls_back_to_indexed_file(self):
+        (self.repository / "backend.hip").write_text(
+            'extern "C" int missing_backend(int value)\n'
+            "{\n"
+            "    return value + 1;\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        connection = sqlite3.connect(self.database)
+        connection.execute("INSERT INTO files VALUES(2,'g','backend.hip','c',NULL,1,0)")
+        connection.execute(
+            "INSERT INTO symbols VALUES('missing','g','missing_backend','Function','c','-','scip-clang')")
+        connection.commit()
+        connection.close()
+        self.assignment.write_text(
+            "Task-ID: t1\nAllowed-Scope: calc.c\nContext-Paths: calc.c\n"
+            "Required-Symbols: missing_backend\n", encoding="utf-8")
+
+        result = self.resolve("SYMBOL_DEFINITION", "missing_backend")
+
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        extension = (self.root / "extension.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "Authorization-Relation: exact-required-symbol-lexical-definition-fallback",
+            extension,
+        )
+        self.assertIn('extern "C" int missing_backend', extension)
+
     def test_direct_callee_contract_is_admitted(self):
         self.assignment.write_text(
             "Task-ID: t1\nAllowed-Scope: calc.c\nContext-Paths: calc.c\n"

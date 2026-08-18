@@ -6,6 +6,7 @@ import argparse
 import csv
 import hashlib
 from pathlib import Path
+import re
 import shlex
 import sqlite3
 import sys
@@ -167,6 +168,48 @@ def references(connection: sqlite3.Connection, symbol_ids: list[str]) -> list[sq
     ).fetchall()
 
 
+def indexed_lexical_function_definitions(connection: sqlite3.Connection,
+                                         repository: Path, identifier: str
+                                         ) -> list[tuple[str, int, int]]:
+    """Recover exact C-family definitions omitted by a structural importer.
+
+    HIP translation units can be present in the immutable indexed file inventory
+    while SCIP records only declarations/references for an exact required symbol.
+    Scan only that inventory, require an exact function identifier, and admit a
+    region only when the function header reaches an opening body brace before a
+    declaration/call semicolon. This is bounded context evidence, never mutation
+    authority.
+    """
+    pattern = re.compile(rf"\b{re.escape(identifier)}\s*\(")
+    suffixes = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".hip", ".cu"}
+    recovered: list[tuple[str, int, int]] = []
+    rows = connection.execute(
+        "SELECT repository_path FROM files ORDER BY repository_path").fetchall()
+    for row in rows:
+        path = row["repository_path"]
+        if Path(path).suffix.lower() not in suffixes:
+            continue
+        source = safe_path(repository, path)
+        if source is None:
+            continue
+        lines = source.read_text(encoding="utf-8", errors="replace").splitlines()
+        for index, line in enumerate(lines):
+            match = pattern.search(line)
+            if match is None:
+                continue
+            header = "\n".join([line[match.start():], *lines[index + 1:index + 80]])
+            body = header.find("{")
+            terminator = header.find(";")
+            if body < 0 or (terminator >= 0 and terminator < body):
+                continue
+            recovered.append((path, max(1, index + 1 - 20),
+                              min(len(lines), index + 1 + 80)))
+            break
+        if len(recovered) >= 4:
+            break
+    return recovered
+
+
 def declared_validation_paths(repository: Path, command: str) -> set[str]:
     """Return exact existing repository paths named as validation arguments."""
     try:
@@ -244,6 +287,13 @@ def main() -> int:
             for row in definitions(connection, sorted(authorized)):
                 records.append(("SYMBOL_DEFINITION", row["repository_path"], row["start_line"],
                                 row["end_line"], row["display_name"], row["provider"]))
+            if not records and relation == "exact-required-symbol":
+                for path, start, end in indexed_lexical_function_definitions(
+                        connection, repository, identifier):
+                    records.append(("SYMBOL_DEFINITION", path, start, end, identifier,
+                                    "indexed-file-lexical-definition-fallback"))
+                if records:
+                    relation = "exact-required-symbol-lexical-definition-fallback"
         else:
             relation = "symbol-outside-assignment-boundary"
     elif args.request_kind == "TYPE_DEFINITION":
