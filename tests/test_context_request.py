@@ -93,6 +93,12 @@ class ContextRequestTest(unittest.TestCase):
         self.assertIn("Authorization-Relation: exact-required-symbol", extension)
         self.assertIn("int add(Number n)", extension)
 
+    def test_nonexistent_symbol_is_reported_as_missing_not_outside_boundary(self):
+        result = self.resolve("SYMBOL_DEFINITION", "invented_append_status_v0")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("relation=missing-exact-symbol", result.stdout)
+        self.assertNotIn("symbol-outside-assignment-boundary", result.stdout)
+
     def test_direct_type_symbol_definition_is_admitted(self):
         result = self.resolve("SYMBOL_DEFINITION", "Number")
         self.assertEqual(0, result.returncode, result.stderr + result.stdout)

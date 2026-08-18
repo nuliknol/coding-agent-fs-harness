@@ -301,6 +301,8 @@ def main() -> int:
     records: list[tuple[str, str, int, int, str, str]] = []
     relation = ""
     if args.request_kind == "SYMBOL_DEFINITION":
+        if not requested_ids:
+            relation = "missing-exact-symbol"
         authorized = set(requested_ids) & seed_ids
         if not authorized and seed_ids and requested_ids:
             marks = ",".join("?" for _ in seed_ids)
@@ -329,7 +331,7 @@ def main() -> int:
                                     "indexed-file-lexical-definition-fallback"))
                 if records:
                     relation = "exact-required-symbol-lexical-definition-fallback"
-        else:
+        elif requested_ids:
             bounded_definitions = rows_inside_boundary(
                 repository, definitions(connection, requested_ids), read_boundaries)
             if bounded_definitions:
