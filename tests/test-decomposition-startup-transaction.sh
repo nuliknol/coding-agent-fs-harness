@@ -592,6 +592,10 @@ n01	CLOSURE_BUDGET_EXCEEDED	GRAFT_GRAPH_CUTS	decomposition-compiler	-	-	ownershi
 TSV
 printf 'node_id\tcut_id\tseam_kind\tcohesive_key\trequired_symbols\tallowed_paths\tacceptance_hint\troute_hint\testimated_source_bytes\trationale\n' \
 	> "$full_context_candidate/context-admission/suggested-cuts.tsv"
+cat > "$full_context_candidate/context-admission/ownership-boundaries.tsv" <<'TSV'
+node_id	edge_id	producer_node	consumer_node	ownership_model
+n01	EDGE-ONE	n01	n02	n01 owns the value and n02 borrows it
+TSV
 printf 'luna_nodes=1\nready=0\nnon_ready=1\n' > "$full_context_candidate/context-admission/summary.env"
 sed -i 's/^status=.*/status=REJECTED/' "$project_dir/control/decomposition-candidate.env"
 sed -i '/^rejection_stage=/d; /^rejection_log=/d; /^repair_route=/d; /^repair_routed_at=/d' \
@@ -605,6 +609,12 @@ grep -Fqx 'status=REJECTED' "$project_dir/control/decomposition-dag-candidate.en
 context_dag_candidate="$(awk -F= '$1=="directory" {print $2}' "$project_dir/control/decomposition-dag-candidate.env" | tail -1)"
 cmp -s "$full_context_candidate/context-admission/repair.tsv" \
 	"$context_dag_candidate/context-admission/repair.tsv"
+cmp -s "$full_context_candidate/context-admission/ownership-boundaries.tsv" \
+	"$context_dag_candidate/context-admission/ownership-boundaries.tsv"
+cmp -s "$full_context_candidate/context-admission/ownership-boundaries.tsv" \
+	"$project_dir/control/decomposition-context-repair-source/ownership-boundaries.tsv"
+grep -Fqx "source_candidate=$full_context_candidate" \
+	"$project_dir/control/decomposition-context-repair-source/source.env"
 dag_rejection_log="$(awk -F= '$1=="rejection_log" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
 test -s "$dag_rejection_log"
 

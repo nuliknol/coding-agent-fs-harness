@@ -104,6 +104,11 @@ class ContextClosureToolsTest(unittest.TestCase):
                 "-\t-\tcontext-byte-budget-exceeded\n",
                 encoding="utf-8",
             )
+            (node / "ownership-boundaries.tsv").write_text(
+                "edge_id\tproducer_node\tconsumer_node\townership_model\n"
+                "EDGE-ONE\tn1\tn2\tn1 owns the value and n2 borrows it\n",
+                encoding="utf-8",
+            )
             return "NEEDS_FURTHER_DECOMPOSITION"
 
         arguments = SimpleNamespace(
@@ -121,6 +126,11 @@ class ContextClosureToolsTest(unittest.TestCase):
             "n1\tCLOSURE_BUDGET_EXCEEDED\tGRAFT_GRAPH_CUTS\t"
             "decomposition-compiler\t-\t-\tcontext-byte-budget-exceeded",
             aggregate,
+        )
+        self.assertEqual(
+            "node_id\tedge_id\tproducer_node\tconsumer_node\townership_model\n"
+            "n1\tEDGE-ONE\tn1\tn2\tn1 owns the value and n2 borrows it\n",
+            (output / "ownership-boundaries.tsv").read_text(encoding="utf-8"),
         )
 
     def test_luna_only_budget_repair_compiles_deterministic_child_candidates(self):

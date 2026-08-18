@@ -112,6 +112,7 @@ def evaluate(args: argparse.Namespace) -> int:
     admission_rows: list[dict[str, str]] = []
     aggregate_cuts: list[dict[str, str]] = []
     aggregate_repairs: list[dict[str, str]] = []
+    aggregate_ownership_boundaries: list[dict[str, str]] = []
     non_ready_luna = 0
     for node in nodes:
         node_id = node.get("node_id", "")
@@ -155,6 +156,16 @@ def evaluate(args: argparse.Namespace) -> int:
             aggregate_cuts.append({"node_id": node_id, **cut})
         if status != "READY":
             non_ready_luna += 1
+            # Preserve the exact semantic ownership seams that caused an
+            # architecture-bound closure rejection. Source/build cuts alone
+            # cannot tell a recursive decomposition repair how to distribute
+            # edge contracts, and a later shape rejection must not erase this
+            # authority.
+            boundary_file = node_dir / "ownership-boundaries.tsv"
+            if boundary_file.is_file():
+                _, node_boundaries = read_tsv(boundary_file)
+                for boundary in node_boundaries:
+                    aggregate_ownership_boundaries.append({"node_id": node_id, **boundary})
             _, node_repairs = read_tsv(node_dir / "repair.tsv")
             # Decomposition-compiler repairs are actionable even when they do
             # not name one missing evidence item. Byte/module/ownership budget
@@ -206,6 +217,14 @@ def evaluate(args: argparse.Namespace) -> int:
         writer = csv.DictWriter(stream, fieldnames=repair_columns, delimiter="\t", lineterminator="\n")
         writer.writeheader()
         writer.writerows(aggregate_repairs)
+    boundary_columns = ("node_id", "edge_id", "producer_node", "consumer_node",
+                        "ownership_model")
+    with (output / "ownership-boundaries.tsv").open(
+            "w", encoding="utf-8", newline="") as stream:
+        writer = csv.DictWriter(stream, fieldnames=boundary_columns, delimiter="\t",
+                                lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(aggregate_ownership_boundaries)
     ready = len(admission_rows) - non_ready_luna
     (output / "summary.env").write_text(
         f"luna_nodes={len(admission_rows)}\nready={ready}\nnon_ready={non_ready_luna}\n",

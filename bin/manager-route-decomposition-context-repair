@@ -37,12 +37,34 @@ dag_candidate_dir="$(decomposition_dag_candidate_state_value directory)"
 dag_context_dir="$dag_candidate_dir/context-admission"
 rm -rf -- "$dag_context_dir"
 mkdir -p "$dag_context_dir"
-for name in admission repair suggested-cuts summary; do
+for name in admission repair suggested-cuts ownership-boundaries summary; do
 	source_file="$context_dir/$name.tsv"
 	[[ "$name" != summary ]] || source_file="$context_dir/summary.env"
 	[[ -f "$source_file" ]] || continue
 	install -m 600 "$source_file" "$dag_context_dir/${source_file##*/}"
 done
+
+# Keep the architecture-bound semantic repair authority across subsequent
+# deterministic shape/complexity rejections. Those validators necessarily
+# create a new DAG candidate and its pre-binding Context Closure report cannot
+# reproduce architecture edge contracts that have not been rebound yet.
+repair_source="$dir/control/decomposition-context-repair-source"
+rm -rf -- "$repair_source"
+mkdir -p "$repair_source"
+for name in admission repair suggested-cuts ownership-boundaries summary; do
+	source_file="$context_dir/$name.tsv"
+	[[ "$name" != summary ]] || source_file="$context_dir/summary.env"
+	[[ -f "$source_file" ]] || continue
+	install -m 600 "$source_file" "$repair_source/${source_file##*/}"
+done
+{
+	printf 'specification_sha256=%s\n' "$(specification_sha256)"
+	printf 'repository_baseline=%s\n' "$(specification_review_repository_baseline)"
+	printf 'domain_profiles_sha256=%s\n' "$(domain_profiles_sha256)"
+	printf 'source_candidate=%s\n' "$candidate_dir"
+	printf 'recorded_at=%s\n' "$(timestamp_utc)"
+} > "$repair_source/source.env"
+chmod 600 "$repair_source/source.env"
 
 dag_state="$(decomposition_dag_candidate_state_file)"
 dag_state_tmp="$dag_state.tmp.$$"
