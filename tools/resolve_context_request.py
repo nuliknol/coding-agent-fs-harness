@@ -152,6 +152,21 @@ def definitions(connection: sqlite3.Connection, symbol_ids: list[str]) -> list[s
     ).fetchall()
 
 
+def references(connection: sqlite3.Connection, symbol_ids: list[str]) -> list[sqlite3.Row]:
+    """Return exact indexed declaration/reference regions for unresolved symbols."""
+    if not symbol_ids:
+        return []
+    marks = ",".join("?" for _ in symbol_ids)
+    return connection.execute(
+        f"SELECT s.symbol_id,s.display_name,f.repository_path,r.start_line,r.end_line,sr.provider "
+        f"FROM symbols s JOIN symbol_references sr ON sr.symbol_id=s.symbol_id "
+        f"JOIN source_regions r ON r.region_id=sr.region_id "
+        f"JOIN files f ON f.file_id=r.file_id WHERE s.symbol_id IN ({marks}) "
+        "ORDER BY f.repository_path,r.start_line,s.symbol_id",
+        symbol_ids,
+    ).fetchall()
+
+
 def declared_validation_paths(repository: Path, command: str) -> set[str]:
     """Return exact existing repository paths named as validation arguments."""
     try:
@@ -277,6 +292,16 @@ def main() -> int:
                 "ORDER BY callee_symbol_id", sorted(authorized)).fetchall()
             relation = "direct-callee-of-required-symbol"
             for row in definitions(connection, [item[0] for item in callees]):
+                records.append(("CALLEE_CONTRACT", row["repository_path"], row["start_line"],
+                                row["end_line"], row["display_name"], row["provider"]))
+        # Some language importers (notably HIP translation units without a
+        # compile-command entry) emit the public declaration as an exact SCIP
+        # reference but cannot emit a definition or call edge.  When the callee
+        # itself is already an explicit required symbol, that indexed region is
+        # still a bounded contract.  Do not perform a lexical repository scan.
+        if not records and authorized:
+            relation = "exact-required-callee-reference-contract"
+            for row in references(connection, sorted(authorized)):
                 records.append(("CALLEE_CONTRACT", row["repository_path"], row["start_line"],
                                 row["end_line"], row["display_name"], row["provider"]))
     elif args.request_kind in {"FAILING_ASSERTION", "TEST_TARGET"}:

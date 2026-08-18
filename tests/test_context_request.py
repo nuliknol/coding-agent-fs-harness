@@ -113,6 +113,29 @@ class ContextRequestTest(unittest.TestCase):
                       extension)
         self.assertIn("int add(Number n)", extension)
 
+    def test_exact_required_callee_reference_is_admitted_without_definition(self):
+        (self.repository / "calc.h").write_text(
+            "int declared_only(void);\n", encoding="utf-8")
+        connection = sqlite3.connect(self.database)
+        connection.execute("INSERT INTO files VALUES(2,'g','calc.h','c',NULL,1,0)")
+        connection.execute(
+            "INSERT INTO source_regions VALUES(4,2,'symbol_reference','declared_only',1,0,1,24,NULL,'scip-clang')")
+        connection.execute(
+            "INSERT INTO symbols VALUES('declared-only','g','declared_only','Function','c','-','scip-clang')")
+        connection.execute(
+            "INSERT INTO symbol_references VALUES('declared-only',4,'REFERENCE','scip-clang')")
+        connection.commit()
+        connection.close()
+        self.assignment.write_text(
+            "Task-ID: t1\nAllowed-Scope: calc.c\nContext-Paths: calc.c\n"
+            "Required-Symbols: caller,declared_only\n", encoding="utf-8")
+        result = self.resolve("CALLEE_CONTRACT", "declared_only")
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        extension = (self.root / "extension.md").read_text(encoding="utf-8")
+        self.assertIn("Authorization-Relation: exact-required-callee-reference-contract",
+                      extension)
+        self.assertIn("int declared_only(void);", extension)
+
     def test_indexed_test_owner_is_admitted(self):
         result = self.resolve("TEST_OWNER", "add")
         self.assertEqual(0, result.returncode, result.stderr + result.stdout)
