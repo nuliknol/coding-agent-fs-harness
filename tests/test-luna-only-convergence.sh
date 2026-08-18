@@ -205,9 +205,9 @@ Workspace-Changed: 1
 RESULT
 chmod 600 "$project/results/lunaconvergence-task-004.result.md"
 
-# A pre-policy broad root that exhausted monotonic liveness may migrate only to
-# mandatory child-criterion decomposition. Historical counts remain archived,
-# while the new child boundary receives its own measured budget.
+# A pre-policy broad root that exhausted a monotonic liveness fuse remains an
+# investigation incident. Policy migration cannot manufacture a fresh budget;
+# only the explicit operator resolution command may resume it.
 printf 'accepted evidence\n' > "$project/archive/lunaconvergence-task-003.accepted.md"
 printf 'rejected evidence\n' > "$project/archive/lunaconvergence-task-003-revision-01.rejected.md"
 cat > "$project/control/progress/lunaconvergence-task-003.replans.tsv" <<'TSV'
@@ -228,7 +228,8 @@ Category: TOTAL_ROOT_REPLANS
 Reason: legacy broad boundary exhausted
 MARKER
 migration_output="$("$ROOT/bin/harness-migrate-state" "$TMP/harness.env")"
-grep -Fq 'liveness-roots=1' <<< "$migration_output"
+grep -Fq 'liveness-roots=0' <<< "$migration_output"
+grep -Fq 'retained-liveness-incidents=1' <<< "$migration_output"
 grep -Fq 'pending-results=1' <<< "$migration_output"
 test ! -e "$legacy_ready"
 test -f "$project/archive/lunaconvergence-task-002.assignment.md"
@@ -245,7 +246,8 @@ test ! -e "$project/control/lunaconvergence-task-006.recovery-retired"
 test ! -e "$project/control/progress/lunaconvergence-task-006.needs-replan.md"
 grep -Fqx 'restored_safe_remediations=1' "$project/control/luna-only-migration.env"
 grep -Fqx 'migrated_pending_results=1' "$project/control/luna-only-migration.env"
-grep -Fqx 'migrated_liveness_roots=1' "$project/control/luna-only-migration.env"
+grep -Fqx 'migrated_liveness_roots=0' "$project/control/luna-only-migration.env"
+grep -Fqx 'retained_liveness_incidents=1' "$project/control/luna-only-migration.env"
 test ! -e "$project/results/lunaconvergence-task-004.result.md"
 test -f "$project/archive/lunaconvergence-task-004.policy-migration-result.md"
 test -f "$project/control/lunaconvergence-task-004.policy-migrated"
@@ -306,26 +308,21 @@ grep -Fq 'RESURRECTED_TYPED_READY_ARCHIVED task=001 trigger=001' \
 test -f "$project/tasks/lunaconvergence-task-002-revision-01.ready.md"
 test ! -e "$project/control/progress/lunaconvergence-task-002.needs-replan.md"
 test ! -e "$project/tasks/lunaconvergence-task-001.ready.md"
-test ! -e "$project/control/progress/lunaconvergence-task-003.architecture-reassessment-required.md"
-test "$(find "$project/archive/luna-only-migrations" -type f -name '*task-003*.migrated' | wc -l)" -eq 1
-grep -Fqx 'Trigger-Outcome: LUNA_ONLY_POLICY_MIGRATION' \
-	"$project/control/progress/lunaconvergence-task-003.needs-replan.md"
-epoch="$project/control/progress/lunaconvergence-task-003.liveness-epoch.env"
-grep -Fqx 'authorized_reset=1' "$epoch"
-grep -Fqx 'budget_scope=luna-only-migrated-child-boundary' "$epoch"
-grep -Fqx 'reviewed_attempts=2' "$epoch"
+test -f "$project/control/progress/lunaconvergence-task-003.architecture-reassessment-required.md"
+test ! -e "$project/control/progress/lunaconvergence-task-003.needs-replan.md"
+test ! -e "$project/control/progress/lunaconvergence-task-003.liveness-epoch.env"
+grep -Fq 'LUNA_ONLY_LIVENESS_BOUNDARY_RETAINED root=003 category=TOTAL_ROOT_REPLANS' \
+	"$project/logs/events.log"
 
-# A policy migration is an explicit mandatory-decomposition boundary. Neither
-# historical blocker fingerprints nor an exhausted legacy automatic-replan
-# budget may silently downgrade it to manager remediation.
+# Typed ready/result policy migrations remain mandatory-decomposition
+# boundaries; they are separate from already-tripped investigation fuses.
 grep -Fq 'resource_recovery == 0 && policy_migration == 0 && closure_repair == 0' \
 	"$ROOT/bin/manager-auto-replan-root"
 test "$(grep -Fc 'closure_repair == 0' \
 	"$ROOT/bin/manager-auto-replan-root")" -eq 2
 
-# Publication observes the same typed boundary. The old automatic-replan
-# count remains durable, but cannot veto the explicitly authorized migration
-# or closure graft before the new child boundary has executed once.
+# Publication observes those typed repair boundaries without granting them
+# authority to reset an architecture-reassessment incident.
 grep -Fq 'LUNA_ONLY_POLICY_MIGRATION|CONTEXT_CLOSURE_REPAIR' \
 	"$ROOT/bin/manager-publish-task"
 test "$(grep -Fc 'typed_boundary_repair == 0' \
@@ -336,8 +333,8 @@ cat >> "$project/control/progress/lunaconvergence-task-003.replans.tsv" <<'TSV'
 2026-08-17T00:01:00Z	003-revision-02	TEST	child	decompose	-	0	fresh	-	0	0
 TSV
 bash -c 'source "$1/lib/harness-common.sh"; load_harness_env "$2"; \
-  test "$(root_liveness_epoch_delta 003 reviewed_attempts "$(root_reviewed_attempt_count 003)")" = 1; \
-  test "$(root_liveness_epoch_delta 003 total_replans "$(root_total_replan_count 003)")" = 1; \
-  ! root_liveness_violation_reason 003' _ "$ROOT" "$TMP/harness.env"
+  test ! -e "$(task_root_liveness_epoch_file 003)"; \
+  test "$(root_reviewed_attempt_count 003)" = 3; \
+  test "$(root_total_replan_count 003)" = 2' _ "$ROOT" "$TMP/harness.env"
 
 printf 'Luna-only convergence tests passed.\n'
