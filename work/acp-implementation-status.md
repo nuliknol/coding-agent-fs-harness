@@ -2,7 +2,7 @@
 
 Updated: 2026-08-17
 
-Overall: IN PROGRESS
+Overall: COMPLETE
 
 ## Completed
 
@@ -24,14 +24,14 @@ Overall: IN PROGRESS
 - Enforced serial fail-closed scheduling: zero resolves to safe bounded capacity and values above one are rejected until isolated capability leases and deterministic integration are actually available.
 - Live restart exposed and fixed a pre-existing patch-only empty-commit orphan: an identical remove/add proposal with passing trusted validation now becomes `PATCH_ONLY_ALREADY_SATISFIED`, and exact machine metadata strips Markdown trailing-space line breaks before result publication.
 - Passed ACP, irregularity, Context Closure (76 focused Python cases across resolver/compiler helpers), repository-index, Luna-only convergence, leaf-goal, decomposition-v2, supervisor barrier, Git dependency, active plan revision, core harness, architecture redesign, autostart, decomposition startup, manager rotation, root liveness, specification review/satisfiability, and Codex JSONL/resource-fuse suites.
+- Deployed implementation commit `170ce94` and live no-op recovery fix `d29d6b4` through the required dev-push / production-pull workflow.
+- Revalidated all five active environment files in Luna-only, required-index, patch-only Context Closure mode with the authoritative, live-estimated, and cumulative 500,000-token investigation fuses unchanged.
+- Reproduced the former `compmod-wc-3` orphan case in production: it emitted `PATCH_ONLY_ALREADY_SATISFIED`, completed the task, and returned to manager review without leaving a transaction or lease orphan.
+- Restarted `compmod-wc-2`, `compmod-wc-3`, `compmod-wc-4`, `dplm-final-v2`, and `dpvis-w2-a2`; all five completed crash reconciliation without detected or recovered orphan state and resumed manager or Luna-worker activity.
 
-## In progress
+## Final state
 
-- Final code review, deployment transaction, and live production compatibility verification.
-
-## Pending
-
-- Deploy through dev push / production pull and verify the production command surface and active harness state.
+- Implementation, deployment, and live compatibility verification are concluded. This is the final update to this request-specific status file; it no longer needs ongoing updates.
 
 ## Test notes
 
