@@ -322,7 +322,7 @@ EOF
 cat > "$TEST_ROOT/replacements.tsv" <<'EOF'
 node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route	behavioral_concerns	failure_paths	ownership_transitions	concurrency_boundaries	validation_surfaces	implementation_files	predicted_worker_actions	predicted_p95_tokens	terra_exception
 n10a	-	-	Implement target behavior	REQ-ONE focused source exists	test -f src/a.c	src/a.c	target	LOCAL_IMPLEMENTATION	LOW	LUNA	1	0	0	0	1	1	3	70000	-
-n10b	-	n10a	Verify target ownership	REQ-TWO focused ownership evidence exists	test -f src/a.c	src/a.c	target	TEST_IMPLEMENTATION	LOW	LUNA	1	0	1	0	1	1	3	70000	-
+n10b	-	n10a	Verify target ownership	REQ-TWO focused ownership evidence exists after the REQ-ONE prerequisite	test -f src/a.c	src/a.c	target	TEST_IMPLEMENTATION	LOW	LUNA	1	0	1	0	1	1	3	70000	-
 EOF
 cat > "$TEST_ROOT/split-mapping.tsv" <<'EOF'
 old_node_id	replacement_node_ids
@@ -508,6 +508,7 @@ split_candidate_coverage="$(awk -F= '$1=="coverage" {print $2}' "$project_dir/co
 split_candidate_complexity="$(awk -F= '$1=="complexity" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
 grep -Fq $'n11\t-\tn10b\t' "$split_candidate_dag"
 grep -Fq $'REQ-ONE\tn10a\t' "$split_candidate_coverage"
+! grep -Eq $'^REQ-ONE\t[^\t]*n10b' "$split_candidate_coverage"
 grep -Fq $'REQ-TWO\tn10b,n11\t' "$split_candidate_coverage"
 [[ "$(awk -F '\t' '$1=="n10a" {print $5}' "$split_candidate_complexity")" == 1 ]]
 [[ "$(awk -F '\t' '$1=="n10b" {print $5}' "$split_candidate_complexity")" == 1 ]]

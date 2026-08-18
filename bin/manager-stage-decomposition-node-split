@@ -123,12 +123,32 @@ awk -F '\t' -v OFS='\t' -v mapping_file="$mapping_source" -v replacement_file="$
 	FILENAME==mapping_file {if(FNR>1) mapping[$1]=$2; next}
 	FILENAME==replacement_file {
 		if(FNR==1) next
-		contract=$4 " " $5 " " $6
-		gsub(/[^A-Za-z0-9._-]+/," ",contract); contract=" " contract " "
-		for(obligation_id in obligation) {
-			if(index(contract," " obligation_id " ")) {
-				mentions[$1 SUBSEP obligation_id]=1
+		# Treat leading normalized IDs in acceptance_evidence as the child-owned
+		# facets.  Other obligation IDs may legitimately appear later as
+		# prerequisites or comparison evidence and must not silently clone their
+		# coverage (and complexity) onto this child.  Retain the whole-contract
+		# scan only for legacy rows that do not begin with an obligation ID.
+		evidence=$5
+		n=split(evidence,evidence_tokens,/[^A-Za-z0-9._-]+/)
+		for(i=1;i<=n;i++) {
+			token=evidence_tokens[i]
+			if(token=="") continue
+			if(token in obligation) {
+				mentions[$1 SUBSEP token]=1
 				has_mentions[$1]=1
+				declared_mentions[$1]=1
+				continue
+			}
+			break
+		}
+		if(!declared_mentions[$1]) {
+			contract=$4 " " $5 " " $6
+			gsub(/[^A-Za-z0-9._-]+/," ",contract); contract=" " contract " "
+			for(obligation_id in obligation) {
+				if(index(contract," " obligation_id " ")) {
+					mentions[$1 SUBSEP obligation_id]=1
+					has_mentions[$1]=1
+				}
 			}
 		}
 		replacement[$1]=1
