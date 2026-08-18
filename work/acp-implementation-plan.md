@@ -34,4 +34,4 @@ Generalize the harness's existing typed Context Closure expansion and dependency
 - Repeated or amplified requests stop locally with durable evidence while all existing token fuses remain active.
 - Planned and discovered DAG history is auditable and current dependency readiness reflects accepted discovered prerequisites.
 - Metrics report broker hit rate, manager invocations avoided, ACP tokens/events per verified facet, added context/scope ratios, and discovered/planned graph ratios.
-- Parallel cohorts cannot acquire overlapping write capabilities and remain disabled by default.
+- Parallel cohorts cannot acquire overlapping write capabilities. ACP decomposition-v2 projects default to four isolated workers; legacy/non-ACP execution remains serial.
