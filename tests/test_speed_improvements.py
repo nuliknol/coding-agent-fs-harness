@@ -45,6 +45,8 @@ class SpeedImprovementTests(unittest.TestCase):
             self.assertIn("Target-Criterion: root.acceptance.01", rendered)
             self.assertIn("Context-Closure-Cut: cut-1", rendered)
             self.assertIn("## Objective\nKeep me.", rendered)
+            self.assertIn("## Acceptance criteria\n\npasses", rendered)
+            self.assertIn("## Validation commands\n\ntrue", rendered)
 
     def test_parallelism_and_conflict_reduced_width(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

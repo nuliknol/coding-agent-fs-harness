@@ -16,6 +16,19 @@ def metadata(lines: list[str]) -> dict[str, str]:
     return values
 
 
+def section_has_content(lines: list[str], heading: str) -> bool:
+    try:
+        start = lines.index(heading) + 1
+    except ValueError:
+        return False
+    for line in lines[start:]:
+        if line.startswith("## "):
+            break
+        if line.strip():
+            return True
+    return False
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--assignment", required=True)
@@ -90,6 +103,16 @@ def main() -> int:
     rendered = [f"{key}: {replacements[key]}" for key in header_order
                 if key in replacements]
     rendered.extend(["", *body])
+    required_sections = (
+        ("## Objective",
+         f"Execute deterministic Context Closure cut {child_id} for "
+         f"{args.target_criterion}."),
+        ("## Acceptance criteria", row["acceptance_evidence"]),
+        ("## Validation commands", row["focused_validation"]),
+    )
+    for heading, content in required_sections:
+        if not section_has_content(rendered, heading):
+            rendered.extend(["", heading, "", content])
     Path(args.output).write_text("\n".join(rendered).rstrip() + "\n", encoding="utf-8")
     print(f"child_id={child_id}")
     return 0
