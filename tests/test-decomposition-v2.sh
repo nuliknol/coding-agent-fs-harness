@@ -417,13 +417,13 @@ chmod 600 "$TEST_ROOT/read-only-remediation-harness.env"
 "$HARNESS_BIN/harness-init" "$TEST_ROOT/read-only-remediation-harness.env" >/dev/null
 cat > "$TEST_ROOT/read-only-remediation-plan.tsv" <<'PLAN'
 node_id	parent_id	depends_on	deliverable	acceptance_evidence	focused_validation	allowed_paths	required_symbols	leaf_type	complexity_class	worker_route	behavioral_concerns	failure_paths	ownership_transitions	concurrency_boundaries	validation_surfaces	implementation_files	predicted_worker_actions	predicted_p95_tokens	terra_exception
-n1	-	-	Verify existing target	target source exists	test -f src/a.c	-	-	VERIFICATION_ONLY	LOW	LUNA	1	0	0	0	1	0	3	12000	-
+n1	-	-	Verify existing target	target source exists	FOCUSED: source-only target audit	-	-	VERIFICATION_ONLY	LOW	LUNA	1	0	0	0	1	0	3	12000	-
 PLAN
 "$HARNESS_BIN/manager-init-project-plan" "$TEST_ROOT/read-only-remediation-harness.env" \
 	"$TEST_ROOT/read-only-remediation-plan.tsv" >/dev/null
 sed \
 	-e 's/^Goal-Success-Evidence:.*$/Goal-Success-Evidence: target source exists/' \
-	-e 's#^Focused-Validation:.*#Focused-Validation: test -f src/a.c#' \
+	-e 's#^Focused-Validation:.*#Focused-Validation: FOCUSED: source-only target audit#' \
 	-e 's#^Allowed-Scope:.*#Allowed-Scope: -#' \
 	-e 's/^Leaf-Type: LOCAL_IMPLEMENTATION$/Leaf-Type: VERIFICATION_ONLY/' \
 	-e 's/^Deliverable:.*$/Deliverable: Verify existing target/' \
@@ -465,6 +465,8 @@ read_only_remediation_ready="$read_only_remediation_project/tasks/decompreadonly
 grep -Fqx 'Allowed-Scope: -' "$read_only_remediation_ready"
 grep -Fqx 'Remediation-Scope: -' "$read_only_remediation_ready"
 grep -Fqx 'Required-Symbols: -' "$read_only_remediation_ready"
+grep -Fqx 'Focused-Validation: FOCUSED: source-only target audit' \
+	"$read_only_remediation_ready"
 grep -Fqx 'Context-Paths: src/CMakeLists.txt,src/cmake/registration.cmake' \
 	"$read_only_remediation_ready"
 grep -Fq 'READ_ONLY_MANAGER_REMEDIATION_SCOPE_NORMALIZED root=001 task=001-revision-01' \
@@ -472,6 +474,8 @@ grep -Fq 'READ_ONLY_MANAGER_REMEDIATION_SCOPE_NORMALIZED root=001 task=001-revis
 grep -Fq 'READ_ONLY_VALIDATION_LABEL_NORMALIZED root=001 task=001-revision-01 label=source-audit-evidence-check' \
 	"$read_only_remediation_project/logs/events.log"
 grep -Fq 'READ_ONLY_CMAKE_CONTEXT_EXPANDED root=001 task=001-revision-01 prior=src/CMakeLists.txt direct_includes=1' \
+	"$read_only_remediation_project/logs/events.log"
+grep -Fq 'READ_ONLY_REVIEW_DESCRIPTOR_RESTORED root=001 task=001-revision-01' \
 	"$read_only_remediation_project/logs/events.log"
 
 # A resource fuse that observes durable source progress must schedule a
