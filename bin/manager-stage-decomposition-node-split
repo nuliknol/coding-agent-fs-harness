@@ -27,8 +27,25 @@ IFS= read -r replacement_header < "$replacement_source" || die 'replacement DAG 
 [[ "$replacement_header" == "$(decomposition_complexity_header)" ]] ||
 	die 'replacement DAG TSV must use the measured decomposition header'
 IFS= read -r mapping_header < "$mapping_source" || die 'node mapping TSV is empty'
-[[ "$mapping_header" == $'old_node_id\treplacement_node_ids' ]] ||
-	die 'node mapping header must be: old_node_id<TAB>replacement_node_ids'
+case "$mapping_header" in
+	$'old_node_id\treplacement_node_ids') ;;
+	$'old_node_id\treplace_with_ordered_child_ids')
+		# The repair prompt describes this column as the ordered child-ID field.
+		# Models occasionally preserve that exact semantic name when rewriting the
+		# machine-seeded TSV.  It is an unambiguous schema alias, so normalize it
+		# deterministically instead of discarding an otherwise complete bounded
+		# split and paying for another global repair turn.
+		mapping_normalized="$PROJECT_TMP_DIR/node-split-mapping-normalized-$$.tsv"
+		{
+			printf 'old_node_id\treplacement_node_ids\n'
+			tail -n +2 "$mapping_source"
+		} > "$mapping_normalized"
+		chmod 600 "$mapping_normalized"
+		mapping_source="$mapping_normalized"
+		log_event "DECOMPOSITION_NODE_SPLIT_HEADER_NORMALIZED alias=replace_with_ordered_child_ids"
+		;;
+	*) die 'node mapping header must be: old_node_id<TAB>replacement_node_ids' ;;
+esac
 ! grep -q $'\tREPLACE_WITH_ORDERED_CHILD_IDS$' "$mapping_source" ||
 	die 'node mapping still contains a machine placeholder; fill only its ordered child-ID field'
 

@@ -328,6 +328,10 @@ cat > "$TEST_ROOT/split-mapping.tsv" <<'EOF'
 old_node_id	replacement_node_ids
 n10	n10a,n10b
 EOF
+cat > "$TEST_ROOT/split-mapping-semantic-alias.tsv" <<'EOF'
+old_node_id	replace_with_ordered_child_ids
+n10	n10a,n10b
+EOF
 cat > "$TEST_ROOT/bad-coverage.tsv" <<'EOF'
 obligation_id	node_ids	evidence_plan
 EOF
@@ -497,6 +501,19 @@ split_candidate_dag="$(awk -F= '$1=="dag" {print $2}' "$project_dir/control/deco
 split_candidate_coverage="$(awk -F= '$1=="coverage" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
 grep -Fq $'n11\t-\tn10b\t' "$split_candidate_dag"
 grep -Fq $'REQ-ONE\tn10a,n10b\t' "$split_candidate_coverage"
+grep -Fqx 'status=STAGED' "$project_dir/control/decomposition-dag-candidate.env"
+
+# A completed bounded repair must not be discarded merely because the model
+# retained the prompt's semantic name for the machine-owned second column.
+set +e
+"$HARNESS_BIN/manager-stage-decomposition-dag" "$env_file" "$TEST_ROOT/split-dag.tsv" "$TEST_ROOT/split-coverage.tsv" >/dev/null 2>&1
+split_alias_status=$?
+set -e
+(( split_alias_status != 0 ))
+"$HARNESS_BIN/manager-stage-decomposition-node-split" "$env_file" \
+	"$TEST_ROOT/replacements.tsv" "$TEST_ROOT/split-mapping-semantic-alias.tsv" >/dev/null
+split_alias_candidate_dag="$(awk -F= '$1=="dag" {print $2}' "$project_dir/control/decomposition-dag-candidate.env")"
+grep -Fq $'n11\t-\tn10b\t' "$split_alias_candidate_dag"
 grep -Fqx 'status=STAGED' "$project_dir/control/decomposition-dag-candidate.env"
 
 # Sol may split a covered obligation into an executable chain but omit a new
