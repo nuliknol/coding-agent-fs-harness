@@ -735,6 +735,10 @@ rm -f "$recovery_marker"
 # A clean architecture-binding refusal is a semantic rejection of the fixed
 # DAG, not a generic startup failure. Preserve its diagnostic and hand it to
 # the existing bounded DAG-repair loop.
+grep -Fq 'machine-actionable diagnostic listing, for every offender' \
+	"$HARNESS_BIN/manager-architecture-binding-critic"
+grep -Fq 'an inferred component label without its corrective repository path or contract boundary is not actionable rejection authority' \
+	"$HARNESS_BIN/manager-architecture-binding-critic"
 binding_reject_mock="$TEST_ROOT/binding-reject-codex"
 binding_reject_env="$TEST_ROOT/configs/startup-binding-reject.env"
 cat > "$binding_reject_mock" <<'MOCK'
