@@ -60,6 +60,9 @@ printf 'Worker Codex: %s\n' "$WORKER_CODEX_BIN"
 printf 'Worker Codex home: %s\n' "$WORKER_CODEX_HOME"
 printf 'Worker model: %s (%s)\n' "$WORKER_MODEL" "$WORKER_REASONING_EFFORT"
 printf 'Validated agent source commits: %s\n' "$([[ "$HARNESS_AGENT_COMMITS_ENABLED" == 1 ]] && printf enabled || printf disabled)"
+printf 'Source Code Transaction Manager: %s (timeout=%ss conflict-delta<=%s bytes)\n' \
+	"$([[ "$HARNESS_SCTM_ENABLED" == 1 ]] && printf enabled || printf disabled)" \
+	"$HARNESS_SCTM_SUBMIT_TIMEOUT_SECONDS" "$HARNESS_SCTM_MAX_CONFLICT_DELTA_BYTES"
 printf 'Model policy: %s\n' "$HARNESS_MODEL_POLICY"
 printf 'Escalation policy: %s\n' "$HARNESS_ESCALATION_POLICY"
 if [[ "$HARNESS_MODEL_POLICY" == luna_only ]]; then

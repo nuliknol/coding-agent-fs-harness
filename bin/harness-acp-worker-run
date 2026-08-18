@@ -31,14 +31,10 @@ ready="$dir/tasks/$base.ready.md"
 lease="$(acp_capability_lease_dir)/$task_id.lease.env"
 paths="$dir/control/acp/$task_id.capabilities"
 worktree="$(acp_worktree_dir)/$task_id"
-integration="$(acp_integration_dir)/$task_id-$$"
 worker_env="$dir/control/acp/$task_id.worker.env"
-integration_env="$dir/control/acp/$task_id.integration.env"
-integration_lock="$(acp_integration_dir)/integration.lock"
 capability_lock="$(acp_capability_lease_dir)/leases.lock"
 base_revision="$(git -C "$REPOSITORY" rev-parse HEAD)"
 worker_tmp="$PROJECT_TMP_DIR/acp-workers/$task_id-$$"
-integration_tmp="$PROJECT_TMP_DIR/acp-integration/$task_id-$$"
 status=0
 worker_pid=""
 capability_acquired=0
@@ -51,9 +47,9 @@ cleanup()
 		kill -TERM "$worker_pid" 2>/dev/null || true
 		wait "$worker_pid" 2>/dev/null || true
 	fi
-	git -C "$REPOSITORY" worktree remove --force "$integration" >/dev/null 2>&1 || true
 	git -C "$REPOSITORY" worktree remove --force "$worktree" >/dev/null 2>&1 || true
-	rm -f "$worker_env" "$integration_env" "$paths"
+	rm -f "$worker_env" "$paths" "${transaction_patch:-}" "${transaction_paths:-}" \
+		"${transaction_message:-}" "${transaction_validation:-}"
 	(
 		flock -x 9
 		rm -f "$lease"
@@ -119,14 +115,8 @@ fi
 	for other in "$(acp_capability_lease_dir)"/*.lease.env; do
 		[[ -f "$other" && "$other" != "$lease" ]] || continue
 		other_pid="$(kv_file_value "$other" pid 2>/dev/null || true)"
-		other_paths="$(kv_file_value "$other" paths_file 2>/dev/null || true)"
 		if [[ ! "$other_pid" =~ ^[1-9][0-9]*$ ]] || ! kill -0 "$other_pid" 2>/dev/null; then
 			rm -f "$other"
-			continue
-		fi
-		[[ -f "$other_paths" ]] || die "live ACP capability lease has no path set: $other"
-		if acp_capability_paths_conflict "$paths" "$other_paths"; then
-			exit 75
 		fi
 	done
 	{
@@ -135,16 +125,7 @@ fi
 	} > "$lease.tmp.$$"
 	chmod 600 "$lease.tmp.$$"
 	mv "$lease.tmp.$$" "$lease"
-) 9>"$capability_lock" || {
-	status=$?
-	if (( status == 75 )); then
-		log_event "ACP_CAPABILITY_DEFERRED task=$task_id reason=overlapping-write-authority"
-		acp_event_append - "$task_id" - 0 CAPABILITY_DEFERRED SCOPE WRITE - \
-			"reason=overlapping-write-authority"
-		exit 75
-	fi
-	exit "$status"
-}
+) 9>"$capability_lock"
 capability_acquired=1
 acp_event_append - "$task_id" - 0 CAPABILITY_ACQUIRED SCOPE WRITE - \
 	"base=$base_revision paths=$(paste -sd, "$paths")"
@@ -193,7 +174,8 @@ git -C "$worktree" diff --cached --quiet --ignore-submodules -- ||
 	die 'successful isolated worker invocation left staged but uncommitted changes'
 
 # Preserve the worker commit identity for audit even after its worktree is
-# removed. Integration replays those commits onto the then-current main HEAD.
+# removed. SCTM converts the complete candidate into one serialized canonical
+# transaction against the then-current main HEAD.
 worker_head="$(git -C "$worktree" rev-parse HEAD)"
 if [[ "$worker_head" == "$base_revision" ]]; then
 	# Verification and decomposition outcomes may legitimately publish a result
@@ -203,59 +185,61 @@ if [[ "$worker_head" == "$base_revision" ]]; then
 	status=0
 	exit 0
 fi
-git -C "$REPOSITORY" update-ref "refs/harness-acp/tasks/$PROJECT/$task_id" "$worker_head"
-
-(
-	flock -x 9
-	integration_base="$(git -C "$REPOSITORY" rev-parse HEAD)"
-	git -C "$REPOSITORY" diff --quiet --ignore-submodules -- ||
-		die 'ACP integration requires a clean main worktree'
-	git -C "$REPOSITORY" diff --cached --quiet --ignore-submodules -- ||
-		die 'ACP integration requires a clean main index'
-	git -C "$REPOSITORY" worktree add --detach "$integration" "$integration_base" >/dev/null
-	mapfile -t commits < <(git -C "$worktree" rev-list --reverse "$base_revision..$worker_head")
-	for commit in "${commits[@]}"; do
-		if ! git -C "$integration" cherry-pick "$commit" >/dev/null 2>&1; then
-			git -C "$integration" cherry-pick --abort >/dev/null 2>&1 || true
-			mark_project_integrity_anomaly ACP_INTEGRATION_CONFLICT "$task_id" \
-				'isolated worker commit did not integrate cleanly despite capability admission' \
-				"base=$base_revision current=$integration_base commit=$commit lease=$lease" >/dev/null
-			exit 76
-		fi
-	done
+transaction_id="tx-$task_id-${worker_head:0:16}"
+transaction_patch="$dir/control/acp/$task_id.sctm.patch"
+transaction_paths="$dir/control/acp/$task_id.sctm.paths"
+transaction_message="$dir/control/acp/$task_id.sctm.message"
+transaction_validation="$dir/control/acp/$task_id.sctm.validation"
+git -C "$worktree" diff --binary --full-index --find-renames "$base_revision..$worker_head" > "$transaction_patch"
+git -C "$worktree" -c core.quotePath=false diff --no-renames --name-only \
+	"$base_revision..$worker_head" > "$transaction_paths"
+printf 'Integrate isolated worker transaction %s for task %s\n' "$worker_head" "$task_id" > "$transaction_message"
+assignment="$dir/archive/$base.assignment.md"
+[[ -f "$assignment" ]] || die 'SCTM integration cannot locate the archived worker assignment'
+printf '%s\n' "$(metadata_value "$assignment" Focused-Validation)" > "$transaction_validation"
+chmod 600 "$transaction_patch" "$transaction_paths" "$transaction_message" "$transaction_validation"
+set +e
+transaction_output="$($HARNESS_BIN/sctm-submit "$HARNESS_ENV_FILE" "$transaction_id" \
+	"worker-$worker_head" "$task_id" "$base_revision" "$transaction_patch" \
+	"$transaction_paths" "$paths" "$transaction_message" "$transaction_validation" 2>&1)"
+transaction_status=$?
+set -e
+transaction_result="$dir/control/sctm/transactions/$transaction_id/result"
+if (( transaction_status == 75 )); then
+	transaction_outcome="$(kv_file_value "$transaction_result" status 2>/dev/null || printf CONFLICT)"
 	{
-		printf 'source %q\n' "$HARNESS_ENV_FILE"
-		printf 'export REPOSITORY=%q\n' "$integration"
-		printf 'export HARNESS_ACP_CANONICAL_REPOSITORY=%q\n' "$REPOSITORY"
-		printf 'export HARNESS_ACP_ISOLATED_TASK_ID=%q\n' "$task_id"
-		printf 'export HARNESS_TASK_TMP_DIR=%q\n' "$integration_tmp"
-	} > "$integration_env"
-	chmod 600 "$integration_env"
-	mkdir -p "$integration_tmp"
-	validation_log="$dir/logs/acp-integration-$task_id-$(timestamp_compact_utc).log"
-	if ! "$HARNESS_BIN/harness-run-assigned-validation" "$integration_env" "$task_id" \
-		acp-post-merge > "$validation_log" 2>&1; then
-		mark_project_integrity_anomaly ACP_INTEGRATION_VALIDATION_FAILED "$task_id" \
-			'post-integration focused validation rejected an isolated worker candidate' \
-			"base=$integration_base candidate=$(git -C "$integration" rev-parse HEAD) log=$validation_log" >/dev/null
-		exit 77
-	fi
-	candidate_head="$(git -C "$integration" rev-parse HEAD)"
-	[[ "$(git -C "$REPOSITORY" rev-parse HEAD)" == "$integration_base" ]] ||
-		die 'main HEAD changed outside the serialized ACP integration barrier'
-	git -C "$REPOSITORY" merge --ff-only "$candidate_head" >/dev/null
-	receipt="$(acp_integration_dir)/$task_id.integrated.env"
-	{
-		printf 'task_id=%s\nworker_base=%s\nworker_head=%s\nintegration_base=%s\n' \
-			"$task_id" "$base_revision" "$worker_head" "$integration_base"
-		printf 'integrated_head=%s\nvalidation_log=%s\nintegrated_at=%s\n' \
-			"$candidate_head" "$validation_log" "$(timestamp_utc)"
-	} > "$receipt.tmp.$$"
-	chmod 600 "$receipt.tmp.$$"
-	mv "$receipt.tmp.$$" "$receipt"
-	acp_event_append - "$task_id" - 0 INTEGRATED SCOPE WRITE - \
-		"worker_head=$worker_head integrated_head=$candidate_head validation=$validation_log"
-) 9>"$integration_lock"
+		printf '\n## SCTM transaction requires replan\n\n'
+		printf 'The source candidate was not committed (`%s`). No partial source mutation occurred. Use the bounded transaction evidence below to repair or replan this leaf.\n\n```text\n%s\n```\n' \
+			"$transaction_outcome" "$transaction_output"
+	} >> "$result"
+	receipt="$(acp_integration_dir)/$task_id.conflict.env"
+	cp -- "$transaction_result" "$receipt"
+	chmod 600 "$receipt"
+	acp_event_append - "$task_id" - 0 INTEGRATION_CONFLICT SCOPE WRITE - \
+		"worker_head=$worker_head transaction=$transaction_id outcome=$transaction_outcome result=$transaction_result"
+	log_event "SCTM_WORKER_REPLAN task=$task_id transaction=$transaction_id outcome=$transaction_outcome result=$transaction_result"
+	status=0
+	exit 0
+elif (( transaction_status != 0 )); then
+	printf '%s\n' "$transaction_output" >&2
+	mark_project_integrity_anomaly SCTM_TRANSACTION_FAILED "$task_id" \
+		'canonical source transaction failed before publication' \
+		"transaction=$transaction_id result=$transaction_result" >/dev/null
+	exit 77
+fi
+candidate_head="$(kv_file_value "$transaction_result" commit)"
+integration_base="$(kv_file_value "$transaction_result" previous_commit)"
+receipt="$(acp_integration_dir)/$task_id.integrated.env"
+{
+	printf 'task_id=%s\nworker_base=%s\nworker_head=%s\nintegration_base=%s\n' \
+		"$task_id" "$base_revision" "$worker_head" "$integration_base"
+	printf 'integrated_head=%s\ntransaction_id=%s\ntransaction_result=%s\nintegrated_at=%s\n' \
+		"$candidate_head" "$transaction_id" "$transaction_result" "$(timestamp_utc)"
+} > "$receipt.tmp.$$"
+chmod 600 "$receipt.tmp.$$"
+mv "$receipt.tmp.$$" "$receipt"
+acp_event_append - "$task_id" - 0 INTEGRATED SCOPE WRITE - \
+	"worker_head=$worker_head integrated_head=$candidate_head transaction=$transaction_id"
 
 status=0
 exit 0

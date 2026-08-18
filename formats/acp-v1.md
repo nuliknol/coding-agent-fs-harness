@@ -85,21 +85,23 @@ durable anomalies. These complement and never raise or remove the existing
 
 ## Parallelism and integration
 
-ACP v1 projects using decomposition v2 default to four workers. Each worker is
-admitted only after acquiring an exact write-capability lease derived from its
-`Allowed-Scope`; equal, ancestor, and descendant path authorities conflict.
-Admitted workers run in detached Git worktrees from an immutable base and have
-task-private temporary/build directories. The one logical manager may activate
-multiple dependency-ready DAG roots only when their mutation capabilities are
-disjoint.
+ACP v1 projects using decomposition v2 default to four workers. Admitted workers
+run in detached Git worktrees from an immutable base and have task-private
+temporary/build directories. The one logical manager may activate multiple
+dependency-ready DAG roots when the compiled semantic conflict graph proves
+their mutation regions independent, including disjoint regions of the same
+file.
 
-Completed worker commits are replayed under one integration lock onto the
-current main HEAD in a separate integration worktree. The assigned focused
-validation must pass there before main advances with a fast-forward. Conflicts,
-external main mutation, or failed post-integration validation create a project
-integrity anomaly; they never silently merge. Original worker commit identities,
-integration receipts, capability acquisition/release, and the integrated HEAD
-remain durable.
+Workers never advance the canonical repository. A completed worker candidate
+is submitted to the Source Code Transaction Manager as a standard Git patch
+with its base commit, exact changed paths, and ACP write capability. SCTM is a
+single FIFO canonical writer. Under an exclusive repository lock it attempts a
+three-way apply against the current HEAD, mechanically enforces the capability,
+runs focused validation in a staging worktree, and commits atomically. A clean
+same-file application is accepted; a genuine region collision returns a
+bounded conflict delta for deterministic replan. Original worker identities,
+immutable requests, validation logs, results, conflict evidence, and integrated
+HEADs remain durable. See `sctm-v1.md`.
 
 `HARNESS_WORKER_PARALLELISM=0` selects online machine capacity capped by
 `HARNESS_WORKER_PARALLELISM_HARD_MAX` (four by default); it never means

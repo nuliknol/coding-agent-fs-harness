@@ -23,8 +23,14 @@ set +e
 worker_status=$?
 "$HARNESS_BIN/manager-supervisor-stop" "$HARNESS_ENV_FILE"
 manager_status=$?
+if (( HARNESS_SCTM_ENABLED == 1 && worker_status == 0 && manager_status == 0 )); then
+	"$HARNESS_BIN/sctm-daemon-stop" "$HARNESS_ENV_FILE"
+	sctm_status=$?
+else
+	sctm_status=0
+fi
 set -e
-if (( worker_status != 0 || manager_status != 0 )); then
+if (( worker_status != 0 || manager_status != 0 || sctm_status != 0 )); then
 	printf 'One or more supervisors are waiting for active children; retry after those children exit.\n' >&2
 	exit 3
 fi

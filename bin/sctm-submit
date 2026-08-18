@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+source "$SCRIPT_DIR/../lib/harness-sctm.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TRANSACTION_ID WORKER_ID TASK_ID BASE_COMMIT PATCH_FILE DECLARED_PATHS_FILE CAPABILITY_PATHS_FILE MESSAGE_FILE VALIDATION_COMMAND_FILE\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 10 ]] || usage
+load_harness_env "$1"
+transaction_id="$2"; worker_id="$3"; task_id="$4"; base_commit="$5"
+patch_source="$6"; declared_source="$7"; capability_source="$8"
+message_source="$9"; validation_source="${10}"
+ensure_project
+require_repository
+sctm_validate_identity "$transaction_id"
+sctm_validate_identity "$worker_id"
+validate_task_id "$task_id"
+[[ "$base_commit" =~ ^[0-9a-fA-F]{40,64}$ ]] || die 'SCTM base commit must be a full hexadecimal object ID'
+git -C "$REPOSITORY" cat-file -e "$base_commit^{commit}" 2>/dev/null || die 'SCTM base commit is unavailable'
+for source_file in "$patch_source" "$declared_source" "$capability_source" "$message_source"; do
+	[[ -s "$source_file" ]] || die "SCTM transaction input is missing or empty: $source_file"
+done
+[[ -f "$validation_source" ]] || die "SCTM validation command file is missing: $validation_source"
+sctm_validate_paths_file "$declared_source" declared
+sctm_validate_paths_file "$capability_source" capability
+sctm_ensure_state
+transaction_dir="$(sctm_transaction_dir "$transaction_id")"
+input_fingerprint="$({
+	printf '%s\0' "$PROJECT" "$worker_id" "$task_id" "$base_commit"
+	for input_file in "$patch_source" "$declared_source" "$capability_source" "$message_source" "$validation_source"; do
+		sha256sum "$input_file" | awk '{print $1}'
+	done
+} | sha256sum | awk '{print "sha256:" $1}')"
+
+exec 9>"$(sctm_queue_lock)"
+flock -x 9
+if [[ -d "$transaction_dir" ]]; then
+	stored_fingerprint="$(kv_file_value "$transaction_dir/request" input_fingerprint 2>/dev/null || true)"
+	[[ "$stored_fingerprint" == "$input_fingerprint" ]] || die 'transaction ID was already submitted with different immutable input'
+else
+	transaction_staging="$(sctm_transactions_dir)/.$transaction_id.receive.$$"
+	rm -rf -- "$transaction_staging"
+	mkdir "$transaction_staging"
+	chmod 700 "$transaction_staging"
+	cp -- "$patch_source" "$transaction_staging/patch"
+	cp -- "$declared_source" "$transaction_staging/declared-paths"
+	cp -- "$capability_source" "$transaction_staging/capability-paths"
+	cp -- "$message_source" "$transaction_staging/message"
+	cp -- "$validation_source" "$transaction_staging/validation-command"
+	chmod 600 "$transaction_staging"/{patch,declared-paths,capability-paths,message,validation-command}
+	{
+		printf 'transaction_id=%s\nproject_id=%s\nworker_id=%s\ntask_id=%s\n' \
+			"$transaction_id" "$PROJECT" "$worker_id" "$task_id"
+		printf 'base_commit=%s\ninput_fingerprint=%s\nsubmitted_at=%s\n' \
+			"$base_commit" "$input_fingerprint" "$(timestamp_utc)"
+	} > "$transaction_staging/request"
+	chmod 600 "$transaction_staging/request"
+	mapfile -t declared_paths < "$transaction_staging/declared-paths"
+	git -C "$REPOSITORY" ls-tree -r "$base_commit" -- "${declared_paths[@]}" \
+		> "$transaction_staging/base-state" 2>/dev/null || true
+	chmod 600 "$transaction_staging/base-state"
+	printf 'QUEUED\n' > "$transaction_staging/state"
+	chmod 600 "$transaction_staging/state"
+	sync -f "$transaction_staging/request" 2>/dev/null || true
+	sync -f "$transaction_staging" 2>/dev/null || true
+	mv "$transaction_staging" "$transaction_dir"
+	sync -f "$(sctm_transactions_dir)" 2>/dev/null || true
+	sequence_file="$(sctm_dir)/queue.sequence"
+	sequence="$(($(cat "$sequence_file" 2>/dev/null || printf 0) + 1))"
+	printf '%s\n' "$sequence" > "$sequence_file.tmp.$$"
+	chmod 600 "$sequence_file.tmp.$$"
+	mv "$sequence_file.tmp.$$" "$sequence_file"
+	queue_entry="$(sctm_queue_dir)/$(printf '%020d' "$sequence")-$transaction_id.ready"
+	printf '%s\n' "$transaction_id" > "$queue_entry.tmp.$$"
+	chmod 600 "$queue_entry.tmp.$$"
+	mv "$queue_entry.tmp.$$" "$queue_entry"
+	sync -f "$(sctm_queue_dir)" 2>/dev/null || true
+	log_event "SCTM_TRANSACTION_QUEUED transaction=$transaction_id task=$task_id worker=$worker_id base=$base_commit sequence=$sequence"
+fi
+flock -u 9
+
+if ! sctm_pid_is_live; then
+	"$HARNESS_BIN/sctm-daemon-start" "$HARNESS_ENV_FILE" >/dev/null
+fi
+
+result="$transaction_dir/result"
+deadline=$(( $(date +%s) + HARNESS_SCTM_SUBMIT_TIMEOUT_SECONDS ))
+next_daemon_check=0
+while [[ ! -f "$result" ]]; do
+	now="$(date +%s)"
+	(( now < deadline )) || die "timed out waiting for SCTM transaction: $transaction_id"
+	if (( now >= next_daemon_check )); then
+		sctm_pid_is_live || "$HARNESS_BIN/sctm-daemon-start" "$HARNESS_ENV_FILE" >/dev/null
+		next_daemon_check=$((now + 2))
+	fi
+	if [[ "$HARNESS_USE_INOTIFY" == 1 ]] && command -v inotifywait >/dev/null 2>&1; then
+		inotifywait -q -t 2 -e moved_to -e create "$transaction_dir" >/dev/null 2>&1 || true
+	else
+		sleep 0.1
+	fi
+done
+cat "$result"
+status="$(sctm_result_status "$result")"
+sctm_result_exit_status "$status"

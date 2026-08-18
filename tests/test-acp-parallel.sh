@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEST_ROOT="$(mktemp -d /tmp/harness-acp-parallel.XXXXXX)"
 cleanup()
 {
+	"$ROOT/bin/sctm-daemon-stop" "$TEST_ROOT/harness.env" >/dev/null 2>&1 || true
 	git -C "$TEST_ROOT/repo" worktree prune >/dev/null 2>&1 || true
 	if [[ "${HARNESS_TEST_KEEP_TMP:-0}" == 1 ]]; then
 		printf 'Preserved test root: %s\n' "$TEST_ROOT" >&2
@@ -40,6 +41,7 @@ export HARNESS_ACP_ENABLED=1
 export HARNESS_WORKER_PARALLELISM=4
 export HARNESS_WORKER_PARALLELISM_HARD_MAX=4
 export HARNESS_WORKER_ISOLATION_MODE=worktree
+export HARNESS_SCTM_ENABLED=1
 export HARNESS_DECOMPOSITION_V2=0
 export HARNESS_SPECIFICATION_REVIEW_ENABLED=0
 export HARNESS_WORKER_GOAL_MODE=0
@@ -291,6 +293,8 @@ grep -Fqx task-a "$TEST_ROOT/repo/a.txt"
 grep -Fqx task-b "$TEST_ROOT/repo/b.txt"
 [[ -f "$project/control/acp/integration/a.integrated.env" ]]
 [[ -f "$project/control/acp/integration/b.integrated.env" ]]
+grep -Fqx 'status=APPLIED' "$project/control/sctm/transactions/tx-a-"*/result
+grep -Fqx 'status=APPLIED' "$project/control/sctm/transactions/tx-b-"*/result
 [[ ! -e "$project/control/acp/capability-leases/a.lease.env" ]]
 [[ ! -e "$project/control/acp/capability-leases/b.lease.env" ]]
 grep -Fq $'INTEGRATED\tSCOPE\tWRITE' "$project/control/acp/events.tsv"

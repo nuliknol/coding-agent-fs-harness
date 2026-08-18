@@ -15,6 +15,7 @@ printf 'Enabled: %s\nContext-Closure-Mode: %s\n' "$HARNESS_ACP_ENABLED" "$HARNES
 printf 'Parallelism: %s (hard max %s; isolation %s)\n' \
 	"$HARNESS_WORKER_PARALLELISM" "$HARNESS_WORKER_PARALLELISM_HARD_MAX" "$HARNESS_WORKER_ISOLATION_MODE"
 printf 'Scheduler-Capacity: %s\n' "$(acp_scheduler_capacity)"
+printf 'SCTM: %s\n' "$([[ "$HARNESS_SCTM_ENABLED" == 1 ]] && printf enabled || printf disabled)"
 printf '\nMetrics\n'
 sed 's/^/  /' "$(acp_metrics_file)"
 if [[ -f "$(project_efficiency_metrics_file)" ]]; then

@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+source "$SCRIPT_DIR/../lib/harness-sctm.sh"
+
+[[ $# -eq 1 ]] || { printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+require_repository
+sctm_ensure_state
+exec 8>"$(sctm_daemon_lock)"
+flock -n 8 || die "an SCTM daemon is already running for project: $PROJECT"
+printf '%s\n' "$$" > "$(sctm_pid_file).tmp.$$"
+chmod 600 "$(sctm_pid_file).tmp.$$"
+mv "$(sctm_pid_file).tmp.$$" "$(sctm_pid_file)"
+cleanup()
+{
+	rm -f "$(sctm_pid_file)"
+	log_event "SCTM_DAEMON_STOPPED pid=$$"
+}
+trap 'exit 0' INT TERM
+trap cleanup EXIT
+log_event "SCTM_DAEMON_STARTED pid=$$ repository=$REPOSITORY"
+
+# A crash can occur after the immutable transaction directory is durable but
+# before, during, or after queue publication. Recreate only missing queue
+# records for transactions without a terminal result. Existing sequence order
+# remains intact; recovered records are FIFO after already-durable entries.
+exec 9>"$(sctm_queue_lock)"
+flock -x 9
+for abandoned in "$(sctm_transactions_dir)"/*; do
+	[[ -d "$abandoned" && -f "$abandoned/request" && ! -f "$abandoned/result" ]] || continue
+	abandoned_id="$(basename "$abandoned")"
+	if grep -R -Fxq -- "$abandoned_id" "$(sctm_queue_dir)" 2>/dev/null; then
+		continue
+	fi
+	sequence_file="$(sctm_dir)/queue.sequence"
+	sequence="$(($(cat "$sequence_file" 2>/dev/null || printf 0) + 1))"
+	printf '%s\n' "$sequence" > "$sequence_file.tmp.$$"
+	chmod 600 "$sequence_file.tmp.$$"; mv "$sequence_file.tmp.$$" "$sequence_file"
+	queue_entry="$(sctm_queue_dir)/$(printf '%020d' "$sequence")-$abandoned_id.ready"
+	printf '%s\n' "$abandoned_id" > "$queue_entry.tmp.$$"
+	chmod 600 "$queue_entry.tmp.$$"; mv "$queue_entry.tmp.$$" "$queue_entry"
+	log_event "SCTM_TRANSACTION_RECOVERED transaction=$abandoned_id sequence=$sequence"
+done
+flock -u 9
+
+while true; do
+	queue_entry="$(find "$(sctm_queue_dir)" -maxdepth 1 -type f -name '*.ready' -print | LC_ALL=C sort | head -n 1)"
+	if [[ -n "$queue_entry" ]]; then
+		transaction_id="$(cat "$queue_entry")"
+		if [[ ! "$transaction_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; then
+			log_event "SCTM_INVALID_QUEUE_ENTRY entry=$(printf '%q' "$queue_entry")"
+			rm -f "$queue_entry"
+			continue
+		fi
+		if ! "$HARNESS_BIN/sctm-process-transaction" "$HARNESS_ENV_FILE" "$transaction_id"; then
+			transaction_dir="$(sctm_transaction_dir "$transaction_id")"
+			[[ -f "$transaction_dir/result" ]] ||
+				sctm_write_result "$transaction_dir" INTERNAL_ERROR processor-exited-nonzero
+		fi
+		[[ ! -f "$(sctm_transaction_dir "$transaction_id")/result" ]] || rm -f "$queue_entry"
+		continue
+	fi
+	if [[ "$HARNESS_USE_INOTIFY" == 1 ]] && command -v inotifywait >/dev/null 2>&1; then
+		inotifywait -q -t 2 -e moved_to -e create "$(sctm_queue_dir)" >/dev/null 2>&1 || true
+	else
+		sleep 0.2
+	fi
+done

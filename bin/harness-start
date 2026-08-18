@@ -520,6 +520,9 @@ if [[ -n "$startup_budget_file" ]]; then
 	unset HARNESS_START_AGENT_BUDGET_FILE
 fi
 
+if (( HARNESS_SCTM_ENABLED == 1 )); then
+	"$HARNESS_BIN/sctm-daemon-start" "$HARNESS_ENV_FILE"
+fi
 "$HARNESS_BIN/manager-supervisor-start" "$HARNESS_ENV_FILE"
 "$HARNESS_BIN/worker-supervisor-start" "$HARNESS_ENV_FILE"
 

@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+source "$SCRIPT_DIR/../lib/harness-sctm.sh"
+
+[[ $# -eq 1 ]] || { printf 'Usage: %s ENV_FILE\n' "${0##*/}" >&2; exit 2; }
+load_harness_env "$1"
+ensure_project
+sctm_ensure_state
+
+daemon_state=stopped
+daemon_pid=-
+if sctm_pid_is_live; then
+	daemon_state=running
+	daemon_pid="$(cat "$(sctm_pid_file)")"
+fi
+queued=0
+for queue_entry in "$(sctm_queue_dir)"/*.ready; do
+	[[ -f "$queue_entry" ]] || continue
+	transaction_id="$(cat "$queue_entry" 2>/dev/null || true)"
+	[[ "$transaction_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]] || { queued=$((queued + 1)); continue; }
+	[[ -f "$(sctm_transaction_dir "$transaction_id")/result" ]] || queued=$((queued + 1))
+done
+printf 'Project: %s\nEnabled: %s\nDaemon: %s\nDaemon-PID: %s\nQueued: %s\n' \
+	"$PROJECT" "$HARNESS_SCTM_ENABLED" "$daemon_state" "$daemon_pid" "$queued"
+printf '\nTransactions\n'
+total=0
+for status in APPLIED CONFLICT STALE_BASE SCOPE_VIOLATION INVALID_PATCH INVALID_REQUEST VALIDATION_FAILED INTERNAL_ERROR; do
+	count=0
+	for result in "$(sctm_transactions_dir)"/*/result; do
+		[[ -f "$result" ]] || continue
+		[[ "$(sctm_result_status "$result")" == "$status" ]] && count=$((count + 1))
+	done
+	total=$((total + count))
+	printf '  %-18s %s\n' "$status" "$count"
+done
+printf '  %-18s %s\n' TOTAL "$total"

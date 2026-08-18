@@ -1097,14 +1097,34 @@ avoided, added context bytes, discovered/planned graph ratio, requests per
 verified item, and the project `tokens_per_verified_facet` convergence metric.
 
 ACP decomposition-v2 projects default to four isolated workers;
-legacy/non-ACP projects remain serial. Each dependency-ready worker acquires a
-write-capability lease compiled from `Allowed-Scope`, and ancestor/descendant
-overlap is deferred without an agent launch. Workers use immutable-base Git
-worktrees and private build/temp roots. Completed commits are replayed under a
-single integration lock onto the current main HEAD in a separate candidate
-worktree, where focused validation must pass before a fast-forward. Conflicts,
-external main mutation, or a failed integration gate create a project integrity
-anomaly. `HARNESS_WORKER_PARALLELISM=0` selects online CPU capacity capped by
+legacy/non-ACP projects remain serial. Each dependency-ready worker receives a
+write capability compiled from `Allowed-Scope` and uses an immutable-base Git
+worktree with private build/temp roots. Exact indexed mutation regions allow
+workers to operate concurrently on disjoint symbols in the same file.
+
+The Bash Source Code Transaction Manager (SCTM) is the sole canonical writer
+for these workers. Each completed candidate becomes an immutable Git patch in
+a durable FIFO transaction. SCTM takes one repository `flock`, applies the
+patch with three-way context against the current HEAD, checks the exact changed
+path set against the ACP capability, runs focused validation in a staging
+worktree, and only then fast-forwards the canonical repository. Unrelated
+same-file changes therefore compose; genuine overlapping edits return a
+bounded `CONFLICT` delta without partial mutation. Transaction IDs are
+idempotent, and daemon startup recovers requests abandoned before or after the
+canonical fast-forward. Inspect the queue and result ledger with:
+
+```bash
+sctm-status project.env
+```
+
+The durable ledger is under
+`$HARNESS_ROOT/projects/$PROJECT/control/sctm/transactions/`. ACP decomposition
+v2 enables SCTM by default. `HARNESS_SCTM_SUBMIT_TIMEOUT_SECONDS` controls the
+synchronous worker wait (the configured Codex wall timeout, or 3,600 seconds), while
+`HARNESS_SCTM_MAX_CONFLICT_DELTA_BYTES` bounds repair evidence (65,536 bytes by
+default). The normative protocol is documented in `formats/sctm-v1.md`.
+
+`HARNESS_WORKER_PARALLELISM=0` selects online CPU capacity capped by
 `HARNESS_WORKER_PARALLELISM_HARD_MAX` (four by default), never unbounded launch.
 New v2 plans compile indexed symbol mutation regions and a durable semantic
 conflict graph. The scheduler greedily fills dependency-ready, conflict-free
@@ -1806,6 +1826,8 @@ bash tests/test-architecture-rebuild.sh
 bash tests/test-architecture-rebuild-cli.sh
 bash tests/test-module-boundaries.sh
 bash tests/test-module-primitives.sh
+bash tests/test-sctm.sh
+bash tests/test-acp-parallel.sh
 ```
 
 The leaf-goal test covers assignment validation, code-only continuation,
