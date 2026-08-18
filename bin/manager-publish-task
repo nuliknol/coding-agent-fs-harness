@@ -2627,6 +2627,13 @@ acp_record_task_publication "$task_id" "$ready" "$manager_remediation"
 rm -f "$dir/control/manager-plan-stalled.md" \
 	"$dir/control/manager-plan-structural-error.md" \
 	"$dir/control/manager-plan-failed.md"
+if (( recovery_publish == 1 )); then
+	# A prior failed automatic replan suppresses only that unchanged recovery
+	# fingerprint. Successful publication proves the local failure is obsolete;
+	# retaining its marker makes status report RECOVERY_STALLED while the worker
+	# or the next typed Context Closure repair is already active.
+	rm -f "$dir/control/$PROJECT-task-$root.manager-replan-failed.md"
+fi
 
 published_decomposition_model="$leaf_planner_model"
 [[ "$HARNESS_MODEL_POLICY" != luna_only ]] || published_decomposition_model="$LUNA_WORKER_MODEL"
