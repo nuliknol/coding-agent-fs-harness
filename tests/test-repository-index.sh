@@ -70,8 +70,15 @@ printf 'startup diagnostic four\n'
 # Joern can exit successfully after emitting this unsupported-option banner.
 exit 0
 SH
+cat > "$TEST_ROOT/bin/fd-probe-tool" <<'SH'
+#!/usr/bin/env bash
+if [[ -e /proc/$$/fd/9 ]]; then
+	printf 'inherited\n' > "$FD_PROBE_MARKER"
+fi
+printf 'fixture-fd-probe 1.0\n'
+SH
 chmod +x "$TEST_ROOT/bin/scip-clang" "$TEST_ROOT/bin/scip" "$TEST_ROOT/bin/scip-clang-fail" \
-	"$TEST_ROOT/bin/hanging-version-tool"
+	"$TEST_ROOT/bin/hanging-version-tool" "$TEST_ROOT/bin/fd-probe-tool"
 
 # A provider whose --version action enters a REPL must not stall immutable
 # identity construction.  Keep this assertion outside a harness invocation so
@@ -79,6 +86,14 @@ chmod +x "$TEST_ROOT/bin/scip-clang" "$TEST_ROOT/bin/scip" "$TEST_ROOT/bin/scip-
 probe_started="$(date +%s)"
 # shellcheck source=../lib/harness-repository-index.sh
 source "$HARNESS_HOME/lib/harness-repository-index.sh"
+source "$HARNESS_HOME/lib/harness-index-providers.sh"
+export FD_PROBE_MARKER="$TEST_ROOT/fd-probe-inherited"
+exec 9> "$TEST_ROOT/index-lifetime.lock"
+repository_index_tool_version "$TEST_ROOT/bin/fd-probe-tool" >/dev/null
+repository_index_provider_run fd-probe "$TEST_ROOT/fd-probe.log" "$TEST_ROOT" -- \
+	"$TEST_ROOT/bin/fd-probe-tool"
+exec 9>&-
+[[ ! -e "$FD_PROBE_MARKER" ]]
 probe_fingerprint="$(repository_index_tool_fingerprint "$TEST_ROOT/bin/hanging-version-tool")"
 probe_fingerprint_repeat="$(repository_index_tool_fingerprint "$TEST_ROOT/bin/hanging-version-tool")"
 joern_fingerprint="$(repository_index_joern_fingerprint 1 "$TEST_ROOT/bin/hanging-version-tool")"

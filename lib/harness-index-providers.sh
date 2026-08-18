@@ -23,11 +23,16 @@ repository_index_provider_run()
 	(( $# > 0 )) || die "repository index provider command is empty: $provider"
 	[[ -d "$working_directory" ]] || die "repository index provider working directory is missing: $working_directory"
 	local status
-	if (cd "$working_directory" && "$@") > "$log" 2>&1; then
+	if (repository_index_close_inherited_lock_fds; cd "$working_directory"; exec "$@") > "$log" 2>&1; then
 		return 0
 	else
 		status=$?
 	fi
 	printf 'provider=%s exit_status=%s command=%q\n' "$provider" "$status" "$1" >> "$log"
 	return "$status"
+}
+
+repository_index_run_without_lifetime_locks()
+{
+	(repository_index_close_inherited_lock_fds; exec "$@")
 }

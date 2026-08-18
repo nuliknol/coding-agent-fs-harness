@@ -233,7 +233,10 @@ repository_index_joern_fingerprint()
 repository_index_tool_version()
 {
 	local executable="$1" output status=0
-	if output="$(timeout --signal=TERM --kill-after=2 5 "$executable" --version 2>&1 | head -n 4)"; then
+	if output="$(
+		(repository_index_close_inherited_lock_fds
+		 exec timeout --signal=TERM --kill-after=2 5 "$executable" --version) 2>&1 | head -n 4
+	)"; then
 		status=0
 	else
 		status=$?
@@ -255,10 +258,25 @@ repository_index_tool_version()
 	# Try the single-dash spelling only when the first command terminated.  A
 	# timed-out launcher is already known to have unsafe version semantics.
 	if [[ -z "$output" && "$status" != 124 && "$status" != 137 ]]; then
-		output="$(timeout --signal=TERM --kill-after=2 5 "$executable" -version 2>&1 | head -n 4 || true)"
+		output="$(
+			(repository_index_close_inherited_lock_fds
+			 exec timeout --signal=TERM --kill-after=2 5 "$executable" -version) 2>&1 | head -n 4 || true
+		)"
 	fi
 	[[ -n "$output" ]] || output=no-version-output
 	printf '%s' "$output" | tr '\n\t' '  '
+}
+
+repository_index_close_inherited_lock_fds()
+{
+	# Bash redirection descriptors are inherited across exec by default. Never
+	# let a provider JVM or tool probe outlive the index owner while retaining
+	# either the supervisor lifetime lock, repository publication lock, or the
+	# optional global Joern lock.
+	exec 8>&- 9>&-
+	if [[ "${joern_lock_fd:-}" =~ ^[0-9]+$ && "$joern_lock_fd" != 8 && "$joern_lock_fd" != 9 ]]; then
+		eval "exec ${joern_lock_fd}>&-"
+	fi
 }
 
 repository_index_optional_fingerprint()
