@@ -48,10 +48,11 @@ setsid "$HARNESS_BIN/harness-supervisor" "$HARNESS_ENV_FILE" </dev/null >> "$log
 pid=$!
 trace_event SUPERVISOR_LAUNCH "pid=$pid" "log_file=$log_file" "command=$HARNESS_BIN/harness-supervisor"
 # Startup validates architecture and rebuilds throughput/conflict sidecars before
-# publishing the PID. Large installed DAGs can legitimately need more than the
-# old five-second probe window; keep the launch bounded but wait for readiness
+# publishing the PID. Large installed DAGs can legitimately need tens of
+# seconds to rebuild their conflict graph; use the validated readiness timeout
 # instead of misclassifying a healthy supervisor and suppressing worker startup.
-for _ in $(seq 1 300); do
+startup_checks=$((HARNESS_SUPERVISOR_START_TIMEOUT_SECONDS * 10))
+for ((startup_check = 0; startup_check < startup_checks; startup_check++)); do
 	if [[ -f "$pid_file" ]]; then
 		trace_event SUPERVISOR_STARTED_CONFIRMED "pid=$(cat "$pid_file")"
 		printf 'Supervisor started with PID %s.\n' "$(cat "$pid_file")"

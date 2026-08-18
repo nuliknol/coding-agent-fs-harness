@@ -81,6 +81,7 @@ prompt="$TMP/prompt"; printf 'test\n' > "$prompt"
 grep -q '^Transient provider retry seconds: 60 (retries unlimited)$' "$TMP/defaults.out"
 grep -q '^Quota retry seconds: 300 (retries unlimited)$' "$TMP/defaults.out"
 grep -q '^Minimum interval between agent launches: 60 seconds (project-wide)$' "$TMP/defaults.out"
+grep -q '^Supervisor startup readiness timeout: 120 seconds$' "$TMP/defaults.out"
 grep -q '^Runtime PATH prefix: (none)$' "$TMP/defaults.out"
 grep -q '^Patch-only validation rounds: 3$' "$TMP/defaults.out"
 grep -Fqx 'Per-agent circuit breaker: 80 item starts, 500000 live-estimated tokens, 500000 authoritative processed tokens' \

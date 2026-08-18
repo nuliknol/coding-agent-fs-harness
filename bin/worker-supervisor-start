@@ -39,7 +39,8 @@ trace_event WORKER_SUPERVISOR_LAUNCH "pid=$pid" "log_file=$log_file" "command=$H
 # Match the manager launcher's bounded readiness window. Worker startup is
 # normally immediate, but repository/worktree recovery may precede PID
 # publication after a large preserved-state restart.
-for _ in $(seq 1 300); do
+startup_checks=$((HARNESS_SUPERVISOR_START_TIMEOUT_SECONDS * 10))
+for ((startup_check = 0; startup_check < startup_checks; startup_check++)); do
 	if [[ -f "$pid_file" ]]; then
 		trace_event WORKER_SUPERVISOR_STARTED_CONFIRMED "pid=$(cat "$pid_file")"
 		printf 'Worker supervisor started with PID %s.\n' "$(cat "$pid_file")"

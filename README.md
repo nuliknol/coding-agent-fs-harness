@@ -1942,6 +1942,7 @@ Configure it in the environment file:
 export HARNESS_PROVIDER_RETRY_SECONDS="60"
 export HARNESS_QUOTA_RETRY_SECONDS="300"
 export HARNESS_AGENT_MIN_INTERVAL_SECONDS="60"
+export HARNESS_SUPERVISOR_START_TIMEOUT_SECONDS="120"
 export HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION="80"
 export HARNESS_MAX_MANAGER_REVIEW_ITEMS_PER_INVOCATION="14"
 export HARNESS_MAX_MANAGER_REPLAN_ITEMS_PER_INVOCATION="14"
@@ -1956,6 +1957,11 @@ by managers, workers, and oracles. Its state persists across supervisor
 restarts, so an accidental event loop cannot bypass the interval by restarting
 the harness. Different projects retain independent clocks and can continue to
 run in parallel.
+
+`HARNESS_SUPERVISOR_START_TIMEOUT_SECONDS` bounds launcher readiness, not the
+supervisor lifetime. The default allows large decomposition DAGs to rebuild
+their conflict and throughput sidecars before publishing the manager PID, so a
+healthy slow startup does not suppress the worker-supervisor launch.
 
 Provider retries are always unlimited. Each probe receives a separate JSONL,
 stderr, classification, and final-message log with an `attempt-NNN` suffix.
