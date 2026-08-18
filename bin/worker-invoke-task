@@ -311,8 +311,11 @@ trace_event WORKER_CONTEXT_SELECTED "task_id=$task_id" "task_root=$task_root" "m
 
 prompt_file="$dir/control/$base.worker.prompt.md"
 patch_only_compact=0
+patch_only_execution=0
 if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only ]] &&
-	(( luna_bounded_execution == 1 )); then
+	(( luna_bounded_execution == 1 )) &&
+	[[ "$leaf_type" != VERIFICATION_ONLY || "$expected_implementation_files" != 0 ]]; then
+	patch_only_execution=1
 	patch_only_compact=1
 	cat > "$prompt_file.tmp.$$" <<PROMPT
 You are the bounded Luna patch compiler for one authorized local repository task.
@@ -415,8 +418,7 @@ $HARNESS_BIN/harness-run-assigned-validation "$HARNESS_ENV_FILE" "$task_id" LABE
 Use that command when Focused-Validation is executable. When it is descriptive, run a concrete validation through harness-run-logged. A compound command must be passed as one quoted /bin/bash -lc argument; placing a logical operator after the harness-run-logged invocation is forbidden because the following command escapes capture. Never invoke a potentially verbose build/test command directly. Validation-Class CLEAN_GLOBAL authorizes observation only in a Terra integration leaf; it never broadens implementation scope. Commit every task-owned source/source-related change with harness-commit-source before a terminal result. Use harness-publish-branch when Publish-Branch is declared. Never run direct Git index/history mutations. Generated output, object files, binaries, ignored files, and paths outside Allowed-Scope must remain uncommitted. Write scratch files and the result report under PROJECT_TMP_DIR, publish the result with worker-complete-task, and terminate. If an exact mandatory cross-harness Git ref is absent, use worker-wait-dependency with a precise requirements TSV and supplier note instead of repeating absence audits or claiming gain. Do not wait for another task.
 PROMPT
 fi
-if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only ]] &&
-	(( luna_bounded_execution == 1 )); then
+if (( patch_only_execution == 1 )); then
 	cat >> "$prompt_file.tmp.$$" <<'PROMPT'
 
 Patch-only Context Closure execution is active. The compiled closure below is the complete implementation context. Do not use shell, filesystem, web, search, or repository tools. Do not attempt to call harness commands. Reason only from the embedded task and closure. Your final response must contain exactly one fenced `diff` block containing a standard `diff --git` patch, followed by the normal worker-result metadata and headings. The trusted harness will validate scope, baseline, patch syntax, apply it, run Focused-Validation, and commit accepted source changes. If the closed evidence is insufficient, emit no patch and report Goal-Outcome: NEEDS_DECOMPOSITION with Decomposition-Reason: CONTEXT_INCOMPLETE.
@@ -454,7 +456,7 @@ yourself scope, invent a dependency edge, or continue exploring after a request.
 PROMPT
 fi
 if (( HARNESS_ACP_ENABLED == 1 && luna_bounded_execution == 1 )) &&
-	[[ "$HARNESS_CONTEXT_CLOSURE_MODE" != patch_only ]]; then
+	(( patch_only_execution == 0 )); then
 	cat >> "$prompt_file.tmp.$$" <<'PROMPT'
 
 ACP negotiated readiness is active. If supplied evidence proves that this leaf
@@ -580,8 +582,7 @@ if (( leaf_expected_turns > 0 && leaf_expected_turns < patch_only_attempt_limit 
 fi
 patch_last_diagnostic_fingerprint=""
 patch_repair_ledger="$dir/control/progress/$base.patch-only-repairs.tsv"
-if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only ]] &&
-	(( luna_bounded_execution == 1 )); then
+if (( patch_only_execution == 1 )); then
 	patch_only_baseline="$($HARNESS_BIN/harness-workspace-fingerprint "$HARNESS_ENV_FILE")"
 fi
 heartbeat_pid=""
@@ -842,7 +843,7 @@ prepare_typed_context_expansion()
 	context_expansion_count="$request_number"
 	context_followup_prompt="$PROJECT_TMP_DIR/$base.context-followup-$request_number.md"
 	{
-		if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only ]]; then
+		if (( patch_only_execution == 1 )); then
 			printf 'The trusted harness accepted typed Context Closure request %s of %s. Use only the extension below plus the prior thread context. Do not use tools or request the same fact again. Produce the required single fenced Git diff and normal terminal result metadata. If another decisive fact is absent, you may use the same typed request protocol within the remaining expansion budget.\n\n' \
 				"$request_number" "$HARNESS_MAX_CONTEXT_EXPANSIONS_PER_LEAF"
 		else
@@ -1075,7 +1076,8 @@ while true; do
 		fi
 	fi
 	if (( status == 0 && luna_bounded_execution == 1 )) &&
-		[[ "$HARNESS_CONTEXT_CLOSURE_MODE" == required ]]; then
+		{ [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == required ]] ||
+			{ [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only ]] && (( patch_only_execution == 0 )); }; }; then
 		required_context_status=1
 		if prepare_typed_context_expansion "$last_message"; then
 			required_context_status=0
@@ -1089,8 +1091,7 @@ while true; do
 			exit 0
 		fi
 	fi
-	if (( status == 0 && luna_bounded_execution == 1 )) &&
-		[[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only ]]; then
+	if (( status == 0 && luna_bounded_execution == 1 && patch_only_execution == 1 )); then
 		context_request_status=1
 		zero_file_verification_handled=0
 		# Call in a conditional so every nonzero typed-resolver outcome is data
@@ -1337,7 +1338,7 @@ while true; do
 			fi
 		fi
 	fi
-	if (( luna_bounded_execution == 1 )) && [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only ]]; then
+	if (( luna_bounded_execution == 1 && patch_only_execution == 1 )); then
 		normalize_patch_only_result_metadata "$last_message"
 	fi
 	observed_thread_id="$(codex_thread_id_from_jsonl "$json_log" 2>/dev/null || true)"
@@ -1355,7 +1356,7 @@ while true; do
 	record_root_agent_tokens "$task_id" "$execution_role" "${json_log%.jsonl}.classification"
 	record_worker_complexity_observation "$task_id" "$plan_item_id" "$execution_role" "$current_model" \
 		"${json_log%.jsonl}.classification" "$json_log"
-	if (( luna_bounded_execution == 1 )) && [[ "$HARNESS_CONTEXT_CLOSURE_MODE" == patch_only ]]; then
+	if (( luna_bounded_execution == 1 && patch_only_execution == 1 )); then
 		patch_only_tool_calls="$(jq -rs '[.[] | select(.type=="item.started" and .item.type=="command_execution")] | length' "$json_log" 2>/dev/null || printf 0)"
 		[[ "$patch_only_tool_calls" =~ ^[0-9]+$ ]] || patch_only_tool_calls=0
 		if (( HARNESS_ACP_ENABLED == 1 )); then
