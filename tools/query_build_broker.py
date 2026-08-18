@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import shlex
 import sqlite3
 from pathlib import Path
 
@@ -42,10 +43,51 @@ QUERIES = {
 }
 
 
+def validation_command_rows(connection: sqlite3.Connection, command: str
+                            ) -> list[tuple[str, str, str, str, str]]:
+    """Resolve exact build/test names already present in one validation command."""
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return []
+    names = {row[0] for row in connection.execute(
+        "SELECT name FROM build_targets ORDER BY name").fetchall()}
+    requested: set[str] = set()
+    for index, token in enumerate(tokens):
+        if token == "--target" and index + 1 < len(tokens):
+            requested.add(tokens[index + 1])
+        elif token.startswith("--target="):
+            requested.add(token.split("=", 1)[1])
+        if token in names:
+            requested.add(token)
+        basename = Path(token).name
+        if basename in names:
+            requested.add(basename)
+    records: list[tuple[str, str, str, str, str]] = []
+    for target in sorted(requested & names):
+        rows = connection.execute(
+            "SELECT DISTINCT b.name,f.repository_path,bf.role "
+            "FROM build_targets b JOIN build_target_files bf ON bf.target_id=b.target_id "
+            "JOIN files f ON f.file_id=bf.file_id WHERE b.name=? "
+            "ORDER BY f.repository_path LIMIT 64", (target,)).fetchall()
+        records.extend(("BUILD_TARGET_SOURCE", target, row[0], row[1], row[2])
+                       for row in rows)
+    test_rows = connection.execute(
+        "SELECT name,COALESCE(build_target,'-'),COALESCE(selector,'-'),"
+        "COALESCE((SELECT repository_path FROM files WHERE file_id=tests.file_id),'-') "
+        "FROM tests ORDER BY name LIMIT 4096").fetchall()
+    for name, target, selector, path in test_rows:
+        if any(value not in {"", "-"} and value in command
+               for value in (name, selector, target)):
+            records.append(("TEST_SELECTOR", selector or name, target, path, "TEST"))
+    return sorted(set(records))[:96]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pointer", required=True)
-    parser.add_argument("--query", choices=[*QUERIES, "FIRST_CAUSAL_ERROR"], required=True)
+    parser.add_argument("--query", choices=[*QUERIES, "FIRST_CAUSAL_ERROR", "VALIDATION_COMMAND"],
+                        required=True)
     parser.add_argument("--value", required=True)
     parser.add_argument("--diagnostics-root")
     args = parser.parse_args()
@@ -72,11 +114,17 @@ def main() -> int:
         return 3
     connection = sqlite3.connect(str(database))
     try:
-        parameters = (args.value, args.value, args.value) if args.query == "TEST_SELECTOR" else (args.value,)
-        cursor = connection.execute(QUERIES[args.query], parameters)
         writer = csv.writer(__import__("sys").stdout, delimiter="\t", lineterminator="\n")
-        writer.writerow([description[0] for description in cursor.description])
-        writer.writerows(cursor.fetchall())
+        if args.query == "VALIDATION_COMMAND":
+            writer.writerow(("evidence_kind", "identifier", "build_target",
+                             "repository_path", "role"))
+            writer.writerows(validation_command_rows(connection, args.value))
+        else:
+            parameters = ((args.value, args.value, args.value)
+                          if args.query == "TEST_SELECTOR" else (args.value,))
+            cursor = connection.execute(QUERIES[args.query], parameters)
+            writer.writerow([description[0] for description in cursor.description])
+            writer.writerows(cursor.fetchall())
     finally:
         connection.close()
     return 0

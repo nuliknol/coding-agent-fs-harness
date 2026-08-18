@@ -198,6 +198,27 @@ if [[ -d "$project_path/archive/architecture-reassessments" ]]; then
 fi
 [[ -n "$architecture_resolution_file" && -f "$architecture_resolution_file" ]] || architecture_resolution_file="-"
 
+# Resolve build targets, their exact registered sources, named tests, and the
+# latest first-causal diagnostic before asking a manager to construct a
+# continuation. This is read-only indexed evidence; it prevents bounded turns
+# from spending publisher corrections guessing CMake/test filenames.
+build_broker_evidence="$project_path/control/progress/$PROJECT-task-$root.build-broker.tsv"
+{
+	printf '## Validation command ownership\n'
+	"$HARNESS_BIN/harness-build-query" "$HARNESS_ENV_FILE" VALIDATION_COMMAND \
+		"$trigger_focused_validation" 2>/dev/null || true
+	printf '\n## First causal validation diagnostic\n'
+	"$HARNESS_BIN/harness-build-query" "$HARNESS_ENV_FILE" FIRST_CAUSAL_ERROR \
+		"$trigger_task" 2>/dev/null || true
+} > "$build_broker_evidence.tmp.$$"
+if (( $(wc -l < "$build_broker_evidence.tmp.$$") > 4 )); then
+	chmod 600 "$build_broker_evidence.tmp.$$"
+	mv "$build_broker_evidence.tmp.$$" "$build_broker_evidence"
+else
+	rm -f "$build_broker_evidence.tmp.$$"
+	build_broker_evidence="-"
+fi
+
 # Compile the complete recovery authority into one deterministic bounded read.
 # Recovery used to advertise many control files individually. Even with prompt
 # limits, a small model could spend several actions concatenating overlapping
@@ -258,6 +279,7 @@ append_recovery_packet_component()
 	append_recovery_packet_component 'Compiled plan, specification, and architecture authority' "$replan_context_capsule" 7500
 	append_recovery_packet_component 'Trigger worker evidence digest' "$trigger_evidence_digest" 3000 tail
 	append_recovery_packet_component 'Operator architecture resolution' "$architecture_resolution_file" 2000 tail
+	append_recovery_packet_component 'Deterministic build and validation broker' "$build_broker_evidence" 1800
 	append_recovery_packet_component 'Typed Context Closure repair' "$trigger_closure_repair_report" 1200
 	append_recovery_packet_component 'Recovery trigger' "$replan_marker" 1800
 	append_recovery_packet_component 'Immutable root assignment' "$root_assignment" 3000
@@ -665,7 +687,7 @@ while true; do
 	# including providers that write the candidate but do not invoke the publisher
 	# themselves. This prevents fresh turns from alternating forever between one
 	# forbidden old path and one unauthorized adjacent path.
-	if [[ "$trigger_outcome" == MANAGER_REMEDIATION_SCOPE_EXHAUSTED ]] &&
+	if ! task_published && [[ "$trigger_outcome" == MANAGER_REMEDIATION_SCOPE_EXHAUSTED ]] &&
 		manager_remediation_candidate_exceeds_authority; then
 		candidate_scope="$(metadata_value "$task_output" Remediation-Scope)"
 		root_scope="$(metadata_value "$root_assignment" Allowed-Scope)"

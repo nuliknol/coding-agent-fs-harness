@@ -6,7 +6,7 @@ source "$SCRIPT_DIR/../lib/harness-common.sh"
 source "$SCRIPT_DIR/../lib/harness-repository-index.sh"
 
 [[ $# -eq 3 ]] || {
-	printf 'Usage: %s ENV_FILE SOURCE_TO_TARGET|TARGET_TO_SOURCE|MINIMAL_TARGET|TEST_SELECTOR|DEPENDENCY_ARTIFACT|FIRST_CAUSAL_ERROR VALUE\n' "${0##*/}" >&2
+	printf 'Usage: %s ENV_FILE SOURCE_TO_TARGET|TARGET_TO_SOURCE|MINIMAL_TARGET|TEST_SELECTOR|DEPENDENCY_ARTIFACT|FIRST_CAUSAL_ERROR|VALIDATION_COMMAND VALUE\n' "${0##*/}" >&2
 	exit 2
 }
 load_harness_env "$1"

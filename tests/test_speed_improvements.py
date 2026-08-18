@@ -14,6 +14,38 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class SpeedImprovementTests(unittest.TestCase):
+    def test_deterministic_continuation_has_one_canonical_target(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            assignment = root / "assignment.md"
+            assignment.write_text(
+                "# Harness Continuation Context\n\nTask-ID: old\nTask-Root: root\n"
+                "Target-Criterion: old.target\nManager-Remediation: 1\n"
+                "Blocker-Class: LOCAL_CODE_PREREQUISITE\n"
+                "Goal-ID: old-goal\nAllowed-Scope: src/old.c\n\n## Objective\nKeep me.\n",
+                encoding="utf-8")
+            children = root / "children.tsv"
+            children.write_text(
+                "child_id\tparent_task\tsequence\tallowed_paths\tcontext_paths\t"
+                "required_symbols\tacceptance_evidence\tfocused_validation\n"
+                "cut-1\told\t1\tsrc/new.c\tsrc/new.c\tnew_symbol\tpasses\ttrue\n",
+                encoding="utf-8")
+            output = root / "continuation.md"
+            subprocess.run([
+                "python3", str(ROOT / "tools/compile_deterministic_continuation.py"),
+                "--assignment", str(assignment), "--repair-children", str(children),
+                "--output", str(output), "--task-id", "root-revision-01",
+                "--task-root", "root", "--target-criterion", "root.acceptance.01",
+                "--supersedes", "old", "--manager-remediation", "--closure-cut"],
+                check=True, capture_output=True, text=True)
+            rendered = output.read_text(encoding="utf-8")
+            self.assertEqual(rendered.count("Task-ID: "), 1)
+            self.assertEqual(rendered.count("Task-Root: "), 1)
+            self.assertEqual(rendered.count("Target-Criterion: "), 1)
+            self.assertIn("Target-Criterion: root.acceptance.01", rendered)
+            self.assertIn("Context-Closure-Cut: cut-1", rendered)
+            self.assertIn("## Objective\nKeep me.", rendered)
+
     def test_parallelism_and_conflict_reduced_width(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -74,6 +106,42 @@ class SpeedImprovementTests(unittest.TestCase):
                             "--output", str(output)], check=True)
             with output.open(encoding="utf-8", newline="") as stream:
                 self.assertEqual(list(csv.DictReader(stream, delimiter="\t")), [])
+
+    def test_validation_command_build_broker_resolves_registered_source(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            database = root / "architecture.sqlite"
+            connection = sqlite3.connect(database)
+            connection.executescript("""
+                CREATE TABLE files(file_id INTEGER, repository_path TEXT);
+                CREATE TABLE build_targets(target_id TEXT, name TEXT, target_kind TEXT,
+                                           definition_path TEXT);
+                CREATE TABLE build_target_files(target_id TEXT, file_id INTEGER, role TEXT,
+                                                object_path TEXT);
+                CREATE TABLE tests(name TEXT, build_target TEXT, selector TEXT, file_id INTEGER);
+                INSERT INTO files VALUES(1,'tests/render_compile/render_compile_tests.hip');
+                INSERT INTO build_targets VALUES('t1','dpvis_render_compile_tests','EXECUTABLE',
+                                                 'tests/render_compile/CMakeLists.txt');
+                INSERT INTO build_target_files VALUES('t1',1,'COMPILE_SOURCE','test.o');
+                INSERT INTO tests VALUES('IT-RCP-000','dpvis_render_compile_tests',
+                                         '^IT-RCP-000$',1);
+            """)
+            connection.commit()
+            connection.close()
+            pointer = root / "pointer.env"
+            pointer.write_text(f"status=READY\ngeneration_dir={root}\n", encoding="utf-8")
+            command = ("cmake --build /tmp/build --target dpvis_render_compile_tests && "
+                       "ctest --test-dir /tmp/build -R '^IT-RCP-000$'")
+            output = subprocess.check_output([
+                "python3", str(ROOT / "tools/query_build_broker.py"),
+                "--pointer", str(pointer), "--query", "VALIDATION_COMMAND",
+                "--value", command], text=True)
+            self.assertIn("BUILD_TARGET_SOURCE\tdpvis_render_compile_tests\t"
+                          "dpvis_render_compile_tests\t"
+                          "tests/render_compile/render_compile_tests.hip", output)
+            self.assertIn("TEST_SELECTOR\t^IT-RCP-000$\t"
+                          "dpvis_render_compile_tests\t"
+                          "tests/render_compile/render_compile_tests.hip", output)
 
     def test_patch_region_rejects_outside_change(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
