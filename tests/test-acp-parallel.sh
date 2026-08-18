@@ -6,7 +6,11 @@ TEST_ROOT="$(mktemp -d /tmp/harness-acp-parallel.XXXXXX)"
 cleanup()
 {
 	git -C "$TEST_ROOT/repo" worktree prune >/dev/null 2>&1 || true
-	rm -rf -- "$TEST_ROOT"
+	if [[ "${HARNESS_TEST_KEEP_TMP:-0}" == 1 ]]; then
+		printf 'Preserved test root: %s\n' "$TEST_ROOT" >&2
+	else
+		rm -rf -- "$TEST_ROOT"
+	fi
 }
 trap cleanup EXIT
 
@@ -79,6 +83,13 @@ Focused-Validation: grep -Fqx task-$task $task.txt
 Expected-Max-Implementation-Files: 1
 TASK
 done
+# Integration validation must receive a cohort-unique temp directory. A fixed
+# task-only directory reuses CMake caches whose source root names an earlier
+# detached worktree.
+sed -i 's#Focused-Validation: grep -Fqx task-a a.txt#Focused-Validation: grep -Fqx task-a a.txt \&\& test "\$HARNESS_TASK_TMP_DIR" != "\$PROJECT_TMP_DIR/acp-integration/a"#' \
+	"$project/tasks/acpparallel-task-a.ready.md"
+sed -i 's#Focused-Validation: grep -Fqx task-b b.txt#Focused-Validation: grep -Fqx task-b b.txt \&\& test "\$HARNESS_TASK_TMP_DIR" != "\$PROJECT_TMP_DIR/acp-integration/b"#' \
+	"$project/tasks/acpparallel-task-b.ready.md"
 cat > "$project/tasks/acpparallel-task-c.ready.md" <<'TASK'
 # Task Assignment
 
@@ -90,6 +101,17 @@ Required-Symbols: -
 Focused-Validation: FOCUSED: bounded read-only evidence
 Leaf-Type: VERIFICATION_ONLY
 Expected-Max-Implementation-Files: 0
+TASK
+cat > "$project/tasks/acpparallel-task-e.ready.md" <<'TASK'
+# Task Assignment
+
+Task-ID: e
+Task-Root: e
+Allowed-Scope: b.txt
+Context-Paths: b.txt
+Required-Symbols: -
+Focused-Validation: /bin/false
+Expected-Max-Implementation-Files: 1
 TASK
 cat > "$project/tasks/acpparallel-task-d.ready.md" <<'TASK'
 # Task Assignment
@@ -112,6 +134,7 @@ claim="$($HARNESS_BIN/worker-claim-task "$env_file" "$task_id" "$session")"
 task_file="$(sed -n 's/^TASK_FILE=//p' <<< "$claim")"
 source "$env_file"
 PROJECT_TMP_DIR="$HARNESS_TASK_TMP_DIR"
+[[ "${HARNESS_TASK_TMP_DIR##*/}" =~ ^$task_id-[0-9]+$ ]]
 if [[ "$task_id" == c ]]; then
 	[[ "${HARNESS_ACP_READ_ONLY_VERIFICATION:-0}" == 1 ]]
 	result="$PROJECT_TMP_DIR/result.md"
@@ -149,6 +172,47 @@ None.
 ## Worker assessment
 
 COMPLETE.
+RESULT
+	"$HARNESS_BIN/worker-complete-task" "$env_file" "$task_id" "$session" "$result" >/dev/null
+	exit 0
+fi
+if [[ "$task_id" == e ]]; then
+	result="$PROJECT_TMP_DIR/result.md"
+	mkdir -p "$PROJECT_TMP_DIR"
+	cat > "$result" <<RESULT
+# Worker Task Result
+
+Task-ID: e
+Status: COMPLETED
+Goal-Outcome: NEEDS_DECOMPOSITION
+
+## Summary
+
+No source candidate was produced.
+
+## Modified files
+
+None.
+
+## Implemented behavior
+
+None.
+
+## Validation performed
+
+No candidate validation is applicable.
+
+## Deviations from assignment
+
+The task needs decomposition.
+
+## Remaining concerns
+
+The parent leaf is too broad.
+
+## Worker assessment
+
+NEEDS_DECOMPOSITION.
 RESULT
 	"$HARNESS_BIN/worker-complete-task" "$env_file" "$task_id" "$session" "$result" >/dev/null
 	exit 0
@@ -210,7 +274,10 @@ for _ in $(seq 1 200); do
 	[[ -f "$project/control/acp/integration/a.integrated.env" &&
 		-f "$project/control/acp/integration/b.integrated.env" &&
 		-f "$project/results/acpparallel-task-c.result.md" &&
-		-f "$project/control/acpparallel-task-d.context-closure-repair.env" ]] && break
+		-f "$project/results/acpparallel-task-e.result.md" &&
+		-f "$project/control/acpparallel-task-d.context-closure-repair.env" &&
+		! -e "$project/control/acpparallel-task-d.worker-invocation-active" &&
+		! -e "$project/control/acpparallel-task-e.worker-invocation-active" ]] && break
 	if ! kill -0 "$supervisor_pid" 2>/dev/null; then
 		cat "$TEST_ROOT/worker-supervisor.log" >&2
 		exit 1
@@ -231,8 +298,10 @@ grep -Fq $'CAPABILITY_ACQUIRED\tSCOPE\tREAD' "$project/control/acp/events.tsv"
 grep -Fq $'VERIFIED\tSCOPE\tREAD' "$project/control/acp/events.tsv"
 [[ ! -e "$project/control/acp/integration/c.integrated.env" ]]
 [[ ! -e "$project/control/acp/integration/d.integrated.env" ]]
+[[ ! -e "$project/control/acp/integration/e.integrated.env" ]]
 [[ ! -e "$project/control/project-integrity-anomaly.md" ]]
 grep -Fq 'ACP_CONTEXT_CLOSURE_REPAIR_RETURNED task=d' "$project/logs/events.log"
+grep -Fq 'ACP_NO_SOURCE_CANDIDATE_RETURNED task=e' "$project/logs/events.log"
 git -C "$TEST_ROOT/repo" diff --quiet
 git -C "$TEST_ROOT/repo" diff --cached --quiet
 

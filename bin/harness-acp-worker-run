@@ -37,6 +37,8 @@ integration_env="$dir/control/acp/$task_id.integration.env"
 integration_lock="$(acp_integration_dir)/integration.lock"
 capability_lock="$(acp_capability_lease_dir)/leases.lock"
 base_revision="$(git -C "$REPOSITORY" rev-parse HEAD)"
+worker_tmp="$PROJECT_TMP_DIR/acp-workers/$task_id-$$"
+integration_tmp="$PROJECT_TMP_DIR/acp-integration/$task_id-$$"
 status=0
 worker_pid=""
 capability_acquired=0
@@ -86,10 +88,10 @@ if (( read_only_verification == 1 )); then
 		printf 'export HARNESS_ACP_CANONICAL_REPOSITORY=%q\n' "$REPOSITORY"
 		printf 'export HARNESS_ACP_ISOLATED_TASK_ID=%q\n' "$task_id"
 		printf 'export HARNESS_ACP_READ_ONLY_VERIFICATION=1\n'
-		printf 'export HARNESS_TASK_TMP_DIR=%q\n' "$PROJECT_TMP_DIR/acp-workers/$task_id"
+		printf 'export HARNESS_TASK_TMP_DIR=%q\n' "$worker_tmp"
 	} > "$worker_env"
 	chmod 600 "$worker_env"
-	mkdir -p "$PROJECT_TMP_DIR/acp-workers/$task_id"
+	mkdir -p "$worker_tmp"
 	acp_event_append - "$task_id" - 0 CAPABILITY_ACQUIRED SCOPE READ - \
 		"base=$base_revision paths=- verification_only=1"
 	set +e
@@ -157,10 +159,10 @@ git -C "$REPOSITORY" worktree add --detach "$worktree" "$base_revision" >/dev/nu
 	printf 'export REPOSITORY=%q\n' "$worktree"
 	printf 'export HARNESS_ACP_CANONICAL_REPOSITORY=%q\n' "$REPOSITORY"
 	printf 'export HARNESS_ACP_ISOLATED_TASK_ID=%q\n' "$task_id"
-	printf 'export HARNESS_TASK_TMP_DIR=%q\n' "$PROJECT_TMP_DIR/acp-workers/$task_id"
+	printf 'export HARNESS_TASK_TMP_DIR=%q\n' "$worker_tmp"
 } > "$worker_env"
 chmod 600 "$worker_env"
-mkdir -p "$PROJECT_TMP_DIR/acp-workers/$task_id"
+mkdir -p "$worker_tmp"
 
 set +e
 "$worker_invoker" "$worker_env" "$task_id" &
@@ -184,9 +186,23 @@ if [[ -f "$context_repair" && ! -f "$result" ]]; then
 	exit 0
 fi
 
+[[ -f "$result" ]] || die 'successful isolated worker invocation published neither a result nor a Context Closure repair'
+git -C "$worktree" diff --quiet --ignore-submodules -- ||
+	die 'successful isolated worker invocation left uncommitted worktree changes'
+git -C "$worktree" diff --cached --quiet --ignore-submodules -- ||
+	die 'successful isolated worker invocation left staged but uncommitted changes'
+
 # Preserve the worker commit identity for audit even after its worktree is
 # removed. Integration replays those commits onto the then-current main HEAD.
 worker_head="$(git -C "$worktree" rev-parse HEAD)"
+if [[ "$worker_head" == "$base_revision" ]]; then
+	# Verification and decomposition outcomes may legitimately publish a result
+	# without a source commit. There is no candidate to replay or validate at
+	# the integration barrier; the manager reviews the durable result directly.
+	log_event "ACP_NO_SOURCE_CANDIDATE_RETURNED task=$task_id result=$result goal_outcome=$(metadata_value "$result" Goal-Outcome 2>/dev/null || printf -)"
+	status=0
+	exit 0
+fi
 git -C "$REPOSITORY" update-ref "refs/harness-acp/tasks/$PROJECT/$task_id" "$worker_head"
 
 (
@@ -212,10 +228,10 @@ git -C "$REPOSITORY" update-ref "refs/harness-acp/tasks/$PROJECT/$task_id" "$wor
 		printf 'export REPOSITORY=%q\n' "$integration"
 		printf 'export HARNESS_ACP_CANONICAL_REPOSITORY=%q\n' "$REPOSITORY"
 		printf 'export HARNESS_ACP_ISOLATED_TASK_ID=%q\n' "$task_id"
-		printf 'export HARNESS_TASK_TMP_DIR=%q\n' "$PROJECT_TMP_DIR/acp-integration/$task_id"
+		printf 'export HARNESS_TASK_TMP_DIR=%q\n' "$integration_tmp"
 	} > "$integration_env"
 	chmod 600 "$integration_env"
-	mkdir -p "$PROJECT_TMP_DIR/acp-integration/$task_id"
+	mkdir -p "$integration_tmp"
 	validation_log="$dir/logs/acp-integration-$task_id-$(timestamp_compact_utc).log"
 	if ! "$HARNESS_BIN/harness-run-assigned-validation" "$integration_env" "$task_id" \
 		acp-post-merge > "$validation_log" 2>&1; then
