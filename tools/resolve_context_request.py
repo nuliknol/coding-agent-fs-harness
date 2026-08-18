@@ -341,7 +341,21 @@ def main() -> int:
                                     row["start_line"], row["end_line"],
                                     row["display_name"], row["provider"]))
             else:
-                relation = "symbol-outside-assignment-boundary"
+                # HIP and other partially indexed translation units can expose
+                # an exact symbol record without a structural definition row.
+                # Recover only an exact lexical function body that is already
+                # inside declared read authority; never use this fallback to
+                # broaden the assignment boundary.
+                for path, start, end in indexed_lexical_function_definitions(
+                        connection, repository, identifier):
+                    if not inside_declared_boundary(repository, path, read_boundaries):
+                        continue
+                    records.append(("SYMBOL_DEFINITION", path, start, end, identifier,
+                                    "indexed-file-lexical-definition-fallback"))
+                relation = (
+                    "exact-symbol-inside-declared-read-boundary-lexical-definition-fallback"
+                    if records else "symbol-outside-assignment-boundary"
+                )
     elif args.request_kind == "TYPE_DEFINITION":
         if not requested_ids:
             relation = "missing-exact-symbol"

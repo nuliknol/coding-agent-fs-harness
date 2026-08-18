@@ -132,6 +132,37 @@ class ContextRequestTest(unittest.TestCase):
         )
         self.assertIn("int isolated_helper(void)", extension)
 
+    def test_exact_indexed_symbol_without_definition_uses_bounded_lexical_fallback(self):
+        (self.repository / "backend.hip").write_text(
+            'extern "C" int isolated_hip_helper(int value)\n'
+            "{\n"
+            "    return value + 1;\n"
+            "}\n",
+            encoding="utf-8",
+        )
+        connection = sqlite3.connect(self.database)
+        connection.execute("INSERT INTO files VALUES(2,'g','backend.hip','c++',NULL,1,0)")
+        connection.execute(
+            "INSERT INTO symbols VALUES('isolated-hip','g','isolated_hip_helper',"
+            "'Function','c++','-','scip')")
+        connection.commit()
+        connection.close()
+        self.assignment.write_text(
+            "Task-ID: t1\nAllowed-Scope: calc.c\nContext-Paths: calc.c,backend.hip\n"
+            "Required-Symbols: add\n",
+            encoding="utf-8",
+        )
+
+        result = self.resolve("SYMBOL_DEFINITION", "isolated_hip_helper")
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        extension = (self.root / "extension.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "Authorization-Relation: exact-symbol-inside-declared-read-boundary-"
+            "lexical-definition-fallback",
+            extension,
+        )
+        self.assertIn("int isolated_hip_helper(int value)", extension)
+
     def test_exact_source_window_inside_declared_read_boundary_is_admitted(self):
         result = self.resolve("SOURCE_WINDOW", "calc.c")
         self.assertEqual(0, result.returncode, result.stderr + result.stdout)
