@@ -841,6 +841,45 @@ def main() -> int:
                                         "indexed-file-lexical-writer-fallback"))
                 if records:
                     relation = "joern-mutation-adjacent-lexical-writer-fallback"
+            # A worker can legitimately request the remainder of the exact
+            # required writer itself.  Some SCIP/Joern generations index the
+            # function definition but emit no mutation edge for aggregate
+            # copies or generated/HIP code.  Requiring that optional edge made
+            # evidence already inside the assignment's read boundary
+            # unreachable.  Admit only the requested required symbol and only
+            # from an already-declared boundary; this does not widen authority.
+            if not records and not writer_ids:
+                exact_required = sorted(set(requested_ids) & seed_ids)
+                for row in definitions(connection, exact_required):
+                    if qualified_path and row["repository_path"] != qualified_path:
+                        continue
+                    if not inside_declared_boundary(
+                            repository, row["repository_path"], read_boundaries):
+                        continue
+                    records.append((args.request_kind, row["repository_path"],
+                                    row["start_line"], row["end_line"],
+                                    row["display_name"],
+                                    "required-writer-definition-complement"))
+                if not records:
+                    for symbol_id in exact_required:
+                        symbol = connection.execute(
+                            "SELECT display_name FROM symbols WHERE symbol_id=?",
+                            (symbol_id,),
+                        ).fetchone()
+                        if symbol is None:
+                            continue
+                        for path, start, end in indexed_lexical_function_definitions(
+                                connection, repository, symbol["display_name"]):
+                            if qualified_path and path != qualified_path:
+                                continue
+                            if not inside_declared_boundary(
+                                    repository, path, read_boundaries):
+                                continue
+                            records.append((args.request_kind, path, start, end,
+                                            symbol["display_name"],
+                                            "required-writer-lexical-complement"))
+                if records:
+                    relation = "required-writer-inside-declared-read-boundary"
             if not records and qualified_path:
                 window = exact_identifier_window(repository, qualified_path, identifier)
                 if window:

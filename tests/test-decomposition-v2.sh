@@ -596,6 +596,16 @@ grep -Fq 'LUNA_CONTEXT_PATHS_NORMALIZED root=001 task=001-revision-01' \
 # rejecting every otherwise-valid correction with a generic expansion error.
 mv "$normalize_ready" \
 	"$normalize_project/archive/decompnormalize-task-001-revision-01.assignment.md"
+cat > "$normalize_project/archive/decompnormalize-task-001-revision-01.rejected-result.md" <<'RESULT'
+# Worker Task Result
+
+Goal-Outcome: NEEDS_DECOMPOSITION
+Decomposition-Reason: CONTEXT_INCOMPLETE
+ACP-Request-Kind: REPRESENTATION_WRITER
+ACP-Request-Identifier: target_symbol
+
+The supplied source excerpt ended before the exact required writer completed.
+RESULT
 cat > "$normalize_project/control/progress/decompnormalize-task-001.needs-replan.md" <<'MARKER'
 # Root Task Needs Replanning
 
@@ -619,9 +629,12 @@ sed \
 	001-revision-02 "$TEST_ROOT/normalize-context-symbol-task.md" --manager-remediation >/dev/null
 normalize_symbol_ready="$normalize_project/tasks/decompnormalize-task-001-revision-02.ready.md"
 grep -Fqx 'Required-Symbols: target_symbol,adjacent_symbol' "$normalize_symbol_ready"
+grep -Fqx 'Context-Paths: include/a.h,src/a.c,src/a.c#target_symbol' "$normalize_symbol_ready"
 grep -Fq 'CONTEXT_INCOMPLETE_REQUIRED_SYMBOLS_RETAINED root=001 task=001-revision-02' \
 	"$normalize_project/logs/events.log"
 grep -Fq 'CONTEXT_INCOMPLETE_REQUIRED_SYMBOL_EXPANDED root=001 task=001-revision-02' \
+	"$normalize_project/logs/events.log"
+grep -Fq 'CONTEXT_WRITER_WINDOW_EXPANDED root=001 task=001-revision-02' \
 	"$normalize_project/logs/events.log"
 
 # A single compiled graph cut is already the irreducible execution seam. It is

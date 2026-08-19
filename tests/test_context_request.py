@@ -485,6 +485,23 @@ class ContextRequestTest(unittest.TestCase):
         self.assertIn("indexed-file-lexical-writer-fallback", extension)
         self.assertIn("int add(Number n)", extension)
 
+    def test_required_writer_does_not_require_optional_mutation_edge(self):
+        connection = sqlite3.connect(self.database)
+        connection.execute("DELETE FROM mutation_edges")
+        connection.commit()
+        connection.close()
+
+        result = self.resolve("REPRESENTATION_WRITER", "add")
+
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        extension = (self.root / "extension.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "Authorization-Relation: required-writer-inside-declared-read-boundary",
+            extension,
+        )
+        self.assertIn("required-writer-definition-complement", extension)
+        self.assertIn("int add(Number n)", extension)
+
     def test_build_owner_accepts_declared_directory_boundary(self):
         (self.repository / "src").mkdir()
         (self.repository / "src" / "owned.c").write_text(

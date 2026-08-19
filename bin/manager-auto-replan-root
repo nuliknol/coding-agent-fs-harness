@@ -740,6 +740,31 @@ while true; do
 		exit 0
 	fi
 	if (( status == 0 )); then
+		publisher_attempts="$(kv_file_value "$running_marker" publish_attempts 2>/dev/null || printf 0)"
+		publisher_limit="$(kv_file_value "$running_marker" max_publish_attempts 2>/dev/null || printf '%s' "$HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS")"
+		[[ "$publisher_attempts" =~ ^[0-9]+$ ]] || publisher_attempts=0
+		[[ "$publisher_limit" =~ ^[1-9][0-9]*$ ]] || publisher_limit="$HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS"
+		# One manager inference already receives a bounded sequence of direct
+		# publisher corrections.  If it consumed that whole sequence, launching
+		# another fresh manager against unchanged authority merely multiplies the
+		# same deterministic rejection (historically up to limit squared) while the
+		# provider still reports a successful agent process.  Stop this root at the
+		# exact invalid contract and leave independent roots runnable.
+		if (( publisher_attempts >= publisher_limit )); then
+			if (( read_only_descriptor_root == 1 )); then
+				failure_category=INVALID_VERIFICATION_CONTRACT
+				failure_reason="immutable verification root has no publishable machine-executable evidence contract after $publisher_attempts bounded corrections"
+			else
+				failure_category=MANAGER_PUBLICATION_CONTRACT_EXHAUSTED
+				failure_reason="fresh manager exhausted $publisher_attempts bounded publisher corrections without a valid continuation"
+			fi
+			failure_marker="$(mark_root_architecture_reassessment "$expected_task_id" \
+				"$failure_category" "$failure_reason" \
+				"trigger=$trigger_task candidate=$task_output last_message=$last_message")"
+			log_event "MANAGER_RECOVERY_PUBLICATION_CONTRACT_REJECTED root=$root trigger=$trigger_task attempts=$publisher_attempts limit=$publisher_limit category=$failure_category marker=$failure_marker"
+			printf '%s\n' "$failure_marker"
+			exit 0
+		fi
 		if (( attempt < HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS )); then
 			log_event "MANAGER_RECOVERY_FALSE_PUBLICATION_RETRY root=$root trigger=$trigger_task attempt=$attempt classification=${classification:-unknown}"
 			printf '\nCorrection turn: the preceding agent exited successfully but no durable task was published. Treat every prior success claim as false. Recreate the expected assignment, call manager-publish-task without output redirection, inspect its exit status, and use the one permitted direct correction if rejected.\n' >> "$prompt_file"

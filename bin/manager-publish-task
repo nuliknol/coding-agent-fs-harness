@@ -1491,7 +1491,8 @@ normalize_recovery_context_paths()
 {
 	local requested required allowed validation normalized normalized_allowed normalized_required entry symbol candidate tmp changed=0
 	local found duplicate exact_file stem directory matching_count replan_outcome prior_context_paths
-	local replan_trigger_task trigger_assignment prior_required_symbols
+	local replan_trigger_task trigger_assignment trigger_result prior_required_symbols
+	local requested_writer_kind requested_writer_identifier writer_selector writer_path
 	local cmake_root cmake_directory include_path qualified_path qualified_symbol
 	local -a entries=() kept=() symbols=() candidates=() source_directories=() exact_files=()
 	local -a normalized_allowed_entries=() direct_includes=() deduplicated=() qualified_symbols=() normalized_symbols=()
@@ -1636,6 +1637,44 @@ normalize_recovery_context_paths()
 		(( duplicate == 1 )) || deduplicated+=("$candidate")
 	done
 	kept=("${deduplicated[@]}")
+
+	# A typed writer request can ask for a complementary region of a file that
+	# is already in Context-Paths.  Path-set comparison alone cannot represent
+	# that expansion, so older recovery turns repeatedly republished the same
+	# truncated capsule.  Convert the rejected ACP request into the existing
+	# file#symbol selector understood by the context compiler.  The base file
+	# must already be part of the retained read boundary and contain the exact
+	# identifier, so this grants no new path authority.  A repeated failure keeps
+	# the selector in the prior set and therefore cannot masquerade as new gain.
+	if [[ "$replan_outcome" == MANAGER_REMEDIATION_CONTEXT_INCOMPLETE &&
+		-n "$replan_trigger_task" ]]; then
+		trigger_result="$dir/archive/$(task_base "$replan_trigger_task").rejected-result.md"
+		if [[ -f "$trigger_result" ]]; then
+			requested_writer_kind="$(metadata_value "$trigger_result" ACP-Request-Kind)"
+			requested_writer_identifier="$(metadata_value "$trigger_result" ACP-Request-Identifier)"
+			if [[ "$requested_writer_kind" =~ ^(REPRESENTATION_WRITER|PRODUCER)$ &&
+				"$requested_writer_identifier" =~ ^[A-Za-z_][A-Za-z0-9_.\$~-]*$ ]]; then
+				IFS=',' read -r -a entries <<< "$prior_context_paths"
+				for writer_path in "${entries[@]}"; do
+					writer_path="$(trim_surrounding_whitespace "${writer_path%%#*}")"
+					[[ -f "$REPOSITORY/$writer_path" ]] || continue
+					(cd "$REPOSITORY" && rg -q --fixed-strings -- \
+						"$requested_writer_identifier" "$writer_path" 2>/dev/null < /dev/null) || continue
+					writer_selector="$writer_path#$requested_writer_identifier"
+					duplicate=0
+					for entry in "${kept[@]}"; do
+						[[ "$entry" != "$writer_selector" ]] || duplicate=1
+					done
+					if (( duplicate == 0 )); then
+						kept+=("$writer_selector")
+						changed=1
+						log_event "CONTEXT_WRITER_WINDOW_EXPANDED root=$root task=$task_id trigger=$replan_trigger_task selector=$(printf '%q' "$writer_selector")"
+					fi
+					break
+				done
+			fi
+		fi
+	fi
 
 	# Required-Symbols and explicit Context-Paths form one compiled closure
 	# contract.  If none of the declared repository files contains a required
