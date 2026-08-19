@@ -11,7 +11,11 @@ usage() { printf 'Usage: %s ENV_FILE ROLE MODEL PROMPT JSONL STDERR LAST_MESSAGE
 env_file="$1" role="$2" model="$3" prompt="$4" json_log="$5" stderr_log="$6" last_message="$7"
 shift 7
 resume_requested=0
-[[ $# -ne 2 || "$1" != resume ]] || resume_requested=1
+resume_thread_id=""
+if [[ $# -eq 2 && "$1" == resume ]]; then
+	resume_requested=1
+	resume_thread_id="$2"
+fi
 load_harness_env "$env_file"
 [[ -f "$prompt" ]] || die "prompt file does not exist: $prompt"
 umask 077
@@ -66,7 +70,11 @@ require_executable_runtime "$role" "$bin"
 wait_for_agent_invocation_slot()
 {
 	local control_dir logs_dir lock_file state_file alert_file agent_name last_started_ms now_ms interval_ms remaining_ms wait_seconds wait_duration
-	(( HARNESS_AGENT_MIN_INTERVAL_SECONDS > 0 )) || return 0
+	# A same-thread resume is already bounded by the worker's context, patch,
+	# validation, and ACP fuses.  Treating it as a fresh project launch adds one
+	# full cooldown per deterministic broker response and serializes useful work
+	# without protecting against a new event loop.
+	(( HARNESS_AGENT_MIN_INTERVAL_SECONDS > 0 && resume_requested == 0 )) || return 0
 	control_dir="$(project_dir)/control"
 	logs_dir="$(project_dir)/logs"
 	lock_file="$control_dir/agent-invocation-rate-limit.lock"
@@ -106,6 +114,10 @@ wait_for_agent_invocation_slot()
 record_agent_invocation_started()
 {
 	local state_file now_ms tmp
+	if (( resume_requested == 1 )); then
+		log_event "AGENT_INVOCATION_RESUMED_UNTHROTTLED role=$role thread_id=$resume_thread_id"
+		return 0
+	fi
 	(( HARNESS_AGENT_MIN_INTERVAL_SECONDS > 0 )) || return 0
 	state_file="$(project_dir)/control/agent-invocation-rate-limit.state"
 	now_ms="$(date +%s%3N)"
@@ -199,7 +211,7 @@ fi
 cmd=(env "${agent_context_env[@]}" "$bin" exec "${agent_repository_args[@]}" --json --model "$model" --sandbox "$sandbox" "${agent_add_dirs[@]}" --cd "$agent_workdir" "${extras[@]}" -c 'approval_policy="never"' -c "model_reasoning_effort=\"$effort\"" --output-last-message "$last_message")
 if [[ $# -eq 2 ]]; then
  [[ "$1" == resume ]] || usage
- cmd+=(resume "$2")
+ cmd+=(resume "$resume_thread_id")
 elif [[ $# -ne 0 ]]; then usage
 fi
 cmd+=(-)

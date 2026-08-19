@@ -621,6 +621,25 @@ grep -Eq 'WARNING: attempt to launch "manager" process during the protected inte
 grep -q '^role=manager_review$' \
 	"$TMP/state/projects/jsonltest/control/agent-invocation-rate-limit.state"
 
+# A bounded continuation of an existing thread has its own context/patch/ACP
+# fuses and must not spend another project-wide cooldown merely to consume a
+# deterministic broker response. Fresh cross-role launches remain throttled by
+# the test above.
+rm -f "$TMP/state/projects/jsonltest/control/agent-invocation-rate-limit.state"
+throttle_resume_started="$(date +%s)"
+MOCK_MODE=success "$ROOT/bin/codex-exec-jsonl" "$TMP/env-throttle" worker gpt-5.5 "$prompt" \
+	"$TMP/throttle-resume-first.jsonl" "$TMP/throttle-resume-first.stderr" \
+	"$TMP/throttle-resume-first.last"
+MOCK_MODE=success "$ROOT/bin/codex-exec-jsonl" "$TMP/env-throttle" worker gpt-5.5 "$prompt" \
+	"$TMP/throttle-resume-second.jsonl" "$TMP/throttle-resume-second.stderr" \
+	"$TMP/throttle-resume-second.last" resume thread-bounded-1
+throttle_resume_elapsed=$(( $(date +%s) - throttle_resume_started ))
+(( throttle_resume_elapsed < 3 ))
+grep -q 'AGENT_INVOCATION_RESUMED_UNTHROTTLED role=worker thread_id=thread-bounded-1' \
+	"$TMP/state/projects/jsonltest/logs/events.log"
+! grep -q 'AGENT_INVOCATION_THROTTLED role=worker' \
+	"$TMP/state/projects/jsonltest/logs/events.log"
+
 # A durable harness transition (for example WAITING_DEPENDENCY) must stop the
 # current model process without waiting for it to decide to end its turn.
 stop_file="$TMP/stop-sentinel"

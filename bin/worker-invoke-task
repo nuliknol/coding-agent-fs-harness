@@ -539,9 +539,9 @@ context_followup_prompt=""
 followup_reason=""
 patch_validation_round=0
 patch_format_round=0
-patch_only_attempt_limit="$HARNESS_PATCH_ONLY_MAX_VALIDATION_ROUNDS"
-if (( leaf_expected_turns > 0 && leaf_expected_turns < patch_only_attempt_limit )); then
-	patch_only_attempt_limit="$leaf_expected_turns"
+patch_only_implementation_turn_limit="$HARNESS_PATCH_ONLY_MAX_VALIDATION_ROUNDS"
+if (( leaf_expected_turns > 0 && leaf_expected_turns < patch_only_implementation_turn_limit )); then
+	patch_only_implementation_turn_limit="$leaf_expected_turns"
 fi
 patch_last_diagnostic_fingerprint=""
 patch_repair_ledger="$dir/control/progress/$base.patch-only-repairs.tsv"
@@ -1114,11 +1114,11 @@ while true; do
 			context_request_status=$?
 		fi
 		if (( context_request_status == 0 )) &&
-			(( attempt >= patch_only_attempt_limit )); then
+			(( attempt - context_expansion_count >= patch_only_implementation_turn_limit )); then
 			context_expansion_pending=0
 			context_request_status=2
 			patch_apply_status=3
-			patch_apply_output="typed Context Closure extension was compiled, but the leaf exhausted its $patch_only_attempt_limit total Luna inference turns before a bounded resume"
+			patch_apply_output="typed Context Closure extension was compiled, but the leaf exhausted its $patch_only_implementation_turn_limit implementation turns before a bounded resume"
 		elif (( context_request_status == 0 )) &&
 			[[ ! "$observed_thread_id" =~ ^[A-Za-z0-9-]+$ ]] &&
 			[[ ! "$worker_resume_thread_id" =~ ^[A-Za-z0-9-]+$ ]]; then
@@ -1279,7 +1279,7 @@ while true; do
 					"$patch_diagnostic_fingerprint" == "$patch_last_diagnostic_fingerprint" ]]; then
 					patch_diagnostic_repeated=1
 				fi
-				if (( attempt < patch_only_attempt_limit &&
+				if (( attempt - context_expansion_count < patch_only_implementation_turn_limit &&
 					patch_validation_round < HARNESS_PATCH_ONLY_MAX_VALIDATION_ROUNDS &&
 					patch_diagnostic_repeated == 0 )) && [[ -s "$patch_diagnostics" ]] &&
 					{ [[ "$observed_thread_id" =~ ^[A-Za-z0-9-]+$ ]] ||
@@ -1326,7 +1326,7 @@ while true; do
 			fi
 		else
 			patch_format_repair_ready=0
-			if (( attempt < patch_only_attempt_limit && context_request_status != 2 &&
+			if (( attempt - context_expansion_count < patch_only_implementation_turn_limit && context_request_status != 2 &&
 				patch_format_round + 1 < HARNESS_PATCH_ONLY_MAX_VALIDATION_ROUNDS )) &&
 				{ [[ "$observed_thread_id" =~ ^[A-Za-z0-9-]+$ ]] ||
 				[[ "$worker_resume_thread_id" =~ ^[A-Za-z0-9-]+$ ]]; }; then
