@@ -434,7 +434,7 @@ PLAN
 	"$TEST_ROOT/read-only-remediation-plan.tsv" >/dev/null
 sed \
 	-e 's/^Goal-Success-Evidence:.*$/Goal-Success-Evidence: target source exists/' \
-	-e 's#^Focused-Validation:.*#Focused-Validation: FOCUSED: source-only target audit#' \
+	-e 's#^Focused-Validation:.*#Focused-Validation: test -f src/CMakeLists.txt \&\& grep -Fq registration.cmake src/CMakeLists.txt#' \
 	-e 's#^Allowed-Scope:.*#Allowed-Scope: -#' \
 	-e 's/^Leaf-Type: LOCAL_IMPLEMENTATION$/Leaf-Type: VERIFICATION_ONLY/' \
 	-e 's/^Deliverable:.*$/Deliverable: Verify existing target/' \
@@ -472,28 +472,14 @@ sed \
 	-e 's/^- The focused evidence passes\.$/- The bounded registration source is inspected before command resolution./' \
 	-e '/^Root-Criterion: n1.done$/a Manager-Remediation: 1\nBlocker-Class: LOCAL_INTEGRATION_PREREQUISITE\nRemediation-Scope: src\nReplan-Strategy-ID: readonly.validation.repair\nStrategy-Change: REPAIR_PREREQUISITE\nSupersedes-Task: 001' \
 	"$TEST_ROOT/read-only-remediation-root.md" > "$TEST_ROOT/read-only-remediation-recovery.md"
-"$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/read-only-remediation-harness.env" \
-	001-revision-01 "$TEST_ROOT/read-only-remediation-recovery.md" --manager-remediation >/dev/null
-read_only_remediation_ready="$read_only_remediation_project/tasks/decompreadonlyremediation-task-001-revision-01.ready.md"
-grep -Fqx 'Allowed-Scope: -' "$read_only_remediation_ready"
-grep -Fqx 'Remediation-Scope: -' "$read_only_remediation_ready"
-grep -Fqx 'Leaf-Type: VERIFICATION_ONLY' "$read_only_remediation_ready"
-grep -Fqx 'Expected-Max-Implementation-Files: 0' "$read_only_remediation_ready"
-grep -Fqx 'Required-Symbols: -' "$read_only_remediation_ready"
-grep -Fqx 'Focused-Validation: FOCUSED: source-only target audit' \
-	"$read_only_remediation_ready"
-grep -Fqx 'Context-Paths: src/CMakeLists.txt,src/cmake/registration.cmake' \
-	"$read_only_remediation_ready"
-grep -Fq 'READ_ONLY_MANAGER_REMEDIATION_SCOPE_NORMALIZED root=001 task=001-revision-01' \
-	"$read_only_remediation_project/logs/events.log"
-grep -Fq 'READ_ONLY_DESCRIPTOR_AUTHORITY_NORMALIZED root=001 task=001-revision-01 requested_leaf=LOCAL_IMPLEMENTATION' \
-	"$read_only_remediation_project/logs/events.log"
-grep -Fq 'READ_ONLY_VALIDATION_LABEL_NORMALIZED root=001 task=001-revision-01 label=source-audit-evidence-check' \
-	"$read_only_remediation_project/logs/events.log"
-grep -Fq 'READ_ONLY_CMAKE_CONTEXT_EXPANDED root=001 task=001-revision-01 prior=src/CMakeLists.txt direct_includes=1' \
-	"$read_only_remediation_project/logs/events.log"
-grep -Fq 'READ_ONLY_REVIEW_DESCRIPTOR_RESTORED root=001 task=001-revision-01' \
-	"$read_only_remediation_project/logs/events.log"
+if "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/read-only-remediation-harness.env" \
+	001-revision-01 "$TEST_ROOT/read-only-remediation-recovery.md" --manager-remediation \
+	>"$TEST_ROOT/read-only-impossible.out" 2>&1; then
+	printf 'zero-write recovery published an unavailable command-v verification contract\n' >&2
+	exit 1
+fi
+grep -Fq "verification contract requires unavailable executable 'source-audit-evidence-check'" \
+	"$TEST_ROOT/read-only-impossible.out"
 
 # A resource fuse that observes durable source progress must schedule a
 # read-only verification transaction. Recovery planners sometimes copy the

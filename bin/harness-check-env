@@ -197,7 +197,8 @@ else
 fi
 printf 'Transient provider retry seconds: %s (retries unlimited)\n' "$HARNESS_PROVIDER_RETRY_SECONDS"
 printf 'Quota retry seconds: %s (retries unlimited)\n' "$HARNESS_QUOTA_RETRY_SECONDS"
-printf 'Minimum interval between agent launches: %s seconds (project-wide)\n' "$HARNESS_AGENT_MIN_INTERVAL_SECONDS"
+printf 'Fresh-agent launch fuse: %s agents per %s-second project window\n' \
+	"$HARNESS_AGENT_LAUNCH_BATCH_SIZE" "$HARNESS_AGENT_MIN_INTERVAL_SECONDS"
 printf 'Supervisor startup readiness timeout: %s seconds\n' "$HARNESS_SUPERVISOR_START_TIMEOUT_SECONDS"
 printf 'Per-agent circuit breaker: %s item starts, %s live-estimated tokens, %s authoritative processed tokens\n' \
 	"$HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION" "$HARNESS_MAX_AGENT_ESTIMATED_PROCESSED_TOKENS_PER_INVOCATION" \

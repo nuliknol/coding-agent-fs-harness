@@ -251,7 +251,7 @@ load_harness_env()
 	unset HARNESS_MIN_LUNA_CODING_NODE_PERCENT HARNESS_ARCHITECTURE_GUARDS
 	unset HARNESS_PREFERRED_WORKER_ROUTE HARNESS_AGENT_COMMITS_ENABLED
 	unset HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
-	unset HARNESS_AGENT_MIN_INTERVAL_SECONDS HARNESS_SUPERVISOR_START_TIMEOUT_SECONDS
+	unset HARNESS_AGENT_MIN_INTERVAL_SECONDS HARNESS_AGENT_LAUNCH_BATCH_SIZE HARNESS_SUPERVISOR_START_TIMEOUT_SECONDS
 	unset HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION HARNESS_AGENT_ITEM_HEADROOM HARNESS_MAX_MANAGER_REVIEW_ITEMS_PER_INVOCATION
 	unset HARNESS_MAX_MANAGER_REPLAN_ITEMS_PER_INVOCATION HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS
 	unset HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION
@@ -633,9 +633,12 @@ load_harness_env()
 	HARNESS_PROVIDER_RETRY_SECONDS="${HARNESS_PROVIDER_RETRY_SECONDS:-${HARNESS_CAPACITY_RETRY_SECONDS:-60}}"
 	HARNESS_QUOTA_RETRY_SECONDS="${HARNESS_QUOTA_RETRY_SECONDS:-300}"
 	# Rate-limit every provider-backed agent launch through one project-wide
-	# clock. This bounds token loss when any manager, worker, or oracle event
-	# accidentally livelocks while preserving independent project parallelism.
+	# batch window. This bounds token loss when any manager, worker, or oracle
+	# event accidentally livelocks while permitting one scheduler cohort to
+	# start together. The fifth fresh launch waits for the next window by
+	# default; same-thread ACP resumes remain separately bounded and unthrottled.
 	HARNESS_AGENT_MIN_INTERVAL_SECONDS="${HARNESS_AGENT_MIN_INTERVAL_SECONDS:-60}"
+	HARNESS_AGENT_LAUNCH_BATCH_SIZE="${HARNESS_AGENT_LAUNCH_BATCH_SIZE:-$HARNESS_MANAGER_BATCH_SIZE}"
 	# Large decomposition DAGs rebuild their conflict/throughput sidecars before
 	# the manager publishes its PID. Keep launcher readiness bounded while
 	# allowing that deterministic startup work to finish.
@@ -1026,6 +1029,7 @@ load_harness_env()
 	[[ "$HARNESS_QUOTA_RETRY_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_QUOTA_RETRY_SECONDS must be an integer'
 	(( HARNESS_QUOTA_RETRY_SECONDS > 0 )) || die 'HARNESS_QUOTA_RETRY_SECONDS must be greater than zero'
 	[[ "$HARNESS_AGENT_MIN_INTERVAL_SECONDS" =~ ^[0-9]+$ ]] || die 'HARNESS_AGENT_MIN_INTERVAL_SECONDS must be a non-negative integer'
+	[[ "$HARNESS_AGENT_LAUNCH_BATCH_SIZE" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_AGENT_LAUNCH_BATCH_SIZE must be a positive integer'
 	[[ "$HARNESS_SUPERVISOR_START_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_SUPERVISOR_START_TIMEOUT_SECONDS must be a positive integer'
 	[[ "$HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION must be a positive integer'
 	[[ "$HARNESS_AGENT_ITEM_HEADROOM" =~ ^[1-9][0-9]*$ ]] || die 'HARNESS_AGENT_ITEM_HEADROOM must be a positive integer'
@@ -1085,7 +1089,7 @@ load_harness_env()
 	export HARNESS_HOME HARNESS_BIN HARNESS_ROOT HARNESS_POLL_SECONDS HARNESS_WAIT_SECONDS
 	export HARNESS_RUNTIME_PATH_PREFIX HARNESS_BOOT_RECOVERY
 	export HARNESS_STALE_SECONDS HARNESS_USE_INOTIFY HARNESS_MAX_IDENTICAL_BLOCKERS HARNESS_MAX_IDENTICAL_MANAGER_REMEDIATION_BLOCKERS HARNESS_MAX_IDENTICAL_RESOURCE_FUSES HARNESS_PROVIDER_RETRY_SECONDS HARNESS_QUOTA_RETRY_SECONDS
-	export HARNESS_AGENT_MIN_INTERVAL_SECONDS HARNESS_SUPERVISOR_START_TIMEOUT_SECONDS
+	export HARNESS_AGENT_MIN_INTERVAL_SECONDS HARNESS_AGENT_LAUNCH_BATCH_SIZE HARNESS_SUPERVISOR_START_TIMEOUT_SECONDS
 	export HARNESS_MAX_AGENT_ITEMS_PER_INVOCATION HARNESS_AGENT_ITEM_HEADROOM HARNESS_MAX_MANAGER_REVIEW_ITEMS_PER_INVOCATION
 	export HARNESS_MAX_MANAGER_REPLAN_ITEMS_PER_INVOCATION HARNESS_MAX_MANAGER_REPLAN_PUBLISH_ATTEMPTS
 	export HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION
@@ -6728,6 +6732,8 @@ write_project_snapshot()
 		printf 'worker_parallelism=%s\n' "$HARNESS_WORKER_PARALLELISM"
 		printf 'worker_parallelism_hard_max=%s\n' "$HARNESS_WORKER_PARALLELISM_HARD_MAX"
 		printf 'manager_batch_size=%s\n' "$HARNESS_MANAGER_BATCH_SIZE"
+		printf 'agent_launch_batch_size=%s\n' "$HARNESS_AGENT_LAUNCH_BATCH_SIZE"
+		printf 'agent_launch_window_seconds=%s\n' "$HARNESS_AGENT_MIN_INTERVAL_SECONDS"
 		printf 'worker_isolation_mode=%s\n' "$HARNESS_WORKER_ISOLATION_MODE"
 		printf 'patch_only_max_validation_rounds=%s\n' "$HARNESS_PATCH_ONLY_MAX_VALIDATION_ROUNDS"
 		printf 'repository_index_root=%s\n' "$HARNESS_REPOSITORY_INDEX_ROOT"
@@ -6781,6 +6787,8 @@ write_manager_snapshot()
 		printf 'worker_parallelism=%s\n' "$HARNESS_WORKER_PARALLELISM"
 		printf 'worker_parallelism_hard_max=%s\n' "$HARNESS_WORKER_PARALLELISM_HARD_MAX"
 		printf 'manager_batch_size=%s\n' "$HARNESS_MANAGER_BATCH_SIZE"
+		printf 'agent_launch_batch_size=%s\n' "$HARNESS_AGENT_LAUNCH_BATCH_SIZE"
+		printf 'agent_launch_window_seconds=%s\n' "$HARNESS_AGENT_MIN_INTERVAL_SECONDS"
 		printf 'worker_isolation_mode=%s\n' "$HARNESS_WORKER_ISOLATION_MODE"
 		printf 'max_specification_review_processed_tokens_per_invocation=%s\n' "$HARNESS_MAX_SPECIFICATION_REVIEW_PROCESSED_TOKENS_PER_INVOCATION"
 		printf 'max_decomposition_processed_tokens_per_invocation=%s\n' "$HARNESS_MAX_DECOMPOSITION_PROCESSED_TOKENS_PER_INVOCATION"

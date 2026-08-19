@@ -1075,18 +1075,12 @@ normalize_unique_cmake_target_aliases()
 
 validate_focused_validation_boundary()
 {
-	local validation="$1" success_evidence="${2:-}" lower success_lower after_build
+	local validation="$1" success_evidence="${2:-}" lower success_lower after_build probe
 	lower="${validation,,}"
 	success_lower="${success_evidence,,}"
 	[[ -n "$validation" ]] || die 'FOCUSED validation requires a nonempty bounded command or evidence boundary'
 	if validation_is_review_descriptor "$validation"; then
-		[[ "${leaf_type:-}" == VERIFICATION_ONLY && "${leaf_expected_files:-}" == 0 ]] ||
-			die 'Focused-Validation must be one machine-executable shell command without Markdown quoting or trailing prose; this field itself is required and Validation-Command does not replace it'
-		# A zero-write verification leaf may be bound to a named specification
-		# oracle whose concrete observation is produced by the worker and
-		# independently reproduced by the manager.  The descriptor is an
-		# attestation boundary, never something passed to a shell.
-		return 0
+		die 'Focused-Validation must be one machine-executable shell command without Markdown quoting or trailing prose; typed review descriptors must be refined before executable task publication'
 	fi
 	validation_is_executable_command "$validation" ||
 		die 'Focused-Validation must be one machine-executable shell command without Markdown quoting or trailing prose; this field itself is required and Validation-Command does not replace it'
@@ -1104,6 +1098,11 @@ validate_focused_validation_boundary()
 			'source-changing leaf used only a source-path existence check as focused validation' \
 			"validation=$validation"
 		die 'Focused-Validation for a source-changing leaf cannot be only a file-existence check; run the exact build, fixture, or selected test that verifies Goal-Success-Evidence'
+	fi
+	if [[ "$validation" =~ ^[[:space:]]*command[[:space:]]+-v[[:space:]]+([A-Za-z0-9._+-]+)[[:space:]]*$ ]]; then
+		probe="${BASH_REMATCH[1]}"
+		command -v -- "$probe" >/dev/null 2>&1 ||
+			die "verification contract requires unavailable executable '$probe'; publish a repository-grounded executable evidence command or a prerequisite task instead"
 	fi
 	if [[ "$lower" == *"cmake --build"* && "$lower" != *"--target"* ]]; then
 		mark_efficiency_warning VALIDATION_INFLATION "${task_id:--}" \
@@ -1783,44 +1782,6 @@ normalize_recovery_context_paths()
 }
 
 normalize_recovery_context_paths
-
-normalize_read_only_descriptor_recovery_validation()
-{
-	local root_validation candidate leaf files tmp
-	(( recovery_publish == 1 )) || return 0
-	[[ -f "$root_assignment" ]] || return 0
-	# A compiler-owned closure cut carries an exact executable evidence command
-	# that was already checked against repair-children.tsv.  Do not replace it
-	# with the broader parent descriptor.
-	[[ -z "$(metadata_value "$task_file" Context-Closure-Cut)" ]] || return 0
-	leaf="$(metadata_value "$task_file" Leaf-Type)"
-	files="$(metadata_value "$task_file" Expected-Max-Implementation-Files)"
-	[[ "$leaf" == VERIFICATION_ONLY && "$files" == 0 ]] || return 0
-	root_validation="$(metadata_value "$root_assignment" Focused-Validation)"
-	validation_is_review_descriptor "$root_validation" || return 0
-	candidate="$(metadata_value "$task_file" Focused-Validation)"
-	[[ "$candidate" != "$root_validation" ]] || return 0
-
-	# Review descriptors name an evidence oracle, not a missing executable.  A
-	# recovery model must not turn (for example) `FOCUSED: IT-... source audit`
-	# into a fabricated `command -v ...` prerequisite and then consume every
-	# replan proving that the invented program is absent.  Preserve the oracle;
-	# the worker records one concrete bounded observation and the manager review
-	# independently reproduces it under the existing descriptor protocol.
-	tmp="$task_file.read-only-descriptor.$$"
-	HARNESS_ROOT_REVIEW_DESCRIPTOR="$root_validation" awk -F': ' '
-		$1 == "Focused-Validation" {
-			if (!seen++) print "Focused-Validation: " ENVIRON["HARNESS_ROOT_REVIEW_DESCRIPTOR"]
-			next
-		}
-		{print}
-	' "$task_file" > "$tmp"
-	chmod --reference="$task_file" "$tmp"
-	mv "$tmp" "$task_file"
-	log_event "READ_ONLY_REVIEW_DESCRIPTOR_RESTORED root=$root task=$task_id rejected_candidate=$(printf '%q' "$candidate")"
-}
-
-normalize_read_only_descriptor_recovery_validation
 
 normalize_context_incomplete_remediation_authority()
 {

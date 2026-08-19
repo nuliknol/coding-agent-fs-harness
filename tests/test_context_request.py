@@ -462,6 +462,29 @@ class ContextRequestTest(unittest.TestCase):
         self.assertIn("int caller(void)", extension)
         self.assertIn("Provider: `declared-context-tail`", extension)
 
+    def test_representation_writer_accepts_path_qualified_symbol(self):
+        result = self.resolve("REPRESENTATION_WRITER", "calc.c:add")
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        extension = (self.root / "extension.md").read_text(encoding="utf-8")
+        self.assertIn("Context-Request-Identifier: calc.c:add", extension)
+        self.assertIn("int add(Number n)", extension)
+
+    def test_representation_writer_recovers_missing_indexed_definition(self):
+        connection = sqlite3.connect(self.database)
+        connection.execute("DELETE FROM symbol_definitions WHERE symbol_id='add'")
+        connection.commit()
+        connection.close()
+
+        result = self.resolve("REPRESENTATION_WRITER", "add")
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        extension = (self.root / "extension.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "Authorization-Relation: joern-mutation-adjacent-lexical-writer-fallback",
+            extension,
+        )
+        self.assertIn("indexed-file-lexical-writer-fallback", extension)
+        self.assertIn("int add(Number n)", extension)
+
     def test_build_owner_accepts_declared_directory_boundary(self):
         (self.repository / "src").mkdir()
         (self.repository / "src" / "owned.c").write_text(

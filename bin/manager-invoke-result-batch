@@ -15,9 +15,8 @@ ensure_project
 require_registered_specification_ir
 require_manager_configuration
 require_manager_codex
-prepare_invoker="${HARNESS_MANAGER_RESULT_PREPARE_INVOKER:-$HARNESS_BIN/manager-invoke-result}"
-codex_invoker="${HARNESS_CODEX_EXEC_INVOKER:-$HARNESS_BIN/codex-exec-jsonl}"
-thread_registrar="${HARNESS_MANAGER_THREAD_REGISTRAR:-$HARNESS_BIN/manager-register-thread}"
+manager_invoker="${HARNESS_MANAGER_RESULT_PARALLEL_INVOKER:-$HARNESS_BIN/manager-invoke-result}"
+[[ -x "$manager_invoker" ]] || die "parallel manager result invoker is not executable: $manager_invoker"
 (( ${#tasks[@]} <= HARNESS_MANAGER_BATCH_SIZE )) || die 'manager batch exceeds configured size'
 dir="$(project_dir)"
 inbox="$dir/control/manager-inbox.tsv"
@@ -27,7 +26,8 @@ if [[ ! -f "$inbox" ]]; then
 fi
 
 declare -A seen_roots=()
-prompts=()
+declare -A review_changed_by_task=()
+declare -A pid_by_task=()
 event_ids=()
 for task_id in "${tasks[@]}"; do
 	validate_task_id "$task_id"
@@ -57,86 +57,53 @@ for task_id in "${tasks[@]}"; do
 	review_changed=0
 	marker="$dir/control/$base.reviewed-event"
 	[[ ! -f "$marker" ]] || review_changed=1
-	prompt="$(HARNESS_MANAGER_PREPARE_ONLY=1 HARNESS_REVIEW_STATE_CHANGED="$review_changed" \
-		"$prepare_invoker" "$HARNESS_ENV_FILE" "$task_id")"
-	prompts+=("$prompt")
+	review_changed_by_task[$task_id]="$review_changed"
 done
 
 batch_id="$(printf '%s\n' "${event_ids[@]}" | sha256sum | cut -c1-20)"
-batch_prompt="$dir/control/manager-batch-$batch_id.prompt.md"
-{
-	printf '# Bounded Independent Manager Review Batch\n\n'
-	printf 'This is one ephemeral inference for %s independent completed worker results. Keep one logical manager, but commit each event through its existing per-task terminal command. A failure or rejection for one event must not alter, weaken, or prevent a correct decision for another. Do not combine review notes or acceptance authority.\n\n' "${#tasks[@]}"
-	printf 'For each event in order: read its compiled REVIEW_PACKET_FILE from the corresponding prompt in one bounded command; run its exact REVIEW_DIFF_COMMAND and assigned validation; write one task-specific review note from that packet schema; run exactly one terminal manager command for that TASK_ID. Validation receipts may return VALIDATION_RECEIPT_REUSED and are authoritative only because the runner rechecks command/workspace/toolchain identity. Do not plan continuations, wait, poll, or inspect other harness state. Finish every event even if an earlier event rejects.\n\n'
-	for index in "${!tasks[@]}"; do
-		printf '## Event %s\n\nEvent-ID: %s\nTask-ID: %s\nPrepared-Prompt: %s\n' \
-			"$((index + 1))" "${event_ids[index]}" "${tasks[index]}" "${prompts[index]}"
-		awk -F= '/^(REVIEW_PACKET_FILE|REVIEW_DIFF_COMMAND|ASSIGNED_FOCUSED_VALIDATION|ASSIGNED_VALIDATION_CLASS|RECOMMENDED_PASS_REVIEW_TEMPLATE_FILE|RECOMMENDED_PASS_TERMINAL_COMMAND|REJECT_REVIEW_TEMPLATE_FILE|CHECKPOINT_INCREMENT_REVIEW_TEMPLATE_FILE|ENV_FILE|PROJECT_TMP_DIR)=/ {print}' \
-			"${prompts[index]}"
-		printf '\n'
-	done
-} > "$batch_prompt.tmp.$$"
-chmod 600 "$batch_prompt.tmp.$$"
-mv "$batch_prompt.tmp.$$" "$batch_prompt"
-
-attempt=1
-corrective_retry=0
-while true; do
-	stamp="$(timestamp_compact_utc)"
-	json="$dir/logs/manager-review-batch-$batch_id-$stamp-attempt-$(printf '%03d' "$attempt").jsonl"
-	stderr="$dir/logs/manager-review-batch-$batch_id-$stamp-attempt-$(printf '%03d' "$attempt").stderr.log"
-	message="$dir/logs/manager-review-batch-$batch_id-$stamp-attempt-$(printf '%03d' "$attempt").md"
-	log_event "MANAGER_REVIEW_BATCH_STARTED batch=$batch_id tasks=$(IFS=,; printf '%s' "${tasks[*]}") attempt=$attempt size=${#tasks[@]} context=fresh"
-	set +e
-	"$codex_invoker" "$HARNESS_ENV_FILE" manager_review "$MANAGER_MODEL" \
-		"$batch_prompt" "$json" "$stderr" "$message"
-	status=$?
-	set -e
-	classification=""
-	if [[ -f "${json%.jsonl}.classification" ]]; then
-		classification="$(kv_file_value "${json%.jsonl}.classification" classification 2>/dev/null)"
-	fi
-	record_root_agent_tokens "${tasks[0]}" manager_review "${json%.jsonl}.classification"
-	if retry_kind="$(codex_provider_retry_kind "$classification" 2>/dev/null)"; then
-		delay="$(codex_provider_retry_delay "$classification")"
-		sleep "$delay"
-		attempt=$((attempt + 1))
-		continue
-	fi
-	(( status == 0 )) || exit "$status"
-	committed=0
-	pending=()
-	for index in "${!tasks[@]}"; do
-		task_id="${tasks[index]}"
-		base="$(task_base "$task_id")"
-		if [[ ! -f "$dir/results/$base.result.md" ]]; then
-			committed=$((committed + 1))
-			printf '%s\t%s\t-\tCOMMITTED\t%s\tbatch=%s\n' \
-				"${event_ids[index]}" "$task_id" "$(timestamp_utc)" "$batch_id" >> "$inbox"
-			log_event "MANAGER_BATCH_EVENT_COMMITTED batch=$batch_id event=${event_ids[index]} task=$task_id"
-		else
-			pending+=("$task_id")
-			printf '%s\t%s\t-\tPENDING\t%s\tbatch=%s\n' \
-				"${event_ids[index]}" "$task_id" "$(timestamp_utc)" "$batch_id" >> "$inbox"
-		fi
-	done
-	if (( committed == ${#tasks[@]} )); then
-		thread="$(codex_thread_id_from_jsonl "$json" 2>/dev/null || true)"
-		[[ ! "$thread" =~ ^[A-Za-z0-9-]+$ ]] ||
-			"$thread_registrar" "$HARNESS_ENV_FILE" "$thread" >/dev/null
-		log_event "MANAGER_REVIEW_BATCH_FINISHED batch=$batch_id committed=$committed size=${#tasks[@]}"
-		exit 0
-	fi
-	if (( corrective_retry == 0 )); then
-		corrective_retry=1
-		attempt=$((attempt + 1))
-		cat >> "$batch_prompt" <<PROMPT
-
-Corrective retry: the preceding batch committed $committed/${#tasks[@]} independent events. Act only on these still-pending exact TASK_ID values: $(IFS=,; printf '%s' "${pending[*]}"). Each must receive exactly one terminal review command. Do not revisit or modify already committed siblings.
-PROMPT
-		log_event "MANAGER_REVIEW_BATCH_CORRECTIVE_RETRY batch=$batch_id pending=$(IFS=,; printf '%s' "${pending[*]}") attempt=$attempt"
-		continue
-	fi
-	log_event "MANAGER_REVIEW_BATCH_UNCOMMITTED batch=$batch_id committed=$committed pending=$(IFS=,; printf '%s' "${pending[*]}")"
-	exit 3
+log_event "MANAGER_REVIEW_COHORT_STARTED batch=$batch_id tasks=$(IFS=,; printf '%s' "${tasks[*]}") size=${#tasks[@]} mode=worker-manager-pairs"
+for task_id in "${tasks[@]}"; do
+	(
+		set +e
+		HARNESS_REVIEW_STATE_CHANGED="${review_changed_by_task[$task_id]}" \
+			"$manager_invoker" "$HARNESS_ENV_FILE" "$task_id" 8>&-
+		printf '%s\n' "$?" > "$dir/control/$(task_base "$task_id").parallel-review-status.$$"
+	) &
+	pid_by_task[$task_id]=$!
+	log_event "MANAGER_REVIEW_PAIR_STARTED batch=$batch_id task=$task_id pid=${pid_by_task[$task_id]}"
 done
+
+overall_status=0
+committed=0
+pending=()
+for index in "${!tasks[@]}"; do
+	task_id="${tasks[index]}"
+	status_file="$dir/control/$(task_base "$task_id").parallel-review-status.$$"
+	if wait "${pid_by_task[$task_id]}"; then :; fi
+	status="$(awk 'NR==1 {print; exit}' "$status_file" 2>/dev/null || printf 1)"
+	rm -f "$status_file"
+	[[ "$status" =~ ^[0-9]+$ ]] || status=1
+	base="$(task_base "$task_id")"
+	if [[ ! -f "$dir/results/$base.result.md" ]]; then
+		committed=$((committed + 1))
+		printf '%s\t%s\t-\tCOMMITTED\t%s\tbatch=%s status=%s\n' \
+			"${event_ids[index]}" "$task_id" "$(timestamp_utc)" "$batch_id" "$status" >> "$inbox"
+		log_event "MANAGER_BATCH_EVENT_COMMITTED batch=$batch_id event=${event_ids[index]} task=$task_id status=$status"
+	else
+		pending+=("$task_id")
+		printf '%s\t%s\t-\tPENDING\t%s\tbatch=%s status=%s\n' \
+			"${event_ids[index]}" "$task_id" "$(timestamp_utc)" "$batch_id" "$status" >> "$inbox"
+		if (( status != 0 && status != 3 && overall_status == 0 )); then
+			overall_status="$status"
+		fi
+	fi
+	log_event "MANAGER_REVIEW_PAIR_FINISHED batch=$batch_id task=$task_id status=$status committed=$([[ ! -f "$dir/results/$base.result.md" ]] && printf 1 || printf 0)"
+done
+
+if (( committed == ${#tasks[@]} )); then
+	log_event "MANAGER_REVIEW_COHORT_FINISHED batch=$batch_id committed=$committed size=${#tasks[@]}"
+	exit 0
+fi
+log_event "MANAGER_REVIEW_COHORT_UNCOMMITTED batch=$batch_id committed=$committed pending=$(IFS=,; printf '%s' "${pending[*]}")"
+(( overall_status == 0 )) && exit 3
+exit "$overall_status"

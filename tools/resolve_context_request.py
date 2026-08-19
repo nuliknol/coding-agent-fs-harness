@@ -420,7 +420,9 @@ def main() -> int:
         print("status=REJECTED\nreason=invalid-identifier")
         return 2
     qualified_symbol = (path_qualified_symbol(repository, raw_identifier)
-                        if args.request_kind == "SYMBOL_DEFINITION" else None)
+                        if args.request_kind in {
+                            "SYMBOL_DEFINITION", "REPRESENTATION_WRITER", "PRODUCER"
+                        } else None)
     qualified_path = qualified_symbol[0] if qualified_symbol else ""
     identifier = qualified_symbol[1] if qualified_symbol else raw_identifier
 
@@ -815,9 +817,36 @@ def main() -> int:
                 f"source_symbol_id IN ({marks}) OR target_symbol_id IN ({marks}) "
                 "ORDER BY source_symbol_id", [*sorted(authorized), *sorted(authorized)]).fetchall()
             relation = "joern-mutation-adjacent-to-required-symbol"
-            for row in definitions(connection, [item[0] for item in writers]):
+            writer_ids = [item[0] for item in writers]
+            for row in definitions(connection, writer_ids):
+                if qualified_path and row["repository_path"] != qualified_path:
+                    continue
                 records.append((args.request_kind, row["repository_path"], row["start_line"],
                                 row["end_line"], row["display_name"], row["provider"]))
+            # Structural indexes can carry the mutation edge while omitting the
+            # writer definition (notably generated/HIP translation units). The
+            # immutable indexed-file inventory still bounds an exact lexical
+            # definition lookup, so return the requested writer seam instead of
+            # reporting the contradictory no-authorized-evidence result.
+            if not records and writer_ids:
+                for writer in connection.execute(
+                        f"SELECT symbol_id,display_name FROM symbols WHERE symbol_id IN ({marks}) "
+                        "ORDER BY symbol_id", sorted(set(writer_ids))).fetchall():
+                    for path, start, end in indexed_lexical_function_definitions(
+                            connection, repository, writer["display_name"]):
+                        if qualified_path and path != qualified_path:
+                            continue
+                        records.append((args.request_kind, path, start, end,
+                                        writer["display_name"],
+                                        "indexed-file-lexical-writer-fallback"))
+                if records:
+                    relation = "joern-mutation-adjacent-lexical-writer-fallback"
+            if not records and qualified_path:
+                window = exact_identifier_window(repository, qualified_path, identifier)
+                if window:
+                    records.append((args.request_kind, qualified_path, window[0], window[1],
+                                    identifier, "path-qualified-writer"))
+                    relation = "path-qualified-writer-inside-assignment-boundary"
     elif args.request_kind == "CONSUMER":
         authorized = ((set(requested_ids) & seed_ids) |
                       direct_semantic_neighbors(connection, seed_ids, requested_ids))

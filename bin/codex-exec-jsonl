@@ -69,7 +69,7 @@ require_executable_runtime "$role" "$bin"
 
 wait_for_agent_invocation_slot()
 {
-	local control_dir logs_dir lock_file state_file alert_file agent_name last_started_ms now_ms interval_ms remaining_ms wait_seconds wait_duration
+	local control_dir logs_dir lock_file state_file alert_file agent_name window_started_ms launch_count now_ms interval_ms remaining_ms wait_seconds wait_duration
 	# A same-thread resume is already bounded by the worker's context, patch,
 	# validation, and ACP fuses.  Treating it as a fresh project launch adds one
 	# full cooldown per deterministic broker response and serializes useful work
@@ -89,31 +89,49 @@ wait_for_agent_invocation_slot()
 	mkdir -p "$control_dir" "$logs_dir"
 	exec {agent_cooldown_fd}> "$lock_file"
 	flock "$agent_cooldown_fd"
-	last_started_ms=""
-	[[ ! -f "$state_file" ]] || last_started_ms="$(kv_file_value "$state_file" started_epoch_ms)"
-	now_ms="$(date +%s%3N)"
-	interval_ms=$(( HARNESS_AGENT_MIN_INTERVAL_SECONDS * 1000 ))
-	if [[ "$last_started_ms" =~ ^[0-9]+$ ]]; then
-		# A future timestamp can occur after a wall-clock correction. Bound it to
-		# one normal interval rather than sleeping for an unbounded duration.
-		(( last_started_ms <= now_ms )) || last_started_ms="$now_ms"
-		remaining_ms=$(( interval_ms - (now_ms - last_started_ms) ))
-		if (( remaining_ms > 0 )); then
-			wait_seconds=$(( (remaining_ms + 999) / 1000 ))
-			printf -v wait_duration '%d.%03d' "$((remaining_ms / 1000))" "$((remaining_ms % 1000))"
-			log_event "AGENT_INVOCATION_THROTTLED role=$role wait_seconds=$wait_seconds min_interval_seconds=$HARNESS_AGENT_MIN_INTERVAL_SECONDS"
-			printf '%s WARNING: attempt to launch "%s" process during the protected interval of %s seconds; delaying %s seconds; possible dead end (role=%s).\n' \
-				"$(timestamp_utc)" "$agent_name" "$HARNESS_AGENT_MIN_INTERVAL_SECONDS" "$wait_seconds" "$role" >> "$alert_file"
-			chmod 600 "$alert_file"
-			sleep "$wait_duration"
+	window_started_ms=""
+	launch_count=0
+	if [[ -f "$state_file" ]]; then
+		window_started_ms="$(kv_file_value "$state_file" window_started_epoch_ms 2>/dev/null || true)"
+		launch_count="$(kv_file_value "$state_file" launch_count 2>/dev/null || printf 0)"
+		# Migrate the old one-launch clock without granting an accidental extra
+		# batch immediately after deployment.
+		if [[ -z "$window_started_ms" ]]; then
+			window_started_ms="$(kv_file_value "$state_file" started_epoch_ms 2>/dev/null || true)"
+			[[ -z "$window_started_ms" ]] || launch_count=1
 		fi
 	fi
+	now_ms="$(date +%s%3N)"
+	interval_ms=$(( HARNESS_AGENT_MIN_INTERVAL_SECONDS * 1000 ))
+	[[ "$launch_count" =~ ^[0-9]+$ ]] || launch_count=0
+	if [[ "$window_started_ms" =~ ^[0-9]+$ ]]; then
+		# A future timestamp can occur after a wall-clock correction. Bound it to
+		# one normal interval rather than sleeping for an unbounded duration.
+		(( window_started_ms <= now_ms )) || window_started_ms="$now_ms"
+		remaining_ms=$(( interval_ms - (now_ms - window_started_ms) ))
+		if (( remaining_ms <= 0 )); then
+			window_started_ms=""
+			launch_count=0
+		elif (( launch_count >= HARNESS_AGENT_LAUNCH_BATCH_SIZE )); then
+			wait_seconds=$(( (remaining_ms + 999) / 1000 ))
+			printf -v wait_duration '%d.%03d' "$((remaining_ms / 1000))" "$((remaining_ms % 1000))"
+			log_event "AGENT_INVOCATION_BATCH_THROTTLED role=$role wait_seconds=$wait_seconds window_seconds=$HARNESS_AGENT_MIN_INTERVAL_SECONDS batch_size=$HARNESS_AGENT_LAUNCH_BATCH_SIZE launches=$launch_count"
+			printf '%s WARNING: fresh "%s" launch exceeded the protected batch of %s agents per %s seconds; delaying %s seconds (role=%s).\n' \
+				"$(timestamp_utc)" "$agent_name" "$HARNESS_AGENT_LAUNCH_BATCH_SIZE" "$HARNESS_AGENT_MIN_INTERVAL_SECONDS" "$wait_seconds" "$role" >> "$alert_file"
+			chmod 600 "$alert_file"
+			sleep "$wait_duration"
+			window_started_ms=""
+			launch_count=0
+		fi
+	fi
+	agent_launch_window_started_ms="$window_started_ms"
+	agent_launch_count="$launch_count"
 	# Keep the lock held until the caller has actually spawned the child.
 }
 
 record_agent_invocation_started()
 {
-	local state_file now_ms tmp
+	local state_file now_ms window_started_ms launch_count tmp
 	if (( resume_requested == 1 )); then
 		log_event "AGENT_INVOCATION_RESUMED_UNTHROTTLED role=$role thread_id=$resume_thread_id"
 		return 0
@@ -121,8 +139,19 @@ record_agent_invocation_started()
 	(( HARNESS_AGENT_MIN_INTERVAL_SECONDS > 0 )) || return 0
 	state_file="$(project_dir)/control/agent-invocation-rate-limit.state"
 	now_ms="$(date +%s%3N)"
+	window_started_ms="${agent_launch_window_started_ms:-}"
+	launch_count="${agent_launch_count:-0}"
+	if [[ ! "$window_started_ms" =~ ^[0-9]+$ ]]; then
+		window_started_ms="$now_ms"
+		launch_count=0
+	fi
+	launch_count=$((launch_count + 1))
 	tmp="$state_file.tmp.$$"
 	{
+		printf 'window_started_epoch_ms=%s\n' "$window_started_ms"
+		printf 'window_started_at=%s\n' "$(date -u -d "@$((window_started_ms / 1000))" +%Y-%m-%dT%H:%M:%SZ)"
+		printf 'launch_count=%s\n' "$launch_count"
+		printf 'batch_size=%s\n' "$HARNESS_AGENT_LAUNCH_BATCH_SIZE"
 		printf 'started_epoch_ms=%s\n' "$now_ms"
 		printf 'started_at=%s\n' "$(timestamp_utc)"
 		printf 'role=%s\n' "$role"
@@ -132,7 +161,7 @@ record_agent_invocation_started()
 	mv "$tmp" "$state_file"
 	flock -u "$agent_cooldown_fd"
 	exec {agent_cooldown_fd}>&-
-	log_event "AGENT_INVOCATION_STARTED role=$role min_interval_seconds=$HARNESS_AGENT_MIN_INTERVAL_SECONDS"
+	log_event "AGENT_INVOCATION_STARTED role=$role window_seconds=$HARNESS_AGENT_MIN_INTERVAL_SECONDS batch_size=$HARNESS_AGENT_LAUNCH_BATCH_SIZE launch_in_batch=$launch_count"
 }
 
 consume_startup_agent_budget()

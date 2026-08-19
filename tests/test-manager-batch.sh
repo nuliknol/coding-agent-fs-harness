@@ -69,56 +69,26 @@ set -Eeuo pipefail
 source "$1"
 task="$2"
 project="$HARNESS_ROOT/projects/$PROJECT"
-prompt="$project/control/batchproj-task-$task.prepared.prompt.md"
-packet="$project/control/batchproj-task-$task.packet.md"
-printf 'Task-ID: %s\n' "$task" > "$packet"
-cat > "$prompt" <<PROMPT
-ENV_FILE=$1
-PROJECT_TMP_DIR=/tmp/batchproj
-REVIEW_PACKET_FILE=$packet
-REVIEW_DIFF_COMMAND=/bin/true
-ASSIGNED_FOCUSED_VALIDATION=/bin/true
-ASSIGNED_VALIDATION_CLASS=FOCUSED
-RECOMMENDED_PASS_REVIEW_TEMPLATE_FILE=$packet
-RECOMMENDED_PASS_TERMINAL_COMMAND=/bin/true
-REJECT_REVIEW_TEMPLATE_FILE=$packet
-CHECKPOINT_INCREMENT_REVIEW_TEMPLATE_FILE=$packet
-PROMPT
-printf '%s\n' "$prompt"
-FAKE
-cat > "$TEST_ROOT/fake-bin/codex-exec-jsonl" <<'FAKE'
-#!/usr/bin/env bash
-set -Eeuo pipefail
-source "$1"
-prompt="$4"; json="$5"; stderr="$6"; message="$7"
-project="$HARNESS_ROOT/projects/$PROJECT"
-printf 'call\n' >> "$HARNESS_ROOT/codex-calls"
-while IFS= read -r task; do
-	result="$project/results/$PROJECT-task-$task.result.md"
-	[[ ! -f "$result" ]] || mv "$result" "$project/archive/$PROJECT-task-$task.accepted.md"
-done < <(sed -n 's/^Task-ID: //p' "$prompt")
-printf '%s\n' '{"type":"thread.started","thread_id":"batch-thread"}' > "$json"
-: > "$stderr"
-printf 'batch complete\n' > "$message"
-FAKE
-cat > "$TEST_ROOT/fake-bin/manager-register-thread" <<'FAKE'
-#!/usr/bin/env bash
-exit 0
+printf '%s\t%s\n' "$task" "$(date +%s%3N)" >> "$HARNESS_ROOT/manager-starts.tsv"
+sleep 1
+mv "$project/results/$PROJECT-task-$task.result.md" \
+	"$project/archive/$PROJECT-task-$task.accepted.md"
 FAKE
 chmod 700 "$TEST_ROOT/fake-bin/"*
 cp "$TEST_ROOT/init.env" "$TEST_ROOT/batch.env"
 cat >> "$TEST_ROOT/batch.env" <<ENV
-export HARNESS_MANAGER_RESULT_PREPARE_INVOKER="$TEST_ROOT/fake-bin/manager-invoke-result"
-export HARNESS_CODEX_EXEC_INVOKER="$TEST_ROOT/fake-bin/codex-exec-jsonl"
-export HARNESS_MANAGER_THREAD_REGISTRAR="$TEST_ROOT/fake-bin/manager-register-thread"
+export HARNESS_MANAGER_RESULT_PARALLEL_INVOKER="$TEST_ROOT/fake-bin/manager-invoke-result"
 ENV
 chmod 600 "$TEST_ROOT/batch.env"
 
 "$ROOT/bin/manager-invoke-result-batch" "$TEST_ROOT/batch.env" a b >/dev/null
 [[ ! -e "$project/results/batchproj-task-a.result.md" ]]
 [[ ! -e "$project/results/batchproj-task-b.result.md" ]]
-[[ "$(wc -l < "$TEST_ROOT/state/codex-calls")" == 1 ]]
+[[ "$(wc -l < "$TEST_ROOT/state/manager-starts.tsv")" == 2 ]]
+start_spread="$(awk -F '\t' 'NR==1 {min=max=$2} $2<min {min=$2} $2>max {max=$2} END {print max-min}' \
+	"$TEST_ROOT/state/manager-starts.tsv")"
+(( start_spread < 500 ))
 [[ "$(awk -F '\t' '$4=="ENQUEUED" {n++} END {print n+0}' "$project/control/manager-inbox.tsv")" == 2 ]]
 [[ "$(awk -F '\t' '$4=="COMMITTED" {n++} END {print n+0}' "$project/control/manager-inbox.tsv")" == 2 ]]
-grep -Fq 'MANAGER_REVIEW_BATCH_FINISHED' "$project/logs/events.log"
+grep -Fq 'MANAGER_REVIEW_COHORT_FINISHED' "$project/logs/events.log"
 printf 'manager batch tests passed\n'

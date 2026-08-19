@@ -81,7 +81,7 @@ prompt="$TMP/prompt"; printf 'test\n' > "$prompt"
 "$ROOT/bin/harness-check-env" "$TMP/env" > "$TMP/defaults.out"
 grep -q '^Transient provider retry seconds: 60 (retries unlimited)$' "$TMP/defaults.out"
 grep -q '^Quota retry seconds: 300 (retries unlimited)$' "$TMP/defaults.out"
-grep -q '^Minimum interval between agent launches: 60 seconds (project-wide)$' "$TMP/defaults.out"
+grep -q '^Fresh-agent launch fuse: 4 agents per 60-second project window$' "$TMP/defaults.out"
 grep -q '^Supervisor startup readiness timeout: 120 seconds$' "$TMP/defaults.out"
 grep -q '^Runtime PATH prefix: (none)$' "$TMP/defaults.out"
 grep -q '^Patch-only validation rounds: 3$' "$TMP/defaults.out"
@@ -640,10 +640,11 @@ test ! -s "$TMP/budget.jsonl"
 grep -q 'STARTUP_AGENT_BUDGET_EXHAUSTED count=1 maximum=1 role=manager_plan' \
 	"$TMP/state/projects/jsonltest/logs/events.log"
 
-# One project-wide clock covers every role. An immediate manager launch after
-# a worker launch must wait even though the role changed.
+# A one-agent test batch preserves a short deterministic wait check across
+# roles. Production defaults to four launches in the same window.
 cp "$TMP/env" "$TMP/env-throttle"
 printf 'export HARNESS_AGENT_MIN_INTERVAL_SECONDS="3"\n' >> "$TMP/env-throttle"
+printf 'export HARNESS_AGENT_LAUNCH_BATCH_SIZE="1"\n' >> "$TMP/env-throttle"
 throttle_started="$(date +%s)"
 MOCK_MODE=success "$ROOT/bin/codex-exec-jsonl" "$TMP/env-throttle" worker gpt-5.5 "$prompt" \
 	"$TMP/throttle-worker.jsonl" "$TMP/throttle-worker.stderr" "$TMP/throttle-worker.last"
@@ -651,12 +652,34 @@ MOCK_MODE=success "$ROOT/bin/codex-exec-jsonl" "$TMP/env-throttle" manager_revie
 	"$TMP/throttle-manager.jsonl" "$TMP/throttle-manager.stderr" "$TMP/throttle-manager.last"
 throttle_elapsed=$(( $(date +%s) - throttle_started ))
 (( throttle_elapsed >= 3 ))
-grep -Eq 'AGENT_INVOCATION_THROTTLED role=manager_review wait_seconds=[1-3] min_interval_seconds=3' \
+grep -Eq 'AGENT_INVOCATION_BATCH_THROTTLED role=manager_review wait_seconds=[1-3] window_seconds=3 batch_size=1 launches=1' \
 	"$TMP/state/projects/jsonltest/logs/events.log"
-grep -Eq 'WARNING: attempt to launch "manager" process during the protected interval of 3 seconds; delaying [1-3] seconds; possible dead end \(role=manager_review\)\.' \
+grep -Eq 'WARNING: fresh "manager" launch exceeded the protected batch of 1 agents per 3 seconds; delaying [1-3] seconds \(role=manager_review\)\.' \
 	"$TMP/state/projects/jsonltest/logs/agent-invocation-alerts.log"
 grep -q '^role=manager_review$' \
 	"$TMP/state/projects/jsonltest/control/agent-invocation-rate-limit.state"
+
+# Four fresh launches form one protected cohort. None of the first four waits;
+# only the fifth crosses the token-overconsumption fuse.
+cp "$TMP/env" "$TMP/env-throttle-batch"
+printf 'export HARNESS_AGENT_MIN_INTERVAL_SECONDS="3"\n' >> "$TMP/env-throttle-batch"
+printf 'export HARNESS_AGENT_LAUNCH_BATCH_SIZE="4"\n' >> "$TMP/env-throttle-batch"
+rm -f "$TMP/state/projects/jsonltest/control/agent-invocation-rate-limit.state"
+batch_started="$(date +%s)"
+for batch_index in 1 2 3 4; do
+	MOCK_MODE=success "$ROOT/bin/codex-exec-jsonl" "$TMP/env-throttle-batch" worker gpt-5.5 "$prompt" \
+		"$TMP/throttle-batch-$batch_index.jsonl" "$TMP/throttle-batch-$batch_index.stderr" \
+		"$TMP/throttle-batch-$batch_index.last"
+done
+batch_first_elapsed=$(( $(date +%s) - batch_started ))
+(( batch_first_elapsed < 3 ))
+MOCK_MODE=success "$ROOT/bin/codex-exec-jsonl" "$TMP/env-throttle-batch" manager_review gpt-5.5 "$prompt" \
+	"$TMP/throttle-batch-5.jsonl" "$TMP/throttle-batch-5.stderr" "$TMP/throttle-batch-5.last"
+batch_total_elapsed=$(( $(date +%s) - batch_started ))
+(( batch_total_elapsed >= 3 ))
+grep -Eq 'AGENT_INVOCATION_BATCH_THROTTLED role=manager_review .*batch_size=4 launches=4' \
+	"$TMP/state/projects/jsonltest/logs/events.log"
+grep -q '^launch_count=1$' "$TMP/state/projects/jsonltest/control/agent-invocation-rate-limit.state"
 
 # A bounded continuation of an existing thread has its own context/patch/ACP
 # fuses and must not spend another project-wide cooldown merely to consume a
@@ -674,7 +697,7 @@ throttle_resume_elapsed=$(( $(date +%s) - throttle_resume_started ))
 (( throttle_resume_elapsed < 3 ))
 grep -q 'AGENT_INVOCATION_RESUMED_UNTHROTTLED role=worker thread_id=thread-bounded-1' \
 	"$TMP/state/projects/jsonltest/logs/events.log"
-! grep -q 'AGENT_INVOCATION_THROTTLED role=worker' \
+! grep -q 'AGENT_INVOCATION_BATCH_THROTTLED role=worker' \
 	"$TMP/state/projects/jsonltest/logs/events.log"
 
 # A durable harness transition (for example WAITING_DEPENDENCY) must stop the

@@ -460,10 +460,14 @@ reclassify_legacy_hard_block_markers()
 
 process_auto_replans()
 {
-	local marker name root current status alert tmp
+	local marker name root current status alert tmp status_file batch_id
+	local index
+	local -a roots=() fingerprints=()
+	local -A pid_by_root=()
 	(( HARNESS_AUTO_REPLAN_ENABLED == 1 )) || return 0
 	shopt -s nullglob
 	for marker in "$dir/control/progress/$PROJECT-task-"*.needs-replan.md; do
+		(( ${#roots[@]} < HARNESS_MANAGER_BATCH_SIZE )) || break
 		[[ -f "$marker" ]] || continue
 		name="${marker##*/}"
 		root="${name#${PROJECT}-task-}"
@@ -476,16 +480,43 @@ process_auto_replans()
 		root_has_pending_review_result "$root" && continue
 		current="$(fingerprint "$marker")"
 		[[ "${replan_failed_fingerprint[$root]:-}" != "$current" ]] || continue
-		log_event "SUPERVISOR_INVOKE_MANAGER_REPLAN root=$root fingerprint=$current invoker=$manager_replan_invoker"
-		trace_event SUPERVISOR_INVOKE_MANAGER_REPLAN "root=$root" "fingerprint=$current" "manager_replan_invoker=$manager_replan_invoker"
-		# A rejected recovery publication is an expected, durably reported
-		# outcome. Invoke it in a conditional so the global ERR trap does not
-		# mislabel the captured status as a fatal supervisor crash.
-		if "$manager_replan_invoker" "$HARNESS_ENV_FILE" "$root" 8>&-; then
-			status=0
-		else
+		roots+=("$root")
+		fingerprints+=("$current")
+	done
+	(( ${#roots[@]} > 0 )) || return 0
+	batch_id="$(printf '%s\n' "${roots[@]}" | sha256sum | cut -c1-16)"
+	log_event "SUPERVISOR_MANAGER_REPLAN_COHORT_STARTED batch=$batch_id roots=$(IFS=,; printf '%s' "${roots[*]}") size=${#roots[@]}"
+	for index in "${!roots[@]}"; do
+		root="${roots[index]}"
+		current="${fingerprints[index]}"
+		log_event "SUPERVISOR_INVOKE_MANAGER_REPLAN root=$root fingerprint=$current invoker=$manager_replan_invoker batch=$batch_id"
+		trace_event SUPERVISOR_INVOKE_MANAGER_REPLAN "root=$root" "fingerprint=$current" "manager_replan_invoker=$manager_replan_invoker" "batch=$batch_id"
+		if (( ${#roots[@]} == 1 )); then
+			set +e
+			"$manager_replan_invoker" "$HARNESS_ENV_FILE" "$root" 8>&-
 			status=$?
+			set -e
+			printf '%s\n' "$status" > "$dir/control/$PROJECT-task-$root.parallel-replan-status.$$"
+			pid_by_root[$root]=0
+		else
+			(
+				set +e
+				"$manager_replan_invoker" "$HARNESS_ENV_FILE" "$root" 8>&-
+				printf '%s\n' "$?" > "$dir/control/$PROJECT-task-$root.parallel-replan-status.$$"
+			) &
+			pid_by_root[$root]=$!
 		fi
+	done
+	for index in "${!roots[@]}"; do
+		root="${roots[index]}"
+		current="${fingerprints[index]}"
+		status_file="$dir/control/$PROJECT-task-$root.parallel-replan-status.$$"
+		if (( pid_by_root[$root] > 0 )); then
+			if wait "${pid_by_root[$root]}"; then :; fi
+		fi
+		status="$(awk 'NR==1 {print; exit}' "$status_file" 2>/dev/null || printf 1)"
+		rm -f "$status_file"
+		[[ "$status" =~ ^[0-9]+$ ]] || status=1
 		trace_event SUPERVISOR_MANAGER_REPLAN_EXIT "root=$root" "status=$status"
 		if (( status == 0 )); then
 			unset 'replan_failed_fingerprint[$root]'
@@ -509,6 +540,7 @@ process_auto_replans()
 		mv "$tmp" "$alert"
 		log_event "SUPERVISOR_MANAGER_RECOVERY_FAILED root=$root status=$status alert=$alert human_dependency=0"
 	done
+	log_event "SUPERVISOR_MANAGER_REPLAN_COHORT_FINISHED batch=$batch_id size=${#roots[@]}"
 }
 
 process_context_closure_provider_repairs()
