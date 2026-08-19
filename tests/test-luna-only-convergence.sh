@@ -43,6 +43,9 @@ grep -Fq 'harness-compile-task-mutation-capabilities' "$ROOT/bin/harness-apply-w
 grep -Fq 'harness-compile-task-mutation-capabilities' "$ROOT/bin/harness-commit-source"
 grep -Fq 'RECOVERY_CHILD_ROOT_BUDGET_CEILING' "$ROOT/bin/manager-publish-task"
 grep -Fq 'manager_remediation == 1' "$ROOT/bin/manager-publish-task"
+grep -Fq 'resource_local_authority == 1 || manager_remediation == 1' \
+	"$ROOT/bin/manager-publish-task"
+grep -Fq 'patch_apply_status=0' "$ROOT/bin/worker-invoke-task"
 grep -Fq 'REARM_RECOVERY_BUDGET_AFTER_HARNESS_BUG' "$ROOT/bin/harness-resolve-architecture-reassessment"
 grep -Fq 'Pending-Replan-Mutation-Region' "$ROOT/bin/harness-resolve-architecture-reassessment"
 grep -Fq 'CONTEXT_CLOSURE_EXEMPT' "$ROOT/bin/worker-invoke-task"

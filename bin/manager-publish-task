@@ -372,7 +372,7 @@ normalize_measured_assignment_metadata()
 		if { [[ "$HARNESS_MODEL_POLICY" == luna_only ]] ||
 			(( luna_failures < HARNESS_MAX_LUNA_STRATEGY_FAILURES )); } &&
 			(( recovery_decisions_resolved == 1 || recovery_verified_child == 1 ||
-			resource_local_authority == 1 )) &&
+			resource_local_authority == 1 || manager_remediation == 1 )) &&
 			[[ "$requested_leaf" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY)$ &&
 			"$requested_validation" =~ ^(FOCUSED|INCREMENTAL)$ &&
 			"$requested_files" =~ ^[0-9]+$ && "$requested_turns" =~ ^[1-3]$ ]] &&

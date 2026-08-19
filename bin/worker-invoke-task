@@ -1153,6 +1153,12 @@ while true; do
 	fi
 	if (( status == 0 && luna_bounded_execution == 1 && patch_only_execution == 1 )); then
 		context_request_status=1
+		# A successful typed Context Closure request is an intermediate worker
+		# outcome, not a patch application.  Keep the patch status defined so the
+		# common patch-result path below cannot dereference an unset variable
+		# before it reaches the context-resume transition.
+		patch_apply_status=0
+		patch_apply_output=""
 		zero_file_verification_handled=0
 		# Call in a conditional so every nonzero typed-resolver outcome is data
 		# for the patch-only state machine, never an errexit from the worker
