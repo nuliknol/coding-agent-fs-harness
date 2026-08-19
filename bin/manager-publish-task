@@ -1539,6 +1539,20 @@ normalize_recovery_context_paths()
 				log_event "QUALIFIED_CONTEXT_SYMBOL_NORMALIZED root=$root task=$task_id path=$(printf '%q' "$qualified_path") symbol=$(printf '%q' "$qualified_symbol")"
 			fi
 		fi
+		# file#symbol is a bounded context selector, not a filesystem path.
+		# Preserve the selector when its exact base file exists; the context
+		# compiler resolves the symbol window and reports a missing token.  Testing
+		# the unsplit selector with -e incorrectly discarded valid same-file
+		# expansions on the next recovery revision.
+		if [[ "$entry" =~ ^(.+)#([A-Za-z_][A-Za-z0-9_.\$~-]*)$ ]]; then
+			qualified_path="${BASH_REMATCH[1]}"
+			if [[ "$qualified_path" != /* && -f "$REPOSITORY/$qualified_path" ]]; then
+				kept+=("$entry")
+				exact_files+=("$qualified_path")
+				log_event "CONTEXT_SYMBOL_SELECTOR_RETAINED root=$root task=$task_id selector=$(printf '%q' "$entry")"
+				continue
+			fi
+		fi
 		if [[ "$entry" == "$PROJECT_TMP_DIR" || "$entry" == "$PROJECT_TMP_DIR/"* ]]; then
 			[[ "$validation" == *"$entry"* || "$entry" == *build* ]] || {
 				kept+=("$entry")

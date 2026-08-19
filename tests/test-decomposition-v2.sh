@@ -620,7 +620,7 @@ sed \
 	-e 's/^Task-ID: 001$/Task-ID: 001-revision-02/' \
 	-e 's/^Goal-ID: n1.goal$/Goal-ID: n1.context.symbols/' \
 	-e 's#^Allowed-Scope: src$#Allowed-Scope: src/a.c#' \
-	-e 's#^Context-Paths: include/a.h,src$#Context-Paths: include/a.h,src/a.c#' \
+	-e 's@^Context-Paths: include/a.h,src$@Context-Paths: include/a.h,src/a.c,src/a.c#adjacent_symbol@' \
 	-e 's/^Required-Symbols: target_symbol$/Required-Symbols: adjacent_symbol/' \
 	-e 's/^Make target_symbol return one\.$/Use adjacent_symbol context to complete target_symbol locally./' \
 	-e '/^Root-Criterion: n1.done$/a Manager-Remediation: 1\nBlocker-Class: LOCAL_CODE_PREREQUISITE\nRemediation-Scope: src/a.c\nReplan-Strategy-ID: normalize.context.symbols.2\nStrategy-Change: REPAIR_PREREQUISITE\nSupersedes-Task: 001-revision-01' \
@@ -629,12 +629,14 @@ sed \
 	001-revision-02 "$TEST_ROOT/normalize-context-symbol-task.md" --manager-remediation >/dev/null
 normalize_symbol_ready="$normalize_project/tasks/decompnormalize-task-001-revision-02.ready.md"
 grep -Fqx 'Required-Symbols: target_symbol,adjacent_symbol' "$normalize_symbol_ready"
-grep -Fqx 'Context-Paths: include/a.h,src/a.c,src/a.c#target_symbol' "$normalize_symbol_ready"
+grep -Fqx 'Context-Paths: include/a.h,src/a.c,src/a.c#adjacent_symbol,src/a.c#target_symbol' "$normalize_symbol_ready"
 grep -Fq 'CONTEXT_INCOMPLETE_REQUIRED_SYMBOLS_RETAINED root=001 task=001-revision-02' \
 	"$normalize_project/logs/events.log"
 grep -Fq 'CONTEXT_INCOMPLETE_REQUIRED_SYMBOL_EXPANDED root=001 task=001-revision-02' \
 	"$normalize_project/logs/events.log"
 grep -Fq 'CONTEXT_WRITER_WINDOW_EXPANDED root=001 task=001-revision-02' \
+	"$normalize_project/logs/events.log"
+grep -Fq 'CONTEXT_SYMBOL_SELECTOR_RETAINED root=001 task=001-revision-02 selector=src/a.c#adjacent_symbol' \
 	"$normalize_project/logs/events.log"
 
 # A single compiled graph cut is already the irreducible execution seam. It is
