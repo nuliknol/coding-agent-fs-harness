@@ -251,8 +251,19 @@ def indexed_lexical_function_definitions(connection: sqlite3.Connection,
             terminator = header.find(";")
             if body < 0 or (terminator >= 0 and terminator < body):
                 continue
-            recovered.append((path, max(1, index + 1 - 20),
-                              min(len(lines), index + 1 + 80)))
+            body_line = index + header[:body].count("\n")
+            depth = 0
+            opened = False
+            end = min(len(lines), index + 1 + 256)
+            for candidate in range(body_line, end):
+                depth += lines[candidate].count("{")
+                if "{" in lines[candidate]:
+                    opened = True
+                depth -= lines[candidate].count("}")
+                if opened and depth <= 0:
+                    end = candidate + 1
+                    break
+            recovered.append((path, max(1, index + 1 - 20), end))
             break
         if len(recovered) >= 4:
             break
@@ -425,6 +436,27 @@ def main() -> int:
                 if bounded_definitions:
                     relation = "exact-type-inside-declared-read-boundary"
                     for row in bounded_definitions:
+                        records.append(("TYPE_DEFINITION", row["repository_path"],
+                                        row["start_line"], row["end_line"],
+                                        row["display_name"], row["provider"]))
+            if not records and requested_type_ids:
+                # Incompletely indexed HIP translation units may omit type
+                # edges even though an exact required helper lexically uses the
+                # type.  Prove that one-hop relation only inside exact declared
+                # files, then return the indexed type definition as read-only
+                # evidence.  Directory-wide lexical searches remain forbidden.
+                token = re.compile(rf"\b{re.escape(identifier)}\b")
+                referenced = False
+                for boundary in sorted(read_boundaries):
+                    entry = safe_entry(repository, boundary.split("#", 1)[0].rstrip("/"))
+                    if entry is None or not entry.is_file():
+                        continue
+                    if token.search(entry.read_text(encoding="utf-8", errors="replace")):
+                        referenced = True
+                        break
+                if referenced:
+                    relation = "exact-type-referenced-inside-declared-read-boundary"
+                    for row in definitions(connection, requested_type_ids):
                         records.append(("TYPE_DEFINITION", row["repository_path"],
                                         row["start_line"], row["end_line"],
                                         row["display_name"], row["provider"]))

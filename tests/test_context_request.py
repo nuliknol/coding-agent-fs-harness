@@ -63,13 +63,14 @@ class ContextRequestTest(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
-    def resolve(self, kind: str, identifier: str) -> subprocess.CompletedProcess[str]:
+    def resolve(self, kind: str, identifier: str,
+                max_bytes: int = 4096) -> subprocess.CompletedProcess[str]:
         return subprocess.run([
             "python3", str(ROOT / "tools/resolve_context_request.py"),
             "--assignment", str(self.assignment), "--closure", str(self.closure),
             "--database", str(self.database), "--repository", str(self.repository),
             "--request-kind", kind, "--identifier", identifier,
-            "--output", str(self.root / "extension.md"), "--max-bytes", "4096",
+            "--output", str(self.root / "extension.md"), "--max-bytes", str(max_bytes),
         ], text=True, capture_output=True)
 
     def test_type_definition_is_limited_to_direct_type_neighbor(self):
@@ -184,6 +185,62 @@ class ContextRequestTest(unittest.TestCase):
             extension,
         )
         self.assertIn("int isolated_hip_helper(int value)", extension)
+
+    def test_long_lexical_function_fallback_reaches_complete_body(self):
+        (self.repository / "backend.hip").write_text(
+            'extern "C" int long_hip_helper(int value)\n{\n' +
+            "    value += 1;\n" * 140 +
+            "    return value; /* complete-helper-tail */\n}\n",
+            encoding="utf-8",
+        )
+        connection = sqlite3.connect(self.database)
+        connection.execute("INSERT INTO files VALUES(2,'g','backend.hip','c++',NULL,1,0)")
+        connection.execute(
+            "INSERT INTO symbols VALUES('long-hip','g','long_hip_helper',"
+            "'Function','c++','-','scip')")
+        connection.commit()
+        connection.close()
+        self.assignment.write_text(
+            "Task-ID: t1\nAllowed-Scope: calc.c\nContext-Paths: calc.c,backend.hip\n"
+            "Required-Symbols: long_hip_helper\n",
+            encoding="utf-8",
+        )
+
+        result = self.resolve("SYMBOL_DEFINITION", "long_hip_helper", max_bytes=16384)
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        self.assertIn(
+            "complete-helper-tail",
+            (self.root / "extension.md").read_text(encoding="utf-8"),
+        )
+
+    def test_lexically_referenced_type_definition_is_admitted(self):
+        (self.repository / "contract.h").write_text(
+            "typedef struct RemoteResult { int status; } RemoteResult;\n",
+            encoding="utf-8",
+        )
+        (self.repository / "calc.c").write_text(
+            "int add(Number n) { RemoteResult result = {0}; return n.value + result.status; }\n",
+            encoding="utf-8",
+        )
+        connection = sqlite3.connect(self.database)
+        connection.execute("INSERT INTO files VALUES(2,'g','contract.h','c',NULL,1,0)")
+        connection.execute(
+            "INSERT INTO source_regions VALUES(4,2,'definition','RemoteResult',1,0,1,60,NULL,'scip')")
+        connection.execute(
+            "INSERT INTO symbols VALUES('remote-type','g','RemoteResult','Struct','c','-','scip')")
+        connection.execute(
+            "INSERT INTO symbol_definitions VALUES('remote-type',4,'definition','scip')")
+        connection.commit()
+        connection.close()
+
+        result = self.resolve("TYPE_DEFINITION", "RemoteResult")
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        extension = (self.root / "extension.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "Authorization-Relation: exact-type-referenced-inside-declared-read-boundary",
+            extension,
+        )
+        self.assertIn("typedef struct RemoteResult", extension)
 
     def test_exact_source_window_inside_declared_read_boundary_is_admitted(self):
         result = self.resolve("SOURCE_WINDOW", "calc.c")

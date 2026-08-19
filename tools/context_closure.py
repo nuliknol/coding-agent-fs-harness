@@ -521,7 +521,12 @@ def build_closure(args: argparse.Namespace) -> str:
             # later path pass from embedding the complete declared file.
             for declared_path in sorted(path_seeds):
                 source = safe_source_path(repository, declared_path)
-                window = live_symbol_window(source, requested, maximum_lines=96) if source else None
+                # File-local HIP/C++ helpers are frequently absent from SCIP
+                # definition rows and can exceed a 96-line prefix.  The item
+                # renderer still enforces its byte cap; admit enough lines for
+                # the brace scanner to reach a normal complete function so the
+                # worker does not request the same definition again.
+                window = live_symbol_window(source, requested, maximum_lines=256) if source else None
                 if not window:
                     continue
                 add_item(items, kind="BOUNDED_SOURCE_EVIDENCE", path=declared_path,
@@ -964,7 +969,10 @@ def build_closure(args: argparse.Namespace) -> str:
                                    "required indexed source was deleted in the live worktree"))
             continue
         source = safe_source_path(repository, item["path"])
-        window = live_symbol_window(source, item["symbol"]) if source else None
+        relocation_lines = max(160, item["end"] - item["start"] + 1)
+        if item["required"] == "REQUIRED" and item["kind"] == "BOUNDED_SOURCE_EVIDENCE":
+            relocation_lines = max(relocation_lines, 256)
+        window = live_symbol_window(source, item["symbol"], relocation_lines) if source else None
         if window:
             item["start"], item["end"] = window
         elif source and item["kind"] == "DECLARED_CONTEXT":

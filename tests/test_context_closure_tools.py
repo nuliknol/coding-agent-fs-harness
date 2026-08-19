@@ -413,7 +413,9 @@ class ContextClosureToolsTest(unittest.TestCase):
 
     def test_declared_path_supplies_definition_scip_omitted(self):
         self.repository.joinpath("fixture.c").write_text(
-            "static int hip_local_helper(void) { return 7; }\n",
+            "static int hip_local_helper(void) {\n" +
+            "    int value = 0;\n" * 140 +
+            "    return value + 7; /* complete-helper-tail */\n}\n",
             encoding="utf-8")
         connection = sqlite3.connect(self.database)
         connection.execute(
@@ -431,6 +433,7 @@ class ContextClosureToolsTest(unittest.TestCase):
         closure = (output / "closure.tsv").read_text()
         self.assertIn("\tBOUNDED_SOURCE_EVIDENCE\tfixture.c\t", closure)
         self.assertNotIn("\tDECLARED_CONTEXT\tfixture.c\t", closure)
+        self.assertIn("complete-helper-tail", (output / "context.md").read_text())
 
     def test_unused_context_directory_is_a_boundary_not_missing_evidence(self):
         self.repository.joinpath("tests").mkdir()
