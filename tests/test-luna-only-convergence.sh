@@ -40,6 +40,8 @@ grep -Fq 'CONTEXT_MUTATION_REGION_EXPANDED' "$ROOT/bin/manager-publish-task"
 grep -Fq 'ACP_MUTATION_REGION_CONTEXT_INCOMPLETE' "$ROOT/bin/worker-invoke-task"
 grep -Fq 'harness-compile-task-mutation-capabilities' "$ROOT/bin/harness-apply-worker-patch"
 grep -Fq 'harness-compile-task-mutation-capabilities' "$ROOT/bin/harness-commit-source"
+grep -Fq 'RECOVERY_CHILD_ROOT_BUDGET_CEILING' "$ROOT/bin/manager-publish-task"
+grep -Fq 'REARM_RECOVERY_BUDGET_AFTER_HARNESS_BUG' "$ROOT/bin/harness-resolve-architecture-reassessment"
 grep -Fq 'CONTEXT_CLOSURE_EXEMPT' "$ROOT/bin/worker-invoke-task"
 (
 	source "$ROOT/lib/harness-worker-policy.sh"

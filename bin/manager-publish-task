@@ -216,7 +216,7 @@ normalize_measured_assignment_metadata()
 	local obligation_weight requested_route requested_class requested_leaf requested_architecture requested_validation requested_files requested_turns requested_exception luna_failures root_criterion_count
 	local required_symbols symbol_count calibration_rate residual_p95 verified_items
 	local recovery_decisions_resolved recovery_verified_child resource_recovery resource_local_authority decision requested_obligations obligation_count architecture_decisions
-	local root_plan_item root_leaf root_validation root_value
+	local root_plan_item root_leaf root_validation root_value root_complexity root_actions root_files root_effective_p95 root_route live_calibrated_p95
 	# Every task bound to a measured plan node uses the installed deterministic
 	# vector.  Revisions and recovery tasks must not ask a planning agent to
 	# reproduce these machine-owned fields by hand.
@@ -400,6 +400,26 @@ normalize_measured_assignment_metadata()
 			if [[ "$planned_worker_route" == LUNA && "$planned_effective_p95" =~ ^[1-9][0-9]*$ ]] &&
 				(( effective_p95 < planned_effective_p95 )); then
 				effective_p95="$planned_effective_p95"
+			fi
+			# Global calibration is evidence for *new* roots, not permission to
+			# invalidate a strictly smaller child of an already accepted Luna root.
+			# Keep the child's observed global estimate in the event log, but use the
+			# root's immutable P95 as its bounded ceiling when every executable
+			# dimension is no larger than that root. The independent 500K runtime
+			# fuse remains active during execution.
+			root_complexity="$(metadata_value "$root_assignment" Complexity-Score)"
+			root_actions="$(metadata_value "$root_assignment" Expected-Max-Agent-Actions)"
+			root_files="$(metadata_value "$root_assignment" Expected-Max-Implementation-Files)"
+			root_effective_p95="$(metadata_value "$root_assignment" Effective-P95-Tokens)"
+			root_route="$(metadata_value "$root_assignment" Worker-Route)"
+			if (( recovery_verified_child == 1 )) && [[ "$root_route" == LUNA &&
+				"$root_complexity" =~ ^[1-9][0-9]*$ && "$root_actions" =~ ^[1-9][0-9]*$ &&
+				"$root_files" =~ ^[0-9]+$ && "$root_effective_p95" =~ ^[1-9][0-9]*$ ]] &&
+				(( complexity_score <= root_complexity && actions <= root_actions &&
+				implementation_files <= root_files && declared_p95 <= root_effective_p95 )); then
+				live_calibrated_p95="$effective_p95"
+				effective_p95="$root_effective_p95"
+				log_event "RECOVERY_CHILD_ROOT_BUDGET_CEILING root=$root task=$task_id score=$complexity_score actions=$actions files=$implementation_files declared_p95=$declared_p95 live_calibrated_p95=$live_calibrated_p95 root_p95=$root_effective_p95"
 			fi
 			(( complexity_score <= HARNESS_MAX_LUNA_COMPLEXITY_SCORE &&
 				actions <= HARNESS_MAX_LUNA_PREDICTED_ACTIONS &&

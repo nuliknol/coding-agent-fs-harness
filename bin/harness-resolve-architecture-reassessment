@@ -174,6 +174,21 @@ if [[ -n "$resolution_action" ]]; then
 				die 'Mutation-Region reclassification requires preserved remediation scope and Context-Paths'
 			mutation_region_reclassified=1
 			;;
+		REARM_RECOVERY_BUDGET_AFTER_HARNESS_BUG)
+			[[ "$category" == MANAGER_PUBLICATION_CONTRACT_EXHAUSTED &&
+				"$pending_replan_trigger" == GOAL_NEEDS_DECOMPOSITION ]] ||
+				die 'REARM_RECOVERY_BUDGET_AFTER_HARNESS_BUG is valid only for a publication-exhausted goal-decomposition recovery'
+			[[ "$harness_fix_commit" =~ ^[0-9a-f]{7,64}$ ]] ||
+				die 'REARM_RECOVERY_BUDGET_AFTER_HARNESS_BUG requires Harness-Fix-Commit'
+			git -C "$HARNESS_HOME" cat-file -e "$harness_fix_commit^{commit}" 2>/dev/null ||
+				die "Harness-Fix-Commit is not installed in the harness repository: $harness_fix_commit"
+			git -C "$HARNESS_HOME" merge-base --is-ancestor "$harness_fix_commit" HEAD ||
+				die "Harness-Fix-Commit is not an ancestor of the deployed harness HEAD: $harness_fix_commit"
+			if find "$(project_dir)/archive/architecture-reassessments" -maxdepth 1 -type f \
+				-name "$PROJECT-task-$root.*.resolved.md" -exec grep -Fqx "Harness-Fix-Commit: $harness_fix_commit" {} + 2>/dev/null | grep -q .; then
+				die "the same recovery-budget harness fix already rearmed this root: $harness_fix_commit"
+			fi
+			;;
 		*) die "unsupported architecture Resolution-Action: $resolution_action" ;;
 	esac
 fi
@@ -320,6 +335,10 @@ if [[ -n "$plan_item" && "$(project_plan_item_status "$plan_item")" == ACTIVE ]]
 			MANAGER_REMEDIATION_CONTEXT_INCOMPLETE \
 			"${pending_replan_blocker_class:-LOCAL_SCOPE_PREREQUISITE}" \
 			"$pending_replan_remediation_scope" "$pending_replan_context_paths" >/dev/null
+	elif [[ "$pending_replan_trigger" == GOAL_NEEDS_DECOMPOSITION ]]; then
+		mark_root_needs_replan "${pending_replan_task:-$trigger_task}" \
+			"architecture reassessment was explicitly resolved after a deployed recovery-budget correction; preserve the original goal-decomposition boundary" \
+			GOAL_NEEDS_DECOMPOSITION >/dev/null
 	elif [[ "$category" == REPEATED_RESOURCE_DECOMPOSITION_FAILURE ]]; then
 		if [[ "$resolution_action" == VERIFY_PRESERVED_WORKSPACE ]]; then
 			mark_root_needs_replan "$trigger_task" \
