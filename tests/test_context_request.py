@@ -103,6 +103,57 @@ class ContextRequestTest(unittest.TestCase):
         self.assertIn("int caller(void)", extension)
         self.assertIn("declared-read-boundary-lexical-caller-fallback", extension)
 
+    def test_unindexed_required_symbol_uses_bounded_lexical_contract(self):
+        connection = sqlite3.connect(self.database)
+        connection.execute("DELETE FROM call_edges")
+        connection.execute("DELETE FROM symbol_definitions WHERE symbol_id='add'")
+        connection.execute("DELETE FROM symbols WHERE symbol_id='add'")
+        connection.commit()
+        connection.close()
+
+        result = self.resolve("CALLER_CONTRACT", "add")
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        extension = (self.root / "extension.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "Authorization-Relation: exact-required-symbol-lexical-contract-inside-declared-read-boundary",
+            extension,
+        )
+        self.assertIn("int add(Number n)", extension)
+        self.assertIn(
+            "declared-read-boundary-lexical-required-symbol-fallback",
+            extension,
+        )
+
+    def test_assignment_interface_resolves_through_required_symbol_caller(self):
+        self.assignment.write_text(
+            "Task-ID: t1\nAllowed-Scope: calc.c\nContext-Paths: calc.c\n"
+            "Required-Symbols: add\n"
+            "Objective: Repair public_normalize_required in its bounded backend caller.\n",
+            encoding="utf-8",
+        )
+
+        result = self.resolve("CALLER_CONTRACT", "public_normalize_required")
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        extension = (self.root / "extension.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "Authorization-Relation: compiled-authority-interface-to-required-symbol-caller",
+            extension,
+        )
+        self.assertIn("int caller(void)", extension)
+
+    def test_compiled_context_interface_resolves_through_required_symbol_caller(self):
+        (self.root / "context.md").write_text(
+            "Public-Symbol: public_normalize_required\n", encoding="utf-8")
+
+        result = self.resolve("CALLER_CONTRACT", "public_normalize_required")
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        extension = (self.root / "extension.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "Authorization-Relation: compiled-authority-interface-to-required-symbol-caller",
+            extension,
+        )
+        self.assertIn("int caller(void)", extension)
+
     def test_exact_required_symbol_definition_is_admitted(self):
         result = self.resolve("SYMBOL_DEFINITION", "add")
         self.assertEqual(0, result.returncode, result.stderr + result.stdout)

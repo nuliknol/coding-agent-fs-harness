@@ -404,7 +404,15 @@ def main() -> int:
     parser.add_argument("--max-bytes", required=True, type=int)
     args = parser.parse_args()
 
-    assignment = metadata(Path(args.assignment))
+    assignment_path = Path(args.assignment)
+    assignment_text = assignment_path.read_text(encoding="utf-8", errors="replace")
+    compiled_context_path = Path(args.closure).parent / "context.md"
+    compiled_context_text = (
+        compiled_context_path.read_text(encoding="utf-8", errors="replace")
+        if compiled_context_path.is_file() else ""
+    )
+    authority_text = assignment_text + "\n" + compiled_context_text
+    assignment = metadata(assignment_path)
     closure = closure_rows(Path(args.closure))
     repository = Path(args.repository).resolve()
     raw_identifier = args.identifier.strip()
@@ -591,6 +599,56 @@ def main() -> int:
                                     "declared-read-boundary-lexical-caller-fallback"))
                 if records:
                     relation = "required-symbol-lexical-caller-inside-declared-read-boundary"
+        if not records and identifier in required_symbols:
+            # Some HIP index generations omit the required function from the
+            # symbol table altogether.  The exact required-symbol body is still
+            # an assignment-authorized caller contract when it lexically exists
+            # inside a declared read file.  This is especially important for a
+            # dispatch function whose body contains the downstream launch the
+            # worker is trying to inspect.
+            for path, start, end in indexed_lexical_function_definitions(
+                    connection, repository, identifier):
+                if not inside_declared_boundary(repository, path, read_boundaries):
+                    continue
+                records.append(("CALLER_CONTRACT", path, start, end, identifier,
+                                "declared-read-boundary-lexical-required-symbol-fallback"))
+            if records:
+                relation = "exact-required-symbol-lexical-contract-inside-declared-read-boundary"
+        if (not records and
+                re.search(rf"(?<![A-Za-z0-9_]){re.escape(identifier)}(?![A-Za-z0-9_])",
+                          authority_text)):
+            # A worker can name the assignment's public interface while asking
+            # for the backend dispatch contract that calls the exact required
+            # symbol.  Resolve that relationship through the required symbol,
+            # never through a name-prefix or repository-wide guess, and keep
+            # the returned caller inside the declared read boundary.
+            for required in sorted(required_symbols):
+                required_rows = exact_symbols(connection, required)
+                required_ids = [row["symbol_id"] for row in required_rows]
+                if required_ids:
+                    marks = ",".join("?" for _ in required_ids)
+                    callers = connection.execute(
+                        f"SELECT DISTINCT caller_symbol_id FROM call_edges "
+                        f"WHERE callee_symbol_id IN ({marks}) ORDER BY caller_symbol_id",
+                        required_ids,
+                    ).fetchall()
+                    for row in rows_inside_boundary(
+                            repository,
+                            definitions(connection, [item[0] for item in callers]),
+                            read_boundaries):
+                        records.append(("CALLER_CONTRACT", row["repository_path"],
+                                        row["start_line"], row["end_line"],
+                                        row["display_name"], row["provider"]))
+                if not records:
+                    for path, start, end, symbol in bounded_lexical_caller_contracts(
+                            connection, repository, required, required_ids,
+                            read_boundaries):
+                        records.append(("CALLER_CONTRACT", path, start, end, symbol,
+                                        "declared-read-boundary-interface-required-caller-fallback"))
+                if records:
+                    break
+            if records:
+                relation = "compiled-authority-interface-to-required-symbol-caller"
     elif args.request_kind == "CALLEE_CONTRACT":
         # Workers name the missing callee whose contract they need, while the
         # assignment normally seeds the caller.  Admit that exact callee when
