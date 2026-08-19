@@ -75,6 +75,36 @@ Expected-Max-Implementation-Files: 2
 Expected-Max-Worker-Turns: 2
 MD
 
+# Root lifetime measures active convergence time. A durable root-local pause
+# and a partially overlapping project-integrity pause are excluded exactly
+# once instead of aging every root while all agent launches are suppressed.
+touch -d '2 hours ago' \
+	"$project/control/progress/livenessproj-task-consumer.root-assignment.md"
+mkdir -p "$project/archive/token-usage-anomalies" \
+	"$project/archive/project-integrity-anomalies"
+pause_start="$(date -u -d '90 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"
+project_pause_start="$(date -u -d '75 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"
+pause_end="$(date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"
+cat > "$project/archive/token-usage-anomalies/livenessproj-task-consumer.test.resolved.md" <<MD
+Paused-At: $pause_start
+Resolved-At: $pause_end
+MD
+cat > "$project/archive/project-integrity-anomalies/livenessproj.test.resolved.md" <<MD
+Paused-At: $project_pause_start
+Resolved-At: $pause_end
+MD
+active_lifetime="$(bash -c '
+	source "$1/lib/harness-common.sh"
+	load_harness_env "$2"
+	root_lifetime_seconds consumer
+' _ "$HARNESS_HOME" "$TEST_ROOT/harness.env")"
+# Two hours elapsed minus the union of one paused hour is approximately one
+# active hour. Allow scheduling jitter at both date/stat boundaries.
+(( active_lifetime >= 3595 && active_lifetime <= 3605 )) || {
+	printf 'paused lifetime was not excluded exactly once: %s\n' "$active_lifetime" >&2
+	exit 1
+}
+
 # A verified parent increment plus a newly declared child criterion authorizes
 # a bounded LOW/LUNA implementation continuation even while the parent node's
 # final produced architecture decision remains proposed until root completion.

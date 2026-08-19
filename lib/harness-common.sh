@@ -3085,16 +3085,64 @@ root_criterion_max_depth()
 	' "$file"
 }
 
+root_paused_seconds()
+{
+	local root="$1" dir now file paused_at resolved_at start_epoch end_epoch
+	local -a files=() intervals=()
+	dir="$(project_dir)"
+	now="$(epoch_now)"
+	shopt -s nullglob
+	files+=(
+		"$dir/archive/architecture-reassessments/$PROJECT-task-$root."*.resolved.md
+		"$dir/archive/token-usage-anomalies/$PROJECT-task-$root."*.resolved.md
+		"$dir/archive/project-integrity-anomalies/$PROJECT."*.resolved.md
+	)
+	shopt -u nullglob
+	[[ ! -f "$(task_root_architecture_reassessment_file "$root")" ]] ||
+		files+=("$(task_root_architecture_reassessment_file "$root")")
+	[[ ! -f "$(task_root_token_usage_anomaly_file "$root")" ]] ||
+		files+=("$(task_root_token_usage_anomaly_file "$root")")
+	[[ ! -f "$(project_integrity_anomaly_file)" ]] ||
+		files+=("$(project_integrity_anomaly_file)")
+	for file in "${files[@]}"; do
+		paused_at="$(metadata_value "$file" Paused-At)"
+		[[ -n "$paused_at" ]] || continue
+		resolved_at="$(metadata_value "$file" Resolved-At)"
+		start_epoch="$(date -u -d "$paused_at" +%s 2>/dev/null || true)"
+		if [[ -n "$resolved_at" ]]; then
+			end_epoch="$(date -u -d "$resolved_at" +%s 2>/dev/null || true)"
+		else
+			end_epoch="$now"
+		fi
+		[[ "$start_epoch" =~ ^[0-9]+$ && "$end_epoch" =~ ^[0-9]+$ ]] || continue
+		(( end_epoch > start_epoch )) || continue
+		intervals+=("$start_epoch $end_epoch")
+	done
+	(( ${#intervals[@]} > 0 )) || { printf '0\n'; return 0; }
+	# Root-local and project-wide pauses may overlap. Merge their intervals so
+	# one stopped second is subtracted exactly once.
+	printf '%s\n' "${intervals[@]}" | sort -n -k1,1 -k2,2 | awk '
+		NR == 1 {start=$1; finish=$2; next}
+		$1 <= finish {if ($2 > finish) finish=$2; next}
+		{total += finish-start; start=$1; finish=$2}
+		END {if (NR) total += finish-start; print total+0}
+	'
+}
+
 root_lifetime_seconds()
 {
-	local assignment started now
+	local assignment started now paused lifetime
 	assignment="$(task_root_assignment_file "$1")"
 	[[ -f "$assignment" ]] || { printf '0\n'; return 0; }
 	started="$(stat -c %Y "$assignment" 2>/dev/null || printf 0)"
 	now="$(epoch_now)"
 	[[ "$started" =~ ^[0-9]+$ ]] || started="$now"
 	(( now >= started )) || started="$now"
-	printf '%s\n' "$((now - started))"
+	paused="$(root_paused_seconds "$1")"
+	[[ "$paused" =~ ^[0-9]+$ ]] || paused=0
+	lifetime=$((now - started - paused))
+	(( lifetime >= 0 )) || lifetime=0
+	printf '%s\n' "$lifetime"
 }
 
 root_processed_token_count()
