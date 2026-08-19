@@ -898,6 +898,32 @@ MD
 "$HARNESS_BIN/harness-resolve-architecture-reassessment" \
 	"$TEST_ROOT/harness.env" "$scope_root" "$TEST_ROOT/scope-resolution-second.md" >/dev/null
 grep -Fqx 'additional_scope=remediation.c,src/consumer/smoke.c' "$scope_override"
+
+# Denying a false scope expansion must supersede the exhausted-scope request
+# that forced the architecture decision. Preserving that pending transition
+# would immediately demand the denied path and pause the same root again.
+consumer_scope_marker="$project/control/progress/livenessproj-task-consumer.architecture-reassessment-required.md"
+cat > "$consumer_scope_marker" <<'MD'
+# Architecture Reassessment Required
+
+Project: livenessproj
+Task-Root: consumer
+Triggered-By: consumer-revision-11
+Category: MANAGER_REMEDIATION_SCOPE_EXPANSION
+Pending-Replan-Trigger: MANAGER_REMEDIATION_SCOPE_EXHAUSTED
+Pending-Replan-Triggered-By: consumer-revision-10
+Pending-Replan-Blocker-Class: LOCAL_CODE_PREREQUISITE
+Pending-Replan-Remediation-Scope: src/consumer/smoke.c
+MD
+cat > "$TEST_ROOT/scope-denial.md" <<'MD'
+The proposed adjacent file was implicated only by unrelated warning noise, so immutable root scope remains authoritative.
+MD
+"$HARNESS_BIN/harness-resolve-architecture-reassessment" \
+	"$TEST_ROOT/harness.env" consumer "$TEST_ROOT/scope-denial.md" >/dev/null
+consumer_replan="$project/control/progress/livenessproj-task-consumer.needs-replan.md"
+grep -Fqx 'Trigger-Outcome: ARCHITECTURE_REASSESSMENT_RESOLVED' "$consumer_replan"
+! grep -Fq 'MANAGER_REMEDIATION_SCOPE_EXHAUSTED' "$consumer_replan"
+rm -f "$consumer_replan"
 # The exact preserved tracked change is now attributable on restart even after
 # the reassessment marker itself has been archived.
 bash -c 'source "$1/lib/harness-common.sh"; load_harness_env "$2"; require_resumable_repository_start_state' \

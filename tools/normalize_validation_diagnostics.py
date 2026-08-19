@@ -20,6 +20,11 @@ UNDEFINED = re.compile(r"(?P<prefix>.*?)(?:undefined reference to|unresolved ext
 SANITIZER = re.compile(r"(?:ERROR:\s*)?(?P<kind>AddressSanitizer|UndefinedBehaviorSanitizer|ThreadSanitizer):\s*(?P<message>.*)", re.IGNORECASE)
 ASSERTION = re.compile(r"(?P<message>.*(?:assert(?:ion)?|expected|actual).*)", re.IGNORECASE)
 GENERIC = re.compile(r"(?P<message>.*(?:fatal|error|failed|failure|timeout|segmentation fault).*)", re.IGNORECASE)
+COMPILER_SOURCE_EXCERPT = re.compile(r"^\s*\d+\s*\|")
+TYPED_FAILURE_KINDS = {
+    "COMPILER_FATAL", "COMPILER_ERROR", "LINK_ERROR", "SANITIZER_FAILURE",
+    "ASSERTION_FAILURE", "TEST_FAILURE", "TEST_TIMEOUT",
+}
 
 
 def normalized_message(value: str) -> str:
@@ -70,7 +75,13 @@ def compile_diagnostics(log: Path, tool: str, target: str, exit_status: int) -> 
                         row = {"kind": "SANITIZER_FAILURE", "file": "-", "line": "-", "column": "-",
                                "symbol": "-", "primary_message": normalized_message(raw)}
                     else:
-                        match = ASSERTION.search(raw) or (GENERIC.search(raw) if exit_status != 0 else None)
+                        # Compiler source excerpts commonly contain identifiers
+                        # such as GPU_FAILURE or calls such as failed(...). They
+                        # are quoted source, not validation diagnostics. Let the
+                        # preceding location/severity line carry compiler facts.
+                        match = None
+                        if not COMPILER_SOURCE_EXCERPT.match(raw):
+                            match = ASSERTION.search(raw) or (GENERIC.search(raw) if exit_status != 0 else None)
                         if match:
                             row = {"kind": "ASSERTION_FAILURE" if ASSERTION.search(raw) else "COMMAND_FAILURE",
                                    "file": "-", "line": "-", "column": "-", "symbol": "-",
@@ -84,6 +95,18 @@ def compile_diagnostics(log: Path, tool: str, target: str, exit_status: int) -> 
         row.update({"tool": tool, "target": target, "causal_parent": "-", "occurrence_count": "1"})
         records[key] = row
     result = list(records.values())
+    if exit_status != 0:
+        # A failed build can contain thousands of unrelated warnings before its
+        # actual compiler/test failure. Repair prompts are prefix-bounded, so
+        # retaining warning noise here can hide the causal record and falsely
+        # implicate an arbitrary source file. Prefer typed failures; generic
+        # command text is only a fallback when no typed failure exists.
+        typed_failures = [row for row in result if row["kind"] in TYPED_FAILURE_KINDS]
+        if typed_failures:
+            result = typed_failures
+        else:
+            generic_failures = [row for row in result if row["kind"] == "COMMAND_FAILURE"]
+            result = generic_failures
     if exit_status != 0 and not result:
         result.append({"kind": "COMMAND_NONZERO_EXIT", "tool": tool, "target": target,
                        "file": "-", "line": "-", "column": "-", "symbol": "-",

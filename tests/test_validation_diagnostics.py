@@ -34,6 +34,24 @@ class ValidationDiagnosticsTest(unittest.TestCase):
             rows = compile_diagnostics(log, "custom", "smoke", 7)
             self.assertEqual("COMMAND_NONZERO_EXIT", rows[0]["kind"])
 
+    def test_failed_test_suppresses_warning_and_source_excerpt_noise(self):
+        with tempfile.TemporaryDirectory(prefix="validation-diagnostics.") as temporary:
+            log = Path(temporary) / "ctest.log"
+            log.write_text(
+                "src/unrelated.c:189:89: warning: enum conversion [-Wenum-conversion]\n"
+                "  189 | return status == FULL ? OVERFLOW : GPU_FAILURE;\n"
+                "      |                                      ^~~~~~~~~~~\n"
+                "1/1 Test #1: Claims GPU normalization determinism ...***Failed 0.10 sec\n"
+                "0% tests passed, 1 tests failed out of 1\n"
+                "Errors while running CTest\n",
+                encoding="utf-8")
+            rows = compile_diagnostics(log, "bash", "focused", 8)
+            self.assertEqual(1, len(rows))
+            self.assertEqual("TEST_FAILURE", rows[0]["kind"])
+            self.assertEqual("Claims GPU normalization determinism", rows[0]["symbol"])
+            self.assertEqual("-", rows[0]["file"])
+            self.assertEqual("-", rows[0]["causal_parent"])
+
 
 if __name__ == "__main__":
     unittest.main()

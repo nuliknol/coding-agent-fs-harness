@@ -228,7 +228,19 @@ plan_item="$(project_plan_item_for_root "$root")"
 replan_restored=0
 if [[ -n "$plan_item" && "$(project_plan_item_status "$plan_item")" == ACTIVE ]] &&
 	(( root_has_live_artifact == 0 )); then
-	if [[ "$pending_replan_trigger" == CONTEXT_CLOSURE_REPAIR ]]; then
+	# An explicit scope-expansion decision supersedes the transition that asked
+	# for that decision.  Preserving MANAGER_REMEDIATION_SCOPE_EXHAUSTED first
+	# made both outcomes ineffective: an authorization retried the old scope,
+	# while a denial immediately demanded the denied adjacent path again.
+	if [[ "$category" == MANAGER_REMEDIATION_SCOPE_EXPANSION && -n "$additional_scope" ]]; then
+		mark_root_needs_replan "$trigger_task" \
+			"architecture reassessment explicitly authorized one bounded local prerequisite; continue with manager remediation" \
+			MANAGER_REMEDIATION_CONTINUATION LOCAL_CODE_PREREQUISITE "$additional_scope" >/dev/null
+	elif [[ "$category" == MANAGER_REMEDIATION_SCOPE_EXPANSION ]]; then
+		mark_root_needs_replan "$trigger_task" \
+			"architecture reassessment denied scope expansion; discard the forcing exhausted-scope transition, preserve immutable root scope, and continue the focused first-unmet boundary" \
+			ARCHITECTURE_REASSESSMENT_RESOLVED >/dev/null
+	elif [[ "$pending_replan_trigger" == CONTEXT_CLOSURE_REPAIR ]]; then
 		[[ -n "$pending_replan_closure_condition" && -n "$pending_replan_closure_action" &&
 			-n "$pending_replan_closure_provider" ]] ||
 			die 'preserved Context Closure transition is missing its typed condition, action, or provider'
@@ -257,14 +269,6 @@ if [[ -n "$plan_item" && "$(project_plan_item_status "$plan_item")" == ACTIVE ]]
 			MANAGER_REMEDIATION_CONTEXT_INCOMPLETE \
 			"${pending_replan_blocker_class:-LOCAL_SCOPE_PREREQUISITE}" \
 			"$pending_replan_remediation_scope" "$pending_replan_context_paths" >/dev/null
-	elif [[ "$category" == MANAGER_REMEDIATION_SCOPE_EXPANSION && -n "$additional_scope" ]]; then
-		mark_root_needs_replan "$trigger_task" \
-			"architecture reassessment explicitly authorized one bounded local prerequisite; continue with manager remediation" \
-			MANAGER_REMEDIATION_CONTINUATION LOCAL_CODE_PREREQUISITE "$additional_scope" >/dev/null
-	elif [[ "$category" == MANAGER_REMEDIATION_SCOPE_EXPANSION ]]; then
-		mark_root_needs_replan "$trigger_task" \
-			"architecture reassessment denied scope expansion; preserve immutable root scope and continue the focused first-unmet boundary" \
-			ARCHITECTURE_REASSESSMENT_RESOLVED >/dev/null
 	elif [[ "$category" == REPEATED_RESOURCE_DECOMPOSITION_FAILURE ]]; then
 		if [[ "$resolution_action" == VERIFY_PRESERVED_WORKSPACE ]]; then
 			mark_root_needs_replan "$trigger_task" \
