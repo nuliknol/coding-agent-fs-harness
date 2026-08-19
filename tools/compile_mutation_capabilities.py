@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import re
 import sqlite3
 from pathlib import Path
 
@@ -23,13 +24,59 @@ def inside(path: str, scopes: list[str]) -> bool:
                for scope in scopes)
 
 
+def live_braced_definition(repository: Path | None, repository_path: str,
+                            symbol: str) -> tuple[int, int] | None:
+    """Relocate an indexed braced definition against the live worktree.
+
+    Checkpointed edits can move or extend a function long after the immutable
+    repository index was generated.  Mutation authority is still the exact
+    indexed symbol, but its stale line numbers must not reject a patch inside
+    that same live definition.  Only a token followed by a brace before any
+    declaration semicolon is admitted; prototypes and unrelated later blocks
+    therefore cannot broaden the region.
+    """
+    if repository is None:
+        return None
+    candidate = (repository / repository_path).resolve()
+    try:
+        candidate.relative_to(repository)
+    except ValueError:
+        return None
+    if not candidate.is_file():
+        return None
+    lines = candidate.read_text(encoding="utf-8", errors="replace").splitlines()
+    token = re.compile(r"(?<![A-Za-z0-9_])" + re.escape(symbol) +
+                       r"(?![A-Za-z0-9_])")
+    for index, line in enumerate(lines):
+        match = token.search(line)
+        if match is None:
+            continue
+        signature = "\n".join([line[match.start():], *lines[index + 1:index + 40]])
+        opening = signature.find("{")
+        semicolon = signature.find(";")
+        if opening < 0 or (semicolon >= 0 and semicolon < opening):
+            continue
+        opening_line = index + signature[:opening].count("\n")
+        depth = 0
+        opened = False
+        for end_index in range(opening_line, min(len(lines), opening_line + 1024)):
+            depth += lines[end_index].count("{")
+            opened = opened or "{" in lines[end_index]
+            depth -= lines[end_index].count("}")
+            if opened and depth <= 0:
+                return index + 1, end_index + 1
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--plan", required=True)
     parser.add_argument("--pointer", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument("--repository")
     parser.add_argument("--require-exact-luna", action="store_true")
     args = parser.parse_args()
+    repository = Path(args.repository).resolve() if args.repository else None
 
     pointer = Path(args.pointer)
     database: Path | None = None
@@ -72,10 +119,15 @@ def main() -> int:
                     if bounded:
                         resolved_symbols.add(symbol)
                     for path, display, start, end, kind in bounded:
+                        live_window = live_braced_definition(repository, path, display)
+                        authority = "INDEXED"
+                        if live_window is not None and live_window != (start, end):
+                            start, end = live_window
+                            authority = "INDEXED_LIVE_RELOCATED"
                         node_rows.append({"node_id": node, "repository_path": path,
                                           "symbol": display, "start_line": str(start),
                                           "end_line": str(end), "symbol_kind": kind,
-                                          "authority": "INDEXED"})
+                                          "authority": authority})
             complete = bool(symbols) and resolved_symbols == set(symbols)
             # Mutation regions are an all-or-nothing refinement of the plan's
             # Allowed-Scope.  Publishing a partial symbol set makes the patch

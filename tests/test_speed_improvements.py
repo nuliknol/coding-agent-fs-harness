@@ -221,6 +221,53 @@ class SpeedImprovementTests(unittest.TestCase):
             with output.open(encoding="utf-8", newline="") as stream:
                 self.assertEqual(list(csv.DictReader(stream, delimiter="\t")), [])
 
+    def test_mutation_capability_relocates_live_braced_definition(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = root / "repo"
+            (repository / "src").mkdir(parents=True)
+            (repository / "src" / "a.c").write_text(
+                "/* checkpointed prefix */\n" * 10 +
+                "int target(int value)\n{\n"
+                "    value += 1;\n"
+                "    return value;\n}\n",
+                encoding="utf-8",
+            )
+            database = root / "architecture.sqlite"
+            connection = sqlite3.connect(database)
+            connection.executescript("""
+                CREATE TABLE symbols(symbol_id TEXT, display_name TEXT, symbol_kind TEXT);
+                CREATE TABLE symbol_definitions(symbol_id TEXT, region_id INTEGER);
+                CREATE TABLE source_regions(region_id INTEGER, file_id INTEGER, start_line INTEGER, end_line INTEGER);
+                CREATE TABLE files(file_id INTEGER, repository_path TEXT);
+                INSERT INTO symbols VALUES('s','target','function');
+                INSERT INTO files VALUES(1,'src/a.c');
+                INSERT INTO source_regions VALUES(1,1,1,5);
+                INSERT INTO symbol_definitions VALUES('s',1);
+            """)
+            connection.commit()
+            connection.close()
+            pointer = root / "pointer.env"
+            pointer.write_text(f"status=READY\ngeneration_dir={root}\n", encoding="utf-8")
+            plan = root / "plan.tsv"
+            plan.write_text(
+                "node_id\tallowed_paths\trequired_symbols\tleaf_type\tworker_route\n"
+                "n1\tsrc/a.c\ttarget\tLOCAL_IMPLEMENTATION\tLUNA\n", encoding="utf-8")
+            output = root / "out.tsv"
+
+            result = subprocess.run([
+                "python3", str(ROOT / "tools/compile_mutation_capabilities.py"),
+                "--plan", str(plan), "--pointer", str(pointer),
+                "--repository", str(repository), "--output", str(output)],
+                text=True, capture_output=True)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            with output.open(encoding="utf-8", newline="") as stream:
+                rows = list(csv.DictReader(stream, delimiter="\t"))
+            self.assertEqual("11", rows[0]["start_line"])
+            self.assertEqual("15", rows[0]["end_line"])
+            self.assertEqual("INDEXED_LIVE_RELOCATED", rows[0]["authority"])
+
     def test_validation_build_rewrite_covers_direct_execution(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

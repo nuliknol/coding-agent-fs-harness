@@ -17,6 +17,7 @@ conflicts="$dir/control/project-conflict-graph.tsv"
 parallelism="$dir/control/decomposition-parallelism.env"
 python3 "$HARNESS_HOME/tools/compile_mutation_capabilities.py" \
 	--plan "$plan" --pointer "$dir/control/repository-index.env" \
+	--repository "$REPOSITORY" \
 	--output "$capabilities.tmp.$$"
 chmod 600 "$capabilities.tmp.$$"
 mv "$capabilities.tmp.$$" "$capabilities"

@@ -6507,6 +6507,7 @@ initialize_project_plan_v2()
 	mutation_capabilities_tmp="$mutation_capabilities.tmp.$$"
 	python3 "$HARNESS_HOME/tools/compile_mutation_capabilities.py" \
 		--plan "$dag_tmp" --pointer "$(project_dir)/control/repository-index.env" \
+		--repository "$REPOSITORY" \
 		--output "$mutation_capabilities_tmp" --require-exact-luna || {
 		rm -f -- "$mutation_capabilities_tmp"
 		die 'decomposition uses broad Luna mutation authority despite exact indexed symbol definitions'
