@@ -670,6 +670,32 @@ class ContextClosureToolsTest(unittest.TestCase):
         self.assertNotIn("SDK_INTERNAL", context)
         self.assertIn("EXTERNAL_HEADER", (output / "build-inputs.tsv").read_text())
 
+    def test_exact_validation_target_bounds_shared_source_memberships(self):
+        connection = sqlite3.connect(self.database)
+        for index in range(7):
+            target_id = f"target-{index}"
+            target_name = "calc_exact_smoke" if index == 6 else f"calc_other_{index}"
+            connection.execute(
+                "INSERT INTO build_targets VALUES(?,?,?,?,?,?)",
+                (target_id, "g", target_name, "CMAKE_COMPILE_TARGET",
+                 "CMakeLists.txt", "test"))
+            connection.execute(
+                "INSERT INTO build_target_files VALUES(?,?,?,?,?,?)",
+                (target_id, 1, "c", "COMPILE_SOURCE", f"calc-{index}.o", "test"))
+        connection.commit()
+        connection.close()
+
+        status, output = self.closure(
+            extra="Focused-Validation: cmake --build build --target calc_exact_smoke\n")
+
+        self.assertEqual("READY", status)
+        targets = (output / "build-targets.tsv").read_text(encoding="utf-8")
+        self.assertIn("calc_exact_smoke", targets)
+        self.assertNotIn("calc_other_", targets)
+        quality = (output / "quality.tsv").read_text(encoding="utf-8")
+        self.assertIn("build_targets\t1", quality)
+        self.assertIn("bounded_build_targets_omitted\t6", quality)
+
     def test_reviewed_systematic_omission_routes_to_remediation(self):
         omissions = self.root / "omissions.tsv"
         omissions.write_text("repository_path\tmissing_episodes\taction\n"

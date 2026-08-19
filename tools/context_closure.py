@@ -1007,6 +1007,38 @@ def build_closure(args: argparse.Namespace) -> str:
         for row in rows:
             build_targets[row["target_id"]] = {key: str(row[key] or "-") for key in row.keys()}
 
+    # A source can be compiled into many executables and libraries. Those are
+    # alternative memberships, not seven independent semantic modules. When
+    # the assignment names an exact validation/build target, retain that target
+    # as authoritative build provenance and omit unrelated memberships before
+    # applying the module/target budgets. Otherwise a one-file repair can loop
+    # forever in semantic decomposition solely because a popular source is
+    # reused by several smoke binaries.
+    focused_validation = values.get("Focused-Validation", "")
+    validation_target_names = {
+        record["name"] for record in build_targets.values()
+        if re.search(rf"(?<![A-Za-z0-9_.-]){re.escape(record['name'])}"
+                     r"(?![A-Za-z0-9_.-])", focused_validation)
+    }
+    authoritative_target_names = set(requested_targets) | validation_target_names
+    bounded_build_targets_omitted = 0
+    if authoritative_target_names:
+        retained_target_ids = {
+            target_id for target_id, record in build_targets.items()
+            if record["name"] in authoritative_target_names
+        }
+        bounded_build_targets_omitted = len(build_targets) - len(retained_target_ids)
+        build_targets = {
+            target_id: record for target_id, record in build_targets.items()
+            if target_id in retained_target_ids
+        }
+        retained_names = {record["name"] for record in build_targets.values()}
+        build_targets_by_path = {
+            path: names & retained_names
+            for path, names in build_targets_by_path.items()
+            if names & retained_names
+        }
+
     build_inputs: dict[str, dict[str, str]] = {}
     build_input_bytes_by_source: dict[str, int] = {}
     for target_id in sorted(build_targets):
@@ -1423,6 +1455,7 @@ def build_closure(args: argparse.Namespace) -> str:
         stream.write(f"bounded_test_candidates_omitted\t{bounded_test_candidates_omitted}\n")
         stream.write(f"bounded_supporting_items_omitted\t{bounded_supporting_items_omitted}\n")
         stream.write(f"build_targets\t{len(build_targets)}\n")
+        stream.write(f"bounded_build_targets_omitted\t{bounded_build_targets_omitted}\n")
         stream.write(f"build_inputs\t{len(build_inputs)}\n")
         stream.write(f"unresolved\t{len(unresolved)}\n")
         stream.write(f"graph_cuts\t{len(set(graph_cuts))}\n")
