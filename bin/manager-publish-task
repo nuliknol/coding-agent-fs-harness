@@ -421,7 +421,7 @@ normalize_measured_assignment_metadata()
 				"$root_complexity" =~ ^[1-9][0-9]*$ && "$root_actions" =~ ^[1-9][0-9]*$ &&
 				"$root_files" =~ ^[0-9]+$ && "$root_effective_p95" =~ ^[1-9][0-9]*$ ]] &&
 				(( complexity_score <= root_complexity && actions <= root_actions &&
-				implementation_files <= root_files && declared_p95 <= root_effective_p95 )); then
+				implementation_files <= root_files )); then
 				live_calibrated_p95="$effective_p95"
 				effective_p95="$root_effective_p95"
 				log_event "RECOVERY_CHILD_ROOT_BUDGET_CEILING root=$root task=$task_id score=$complexity_score actions=$actions files=$implementation_files declared_p95=$declared_p95 live_calibrated_p95=$live_calibrated_p95 root_p95=$root_effective_p95"
