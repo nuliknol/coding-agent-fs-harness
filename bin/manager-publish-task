@@ -776,7 +776,7 @@ validate_deterministic_closure_cut()
 {
 	local parent="$1" marker action trigger repair declared child_id _parent_task _sequence tmp
 	local allowed_paths context_paths required_symbols acceptance focused_validation
-	local _source_cut _seam_kind _estimated _status target parent_depth child_count
+	local _source_cut _seam_kind _estimated _status target parent_depth child_count repair_child_count
 	local -a repair_row=()
 	marker="$(task_root_replan_file "$root")"
 	declared="$(metadata_value "$task_file" Context-Closure-Cut)"
@@ -800,8 +800,10 @@ validate_deterministic_closure_cut()
 		' "$criterion_decomposition")"
 	fi
 	child_count="$(root_child_criterion_count "$root")"
+	repair_child_count="$(awk 'END {print (NR > 0 ? NR - 1 : 0)}' "$repair")"
 	if (( parent_depth < HARNESS_MAX_CRITERION_DEPTH &&
-		child_count < HARNESS_MAX_ROOT_CHILD_CRITERIA )); then
+		child_count < HARNESS_MAX_ROOT_CHILD_CRITERIA &&
+		child_count + repair_child_count <= HARNESS_MAX_ROOT_CHILD_CRITERIA )); then
 		[[ -z "$declared" ]] || die 'Context-Closure-Cut may replace child grafting only after the structural criterion budget is exhausted'
 		return 0
 	fi
