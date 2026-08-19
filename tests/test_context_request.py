@@ -242,6 +242,31 @@ class ContextRequestTest(unittest.TestCase):
         )
         self.assertIn("typedef struct RemoteResult", extension)
 
+    def test_unindexed_overlay_type_inside_closure_path_is_admitted(self):
+        (self.repository / "contract.h").write_text(
+            "typedef enum DecodeStatus {\n"
+            "    DECODE_OK = 0,\n"
+            "    DECODE_MALFORMED = 1\n"
+            "} DecodeStatus;\n",
+            encoding="utf-8",
+        )
+        self.closure.write_text(
+            self.closure.read_text(encoding="utf-8") +
+            "two\tINTERFACE_REFERENCE\tcontract.h\t1\t4\tadd\tinterface\tSUPPORTING\toverlay\n",
+            encoding="utf-8",
+        )
+
+        result = self.resolve("TYPE_DEFINITION", "DecodeStatus")
+
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        extension = (self.root / "extension.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "Authorization-Relation: exact-type-inside-declared-read-boundary-lexical-definition-fallback",
+            extension,
+        )
+        self.assertIn("typedef enum DecodeStatus", extension)
+        self.assertIn("DECODE_MALFORMED", extension)
+
     def test_exact_source_window_inside_declared_read_boundary_is_admitted(self):
         result = self.resolve("SOURCE_WINDOW", "calc.c")
         self.assertEqual(0, result.returncode, result.stderr + result.stdout)

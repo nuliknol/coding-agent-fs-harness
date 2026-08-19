@@ -270,6 +270,49 @@ def indexed_lexical_function_definitions(connection: sqlite3.Connection,
     return recovered
 
 
+def bounded_lexical_type_definitions(repository: Path, identifier: str,
+                                     boundaries: set[str]
+                                     ) -> list[tuple[str, int, int]]:
+    """Recover an exact type declaration from already-authorized files.
+
+    A tracked overlay can add a typedef after the immutable SCIP generation
+    was published.  Context-closure paths are read authority, so scanning only
+    those exact files preserves the same boundary as an indexed definition
+    while allowing the broker to return the live declaration.  This is a
+    deliberately small C-family recognizer, not repository-wide recall.
+    """
+    token = re.compile(rf"(?<![A-Za-z0-9_]){re.escape(identifier)}(?![A-Za-z0-9_])")
+    type_start = re.compile(
+        r"^\s*(?:typedef\b|(?:struct|union|enum|class)\s+[A-Za-z_][A-Za-z0-9_]*)")
+    suffixes = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".hip", ".cu"}
+    recovered: list[tuple[str, int, int]] = []
+    for boundary in sorted(boundaries):
+        normalized = boundary.split("#", 1)[0].rstrip("/")
+        entry = safe_entry(repository, normalized)
+        if entry is None or not entry.is_file() or entry.suffix.lower() not in suffixes:
+            continue
+        lines = entry.read_text(encoding="utf-8", errors="replace").splitlines()
+        for start, line in enumerate(lines):
+            if not type_start.search(line):
+                continue
+            depth = 0
+            opened = False
+            end_limit = min(len(lines), start + 256)
+            for end in range(start, end_limit):
+                depth += lines[end].count("{")
+                opened = opened or "{" in lines[end]
+                depth -= lines[end].count("}")
+                if ";" not in lines[end] or depth > 0:
+                    continue
+                declaration = "\n".join(lines[start:end + 1])
+                if token.search(declaration) and (line.lstrip().startswith("typedef") or opened):
+                    recovered.append((normalized, start + 1, end + 1))
+                break
+        if len(recovered) >= 4:
+            break
+    return recovered[:4]
+
+
 def declared_validation_paths(repository: Path, command: str) -> set[str]:
     """Return exact existing repository paths named as validation arguments."""
     try:
@@ -460,6 +503,13 @@ def main() -> int:
                         records.append(("TYPE_DEFINITION", row["repository_path"],
                                         row["start_line"], row["end_line"],
                                         row["display_name"], row["provider"]))
+        if not records:
+            for path, start, end in bounded_lexical_type_definitions(
+                    repository, identifier, read_boundaries):
+                records.append(("TYPE_DEFINITION", path, start, end, identifier,
+                                "declared-read-boundary-lexical-type-fallback"))
+            if records:
+                relation = "exact-type-inside-declared-read-boundary-lexical-definition-fallback"
     elif args.request_kind == "CALLER_CONTRACT":
         authorized = set(requested_ids) & seed_ids
         if authorized:
