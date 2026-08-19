@@ -1002,6 +1002,32 @@ grep -Fqx 'Trigger-Outcome: MANAGER_REMEDIATION_CONTEXT_INCOMPLETE' "$consumer_r
 grep -Fqx 'Remediation-Scope: src/consumer/smoke.c' "$consumer_replan"
 grep -Fqx 'Context-Paths: src/consumer/smoke.c' "$consumer_replan"
 rm -f "$consumer_replan"
+
+# The initial 5.18.4 implementation incorrectly archived this same
+# local-symbol condition as a generic resolved reassessment.  A bounded
+# operator correction may recover it only by naming the preserved rejected
+# manager-remediation task; no arbitrary publication-exhausted root qualifies.
+cat > "$local_symbol_scope_marker" <<'MD'
+# Architecture Reassessment Required
+
+Project: livenessproj
+Task-Root: consumer
+Triggered-By: consumer-revision-14
+Category: MANAGER_PUBLICATION_CONTRACT_EXHAUSTED
+Pending-Replan-Trigger: ARCHITECTURE_REASSESSMENT_RESOLVED
+Pending-Replan-Triggered-By: consumer-revision-14
+MD
+cat > "$TEST_ROOT/local-symbol-index-historic-resolution.md" <<MD
+Resolution-Action: RECLASSIFY_LOCAL_SYMBOL_INDEX_CONTEXT
+Harness-Fix-Commit: $fix_commit
+Recovery-Source-Task: consumer-revision-13
+MD
+"$HARNESS_BIN/harness-resolve-architecture-reassessment" \
+	"$TEST_ROOT/harness.env" consumer "$TEST_ROOT/local-symbol-index-historic-resolution.md" >/dev/null
+consumer_replan="$project/control/progress/livenessproj-task-consumer.needs-replan.md"
+grep -Fqx 'Trigger-Outcome: MANAGER_REMEDIATION_CONTEXT_INCOMPLETE' "$consumer_replan"
+grep -Fqx 'Triggered-By: consumer-revision-13' "$consumer_replan"
+rm -f "$consumer_replan"
 # The exact preserved tracked change is now attributable on restart even after
 # the reassessment marker itself has been archived.
 bash -c 'source "$1/lib/harness-common.sh"; load_harness_env "$2"; require_resumable_repository_start_state' \

@@ -66,6 +66,13 @@ frozen_root_complexity_class=""
 frozen_root_worker_route=""
 frozen_root_terra_exception=""
 frozen_root_architecture_decisions=""
+# A recovery draft can be recalibrated against a newer fleet report after its
+# root was accepted.  When the draft remains strictly inside the immutable
+# Luna root vector, the root budget is authoritative.  Record that exact
+# normalization so the later deterministic-contract verifier compares like
+# with like instead of rejecting the publisher's own safe ceiling.
+manager_remediation_root_budget_ceiling=0
+manager_remediation_root_budget_p95=""
 cleanup_publish()
 {
 	local status="$?"
@@ -1600,6 +1607,8 @@ normalize_manager_remediation_root_budget()
 	' "$task_file" > "$tmp"
 	chmod --reference="$task_file" "$tmp"
 	mv "$tmp" "$task_file"
+	manager_remediation_root_budget_ceiling=1
+	manager_remediation_root_budget_p95="$root_p95"
 	log_event "MANAGER_REMEDIATION_ROOT_BUDGET_CEILING root=$root task=$task_id score=$candidate_score actions=$candidate_actions files=$candidate_files root_p95=$root_p95"
 }
 
@@ -1879,6 +1888,7 @@ normalize_recovery_context_paths()
 					if (( duplicate == 0 )); then
 						kept+=("$writer_selector")
 						changed=1
+						log_event "CONTEXT_INCOMPLETE_REQUIRED_SYMBOL_EXPANDED root=$root task=$task_id symbol=$(printf '%q' "$requested_writer_identifier") path=$(printf '%q' "${writer_selector%%#*}")"
 						if [[ "$requested_writer_kind" == MISSING_REQUIRED_SYMBOL_INDEX ]]; then
 							log_event "CONTEXT_LOCAL_SYMBOL_WINDOW_EXPANDED root=$root task=$task_id trigger=$replan_trigger_task selector=$(printf '%q' "$writer_selector")"
 						else
@@ -1992,6 +2002,7 @@ normalize_recovery_context_paths()
 			kept+=("$candidate")
 			exact_files+=("$candidate")
 			changed=1
+			log_event "CONTEXT_INCOMPLETE_REQUIRED_SYMBOL_EXPANDED root=$root task=$task_id symbol=$(printf '%q' "$symbol") path=$(printf '%q' "$candidate")"
 		}
 	done
 
@@ -2414,7 +2425,15 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 				"Predicted-P95-Tokens:16:$leaf_predicted_p95"; do
 				IFS=: read -r metadata_field report_field actual_value <<< "$mapping"
 				if (( measured_recovery_route_override != 2 )); then
-					if (( frozen_root_measured_contract == 1 )); then
+					if [[ "$metadata_field" == Predicted-P95-Tokens &&
+						$manager_remediation_root_budget_ceiling -eq 1 &&
+						"$manager_remediation_root_budget_p95" =~ ^[1-9][0-9]*$ ]]; then
+						# This candidate was deliberately bounded to an accepted
+						# root budget after a newer report raised its calibration.
+						# The root ceiling is therefore the deterministic contract
+						# for this one recovery field.
+						expected_value="$manager_remediation_root_budget_p95"
+					elif (( frozen_root_measured_contract == 1 )); then
 						case "$metadata_field" in
 							Behavioral-Concerns) expected_value="$frozen_root_behavioral" ;;
 							Failure-Paths) expected_value="$frozen_root_failures" ;;
@@ -2465,7 +2484,12 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 					expected_value="$(awk -F '\t' -v node="$plan_item_id" 'NR>1 && $1==node {print $4; exit}' "$(decomposition_complexity_report_file)")"
 				fi
 				[[ "$leaf_complexity_score" == "$expected_value" ]] || die 'Complexity-Score must match the deterministic complexity report'
-				if (( frozen_root_measured_contract == 1 )); then
+				if (( manager_remediation_root_budget_ceiling == 1 )) &&
+					[[ "$manager_remediation_root_budget_p95" =~ ^[1-9][0-9]*$ ]]; then
+					# Keep Effective-P95-Tokens paired with the same authoritative
+					# root ceiling as Predicted-P95-Tokens above.
+					expected_value="$manager_remediation_root_budget_p95"
+				elif (( frozen_root_measured_contract == 1 )); then
 					expected_value="$frozen_root_effective_p95"
 				else
 					expected_value="$(awk -F '\t' -v node="$plan_item_id" 'NR>1 && $1==node {print $17; exit}' "$(decomposition_complexity_report_file)")"

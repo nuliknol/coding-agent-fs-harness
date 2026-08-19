@@ -76,6 +76,7 @@ if [[ -f "$scope_override" &&
 fi
 resolution_action="$(metadata_value "$note_file" Resolution-Action)"
 harness_fix_commit="$(metadata_value "$note_file" Harness-Fix-Commit)"
+recovery_source_task="$(metadata_value "$note_file" Recovery-Source-Task)"
 pending_replan_inferred=0
 mutation_region_reclassified=0
 local_symbol_index_reclassified=0
@@ -209,16 +210,30 @@ if [[ -n "$resolution_action" ]]; then
 			mutation_region_reclassified=1
 			;;
 		RECLASSIFY_LOCAL_SYMBOL_INDEX_CONTEXT)
-			[[ "$category" == MANAGER_REMEDIATION_SCOPE_EXPANSION &&
-				"$pending_replan_trigger" == MANAGER_REMEDIATION_SCOPE_EXHAUSTED ]] ||
-				die 'RECLASSIFY_LOCAL_SYMBOL_INDEX_CONTEXT is valid only for an exhausted manager-remediation scope reassessment'
+			# 5.18.4 briefly resolved this exact local-symbol condition through
+			# ARCHITECTURE_REASSESSMENT_RESOLVED.  Accept that narrow historic
+			# marker only with an explicit archived source task; ordinary
+			# publication exhaustion remains non-reclassifiable.
+			if [[ "$category" == MANAGER_REMEDIATION_SCOPE_EXPANSION &&
+				"$pending_replan_trigger" == MANAGER_REMEDIATION_SCOPE_EXHAUSTED ]]; then
+				local_symbol_task="${pending_replan_task:-$trigger_task}"
+			elif [[ "$category" == MANAGER_PUBLICATION_CONTRACT_EXHAUSTED &&
+				"$pending_replan_trigger" == ARCHITECTURE_REASSESSMENT_RESOLVED ]]; then
+				[[ -n "$recovery_source_task" ]] ||
+					die 'historic local-symbol recovery requires Recovery-Source-Task'
+				validate_task_id "$recovery_source_task"
+				[[ "$(task_root_id "$recovery_source_task")" == "$root" ]] ||
+					die 'Recovery-Source-Task must belong to the reassessed root'
+				local_symbol_task="$recovery_source_task"
+			else
+				die 'RECLASSIFY_LOCAL_SYMBOL_INDEX_CONTEXT is valid only for the recorded exhausted local-symbol remediation transition'
+			fi
 			[[ "$harness_fix_commit" =~ ^[0-9a-f]{7,64}$ ]] ||
 				die 'RECLASSIFY_LOCAL_SYMBOL_INDEX_CONTEXT requires Harness-Fix-Commit'
 			git -C "$HARNESS_HOME" cat-file -e "$harness_fix_commit^{commit}" 2>/dev/null ||
 				die "Harness-Fix-Commit is not installed in the harness repository: $harness_fix_commit"
 			git -C "$HARNESS_HOME" merge-base --is-ancestor "$harness_fix_commit" HEAD ||
 				die "Harness-Fix-Commit is not an ancestor of the deployed harness HEAD: $harness_fix_commit"
-			local_symbol_task="${pending_replan_task:-$trigger_task}"
 			local_symbol_assignment="$(project_dir)/archive/$(task_base "$local_symbol_task").assignment.md"
 			local_symbol_result="$(project_dir)/archive/$(task_base "$local_symbol_task").rejected-result.md"
 			[[ -f "$local_symbol_assignment" && -f "$local_symbol_result" ]] ||

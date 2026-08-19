@@ -13,7 +13,7 @@ fi
 
 mkdir -p "$TEST_ROOT/repo/src/cmake" "$TEST_ROOT/repo/include" "$TEST_ROOT/manager-home" "$TEST_ROOT/worker-home"
 printf 'Implement one focused behavior.\n' > "$TEST_ROOT/repo/spec.md"
-printf 'int target_symbol(void) { return 0; }\nint adjacent_symbol(void) { return target_symbol(); }\n' > "$TEST_ROOT/repo/src/a.c"
+printf 'int target_symbol(void) { return 0; }\nint adjacent_symbol(void) { return target_symbol(); }\nint budget_symbol(void) { return adjacent_symbol(); }\n' > "$TEST_ROOT/repo/src/a.c"
 printf 'int target_symbol(void);\n' > "$TEST_ROOT/repo/include/a.h"
 printf 'include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/registration.cmake)\nadd_custom_target(fixture-check)\n' > "$TEST_ROOT/repo/src/CMakeLists.txt"
 printf 'add_custom_target(registration-check)\n' > "$TEST_ROOT/repo/src/cmake/registration.cmake"
@@ -665,6 +665,52 @@ grep -Fq 'CONTEXT_INCOMPLETE_REQUIRED_SYMBOL_EXPANDED root=001 task=001-revision
 grep -Fq 'CONTEXT_WRITER_WINDOW_EXPANDED root=001 task=001-revision-02' \
 	"$normalize_project/logs/events.log"
 grep -Fq 'CONTEXT_SYMBOL_SELECTOR_RETAINED root=001 task=001-revision-02 selector=src/a.c#adjacent_symbol' \
+	"$normalize_project/logs/events.log"
+
+# A newer fleet calibration can legitimately raise a measured plan node after
+# its root was accepted.  A bounded Luna manager remediation must retain the
+# accepted root P95 ceiling.  It must not be rejected later because the
+# publisher itself correctly replaced the recalibrated 200K value with the
+# immutable 100K root budget.
+mv "$normalize_symbol_ready" \
+	"$normalize_project/archive/decompnormalize-task-001-revision-02.assignment.md"
+cat > "$normalize_project/archive/decompnormalize-task-001-revision-02.rejected-result.md" <<'RESULT'
+Goal-Outcome: NEEDS_DECOMPOSITION
+Decomposition-Reason: CONTEXT_INCOMPLETE
+ACP-Request-Kind: REPRESENTATION_WRITER
+ACP-Request-Identifier: budget_symbol
+RESULT
+cat > "$normalize_project/control/progress/decompnormalize-task-001.needs-replan.md" <<'MARKER'
+# Root Task Needs Replanning
+
+Task-Root: 001
+Triggered-By: 001-revision-02
+Trigger-Outcome: MANAGER_REMEDIATION_CONTEXT_INCOMPLETE
+Blocking-Fingerprint: sha256:root-budget-ceiling
+Remediation-Scope: src/a.c
+Context-Paths: include/a.h,src/a.c
+MARKER
+awk -F '\t' 'BEGIN {OFS=FS} NR > 1 && $1 == "n1" {$16=200000; $17=200000} {print}' \
+	"$normalize_project/control/decomposition-complexity.tsv" \
+	> "$normalize_project/control/decomposition-complexity.tsv.next"
+mv "$normalize_project/control/decomposition-complexity.tsv.next" \
+	"$normalize_project/control/decomposition-complexity.tsv"
+sed \
+	-e 's/^Task-ID: 001$/Task-ID: 001-revision-03/' \
+	-e 's/^Goal-ID: n1.goal$/Goal-ID: n1.root-budget/' \
+	-e 's#^Allowed-Scope: src$#Allowed-Scope: src/a.c#' \
+	-e 's#^Context-Paths: include/a.h,src$#Context-Paths: include/a.h,src/a.c#' \
+	-e 's/^Required-Symbols: target_symbol$/Required-Symbols: budget_symbol/' \
+	-e 's#^Focused-Validation:.*#Focused-Validation: test -f src/a.c \&\& rg -q --fixed-strings budget_symbol src/a.c#' \
+	-e 's#\./focused-smoke#test -f src/a.c \&\& rg -q --fixed-strings budget_symbol src/a.c#' \
+	-e '/^Root-Criterion: n1.done$/a Manager-Remediation: 1\nBlocker-Class: LOCAL_CODE_PREREQUISITE\nRemediation-Scope: src/a.c\nValidation-Class: FOCUSED\nReplan-Strategy-ID: normalize.root-budget.3\nStrategy-Change: REPAIR_PREREQUISITE\nSupersedes-Task: 001-revision-02' \
+	"$TEST_ROOT/normalize-root-task.md" > "$TEST_ROOT/normalize-root-budget-task.md"
+"$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/normalize-harness.env" \
+	001-revision-03 "$TEST_ROOT/normalize-root-budget-task.md" --manager-remediation >/dev/null
+normalize_budget_ready="$normalize_project/tasks/decompnormalize-task-001-revision-03.ready.md"
+grep -Fqx 'Predicted-P95-Tokens: 100000' "$normalize_budget_ready"
+grep -Fqx 'Effective-P95-Tokens: 100000' "$normalize_budget_ready"
+grep -Fq 'MANAGER_REMEDIATION_ROOT_BUDGET_CEILING root=001 task=001-revision-03' \
 	"$normalize_project/logs/events.log"
 
 # A single compiled graph cut is already the irreducible execution seam. It is
