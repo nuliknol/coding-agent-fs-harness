@@ -318,6 +318,87 @@ class SpeedImprovementTests(unittest.TestCase):
                 "--identifier", "src/a.c:3"], text=True).strip()
             self.assertEqual("src/a.c\tprovider", resolved)
 
+    def test_file_local_overlay_symbol_compiles_exact_mutation_region(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = root / "repo"
+            (repository / "src").mkdir(parents=True)
+            (repository / "src" / "a.c").write_text(
+                "int provider(void)\n{\n"
+                "    int checkpoint_digest = 1;\n"
+                "    return checkpoint_digest;\n"
+                "}\n",
+                encoding="utf-8")
+            database = root / "architecture.sqlite"
+            connection = sqlite3.connect(database)
+            connection.executescript("""
+                CREATE TABLE symbols(symbol_id TEXT, display_name TEXT, symbol_kind TEXT);
+                CREATE TABLE symbol_definitions(symbol_id TEXT, region_id INTEGER);
+                CREATE TABLE source_regions(region_id INTEGER, file_id INTEGER, start_line INTEGER, end_line INTEGER);
+                CREATE TABLE files(file_id INTEGER, repository_path TEXT);
+                INSERT INTO symbols VALUES('provider','provider','function');
+                INSERT INTO files VALUES(1,'src/a.c');
+                INSERT INTO source_regions VALUES(1,1,1,5);
+                INSERT INTO symbol_definitions VALUES('provider',1);
+            """)
+            connection.commit()
+            connection.close()
+            pointer = root / "pointer.env"
+            pointer.write_text(f"status=READY\ngeneration_dir={root}\n", encoding="utf-8")
+            assignment = root / "assignment.md"
+            assignment.write_text(
+                "Allowed-Scope: src/a.c\nRequired-Symbols: checkpoint_digest\n"
+                "Leaf-Type: LOCAL_IMPLEMENTATION\nWorker-Route: LUNA\n",
+                encoding="utf-8")
+            output = root / "out.tsv"
+            result = subprocess.run([
+                "python3", str(ROOT / "tools/compile_mutation_capabilities.py"),
+                "--assignment", str(assignment), "--node-id", "n1",
+                "--pointer", str(pointer), "--repository", str(repository),
+                "--output", str(output), "--require-complete-source"],
+                text=True, capture_output=True)
+            self.assertEqual(0, result.returncode, result.stderr)
+            with output.open(encoding="utf-8", newline="") as stream:
+                rows = list(csv.DictReader(stream, delimiter="\t"))
+            self.assertEqual(1, len(rows))
+            self.assertEqual("checkpoint_digest", rows[0]["symbol"])
+            self.assertEqual("2", rows[0]["start_line"])
+            self.assertEqual("5", rows[0]["end_line"])
+            self.assertEqual("LEXICAL_LOCAL_ALLOWED_FILE", rows[0]["authority"])
+
+    def test_unresolved_symbol_cannot_use_local_capability_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = root / "repo"
+            (repository / "src").mkdir(parents=True)
+            (repository / "src" / "a.c").write_text(
+                "int provider(void) { return 1; }\n", encoding="utf-8")
+            database = root / "architecture.sqlite"
+            connection = sqlite3.connect(database)
+            connection.executescript("""
+                CREATE TABLE symbols(symbol_id TEXT, display_name TEXT, symbol_kind TEXT);
+                CREATE TABLE symbol_definitions(symbol_id TEXT, region_id INTEGER);
+                CREATE TABLE source_regions(region_id INTEGER, file_id INTEGER, start_line INTEGER, end_line INTEGER);
+                CREATE TABLE files(file_id INTEGER, repository_path TEXT);
+            """)
+            connection.commit()
+            connection.close()
+            pointer = root / "pointer.env"
+            pointer.write_text(f"status=READY\ngeneration_dir={root}\n", encoding="utf-8")
+            assignment = root / "assignment.md"
+            assignment.write_text(
+                "Allowed-Scope: src/a.c\nRequired-Symbols: invented_symbol\n"
+                "Leaf-Type: LOCAL_IMPLEMENTATION\nWorker-Route: LUNA\n",
+                encoding="utf-8")
+            result = subprocess.run([
+                "python3", str(ROOT / "tools/compile_mutation_capabilities.py"),
+                "--assignment", str(assignment), "--node-id", "n1",
+                "--pointer", str(pointer), "--repository", str(repository),
+                "--output", str(root / "out.tsv"), "--require-complete-source"],
+                text=True, capture_output=True)
+            self.assertEqual(3, result.returncode)
+            self.assertIn("Required-Symbols are absent from the repository index", result.stderr)
+
     def test_validation_build_rewrite_covers_direct_execution(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -82,6 +82,61 @@ def live_braced_definition(repository: Path | None, repository_path: str,
     return None
 
 
+def live_local_symbol_region(repository: Path | None, repository_path: str,
+                             symbol: str) -> tuple[int, int] | None:
+    """Return the enclosing live braced region for an exact file-local token.
+
+    SCIP is the authoritative structural graph, but a long-lived index can
+    legitimately omit a local C/C++ variable introduced by a checkpointed
+    change.  Rejecting that variable after Context Closure has already located
+    it creates a contradictory authority model: the worker sees an exact
+    bounded source fact but cannot submit a patch in the same source function.
+
+    This fallback is intentionally narrower than general lexical retrieval.
+    It is available only for an exact token in one explicitly allowed regular
+    file.  The resulting region is the largest live brace pair containing that
+    token, which is normally its enclosing function and never grants another
+    file or directory.
+    """
+    if repository is None:
+        return None
+    candidate = (repository / repository_path).resolve()
+    try:
+        candidate.relative_to(repository)
+    except ValueError:
+        return None
+    if not candidate.is_file():
+        return None
+    lines = candidate.read_text(encoding="utf-8", errors="replace").splitlines()
+    token = re.compile(r"(?<![A-Za-z0-9_])" + re.escape(symbol) +
+                       r"(?![A-Za-z0-9_])")
+    occurrences = [index + 1 for index, line in enumerate(lines) if token.search(line)]
+    if not occurrences:
+        return None
+
+    # This is a conservative source-window locator, not a parser.  The index
+    # remains the authority for inter-file relationships.  Here braces are used
+    # only to fence an already-authorized one-file lexical occurrence.
+    stack: list[int] = []
+    regions: list[tuple[int, int]] = []
+    for line_number, line in enumerate(lines, start=1):
+        for character in line:
+            if character == "{":
+                stack.append(line_number)
+            elif character == "}" and stack:
+                start = stack.pop()
+                regions.append((start, line_number))
+    for occurrence in occurrences:
+        containing = [region for region in regions
+                      if region[0] <= occurrence <= region[1]]
+        if containing:
+            # The outermost brace pair is the implementation boundary.  An
+            # innermost block could contain only the declaration but exclude a
+            # later use of the same local variable.
+            return max(containing, key=lambda region: region[1] - region[0])
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     source = parser.add_mutually_exclusive_group(required=True)
@@ -161,6 +216,35 @@ def main() -> int:
                                           "symbol": display, "start_line": str(start),
                                           "end_line": str(end), "symbol_kind": kind,
                                           "authority": authority})
+                    if bounded:
+                        continue
+                    # A fresh local variable can be absent from a repository
+                    # generation even though Context Closure found it in the
+                    # live worktree.  Admit that exact local fact only when
+                    # the assignment grants one explicit source file; a broad
+                    # directory remains index-only and cannot use this escape
+                    # hatch to obtain mutation authority.
+                    for scope in scopes:
+                        candidate = (repository / scope).resolve() if repository else None
+                        if candidate is None or not candidate.is_file():
+                            continue
+                        try:
+                            relative = candidate.relative_to(repository).as_posix()
+                        except ValueError:
+                            continue
+                        if relative != scope.rstrip("/"):
+                            continue
+                        local_window = live_local_symbol_region(repository, relative, symbol)
+                        if local_window is None:
+                            continue
+                        resolved_symbols.add(symbol)
+                        node_rows.append({"node_id": node, "repository_path": relative,
+                                          "symbol": symbol,
+                                          "start_line": str(local_window[0]),
+                                          "end_line": str(local_window[1]),
+                                          "symbol_kind": "file-local",
+                                          "authority": "LEXICAL_LOCAL_ALLOWED_FILE"})
+                        break
             complete = bool(symbols) and resolved_symbols == set(symbols)
             # Mutation regions are an all-or-nothing refinement of the plan's
             # Allowed-Scope.  Publishing a partial symbol set makes the patch

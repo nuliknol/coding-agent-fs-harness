@@ -17,6 +17,25 @@ path_is_within_scope()
 	return 1
 }
 
+local_symbol_is_in_assignment_scope()
+{
+	local assignment="$1" symbol="$2" scope entry pattern
+	local -a entries=()
+	# This recovery applies only to a file-local source identifier.  Restrict it
+	# to the C-family identifier grammar before interpolating the token into the
+	# bounded lexical check below.
+	[[ "$symbol" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 1
+	scope="$(metadata_value "$assignment" Allowed-Scope)"
+	IFS=',' read -r -a entries <<< "$scope"
+	pattern="(^|[^A-Za-z0-9_])$symbol([^A-Za-z0-9_]|$)"
+	for entry in "${entries[@]}"; do
+		entry="$(trim_surrounding_whitespace "$entry")"
+		[[ -n "$entry" && "$entry" != - && "$entry" != /* && -f "$REPOSITORY/$entry" ]] || continue
+		grep -Eq -- "$pattern" "$REPOSITORY/$entry" && return 0
+	done
+	return 1
+}
+
 usage()
 {
 	printf 'Usage: %s ENV_FILE TASK_ROOT RESOLUTION_NOTE_FILE\n' "${0##*/}" >&2
@@ -59,6 +78,7 @@ resolution_action="$(metadata_value "$note_file" Resolution-Action)"
 harness_fix_commit="$(metadata_value "$note_file" Harness-Fix-Commit)"
 pending_replan_inferred=0
 mutation_region_reclassified=0
+local_symbol_index_reclassified=0
 # Releases before 5.18.3 checked the aggregate root budget before recording a
 # more specific manager-remediation circuit. Recover the typed continuation
 # from immutable rejected artifacts, but only during the explicit harness-bug
@@ -187,6 +207,39 @@ if [[ -n "$resolution_action" ]]; then
 			[[ -n "$pending_replan_remediation_scope" && -n "$pending_replan_context_paths" ]] ||
 				die 'Mutation-Region reclassification requires preserved remediation scope and Context-Paths'
 			mutation_region_reclassified=1
+			;;
+		RECLASSIFY_LOCAL_SYMBOL_INDEX_CONTEXT)
+			[[ "$category" == MANAGER_REMEDIATION_SCOPE_EXPANSION &&
+				"$pending_replan_trigger" == MANAGER_REMEDIATION_SCOPE_EXHAUSTED ]] ||
+				die 'RECLASSIFY_LOCAL_SYMBOL_INDEX_CONTEXT is valid only for an exhausted manager-remediation scope reassessment'
+			[[ "$harness_fix_commit" =~ ^[0-9a-f]{7,64}$ ]] ||
+				die 'RECLASSIFY_LOCAL_SYMBOL_INDEX_CONTEXT requires Harness-Fix-Commit'
+			git -C "$HARNESS_HOME" cat-file -e "$harness_fix_commit^{commit}" 2>/dev/null ||
+				die "Harness-Fix-Commit is not installed in the harness repository: $harness_fix_commit"
+			git -C "$HARNESS_HOME" merge-base --is-ancestor "$harness_fix_commit" HEAD ||
+				die "Harness-Fix-Commit is not an ancestor of the deployed harness HEAD: $harness_fix_commit"
+			local_symbol_task="${pending_replan_task:-$trigger_task}"
+			local_symbol_assignment="$(project_dir)/archive/$(task_base "$local_symbol_task").assignment.md"
+			local_symbol_result="$(project_dir)/archive/$(task_base "$local_symbol_task").rejected-result.md"
+			[[ -f "$local_symbol_assignment" && -f "$local_symbol_result" ]] ||
+				die 'local-symbol index reclassification requires archived assignment and rejected result evidence'
+			[[ "$(metadata_value "$local_symbol_assignment" Manager-Remediation)" == 1 &&
+				"$(metadata_value "$local_symbol_result" Goal-Outcome)" == NEEDS_DECOMPOSITION &&
+				"$(metadata_value "$local_symbol_result" Decomposition-Reason)" == VALIDATION_PREREQUISITE &&
+				"$(metadata_value "$local_symbol_result" ACP-Request-Type)" == PREREQUISITE &&
+				"$(metadata_value "$local_symbol_result" ACP-Request-Kind)" == MISSING_REQUIRED_SYMBOL_INDEX ]] ||
+				die 'local-symbol index reclassification requires a manager-remediation MISSING_REQUIRED_SYMBOL_INDEX result'
+			local_symbol_identifier="$(trim_surrounding_whitespace "$(metadata_value "$local_symbol_result" ACP-Request-Identifier)")"
+			local_symbol_is_in_assignment_scope "$local_symbol_assignment" "$local_symbol_identifier" ||
+				die 'local-symbol index reclassification requires an exact token in one archived Allowed-Scope file'
+			pending_replan_trigger=MANAGER_REMEDIATION_CONTEXT_INCOMPLETE
+			pending_replan_task="$local_symbol_task"
+			pending_replan_blocker_class="$(metadata_value "$local_symbol_assignment" Blocker-Class)"
+			pending_replan_remediation_scope="$(metadata_value "$local_symbol_assignment" Remediation-Scope)"
+			pending_replan_context_paths="$(metadata_value "$local_symbol_assignment" Context-Paths)"
+			[[ -n "$pending_replan_remediation_scope" && -n "$pending_replan_context_paths" ]] ||
+				die 'local-symbol index reclassification requires preserved remediation scope and Context-Paths'
+			local_symbol_index_reclassified=1
 			;;
 		REARM_RECOVERY_BUDGET_AFTER_HARNESS_BUG)
 			[[ "$category" == MANAGER_PUBLICATION_CONTRACT_EXHAUSTED &&
@@ -377,5 +430,5 @@ if [[ -n "$plan_item" && "$(project_plan_item_status "$plan_item")" == ACTIVE ]]
 	fi
 	replan_restored=1
 fi
-log_event "ARCHITECTURE_REASSESSMENT_RESOLVED root=$root resolution=$archive replan_restored=$replan_restored live_artifact=$root_has_live_artifact pending_inferred=$pending_replan_inferred mutation_region_reclassified=$mutation_region_reclassified additional_scope=$(printf '%q' "${effective_additional_scope:--}")"
+log_event "ARCHITECTURE_REASSESSMENT_RESOLVED root=$root resolution=$archive replan_restored=$replan_restored live_artifact=$root_has_live_artifact pending_inferred=$pending_replan_inferred mutation_region_reclassified=$mutation_region_reclassified local_symbol_index_reclassified=$local_symbol_index_reclassified additional_scope=$(printf '%q' "${effective_additional_scope:--}")"
 printf '%s\n' "$archive"

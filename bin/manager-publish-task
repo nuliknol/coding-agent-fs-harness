@@ -372,7 +372,7 @@ normalize_measured_assignment_metadata()
 		if { [[ "$HARNESS_MODEL_POLICY" == luna_only ]] ||
 			(( luna_failures < HARNESS_MAX_LUNA_STRATEGY_FAILURES )); } &&
 			(( recovery_decisions_resolved == 1 || recovery_verified_child == 1 ||
-			resource_local_authority == 1 || manager_remediation == 1 )) &&
+			resource_local_authority == 1 )) &&
 			[[ "$requested_leaf" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION|VERIFICATION_ONLY)$ &&
 			"$requested_validation" =~ ^(FOCUSED|INCREMENTAL)$ &&
 			"$requested_files" =~ ^[0-9]+$ && "$requested_turns" =~ ^[1-3]$ ]] &&
@@ -417,11 +417,11 @@ normalize_measured_assignment_metadata()
 			# still inside the already accepted root envelope when its executable
 			# dimensions and immutable source authority do not grow.  Live fleet
 			# calibration must not make that preserved recovery unschedulable.
-			if (( recovery_verified_child == 1 || manager_remediation == 1 )) && [[ "$root_route" == LUNA &&
+			if (( recovery_verified_child == 1 )) && [[ "$root_route" == LUNA &&
 				"$root_complexity" =~ ^[1-9][0-9]*$ && "$root_actions" =~ ^[1-9][0-9]*$ &&
 				"$root_files" =~ ^[0-9]+$ && "$root_effective_p95" =~ ^[1-9][0-9]*$ ]] &&
 				(( complexity_score <= root_complexity && actions <= root_actions &&
-				implementation_files <= root_files )); then
+				implementation_files <= root_files && declared_p95 <= root_effective_p95 )); then
 				live_calibrated_p95="$effective_p95"
 				effective_p95="$root_effective_p95"
 				log_event "RECOVERY_CHILD_ROOT_BUDGET_CEILING root=$root task=$task_id score=$complexity_score actions=$actions files=$implementation_files declared_p95=$declared_p95 live_calibrated_p95=$live_calibrated_p95 root_p95=$root_effective_p95"
@@ -1443,6 +1443,16 @@ normalize_revision_execution_metadata()
 			log_event "ZERO_WRITE_REMEDIATION_FILE_CEILING_RECOVERED root=$root task=$task_id files=$preserved_dirty_files scope=$(printf '%q' "$effective_root_scope")"
 		fi
 	fi
+	# A manager remediation may repair a bad validation command for a root that
+	# has never granted source authority. Unless there is a preserved dirty
+	# source path inside that authority, retain its immutable zero-write shape.
+	# Otherwise a model can relabel a command check as LOCAL_IMPLEMENTATION and
+	# reach Context Closure validation before the deterministic preflight can
+	# reject or validate the command itself.
+	if (( manager_remediation == 1 && declared_root_max_files == 0 &&
+		preserved_dirty_files == 0 )) && [[ "$root_scope" == - ]]; then
+		read_only_descriptor_root=1
+	fi
 	normalized_scope="$requested_scope"
 	normalized_files="$requested_files"
 	normalized_turns="$requested_turns"
@@ -1550,6 +1560,51 @@ normalize_revision_execution_metadata()
 
 normalize_revision_execution_metadata
 
+normalize_manager_remediation_root_budget()
+{
+	local root_route root_files root_score root_actions root_p95 candidate_route candidate_files
+	local candidate_score candidate_actions candidate_leaf candidate_validation tmp
+	# A source-writing manager remediation remains inside an already accepted
+	# Luna root when its executable vector is no larger than that root.  Live
+	# calibration is evidence for future decomposition; it must not prevent a
+	# bounded repair by inflating a candidate above the root's immutable budget.
+	# Keep read-only verification remediations on their separate preflight path.
+	(( recovery_publish == 1 && manager_remediation == 1 )) || return 0
+	[[ -f "$root_assignment" ]] || return 0
+	root_route="$(metadata_value "$root_assignment" Worker-Route)"
+	root_files="$(metadata_value "$root_assignment" Expected-Max-Implementation-Files)"
+	root_score="$(metadata_value "$root_assignment" Complexity-Score)"
+	root_actions="$(metadata_value "$root_assignment" Expected-Max-Agent-Actions)"
+	root_p95="$(metadata_value "$root_assignment" Effective-P95-Tokens)"
+	candidate_route="$(metadata_value "$task_file" Worker-Route)"
+	candidate_files="$(metadata_value "$task_file" Expected-Max-Implementation-Files)"
+	candidate_score="$(metadata_value "$task_file" Complexity-Score)"
+	candidate_actions="$(metadata_value "$task_file" Expected-Max-Agent-Actions)"
+	candidate_leaf="$(metadata_value "$task_file" Leaf-Type)"
+	candidate_validation="$(metadata_value "$task_file" Validation-Class)"
+	[[ "$root_route" == LUNA && "$candidate_route" == LUNA &&
+		"$root_files" =~ ^[1-9][0-9]*$ && "$candidate_files" =~ ^[1-9][0-9]*$ &&
+		"$root_score" =~ ^[1-9][0-9]*$ && "$candidate_score" =~ ^[1-9][0-9]*$ &&
+		"$root_actions" =~ ^[1-9][0-9]*$ && "$candidate_actions" =~ ^[1-9][0-9]*$ &&
+		"$root_p95" =~ ^[1-9][0-9]*$ ]] || return 0
+	[[ "$candidate_leaf" =~ ^(LOCAL_IMPLEMENTATION|TEST_IMPLEMENTATION|MECHANICAL_API|FOCUSED_BUG|DOCUMENTATION)$ &&
+		"$candidate_validation" =~ ^(FOCUSED|INCREMENTAL)$ ]] || return 0
+	(( candidate_files <= root_files && candidate_score <= root_score &&
+		candidate_actions <= root_actions )) || return 0
+	tmp="$task_file.manager-remediation-root-budget.$$"
+	HARNESS_REMEDIATION_ROOT_P95="$root_p95" awk -F': ' '
+		$1 == "Predicted-P95-Tokens" || $1 == "Effective-P95-Tokens" {
+			print $1 ": " ENVIRON["HARNESS_REMEDIATION_ROOT_P95"]; next
+		}
+		{print}
+	' "$task_file" > "$tmp"
+	chmod --reference="$task_file" "$tmp"
+	mv "$tmp" "$task_file"
+	log_event "MANAGER_REMEDIATION_ROOT_BUDGET_CEILING root=$root task=$task_id score=$candidate_score actions=$candidate_actions files=$candidate_files root_p95=$root_p95"
+}
+
+normalize_manager_remediation_root_budget
+
 normalize_read_only_validation_labels()
 {
 	local required validation leaf files symbol tmp changed=0 normalized
@@ -1565,14 +1620,12 @@ normalize_read_only_validation_labels()
 	for symbol in "${symbols[@]}"; do
 		symbol="$(trim_surrounding_whitespace "$symbol")"
 		[[ -n "$symbol" && "$symbol" != - ]] || continue
-		# A command/test label copied from Focused-Validation is not source
-		# closure authority when it has no tracked definition or usage. Keeping
-		# it in Required-Symbols makes a zero-write evidence task impossible to
-		# publish, despite an exact repository Context-Paths entry.
-		if [[ "$validation" == *"$symbol"* ]] &&
-			! git -C "$REPOSITORY" grep -q -F -- "$symbol" -- . 2>/dev/null; then
+		# A zero-write verification leaf cannot require an invented source
+		# definition. Keep only symbols with tracked source evidence; tool and
+		# audit labels belong in validation, not in the Context Closure graph.
+		if ! git -C "$REPOSITORY" grep -q -F -- "$symbol" -- . 2>/dev/null; then
 			changed=1
-			log_event "READ_ONLY_VALIDATION_LABEL_NORMALIZED root=$root task=$task_id label=$(printf '%q' "$symbol")"
+			log_event "READ_ONLY_NON_SOURCE_SYMBOL_NORMALIZED root=$root task=$task_id symbol=$(printf '%q' "$symbol") validation=$(printf '%q' "$validation")"
 			continue
 		fi
 		kept+=("$symbol")
@@ -1614,6 +1667,17 @@ normalize_recovery_context_paths()
 	prior_context_paths="$(metadata_value "$(task_root_replan_file "$root")" Context-Paths)"
 	replan_mutation_region="$(metadata_value "$(task_root_replan_file "$root")" Mutation-Region)"
 	prior_required_symbols=""
+	replan_trigger_task=""
+	# A source-writing manager remediation is a narrow continuation of the
+	# immutable root, not a replacement for its existing Context Closure. Keep
+	# the root's source symbols while adding the repair's exact new seam. This
+	# deliberately excludes zero-write verification remediations, whose labels
+	# are normalized separately as executable validation evidence.
+	if (( manager_remediation == 1 )) &&
+		[[ "$(metadata_value "$task_file" Leaf-Type)" != VERIFICATION_ONLY ||
+			"$(metadata_value "$task_file" Expected-Max-Implementation-Files)" != 0 ]]; then
+		prior_required_symbols="$(metadata_value "$root_assignment" Required-Symbols)"
+	fi
 	if [[ "$replan_outcome" == MANAGER_REMEDIATION_CONTEXT_INCOMPLETE ]] &&
 		! [[ "$(metadata_value "$task_file" Leaf-Type)" == VERIFICATION_ONLY &&
 			"$(metadata_value "$task_file" Expected-Max-Implementation-Files)" == 0 &&
@@ -1785,15 +1849,29 @@ normalize_recovery_context_paths()
 			requested_writer_identifier="$(metadata_value "$trigger_result" ACP-Request-Identifier)"
 		fi
 		if [[ -n "$requested_writer_kind" ]]; then
-			if [[ "$requested_writer_kind" =~ ^(REPRESENTATION_WRITER|PRODUCER)$ &&
+			# A local symbol omitted by the structural index is a Context Closure
+			# defect when it is already present in the retained source file.  Treat
+			# it like the other exact in-file window requests: add a selector, not a
+			# new mutation path or an invented build prerequisite.
+			if [[ "$requested_writer_kind" =~ ^(REPRESENTATION_WRITER|PRODUCER|MISSING_REQUIRED_SYMBOL_INDEX)$ &&
 				"$requested_writer_identifier" =~ ^[A-Za-z_][A-Za-z0-9_.\$~-]*$ ]]; then
+				writer_selector=""
 				IFS=',' read -r -a entries <<< "$prior_context_paths"
 				for writer_path in "${entries[@]}"; do
 					writer_path="$(trim_surrounding_whitespace "${writer_path%%#*}")"
 					[[ -f "$REPOSITORY/$writer_path" ]] || continue
 					(cd "$REPOSITORY" && rg -q --fixed-strings -- \
 						"$requested_writer_identifier" "$writer_path" 2>/dev/null < /dev/null) || continue
-					writer_selector="$writer_path#$requested_writer_identifier"
+					# Prefer the editable root boundary when both a declaration/header
+					# and an implementation mention the requested seam. This gives the
+					# worker the mutation-adjacent behavior rather than only its API.
+					if scope_is_within_root_authority "$writer_path" "$allowed"; then
+						writer_selector="$writer_path#$requested_writer_identifier"
+						break
+					fi
+					[[ -n "$writer_selector" ]] || writer_selector="$writer_path#$requested_writer_identifier"
+				done
+				if [[ -n "$writer_selector" ]]; then
 					duplicate=0
 					for entry in "${kept[@]}"; do
 						[[ "$entry" != "$writer_selector" ]] || duplicate=1
@@ -1801,10 +1879,13 @@ normalize_recovery_context_paths()
 					if (( duplicate == 0 )); then
 						kept+=("$writer_selector")
 						changed=1
-						log_event "CONTEXT_WRITER_WINDOW_EXPANDED root=$root task=$task_id trigger=$replan_trigger_task selector=$(printf '%q' "$writer_selector")"
+						if [[ "$requested_writer_kind" == MISSING_REQUIRED_SYMBOL_INDEX ]]; then
+							log_event "CONTEXT_LOCAL_SYMBOL_WINDOW_EXPANDED root=$root task=$task_id trigger=$replan_trigger_task selector=$(printf '%q' "$writer_selector")"
+						else
+							log_event "CONTEXT_WRITER_WINDOW_EXPANDED root=$root task=$task_id trigger=$replan_trigger_task selector=$(printf '%q' "$writer_selector")"
+						fi
 					fi
-					break
-					done
+				fi
 			elif [[ "$requested_writer_kind" == MUTATION_REGION &&
 				"$requested_writer_identifier" =~ ^(.+):([1-9][0-9]*)$ ]]; then
 				mutation_region_path="${BASH_REMATCH[1]}"
@@ -2783,9 +2864,15 @@ fi
 
 preflight_zero_write_manager_verification()
 {
-	local validation capture status excerpt preflight_repository
+	local validation capture status excerpt preflight_repository normalized_leaf normalized_files
 	(( recovery_publish == 1 && manager_remediation == 1 && goal_mode == 1 )) || return 0
-	[[ "${leaf_type:-}" == VERIFICATION_ONLY && "${leaf_expected_files:-}" == 0 ]] || return 0
+	# Revision-authority normalization may have converted a malformed recovery
+	# proposal into an immutable zero-write verification leaf. Re-read the
+	# candidate metadata here rather than using pre-normalization shell values,
+	# otherwise the executable preflight is silently skipped.
+	normalized_leaf="$(metadata_value "$task_file" Leaf-Type)"
+	normalized_files="$(metadata_value "$task_file" Expected-Max-Implementation-Files)"
+	[[ "$normalized_leaf" == VERIFICATION_ONLY && "$normalized_files" == 0 ]] || return 0
 	validation="${goal_focused_validation:-}"
 	validation_is_executable_command "$validation" || return 0
 
