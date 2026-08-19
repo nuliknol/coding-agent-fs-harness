@@ -2446,7 +2446,10 @@ if (( recovery_publish == 1 )); then
 			[[ -f "$context_trigger_assignment" ]] ||
 				die 'context-incomplete remediation triggering assignment is missing'
 			prior_required_symbols="$(metadata_value "$context_trigger_assignment" Required-Symbols)"
-			requested_required_symbols="$(single_metadata_value "$task_file" Required-Symbols)"
+			# Legacy pre-v2 assignments have no Required-Symbols field. They can
+			# still expand Context-Paths; exact-symbol expansion is available only
+			# when the typed field is present.
+			requested_required_symbols="$(metadata_value "$task_file" Required-Symbols)"
 			[[ "$(canonical_scope_path_set "$remediation_scope")" == \
 				"$(canonical_scope_path_set "$retained_remediation_scope")" ]] ||
 				die "context-incomplete remediation must preserve its exact Remediation-Scope: $retained_remediation_scope"

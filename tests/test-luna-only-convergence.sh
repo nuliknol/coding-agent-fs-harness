@@ -48,6 +48,8 @@ grep -Fq 'CONTEXT_CLOSURE_EXEMPT' "$ROOT/bin/worker-invoke-task"
 	harness_worker_context_admission_requires_repair
 )
 grep -Fq 'DETERMINISTIC_CLOSURE_CUT=' "$ROOT/bin/manager-auto-replan-root"
+grep -Fq 'root_child_count + trigger_closure_repair_child_count > HARNESS_MAX_ROOT_CHILD_CRITERIA' \
+	"$ROOT/bin/manager-auto-replan-root"
 grep -Fq 'DETERMINISTIC_CLOSURE_CUT_VALIDATED' "$ROOT/bin/manager-publish-task"
 grep -Fq "Context-Closure-Cut: \$closure_cut_id" "$ROOT/bin/manager-auto-replan-root"
 if grep -Fq '[[ "$trigger_closure_repair_action" == GRAFT_GRAPH_CUTS ]]; } && [[ "$recovery_mode" != MANAGER_REMEDIATION ]]' \

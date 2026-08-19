@@ -352,8 +352,16 @@ if task_root_uses_assignment_criteria "$root" || [[ -f "$criteria_definition" ]]
 		' "$criterion_decomposition")"
 	fi
 	root_child_count="$(root_child_criterion_count "$root")"
+	trigger_closure_repair_child_count=0
+	if [[ "$trigger_closure_repair_action" == GRAFT_GRAPH_CUTS &&
+		"$trigger_closure_repair_children" != - &&
+		-f "$trigger_closure_repair_children" ]]; then
+		trigger_closure_repair_child_count="$(awk 'END {print (NR > 0 ? NR - 1 : 0)}' \
+			"$trigger_closure_repair_children")"
+	fi
 	if (( first_unmet_depth >= HARNESS_MAX_CRITERION_DEPTH ||
-		root_child_count >= HARNESS_MAX_ROOT_CHILD_CRITERIA )); then
+		root_child_count >= HARNESS_MAX_ROOT_CHILD_CRITERIA ||
+		root_child_count + trigger_closure_repair_child_count > HARNESS_MAX_ROOT_CHILD_CRITERIA )); then
 		if [[ "$trigger_closure_repair_action" == GRAFT_GRAPH_CUTS &&
 			"$trigger_closure_repair_children" != - ]] &&
 			(( $(awk 'END {print (NR > 0 ? NR - 1 : 0)}' "$trigger_closure_repair_children") >= 1 )); then
