@@ -97,6 +97,10 @@ class ContextClosureToolsTest(unittest.TestCase):
         authority = (cut_output / "authority.tsv").read_text(encoding="utf-8")
         self.assertIn("EDGE_CONTRACT\tEDGE-1", authority)
         self.assertIn("EDGE_CONTRACT\tEDGE-3", authority)
+        cut_context = (cut_output / "context.md").read_text(encoding="utf-8")
+        self.assertNotIn("Authority source:", cut_context)
+        self.assertIn('"ownership_model":"OWNER_ONE"', cut_context)
+        self.assertNotIn('"producer_node"', cut_context)
         self.assertEqual(
             "edge_id\tproducer_node\tconsumer_node\townership_model\n",
             (cut_output / "ownership-boundaries.tsv").read_text(encoding="utf-8"))

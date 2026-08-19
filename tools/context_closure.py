@@ -78,6 +78,44 @@ def tsv_records(path: str | None) -> tuple[list[str], dict[str, dict[str, str]]]
         return fields, records
 
 
+def execution_cut_authority(kind: str, record: dict[str, str]) -> dict[str, str]:
+    """Keep normative authority in a cut without its root-level registry bulk.
+
+    authority.tsv remains the lossless transaction record.  The worker capsule
+    only needs the contract fields that constrain this bounded execution seam;
+    administrative topology, provenance and plan membership otherwise make a
+    one-file evidence cut exceed the same context budget it was meant to repair.
+    Unknown authority kinds retain their complete record conservatively.
+    """
+    fields_by_kind = {
+        "SPECIFICATION_OBLIGATION": (
+            "authority", "obligation_type", "statement", "observable_outcome",
+            "acceptance_authority",
+        ),
+        "SPECIFICATION_RELATION": (
+            "relation_type", "subject", "object", "authority", "evidence",
+        ),
+        "ARCHITECTURE_INVARIANT": (
+            "authority", "severity", "statement", "scope", "validation_kind",
+            "validation_ref",
+        ),
+        "ARCHITECTURE_DECISION": (
+            "status", "chosen_contract", "affected_interfaces",
+        ),
+        "EDGE_CONTRACT": (
+            "contract_artifact", "public_symbols", "ownership_model",
+            "representation", "versioning_rule", "compatibility_validation",
+        ),
+        "HEALTH_GATE": (
+            "validation", "severity", "invariant_ids", "edge_ids",
+        ),
+    }
+    selected = fields_by_kind.get(kind)
+    if selected is None:
+        return record
+    return {field: record[field] for field in selected if record.get(field, "") not in ("", "-")}
+
+
 def stable_id(*parts: str) -> str:
     digest = hashlib.sha256()
     for part in parts:
@@ -1249,11 +1287,23 @@ def build_closure(args: argparse.Namespace) -> str:
     if authority_records:
         for kind, identifier, source, record in sorted(
                 authority_records, key=lambda entry: (entry[0], entry[1], entry[2])):
-            context_lines.extend((
-                f"### {kind}: `{identifier}`", "",
-                f"Authority source: `{source}`", "",
-                "```json", json.dumps(record, sort_keys=True, indent=2), "```", "",
-            ))
+            if evidence_cut:
+                # This is an execution capsule, not a second archival copy of
+                # the registries.  Keep a compact normative projection here;
+                # authority.tsv above retains the complete source record.
+                context_lines.extend((
+                    f"### {kind}: `{identifier}`", "",
+                    "```json",
+                    json.dumps(execution_cut_authority(kind, record),
+                               sort_keys=True, separators=(",", ":")),
+                    "```", "",
+                ))
+            else:
+                context_lines.extend((
+                    f"### {kind}: `{identifier}`", "",
+                    f"Authority source: `{source}`", "",
+                    "```json", json.dumps(record, sort_keys=True, indent=2), "```", "",
+                ))
     else:
         context_lines.extend(("NONE", ""))
     context_lines.extend((

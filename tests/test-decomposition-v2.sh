@@ -593,9 +593,10 @@ grep -Fq 'RECOVERY_ABSENT_CONTEXT_PATH_REMOVED root=001 task=001-revision-01 pat
 grep -Fq 'LUNA_CONTEXT_PATHS_NORMALIZED root=001 task=001-revision-01' \
 	"$normalize_project/logs/events.log"
 
-# A compiled graph cut remains usable when the append-only criterion budget is
-# saturated. It narrows the immutable leaf as a validated execution-evidence
-# cut instead of exceeding or resetting the structural fuse.
+# A single compiled graph cut is already the irreducible execution seam. It is
+# used directly even while the append-only criterion budget has spare capacity,
+# instead of spending a manager inference inventing an artificial two-child
+# decomposition which expands back into the same closure.
 sed \
 	-e 's/export PROJECT="decompv2"/export PROJECT="decompcut"/' \
 	-e "s|export HARNESS_ROOT=\"$TEST_ROOT/state\"|export HARNESS_ROOT=\"$TEST_ROOT/cut-state\"|" \
@@ -603,7 +604,7 @@ sed \
 cat >> "$TEST_ROOT/cut-harness.env" <<'ENV'
 export HARNESS_MODEL_POLICY="luna_only"
 export HARNESS_ESCALATION_POLICY="decompose"
-export HARNESS_MAX_ROOT_CHILD_CRITERIA="1"
+export HARNESS_MAX_ROOT_CHILD_CRITERIA="8"
 ENV
 chmod 600 "$TEST_ROOT/cut-harness.env"
 "$HARNESS_BIN/harness-init" "$TEST_ROOT/cut-harness.env" >/dev/null
@@ -643,7 +644,6 @@ mkdir -p "$cut_project/control/context-closures/decompcut-task-001"
 cat > "$cut_project/control/context-closures/decompcut-task-001/repair-children.tsv" <<'TSV'
 child_id	parent_task	sequence	allowed_paths	context_paths	required_symbols	acceptance_evidence	focused_validation	source_cut	seam_kind	estimated_source_bytes	status
 CCR-cut001	001	1	src/a.c	src/a.c	target_symbol	"compiled ""quoted"" cut validation passes"	"build_dir=""$(mktemp -d /tmp/decompcut.XXXXXX)"" && test ""$(./focused-smoke)"" = 1"	cut-a	SOURCE	40	PROPOSED
-CCR-cut002	001	2	include/a.h	include/a.h	target_symbol	public declaration remains exact	test -f include/a.h	cut-h	INTERFACE	30	PROPOSED
 TSV
 "$HARNESS_BIN/manager-auto-replan-root" "$TEST_ROOT/cut-harness.env" 001 >/dev/null
 cut_ready="$cut_project/tasks/decompcut-task-001-revision-01.ready.md"

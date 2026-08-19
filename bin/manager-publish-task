@@ -801,7 +801,15 @@ validate_deterministic_closure_cut()
 	fi
 	child_count="$(root_child_criterion_count "$root")"
 	repair_child_count="$(awk 'END {print (NR > 0 ? NR - 1 : 0)}' "$repair")"
-	if (( parent_depth < HARNESS_MAX_CRITERION_DEPTH &&
+	if (( repair_child_count < 1 )); then
+		[[ -z "$declared" ]] || die 'Context-Closure-Cut requires one compiler-produced repair child'
+		return 0
+	fi
+	# A single repair child is already an irreducible execution-evidence cut,
+	# even while structural criterion capacity remains.  Two or more children
+	# must still be grafted until the append-only criterion budget is exhausted.
+	if (( repair_child_count > 1 &&
+		parent_depth < HARNESS_MAX_CRITERION_DEPTH &&
 		child_count < HARNESS_MAX_ROOT_CHILD_CRITERIA &&
 		child_count + repair_child_count <= HARNESS_MAX_ROOT_CHILD_CRITERIA )); then
 		[[ -z "$declared" ]] || die 'Context-Closure-Cut may replace child grafting only after the structural criterion budget is exhausted'
