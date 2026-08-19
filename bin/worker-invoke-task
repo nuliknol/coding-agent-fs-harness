@@ -878,6 +878,38 @@ publish_context_request_rejection_handoff()
 	rm -f "$handoff"
 }
 
+publish_patch_mutation_region_handoff()
+{
+	local diagnostic="$1" identifier path line handoff status
+	# A patch rejected outside an indexed Mutation-Region is not a diff-format
+	# error. The exact line is already within the assignment's allowed file, so
+	# suspend once as a typed context repair instead of repeatedly resuming Luna
+	# with the same incomplete capabilities.
+	[[ "$diagnostic" =~ [Mm]utation-[Rr]egions:\ ([^[:space:]:]+):([1-9][0-9]*)[[:space:]]node= ]] || return 1
+	path="${BASH_REMATCH[1]}"
+	line="${BASH_REMATCH[2]}"
+	[[ "$path" != /* ]] || return 1
+	identifier="$path:$line"
+	handoff="$PROJECT_TMP_DIR/$base.patch-mutation-region-request.$$"
+	{
+		printf 'ACP-Request-Type: SCOPE\n'
+		printf 'ACP-Request-Kind: MUTATION_REGION\n'
+		printf 'ACP-Request-Identifier: %s\n' "$identifier"
+		printf 'ACP-Request-Reason: The compiled patch capability excludes the exact in-scope mutation line rejected by the trusted validator.\n'
+	} > "$handoff"
+	chmod 600 "$handoff"
+	if prepare_structural_acp_handoff "$handoff"; then
+		status=0
+	else
+		status=$?
+	fi
+	rm -f "$handoff"
+	if (( status == 0 )); then
+		log_event "PATCH_ONLY_MUTATION_REGION_HANDOFF task=$task_id identifier=$(printf '%q' "$identifier")"
+	fi
+	return "$status"
+}
+
 emit_denied_context_request_metadata()
 {
 	[[ -n "$denied_context_request" && -f "$denied_context_request" ]] || return 0
@@ -1202,6 +1234,23 @@ while true; do
 		patch_apply_output="$($HARNESS_BIN/harness-apply-worker-patch "$HARNESS_ENV_FILE" "$task_id" "$session" "$last_message" "$patch_only_baseline" 2>&1)"
 		patch_apply_status=$?
 		set -e
+		fi
+		if (( patch_apply_status != 0 )); then
+			mutation_handoff_status=1
+			if publish_patch_mutation_region_handoff "$patch_apply_output"; then
+				mutation_handoff_status=0
+			else
+				mutation_handoff_status=$?
+			fi
+			if (( mutation_handoff_status == 0 )); then
+				cleanup_heartbeat
+				printf 'Worker task %s published an in-scope Mutation-Region repair request.\n' "$task_id"
+				exit 0
+			elif (( mutation_handoff_status == 2 )); then
+				publish_context_request_rejection_handoff "$patch_apply_output"
+				cleanup_heartbeat
+				exit 0
+			fi
 		fi
 		if (( zero_file_verification_handled == 1 )); then
 			:

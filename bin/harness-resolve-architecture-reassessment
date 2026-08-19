@@ -46,6 +46,7 @@ pending_replan_context_paths="$(metadata_value "$marker" Pending-Replan-Context-
 pending_replan_closure_condition="$(metadata_value "$marker" Pending-Replan-Closure-Condition)"
 pending_replan_closure_action="$(metadata_value "$marker" Pending-Replan-Closure-Repair-Action)"
 pending_replan_closure_provider="$(metadata_value "$marker" Pending-Replan-Closure-Repair-Provider)"
+pending_replan_mutation_region="$(metadata_value "$marker" Pending-Replan-Mutation-Region)"
 additional_scope="$(metadata_value "$note_file" Authorized-Additional-Scope)"
 prior_additional_scope=""
 effective_additional_scope="$additional_scope"
@@ -68,22 +69,35 @@ if [[ "$resolution_action" == REARM_AFTER_HARNESS_BUG && -z "$pending_replan_tri
 	trigger_assignment="$(project_dir)/archive/$trigger_base.assignment.md"
 	trigger_result="$(project_dir)/archive/$trigger_base.rejected-result.md"
 	if [[ -f "$trigger_assignment" && -f "$trigger_result" ]] &&
-		assignment_is_manager_remediation "$trigger_assignment" &&
 		[[ "$(metadata_value "$trigger_result" Goal-Outcome)" == NEEDS_DECOMPOSITION ]]; then
 		trigger_decomposition_reason="$(metadata_value "$trigger_result" Decomposition-Reason)"
-		case "$trigger_decomposition_reason" in
-			CONTEXT_INCOMPLETE)
-				pending_replan_trigger=MANAGER_REMEDIATION_CONTEXT_INCOMPLETE
-				pending_replan_context_paths="$(metadata_value "$trigger_assignment" Context-Paths)"
-				;;
-			SCOPE_INCOMPLETE|VALIDATION_PREREQUISITE)
-				pending_replan_trigger=MANAGER_REMEDIATION_SCOPE_EXHAUSTED
-				;;
-		esac
+		# Older patch-only workers treated a machine-enforced Mutation-Region
+		# denial as a format retry. Recover the exact in-scope line as a bounded
+		# context repair rather than consuming a new liveness epoch.
+		mutation_match="$(sed -n 's/.*outside indexed Mutation-Regions: \([^[:space:]:][^:]*:[1-9][0-9]*\) node=.*/\1/p' "$trigger_result" | head -n 1)"
+		if [[ "$trigger_decomposition_reason" == CONTEXT_INCOMPLETE &&
+			"$mutation_match" =~ ^(.+):([1-9][0-9]*)$ ]] &&
+			path_is_within_scope "${BASH_REMATCH[1]}" "$(metadata_value "$trigger_assignment" Allowed-Scope)"; then
+			pending_replan_trigger=MANAGER_REMEDIATION_CONTEXT_INCOMPLETE
+			pending_replan_context_paths="$(metadata_value "$trigger_assignment" Context-Paths)"
+			pending_replan_remediation_scope="$(metadata_value "$trigger_assignment" Allowed-Scope)"
+			pending_replan_blocker_class=LOCAL_CODE_PREREQUISITE
+			pending_replan_mutation_region="$mutation_match"
+		elif assignment_is_manager_remediation "$trigger_assignment"; then
+			case "$trigger_decomposition_reason" in
+				CONTEXT_INCOMPLETE)
+					pending_replan_trigger=MANAGER_REMEDIATION_CONTEXT_INCOMPLETE
+					pending_replan_context_paths="$(metadata_value "$trigger_assignment" Context-Paths)"
+					;;
+				SCOPE_INCOMPLETE|VALIDATION_PREREQUISITE)
+					pending_replan_trigger=MANAGER_REMEDIATION_SCOPE_EXHAUSTED
+					;;
+			esac
+		fi
 		if [[ -n "$pending_replan_trigger" ]]; then
 			pending_replan_task="$trigger_task"
-			pending_replan_blocker_class="$(metadata_value "$trigger_assignment" Blocker-Class)"
-			pending_replan_remediation_scope="$(metadata_value "$trigger_assignment" Remediation-Scope)"
+			[[ -n "$pending_replan_blocker_class" ]] || pending_replan_blocker_class="$(metadata_value "$trigger_assignment" Blocker-Class)"
+			[[ -n "$pending_replan_remediation_scope" ]] || pending_replan_remediation_scope="$(metadata_value "$trigger_assignment" Remediation-Scope)"
 			[[ -n "$pending_replan_remediation_scope" ]] ||
 				die 'cannot recover the pre-5.18.3 manager-remediation transition: rejected assignment has no Remediation-Scope'
 			if [[ "$pending_replan_trigger" == MANAGER_REMEDIATION_CONTEXT_INCOMPLETE &&
@@ -229,6 +243,8 @@ archive="$archive_dir/$PROJECT-task-$root.$stamp.resolved.md"
 		printf 'Inferred-Pending-Replan-Trigger: %s\n' "$pending_replan_trigger"
 		printf 'Inferred-Pending-Replan-Triggered-By: %s\n' "$pending_replan_task"
 		printf 'Inferred-Pending-Replan-Remediation-Scope: %s\n' "$pending_replan_remediation_scope"
+		[[ -z "$pending_replan_mutation_region" ]] ||
+			printf 'Inferred-Pending-Replan-Mutation-Region: %s\n' "$pending_replan_mutation_region"
 		printf 'Inference-Evidence: %s %s\n' "$trigger_assignment" "$trigger_result"
 	fi
 	printf '\n## Explicit resolution\n\n'
@@ -334,7 +350,8 @@ if [[ -n "$plan_item" && "$(project_plan_item_status "$plan_item")" == ACTIVE ]]
 			"architecture liveness reassessment was explicitly resolved; preserve the pending context-capsule correction without expanding mutation authority" \
 			MANAGER_REMEDIATION_CONTEXT_INCOMPLETE \
 			"${pending_replan_blocker_class:-LOCAL_SCOPE_PREREQUISITE}" \
-			"$pending_replan_remediation_scope" "$pending_replan_context_paths" >/dev/null
+			"$pending_replan_remediation_scope" "$pending_replan_context_paths" \
+			"" "" "" "$pending_replan_mutation_region" >/dev/null
 	elif [[ "$pending_replan_trigger" == GOAL_NEEDS_DECOMPOSITION ]]; then
 		mark_root_needs_replan "${pending_replan_task:-$trigger_task}" \
 			"architecture reassessment was explicitly resolved after a deployed recovery-budget correction; preserve the original goal-decomposition boundary" \

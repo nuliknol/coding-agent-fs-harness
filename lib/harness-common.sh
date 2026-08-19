@@ -3707,7 +3707,7 @@ mark_root_architecture_reassessment()
 {
 	local task_id="$1" category="$2" reason="$3" evidence="${4:--}"
 	local root marker tmp alarm created=0 pending_replan pending_trigger pending_trigger_task
-	local pending_blocker_class pending_remediation_scope pending_context_paths
+	local pending_blocker_class pending_remediation_scope pending_context_paths pending_mutation_region
 	local pending_closure_condition pending_closure_action pending_closure_provider
 	root="$(task_root_id "$task_id")"
 	marker="$(task_root_architecture_reassessment_file "$root")"
@@ -3717,6 +3717,7 @@ mark_root_architecture_reassessment()
 	pending_blocker_class=""
 	pending_remediation_scope=""
 	pending_context_paths=""
+	pending_mutation_region=""
 	pending_closure_condition=""
 	pending_closure_action=""
 	pending_closure_provider=""
@@ -3726,6 +3727,7 @@ mark_root_architecture_reassessment()
 		pending_blocker_class="$(metadata_value "$pending_replan" Blocker-Class)"
 		pending_remediation_scope="$(metadata_value "$pending_replan" Remediation-Scope)"
 		pending_context_paths="$(metadata_value "$pending_replan" Context-Paths)"
+		pending_mutation_region="$(metadata_value "$pending_replan" Mutation-Region)"
 		pending_closure_condition="$(metadata_value "$pending_replan" Closure-Condition)"
 		pending_closure_action="$(metadata_value "$pending_replan" Closure-Repair-Action)"
 		pending_closure_provider="$(metadata_value "$pending_replan" Closure-Repair-Provider)"
@@ -3750,6 +3752,8 @@ mark_root_architecture_reassessment()
 					printf 'Pending-Replan-Remediation-Scope: %s\n' "$pending_remediation_scope"
 				[[ -z "$pending_context_paths" ]] ||
 					printf 'Pending-Replan-Context-Paths: %s\n' "$pending_context_paths"
+				[[ -z "$pending_mutation_region" ]] ||
+					printf 'Pending-Replan-Mutation-Region: %s\n' "$pending_mutation_region"
 				[[ -z "$pending_closure_condition" ]] ||
 					printf 'Pending-Replan-Closure-Condition: %s\n' "$pending_closure_condition"
 				[[ -z "$pending_closure_action" ]] ||
@@ -4333,6 +4337,7 @@ mark_root_needs_replan()
 	local task_id="$1" reason="$2" trigger="$3"
 	local blocker_class="${4:-}" remediation_scope="${5:-}" context_paths="${6:-}"
 	local closure_condition="${7:-}" closure_repair_action="${8:-}" closure_repair_provider="${9:-}"
+	local mutation_region="${10:-}"
 	local root marker progress blocking_fingerprint tmp
 	root="$(task_root_id "$task_id")"
 	marker="$(task_root_replan_file "$root")"
@@ -4363,6 +4368,9 @@ mark_root_needs_replan()
 		fi
 		if [[ -n "$context_paths" ]]; then
 			printf 'Context-Paths: %s\n\n' "$context_paths"
+		fi
+		if [[ -n "$mutation_region" ]]; then
+			printf 'Mutation-Region: %s\n\n' "$mutation_region"
 		fi
 		if [[ -n "$closure_condition" ]]; then
 			printf 'Closure-Condition: %s\n\n' "$closure_condition"

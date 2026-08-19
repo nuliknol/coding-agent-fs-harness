@@ -412,7 +412,12 @@ normalize_measured_assignment_metadata()
 			root_files="$(metadata_value "$root_assignment" Expected-Max-Implementation-Files)"
 			root_effective_p95="$(metadata_value "$root_assignment" Effective-P95-Tokens)"
 			root_route="$(metadata_value "$root_assignment" Worker-Route)"
-			if (( recovery_verified_child == 1 )) && [[ "$root_route" == LUNA &&
+			# A manager-remediation continuation may retain the root's scalar
+			# complexity while narrowing its criterion or context boundary.  It is
+			# still inside the already accepted root envelope when its executable
+			# dimensions and immutable source authority do not grow.  Live fleet
+			# calibration must not make that preserved recovery unschedulable.
+			if (( recovery_verified_child == 1 || manager_remediation == 1 )) && [[ "$root_route" == LUNA &&
 				"$root_complexity" =~ ^[1-9][0-9]*$ && "$root_actions" =~ ^[1-9][0-9]*$ &&
 				"$root_files" =~ ^[0-9]+$ && "$root_effective_p95" =~ ^[1-9][0-9]*$ ]] &&
 				(( complexity_score <= root_complexity && actions <= root_actions &&
@@ -1593,7 +1598,7 @@ normalize_recovery_context_paths()
 {
 	local requested required allowed validation normalized normalized_allowed normalized_required entry symbol candidate tmp changed=0
 	local found duplicate exact_file stem directory matching_count replan_outcome prior_context_paths already_admitted
-	local replan_trigger_task trigger_assignment trigger_result prior_required_symbols
+	local replan_trigger_task trigger_assignment trigger_result prior_required_symbols replan_mutation_region
 	local requested_writer_kind requested_writer_identifier writer_selector writer_path
 	local mutation_region_path mutation_region_line mutation_region_symbol mutation_region_resolution
 	local cmake_root cmake_directory include_path qualified_path qualified_symbol
@@ -1607,6 +1612,7 @@ normalize_recovery_context_paths()
 	validation="$(metadata_value "$task_file" Focused-Validation)"
 	replan_outcome="$(metadata_value "$(task_root_replan_file "$root")" Trigger-Outcome)"
 	prior_context_paths="$(metadata_value "$(task_root_replan_file "$root")" Context-Paths)"
+	replan_mutation_region="$(metadata_value "$(task_root_replan_file "$root")" Mutation-Region)"
 	prior_required_symbols=""
 	if [[ "$replan_outcome" == MANAGER_REMEDIATION_CONTEXT_INCOMPLETE ]] &&
 		! [[ "$(metadata_value "$task_file" Leaf-Type)" == VERIFICATION_ONLY &&
@@ -1766,9 +1772,19 @@ normalize_recovery_context_paths()
 	if [[ "$replan_outcome" == MANAGER_REMEDIATION_CONTEXT_INCOMPLETE &&
 		-n "$replan_trigger_task" ]]; then
 		trigger_result="$dir/archive/$(task_base "$replan_trigger_task").rejected-result.md"
-		if [[ -f "$trigger_result" ]]; then
+		requested_writer_kind=""
+		requested_writer_identifier=""
+		# A deterministic patch-capability denial carries an exact path:line
+		# boundary. Persisting it in the replan marker lets recovery add the
+		# enclosing indexed definition without asking a manager to rediscover it.
+		if [[ "$replan_mutation_region" =~ ^(.+):([1-9][0-9]*)$ ]]; then
+			requested_writer_kind=MUTATION_REGION
+			requested_writer_identifier="$replan_mutation_region"
+		elif [[ -f "$trigger_result" ]]; then
 			requested_writer_kind="$(metadata_value "$trigger_result" ACP-Request-Kind)"
 			requested_writer_identifier="$(metadata_value "$trigger_result" ACP-Request-Identifier)"
+		fi
+		if [[ -n "$requested_writer_kind" ]]; then
 			if [[ "$requested_writer_kind" =~ ^(REPRESENTATION_WRITER|PRODUCER)$ &&
 				"$requested_writer_identifier" =~ ^[A-Za-z_][A-Za-z0-9_.\$~-]*$ ]]; then
 				IFS=',' read -r -a entries <<< "$prior_context_paths"
