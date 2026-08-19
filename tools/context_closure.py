@@ -1033,8 +1033,19 @@ def build_closure(args: argparse.Namespace) -> str:
             build_targets[row["target_id"]] = {key: str(row[key] or "-") for key in row.keys()}
             build_targets_by_path.setdefault(path, set()).add(row["name"])
 
+    focused_validation = values.get("Focused-Validation", "")
+    # A focused CMake executable commonly links the implementation through a
+    # library, so it need not appear in build_target_files for the edited
+    # source.  Extract the exact command-line target before looking up target
+    # provenance.  Restrict this to CMake's explicit --target syntax: guessing
+    # arbitrary command operands would turn incidental words into authority.
+    validation_target_names = set(re.findall(
+        r"(?:^|\s)--target(?:=|\s+)([A-Za-z0-9_.:+-]+)",
+        focused_validation,
+    ))
     requested_targets = sorted(set(split_list(values.get("Build-Targets", ""))) |
-                               required_build_target_names)
+                               required_build_target_names |
+                               validation_target_names)
     if requested_targets and "V" not in requested_classes:
         unresolved.append(("DEPENDENCY_CLASS", "V",
                            "Build-Targets requires validation prerequisite class V"))
@@ -1060,8 +1071,7 @@ def build_closure(args: argparse.Namespace) -> str:
     # applying the module/target budgets. Otherwise a one-file repair can loop
     # forever in semantic decomposition solely because a popular source is
     # reused by several smoke binaries.
-    focused_validation = values.get("Focused-Validation", "")
-    validation_target_names = {
+    validation_target_names |= {
         record["name"] for record in build_targets.values()
         if re.search(rf"(?<![A-Za-z0-9_.-]){re.escape(record['name'])}"
                      r"(?![A-Za-z0-9_.-])", focused_validation)

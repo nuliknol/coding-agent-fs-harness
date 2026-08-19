@@ -703,6 +703,36 @@ class ContextClosureToolsTest(unittest.TestCase):
         self.assertIn("build_targets\t1", quality)
         self.assertIn("bounded_build_targets_omitted\t6", quality)
 
+    def test_exact_validation_target_can_be_indirectly_linked(self):
+        connection = sqlite3.connect(self.database)
+        for index in range(5):
+            target_id = f"direct-{index}"
+            connection.execute(
+                "INSERT INTO build_targets VALUES(?,?,?,?,?,?)",
+                (target_id, "g", f"calc_direct_{index}", "CMAKE_COMPILE_TARGET",
+                 "CMakeLists.txt", "test"))
+            connection.execute(
+                "INSERT INTO build_target_files VALUES(?,?,?,?,?,?)",
+                (target_id, 1, "c", "COMPILE_SOURCE", f"calc-{index}.o", "test"))
+        connection.execute(
+            "INSERT INTO build_targets VALUES(?,?,?,?,?,?)",
+            ("indirect", "g", "calc_canonical_smoke", "CMAKE_COMPILE_TARGET",
+             "CMakeLists.txt", "test"))
+        connection.commit()
+        connection.close()
+
+        status, output = self.closure(
+            extra="Focused-Validation: cmake --build build --target=calc_canonical_smoke\n")
+
+        self.assertEqual("READY", status)
+        targets = (output / "build-targets.tsv").read_text(encoding="utf-8")
+        self.assertIn("calc_canonical_smoke", targets)
+        self.assertNotIn("calc_direct_", targets)
+        quality = (output / "quality.tsv").read_text(encoding="utf-8")
+        self.assertIn("modules\t1", quality)
+        self.assertIn("build_targets\t1", quality)
+        self.assertIn("bounded_build_targets_omitted\t5", quality)
+
     def test_reviewed_systematic_omission_routes_to_remediation(self):
         omissions = self.root / "omissions.tsv"
         omissions.write_text("repository_path\tmissing_episodes\taction\n"
