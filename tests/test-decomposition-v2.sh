@@ -481,6 +481,34 @@ fi
 grep -Fq "verification contract requires unavailable executable 'source-audit-evidence-check'" \
 	"$TEST_ROOT/read-only-impossible.out"
 
+# An available executable can still encode an impossible zero-write contract.
+# Execute manager-remediation verification before publication so a failing
+# selector consumes only a bounded publisher correction, not a worker launch
+# and another root-liveness epoch.
+sed 's#command -v source-audit-evidence-check#/bin/false#' \
+	"$TEST_ROOT/read-only-remediation-recovery.md" > \
+	"$TEST_ROOT/read-only-remediation-failing-command.md"
+if "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/read-only-remediation-harness.env" \
+	001-revision-01 "$TEST_ROOT/read-only-remediation-failing-command.md" --manager-remediation \
+	>"$TEST_ROOT/read-only-preflight-failure.out" 2>&1; then
+	printf 'failing zero-write verification contract was published\n' >&2
+	exit 1
+fi
+grep -Fq 'zero-write verification contract fails before publication (exit=1)' \
+	"$TEST_ROOT/read-only-preflight-failure.out"
+grep -Fq 'VERIFICATION_CONTRACT_PREFLIGHT_REJECTED root=001 task=001-revision-01 exit=1' \
+	"$read_only_remediation_project/logs/events.log"
+
+sed 's#command -v source-audit-evidence-check#test -f src/a.c#' \
+	"$TEST_ROOT/read-only-remediation-recovery.md" > \
+	"$TEST_ROOT/read-only-remediation-passing-command.md"
+"$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/read-only-remediation-harness.env" \
+	001-revision-01 "$TEST_ROOT/read-only-remediation-passing-command.md" --manager-remediation \
+	>/dev/null
+grep -Fq 'VERIFICATION_CONTRACT_PREFLIGHT_PASSED root=001 task=001-revision-01' \
+	"$read_only_remediation_project/logs/events.log"
+test -f "$read_only_remediation_project/tasks/decompreadonlyremediation-task-001-revision-01.ready.md"
+
 # A resource fuse that observes durable source progress must schedule a
 # read-only verification transaction. Recovery planners sometimes copy the
 # parent's implementation-file count into that transaction; publication must

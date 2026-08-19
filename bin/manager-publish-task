@@ -2596,6 +2596,48 @@ if (( recovery_publish == 1 )); then
 	fi
 fi
 
+preflight_zero_write_manager_verification()
+{
+	local validation capture status excerpt preflight_repository
+	(( recovery_publish == 1 && manager_remediation == 1 && goal_mode == 1 )) || return 0
+	[[ "${leaf_type:-}" == VERIFICATION_ONLY && "${leaf_expected_files:-}" == 0 ]] || return 0
+	validation="${goal_focused_validation:-}"
+	validation_is_executable_command "$validation" || return 0
+
+	capture="$(mktemp "$dir/logs/verification-preflight-$task_id.XXXXXX.log")"
+	chmod 600 "$capture"
+	preflight_repository="$(mktemp -d "$PROJECT_TMP_DIR/verification-preflight-$task_id.XXXXXX")"
+	rmdir "$preflight_repository"
+	git -C "$REPOSITORY" worktree add --quiet --detach "$preflight_repository" HEAD ||
+		die 'could not create an isolated worktree for verification-contract preflight'
+	set +e
+	(
+		cd "$preflight_repository"
+		timeout --signal=TERM --kill-after=10 \
+			"${HARNESS_VERIFICATION_PREFLIGHT_TIMEOUT_SECONDS}s" \
+			/bin/bash -lc "$validation"
+	) >"$capture" 2>&1
+	status=$?
+	set -e
+	git -C "$REPOSITORY" worktree remove --force "$preflight_repository" ||
+		log_event "VERIFICATION_CONTRACT_PREFLIGHT_WORKTREE_CLEANUP_FAILED root=$root task=$task_id path=$preflight_repository"
+	if (( status == 0 )); then
+		log_event "VERIFICATION_CONTRACT_PREFLIGHT_PASSED root=$root task=$task_id log=$capture"
+		return 0
+	fi
+
+	log_event "VERIFICATION_CONTRACT_PREFLIGHT_REJECTED root=$root task=$task_id exit=$status log=$capture"
+	excerpt="$(head -n "$HARNESS_VALIDATION_OUTPUT_MAX_LINES" "$capture" |
+		head -c "$HARNESS_VALIDATION_OUTPUT_MAX_BYTES")"
+	if [[ -n "$excerpt" ]]; then
+		printf '%s\n' '--- bounded verification preflight output ---' >&2
+		printf '%s\n' "$excerpt" >&2
+	fi
+	die "zero-write verification contract fails before publication (exit=$status); correct the executable evidence selector/target or invalidate the disproved prerequisite instead of launching a worker"
+}
+
+preflight_zero_write_manager_verification
+
 if (( recovery_publish == 1 )) &&
 	! evaluate_root_state_oscillation "$task_id" "$target_criterion" \
 		"$strategy_fingerprint" "$blocking_fingerprint" "$(task_verified_item_count "$root")"; then

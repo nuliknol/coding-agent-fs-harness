@@ -593,6 +593,11 @@ load_harness_env()
 	# bounded diagnostic summary is allowed back into an agent transcript.
 	HARNESS_VALIDATION_OUTPUT_MAX_LINES="${HARNESS_VALIDATION_OUTPUT_MAX_LINES:-200}"
 	HARNESS_VALIDATION_OUTPUT_MAX_BYTES="${HARNESS_VALIDATION_OUTPUT_MAX_BYTES:-32768}"
+	# A zero-write manager remediation has no implementation step that could make
+	# a failing evidence command pass. Execute that contract before publication so
+	# the manager can correct a wrong selector or target without spending a worker
+	# launch and another root-liveness epoch.
+	HARNESS_VERIFICATION_PREFLIGHT_TIMEOUT_SECONDS="${HARNESS_VERIFICATION_PREFLIGHT_TIMEOUT_SECONDS:-120}"
 	# One verbose command can poison an otherwise bounded context before the
 	# aggregate token estimator sees the next reasoning item. Stop that episode
 	# as soon as a completed command crosses this byte boundary.
@@ -1003,6 +1008,8 @@ load_harness_env()
 		die 'HARNESS_VALIDATION_OUTPUT_MAX_LINES must be a positive integer'
 	[[ "$HARNESS_VALIDATION_OUTPUT_MAX_BYTES" =~ ^[1-9][0-9]*$ ]] ||
 		die 'HARNESS_VALIDATION_OUTPUT_MAX_BYTES must be a positive integer'
+	[[ "$HARNESS_VERIFICATION_PREFLIGHT_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$ ]] ||
+		die 'HARNESS_VERIFICATION_PREFLIGHT_TIMEOUT_SECONDS must be a positive integer'
 	[[ "$HARNESS_MAX_AGENT_COMMAND_OUTPUT_BYTES" =~ ^[1-9][0-9]*$ ]] ||
 		die 'HARNESS_MAX_AGENT_COMMAND_OUTPUT_BYTES must be a positive integer'
 	[[ "$HARNESS_MAX_MANAGER_COMMAND_OUTPUT_BYTES" =~ ^[1-9][0-9]*$ ]] ||
