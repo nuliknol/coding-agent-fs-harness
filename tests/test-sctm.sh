@@ -198,6 +198,30 @@ grep -Fq 'SCTM_TRANSACTION_APPLIED transaction=tx1' "$project/logs/events.log"
 grep -Fq 'SCTM_TRANSACTION_CONFLICT transaction=tx4' "$project/logs/events.log"
 grep -Fq 'SCTM_TRANSACTION_RECOVERED transaction=tx-recover' "$project/logs/events.log"
 grep -Fq 'SCTM_TRANSACTION_RECOVERY_APPLIED transaction=tx-recover' "$project/logs/events.log"
+
+# Manager review must inspect the exact SCTM-integrated task commit even after
+# later transactions have advanced HEAD and left the canonical worktree clean.
+mkdir -p "$project/archive" "$project/control/acp/integration"
+cat > "$project/archive/sctmtest-task-task-a.assignment.md" <<'ASSIGNMENT'
+Task-ID: task-a
+Allowed-Scope: shared.txt
+ASSIGNMENT
+tx1_previous="$(sed -n 's/^previous_commit=//p' \
+	"$project/control/sctm/transactions/tx1/result")"
+tx1_commit="$(sed -n 's/^commit=//p' \
+	"$project/control/sctm/transactions/tx1/result")"
+cat > "$project/control/acp/integration/task-a.integrated.env" <<INTEGRATION
+task_id=task-a
+integration_base=$tx1_previous
+integrated_head=$tx1_commit
+INTEGRATION
+review_output="$("$ROOT/bin/harness-review-diff" "$TEST_ROOT/harness.env" task-a)"
+grep -Fq 'Review-Source: SCTM_INTEGRATED_COMMIT' <<< "$review_output"
+grep -Fq -- '-parse-old' <<< "$review_output"
+grep -Fq -- '+parse-new' <<< "$review_output"
+git -C "$TEST_ROOT/repo" diff --quiet
+git -C "$TEST_ROOT/repo" diff --cached --quiet
+
 "$ROOT/bin/sctm-status" "$TEST_ROOT/harness.env" > "$TEST_ROOT/sctm-status.out"
 grep -Fqx 'Daemon: running' "$TEST_ROOT/sctm-status.out"
 grep -Fqx 'Queued: 0' "$TEST_ROOT/sctm-status.out"

@@ -33,6 +33,22 @@ for path in "${raw_paths[@]}"; do
 	scope_paths+=("$path")
 done
 
+integration_receipt="$(project_dir)/control/acp/integration/$task_id.integrated.env"
+review_source=WORKTREE
+integration_base=""
+integrated_head=""
+if [[ -f "$integration_receipt" ]]; then
+	integration_base="$(kv_file_value "$integration_receipt" integration_base)"
+	integrated_head="$(kv_file_value "$integration_receipt" integrated_head)"
+	[[ "$integration_base" =~ ^[0-9a-f]{40,64}$ && "$integrated_head" =~ ^[0-9a-f]{40,64}$ ]] ||
+		die "invalid SCTM integration receipt for task: $task_id"
+	git -C "$REPOSITORY" cat-file -e "$integration_base^{commit}" 2>/dev/null ||
+		die "SCTM integration base is unavailable for task: $task_id"
+	git -C "$REPOSITORY" cat-file -e "$integrated_head^{commit}" 2>/dev/null ||
+		die "SCTM integrated commit is unavailable for task: $task_id"
+	review_source=SCTM_INTEGRATED_COMMIT
+fi
+
 report="$PROJECT_TMP_DIR/$PROJECT-task-$task_id.manager-review-diff.log"
 summary="$report.summary.$$"
 mkdir -p "$PROJECT_TMP_DIR"
@@ -41,21 +57,42 @@ if (( ${#scope_paths[@]} == 0 )); then
 	diff_check_status=0
 else
 	set +e
-	git -C "$REPOSITORY" diff --check HEAD -- "${scope_paths[@]}" > "$report.check.$$" 2>&1
+	if [[ "$review_source" == SCTM_INTEGRATED_COMMIT ]]; then
+		git -C "$REPOSITORY" diff --check "$integration_base" "$integrated_head" -- \
+			"${scope_paths[@]}" > "$report.check.$$" 2>&1
+	else
+		git -C "$REPOSITORY" diff --check HEAD -- "${scope_paths[@]}" > "$report.check.$$" 2>&1
+	fi
 	diff_check_status=$?
 	set -e
 	{
 		printf 'Task-ID: %s\n' "$task_id"
 		printf 'Allowed-Scope: %s\n' "$allowed_scope"
+		printf 'Review-Source: %s\n' "$review_source"
+		if [[ "$review_source" == SCTM_INTEGRATED_COMMIT ]]; then
+			printf 'Integration-Base: %s\nIntegrated-Head: %s\n' \
+				"$integration_base" "$integrated_head"
+		fi
 		printf 'Diff-Check-Status: %s\n' "$diff_check_status"
 		printf '\n## Git status\n\n'
 		git -C "$REPOSITORY" status --short -- "${scope_paths[@]}"
 		printf '\n## Diff check\n\n'
 		cat "$report.check.$$"
 		printf '\n## Diff stat\n\n'
-		git -C "$REPOSITORY" diff --stat HEAD -- "${scope_paths[@]}"
+		if [[ "$review_source" == SCTM_INTEGRATED_COMMIT ]]; then
+			git -C "$REPOSITORY" diff --stat "$integration_base" "$integrated_head" -- \
+				"${scope_paths[@]}"
+		else
+			git -C "$REPOSITORY" diff --stat HEAD -- "${scope_paths[@]}"
+		fi
 		printf '\n## Reviewed diff\n\n'
-		git -C "$REPOSITORY" diff --no-ext-diff --unified=8 HEAD -- "${scope_paths[@]}"
+		if [[ "$review_source" == SCTM_INTEGRATED_COMMIT ]]; then
+			git -C "$REPOSITORY" diff --no-ext-diff --unified=8 \
+				"$integration_base" "$integrated_head" -- "${scope_paths[@]}"
+		else
+			git -C "$REPOSITORY" diff --no-ext-diff --unified=8 HEAD -- \
+				"${scope_paths[@]}"
+		fi
 	} > "$report"
 	rm -f "$report.check.$$"
 fi

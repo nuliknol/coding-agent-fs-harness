@@ -1098,6 +1098,13 @@ validate_focused_validation_boundary()
 			'focused validation redirected command diagnostics outside harness capture' "validation=$validation"
 		die 'Focused-Validation must not redirect stdout or stderr; harness-run-assigned-validation retains bounded complete diagnostics'
 	fi
+	if [[ "${leaf_type:-}" != VERIFICATION_ONLY && "${leaf_expected_files:-0}" =~ ^[1-9][0-9]*$ ]] &&
+		grep -Eq '^[[:space:]]*(test[[:space:]]+-[ef][[:space:]]+[^;&|]+|\[[[:space:]]+-[ef][[:space:]]+[^;&|]+[[:space:]]*\])[[:space:]]*$' <<< "$validation"; then
+		mark_efficiency_warning VALIDATION_CONTRACT_INCOMPLETE "${task_id:--}" \
+			'source-changing leaf used only a source-path existence check as focused validation' \
+			"validation=$validation"
+		die 'Focused-Validation for a source-changing leaf cannot be only a file-existence check; run the exact build, fixture, or selected test that verifies Goal-Success-Evidence'
+	fi
 	if [[ "$lower" == *"cmake --build"* && "$lower" != *"--target"* ]]; then
 		mark_efficiency_warning VALIDATION_INFLATION "${task_id:--}" \
 			'focused leaf requested an unqualified CMake all-target build' "validation=$validation"

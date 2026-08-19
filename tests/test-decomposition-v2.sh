@@ -214,6 +214,17 @@ if "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" 001 \
 fi
 grep -Fq 'Focused-Validation ends after compilation' "$TEST_ROOT/build-only-runtime.out"
 
+sed \
+	-e 's#^Focused-Validation:.*#Focused-Validation: test -f src/a.c#' \
+	"$TEST_ROOT/task.md" > "$TEST_ROOT/source-existence-validation-task.md"
+if "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" 001 \
+	"$TEST_ROOT/source-existence-validation-task.md" n1 > "$TEST_ROOT/source-existence-validation.out" 2>&1; then
+	printf 'source-changing task accepted a source-path existence check as validation\n' >&2
+	exit 1
+fi
+grep -Fq 'cannot be only a file-existence check' \
+	"$TEST_ROOT/source-existence-validation.out"
+
 "$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/harness.env" 001 "$TEST_ROOT/task.md" n1 >/dev/null
 
 grep -Eq $'^n1\tACTIVE\t001\t' "$project_dir/control/project-plan-state.tsv"
