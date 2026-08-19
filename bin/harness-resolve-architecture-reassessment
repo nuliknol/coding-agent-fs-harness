@@ -371,7 +371,8 @@ if [[ -n "$plan_item" && "$(project_plan_item_status "$plan_item")" == ACTIVE ]]
 		mark_root_needs_replan "$trigger_task" \
 			"architecture reassessment explicitly authorized one bounded local prerequisite; continue with manager remediation" \
 			MANAGER_REMEDIATION_CONTINUATION LOCAL_CODE_PREREQUISITE "$additional_scope" >/dev/null
-	elif [[ "$category" == MANAGER_REMEDIATION_SCOPE_EXPANSION ]]; then
+	elif [[ "$category" == MANAGER_REMEDIATION_SCOPE_EXPANSION &&
+		$local_symbol_index_reclassified -eq 0 ]]; then
 		mark_root_needs_replan "$trigger_task" \
 			"architecture reassessment denied scope expansion; discard the forcing exhausted-scope transition, preserve immutable root scope, and continue the focused first-unmet boundary" \
 			ARCHITECTURE_REASSESSMENT_RESOLVED >/dev/null

@@ -954,6 +954,54 @@ consumer_replan="$project/control/progress/livenessproj-task-consumer.needs-repl
 grep -Fqx 'Trigger-Outcome: ARCHITECTURE_REASSESSMENT_RESOLVED' "$consumer_replan"
 ! grep -Fq 'MANAGER_REMEDIATION_SCOPE_EXHAUSTED' "$consumer_replan"
 rm -f "$consumer_replan"
+
+# A stale structural index can omit a file-local variable introduced by a
+# checkpointed source edit.  That is a same-file Context Closure defect, not
+# evidence that the manager may invent an adjacent build/configuration scope.
+# Reclassifying this precise recorded condition must preserve the original
+# mutation authority and demand a bounded context expansion.
+local_symbol_scope_marker="$project/control/progress/livenessproj-task-consumer.architecture-reassessment-required.md"
+cat > "$local_symbol_scope_marker" <<'MD'
+# Architecture Reassessment Required
+
+Project: livenessproj
+Task-Root: consumer
+Triggered-By: consumer-revision-13
+Category: MANAGER_REMEDIATION_SCOPE_EXPANSION
+Pending-Replan-Trigger: MANAGER_REMEDIATION_SCOPE_EXHAUSTED
+Pending-Replan-Triggered-By: consumer-revision-13
+Pending-Replan-Blocker-Class: LOCAL_CODE_PREREQUISITE
+Pending-Replan-Remediation-Scope: src/consumer/smoke.c
+MD
+cat > "$project/archive/livenessproj-task-consumer-revision-13.assignment.md" <<'MD'
+Task-ID: consumer-revision-13
+Task-Root: consumer
+Manager-Remediation: 1
+Blocker-Class: LOCAL_CODE_PREREQUISITE
+Remediation-Scope: src/consumer/smoke.c
+Allowed-Scope: src/consumer/smoke.c
+Context-Paths: src/consumer/smoke.c
+MD
+cat > "$project/archive/livenessproj-task-consumer-revision-13.rejected-result.md" <<'MD'
+Task-ID: consumer-revision-13
+Goal-Outcome: NEEDS_DECOMPOSITION
+Decomposition-Reason: VALIDATION_PREREQUISITE
+ACP-Request-Type: PREREQUISITE
+ACP-Request-Kind: MISSING_REQUIRED_SYMBOL_INDEX
+ACP-Request-Identifier: consumer_smoke
+MD
+fix_commit="$(git -C "$HARNESS_HOME" rev-parse HEAD)"
+cat > "$TEST_ROOT/local-symbol-index-resolution.md" <<MD
+Resolution-Action: RECLASSIFY_LOCAL_SYMBOL_INDEX_CONTEXT
+Harness-Fix-Commit: $fix_commit
+MD
+"$HARNESS_BIN/harness-resolve-architecture-reassessment" \
+	"$TEST_ROOT/harness.env" consumer "$TEST_ROOT/local-symbol-index-resolution.md" >/dev/null
+consumer_replan="$project/control/progress/livenessproj-task-consumer.needs-replan.md"
+grep -Fqx 'Trigger-Outcome: MANAGER_REMEDIATION_CONTEXT_INCOMPLETE' "$consumer_replan"
+grep -Fqx 'Remediation-Scope: src/consumer/smoke.c' "$consumer_replan"
+grep -Fqx 'Context-Paths: src/consumer/smoke.c' "$consumer_replan"
+rm -f "$consumer_replan"
 # The exact preserved tracked change is now attributable on restart even after
 # the reassessment marker itself has been archived.
 bash -c 'source "$1/lib/harness-common.sh"; load_harness_env "$2"; require_resumable_repository_start_state' \
