@@ -4,6 +4,19 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../lib/harness-common.sh"
 
+path_is_within_scope()
+{
+	local path="$1" scope_set="$2" entry normalized
+	IFS=',' read -r -a scope_entries <<< "${scope_set//;/,}"
+	for entry in "${scope_entries[@]}"; do
+		entry="$(trim_surrounding_whitespace "$entry")"
+		[[ -n "$entry" && "$entry" != - ]] || continue
+		normalized="${entry%/}"
+		[[ "$path" == "$normalized" || "$path" == "$normalized/"* ]] && return 0
+	done
+	return 1
+}
+
 usage()
 {
 	printf 'Usage: %s ENV_FILE TASK_ROOT RESOLUTION_NOTE_FILE\n' "${0##*/}" >&2
@@ -150,7 +163,7 @@ if [[ -n "$resolution_action" ]]; then
 				"$(metadata_value "$mutation_assignment" Manager-Remediation)" == 1 ]] ||
 				die 'Mutation-Region reclassification requires an in-scope manager-remediation assignment'
 			mutation_scope="$(metadata_value "$mutation_assignment" Allowed-Scope)"
-			scope_is_within_root_authority "$mutation_path" "$mutation_scope" ||
+			path_is_within_scope "$mutation_path" "$mutation_scope" ||
 				die 'Mutation-Region request lies outside the archived Allowed-Scope and cannot be reclassified as context'
 			pending_replan_trigger=MANAGER_REMEDIATION_CONTEXT_INCOMPLETE
 			pending_replan_task="$mutation_task"

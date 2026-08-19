@@ -43,11 +43,16 @@ fi
 AGENT_COMMIT_ACTOR="task=$task_id session=$session"
 plan_item="$(project_plan_item_for_root "$(task_root_id "$task_id")" 2>/dev/null || true)"
 mutation_capabilities="$dir/control/mutation-capabilities.tsv"
-if [[ -n "$plan_item" ]]; then
+index_pointer="$dir/control/repository-index.env"
+if [[ -n "$plan_item" && -f "$index_pointer" ]]; then
 	mutation_capabilities="$(mktemp "$PROJECT_TMP_DIR/$base.mutation-capabilities.XXXXXX")"
 	trap 'rm -f -- "$mutation_capabilities"' EXIT
 	"$HARNESS_BIN/harness-compile-task-mutation-capabilities" \
 		"$HARNESS_ENV_FILE" "$task_id" "$running" "$mutation_capabilities"
+	python3 "$HARNESS_HOME/tools/verify_workspace_mutation_regions.py" \
+		--repository "$REPOSITORY" --capabilities "$mutation_capabilities" \
+		--plan-node "$plan_item" "$@"
+elif [[ -n "$plan_item" && -f "$mutation_capabilities" ]]; then
 	python3 "$HARNESS_HOME/tools/verify_workspace_mutation_regions.py" \
 		--repository "$REPOSITORY" --capabilities "$mutation_capabilities" \
 		--plan-node "$plan_item" "$@"
