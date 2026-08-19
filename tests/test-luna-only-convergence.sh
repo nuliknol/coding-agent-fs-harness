@@ -34,6 +34,18 @@ grep -Fq 'typed Context Closure repair must retain the triggering manager-remedi
 	"$ROOT/bin/manager-auto-replan-root"
 grep -Fq 'normalize_recovery_context_paths' "$ROOT/bin/manager-publish-task"
 grep -Fq 'LUNA_CONTEXT_PATHS_NORMALIZED' "$ROOT/bin/manager-publish-task"
+grep -Fq 'QUALIFIED_CONTEXT_SYMBOL_NORMALIZED' "$ROOT/bin/manager-publish-task"
+grep -Fq 'CONTEXT_CLOSURE_EXEMPT' "$ROOT/bin/worker-invoke-task"
+(
+	source "$ROOT/lib/harness-worker-policy.sh"
+	luna_bounded_execution=1
+	HARNESS_CONTEXT_CLOSURE_MODE=patch_only
+	context_closure_status=NEEDS_FURTHER_DECOMPOSITION
+	zero_write_verification=1
+	! harness_worker_context_admission_requires_repair
+	zero_write_verification=0
+	harness_worker_context_admission_requires_repair
+)
 grep -Fq 'DETERMINISTIC_CLOSURE_CUT=' "$ROOT/bin/manager-auto-replan-root"
 grep -Fq 'DETERMINISTIC_CLOSURE_CUT_VALIDATED' "$ROOT/bin/manager-publish-task"
 grep -Fq "Context-Closure-Cut: \$closure_cut_id" "$ROOT/bin/manager-auto-replan-root"

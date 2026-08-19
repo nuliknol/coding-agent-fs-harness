@@ -1473,11 +1473,11 @@ normalize_read_only_validation_labels
 
 normalize_recovery_context_paths()
 {
-	local requested required allowed validation normalized normalized_allowed entry symbol candidate tmp changed=0
+	local requested required allowed validation normalized normalized_allowed normalized_required entry symbol candidate tmp changed=0
 	local found duplicate exact_file stem directory matching_count replan_outcome prior_context_paths
-	local cmake_root cmake_directory include_path
+	local cmake_root cmake_directory include_path qualified_path qualified_symbol
 	local -a entries=() kept=() symbols=() candidates=() source_directories=() exact_files=()
-	local -a normalized_allowed_entries=() direct_includes=() deduplicated=()
+	local -a normalized_allowed_entries=() direct_includes=() deduplicated=() qualified_symbols=() normalized_symbols=()
 	(( recovery_publish == 1 )) || return 0
 	[[ "$HARNESS_MODEL_POLICY" == luna_only ]] || return 0
 	requested="$(metadata_value "$task_file" Context-Paths)"
@@ -1496,6 +1496,20 @@ normalize_recovery_context_paths()
 	for entry in "${entries[@]}"; do
 		entry="$(trim_surrounding_whitespace "$entry")"
 		[[ -n "$entry" ]] || continue
+		# Recovery agents can precisely qualify a requested definition as
+		# path/to/file.c:symbol.  Context-Paths carries file authority and
+		# Required-Symbols carries symbol authority; split that compact selector
+		# into both fields instead of classifying it as a nonexistent path.
+		if [[ "$entry" =~ ^(.+):([A-Za-z_][A-Za-z0-9_.\$~-]*)$ ]]; then
+			qualified_path="${BASH_REMATCH[1]}"
+			qualified_symbol="${BASH_REMATCH[2]}"
+			if [[ "$qualified_path" != /* && -f "$REPOSITORY/$qualified_path" ]]; then
+				entry="$qualified_path"
+				qualified_symbols+=("$qualified_symbol")
+				changed=1
+				log_event "QUALIFIED_CONTEXT_SYMBOL_NORMALIZED root=$root task=$task_id path=$(printf '%q' "$qualified_path") symbol=$(printf '%q' "$qualified_symbol")"
+			fi
+		fi
 		if [[ "$entry" == "$PROJECT_TMP_DIR" || "$entry" == "$PROJECT_TMP_DIR/"* ]]; then
 			[[ "$validation" == *"$entry"* || "$entry" == *build* ]] || {
 				kept+=("$entry")
@@ -1601,6 +1615,21 @@ normalize_recovery_context_paths()
 	# same bounded candidate the old diagnostic returned to Luna, now performed
 	# without spending another model action.
 	IFS=',' read -r -a symbols <<< "$required"
+	for symbol in "${symbols[@]}" "${qualified_symbols[@]}"; do
+		symbol="$(trim_surrounding_whitespace "$symbol")"
+		[[ -n "$symbol" && "$symbol" != - && "$symbol" != NONE ]] || continue
+		duplicate=0
+		for candidate in "${normalized_symbols[@]}"; do
+			[[ "$candidate" != "$symbol" ]] || duplicate=1
+		done
+		(( duplicate == 1 )) || normalized_symbols+=("$symbol")
+	done
+	if (( ${#normalized_symbols[@]} == 0 )); then
+		normalized_required=-
+	else
+		normalized_required="$(IFS=,; printf '%s' "${normalized_symbols[*]}")"
+	fi
+	symbols=("${normalized_symbols[@]}")
 	for symbol in "${symbols[@]}"; do
 		symbol="$(trim_surrounding_whitespace "$symbol")"
 		[[ -n "$symbol" && "$symbol" != - && "$symbol" != NONE ]] || continue
@@ -1701,10 +1730,12 @@ normalize_recovery_context_paths()
 	[[ -n "$normalized_allowed" ]] || die 'normalized Luna Allowed-Scope cannot be empty'
 	tmp="$task_file.context-paths.$$"
 	HARNESS_NORMALIZED_CONTEXT_PATHS="$normalized" \
-	HARNESS_NORMALIZED_ALLOWED_SCOPE="$normalized_allowed" awk -F': ' '
+	HARNESS_NORMALIZED_ALLOWED_SCOPE="$normalized_allowed" \
+	HARNESS_NORMALIZED_REQUIRED_SYMBOLS="$normalized_required" awk -F': ' '
 		$1 == "Context-Paths" {print "Context-Paths: " ENVIRON["HARNESS_NORMALIZED_CONTEXT_PATHS"]; next}
 		$1 == "Allowed-Scope" {print "Allowed-Scope: " ENVIRON["HARNESS_NORMALIZED_ALLOWED_SCOPE"]; next}
 		$1 == "Remediation-Scope" {print "Remediation-Scope: " ENVIRON["HARNESS_NORMALIZED_ALLOWED_SCOPE"]; next}
+		$1 == "Required-Symbols" {print "Required-Symbols: " ENVIRON["HARNESS_NORMALIZED_REQUIRED_SYMBOLS"]; next}
 		{print}
 	' "$task_file" > "$tmp"
 	chmod --reference="$task_file" "$tmp"

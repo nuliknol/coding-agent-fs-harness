@@ -67,6 +67,26 @@ def safe_entry(repository: Path, relative: str) -> Path | None:
     return candidate if candidate.is_file() or candidate.is_dir() else None
 
 
+def path_qualified_symbol(repository: Path, identifier: str) -> tuple[str, str] | None:
+    """Split an exact ``repository/path:symbol`` request without guessing.
+
+    Workers use this form when the decisive definition is known to be in one
+    declared file.  Treating the whole value as a symbol loses the path
+    authority, while treating it as a Context-Paths entry makes a valid file
+    look absent.  Accept only an existing repository file and a C-family
+    identifier so a colon in arbitrary request text cannot broaden access.
+    """
+    if ":" not in identifier:
+        return None
+    relative, symbol = identifier.rsplit(":", 1)
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.$~-]*", symbol):
+        return None
+    source = safe_path(repository, relative)
+    if source is None:
+        return None
+    return source.relative_to(repository).as_posix(), symbol
+
+
 def inside_declared_boundary(repository: Path, path: str,
                              boundaries: set[str]) -> bool:
     for boundary in boundaries:
@@ -271,10 +291,14 @@ def main() -> int:
     assignment = metadata(Path(args.assignment))
     closure = closure_rows(Path(args.closure))
     repository = Path(args.repository).resolve()
-    identifier = args.identifier.strip()
-    if not identifier or len(identifier) > 256 or "\n" in identifier:
+    raw_identifier = args.identifier.strip()
+    if not raw_identifier or len(raw_identifier) > 256 or "\n" in raw_identifier:
         print("status=REJECTED\nreason=invalid-identifier")
         return 2
+    qualified_symbol = (path_qualified_symbol(repository, raw_identifier)
+                        if args.request_kind == "SYMBOL_DEFINITION" else None)
+    qualified_path = qualified_symbol[0] if qualified_symbol else ""
+    identifier = qualified_symbol[1] if qualified_symbol else raw_identifier
 
     required_symbols = split_list(assignment.get("Required-Symbols", ""))
     declared_paths = split_list(assignment.get("Context-Paths", "")) | split_list(
@@ -287,6 +311,13 @@ def main() -> int:
         repository, assignment.get("Focused-Validation", ""))
     validation_command = assignment.get("Focused-Validation", "")
     read_boundaries = seed_paths | validation_paths
+
+    if qualified_path and not inside_declared_boundary(
+            repository, qualified_path, read_boundaries):
+        print("status=REJECTED\n"
+              "reason=no-authorized-evidence\n"
+              "relation=path-qualified-symbol-outside-assignment-boundary")
+        return 3
 
     connection = sqlite3.connect(args.database)
     connection.row_factory = sqlite3.Row
@@ -322,11 +353,15 @@ def main() -> int:
         if authorized:
             relation = relation or "exact-required-symbol"
             for row in definitions(connection, sorted(authorized)):
+                if qualified_path and row["repository_path"] != qualified_path:
+                    continue
                 records.append(("SYMBOL_DEFINITION", row["repository_path"], row["start_line"],
                                 row["end_line"], row["display_name"], row["provider"]))
             if not records and relation == "exact-required-symbol":
                 for path, start, end in indexed_lexical_function_definitions(
                         connection, repository, identifier):
+                    if qualified_path and path != qualified_path:
+                        continue
                     records.append(("SYMBOL_DEFINITION", path, start, end, identifier,
                                     "indexed-file-lexical-definition-fallback"))
                 if records:
@@ -334,6 +369,9 @@ def main() -> int:
         elif requested_ids:
             bounded_definitions = rows_inside_boundary(
                 repository, definitions(connection, requested_ids), read_boundaries)
+            if qualified_path:
+                bounded_definitions = [row for row in bounded_definitions
+                                       if row["repository_path"] == qualified_path]
             if bounded_definitions:
                 relation = "exact-symbol-inside-declared-read-boundary"
                 for row in bounded_definitions:
@@ -348,6 +386,8 @@ def main() -> int:
                 # broaden the assignment boundary.
                 for path, start, end in indexed_lexical_function_definitions(
                         connection, repository, identifier):
+                    if qualified_path and path != qualified_path:
+                        continue
                     if not inside_declared_boundary(repository, path, read_boundaries):
                         continue
                     records.append(("SYMBOL_DEFINITION", path, start, end, identifier,
@@ -605,7 +645,7 @@ def main() -> int:
     content: list[str] = [
         "# Trusted Context Closure Extension", "",
         f"Context-Request-Kind: {args.request_kind}",
-        f"Context-Request-Identifier: {identifier}",
+        f"Context-Request-Identifier: {raw_identifier}",
         f"Authorization-Relation: {relation}", "",
     ]
     remaining = args.max_bytes - len("\n".join(content).encode("utf-8")) - 256

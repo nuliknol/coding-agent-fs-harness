@@ -28,6 +28,13 @@ base="$(task_base "$task_id")"
 ready="$dir/tasks/$base.ready.md"
 [[ -f "$ready" ]] || die "task is not ready: $task_id"
 harness_worker_select_execution_policy "$ready" "$task_id"
+admission_leaf_type="$(metadata_value "$ready" Leaf-Type)"
+admission_expected_implementation_files="$(metadata_value "$ready" Expected-Max-Implementation-Files)"
+zero_write_verification=0
+if [[ "$admission_leaf_type" == VERIFICATION_ONLY &&
+	"$admission_expected_implementation_files" == 0 ]]; then
+	zero_write_verification=1
+fi
 if assignment_uses_goal_mode "$ready"; then
 	(( HARNESS_WORKER_GOAL_MODE == 1 )) ||
 		die 'refusing to claim an active LEAF_GOAL after HARNESS_WORKER_GOAL_MODE was disabled'
@@ -44,7 +51,8 @@ context_closure_condition=OFF
 context_closure_repair_action=NONE
 context_closure_repair_provider=-
 context_closure_semantic_split=0
-if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" != off ]]; then
+if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" != off ]] &&
+	(( zero_write_verification == 0 )); then
 	closure_build_log="$dir/logs/context-closure-$task_id-$(timestamp_compact_utc)-$$.log"
 	set +e
 	closure_build_output="$($HARNESS_BIN/harness-build-context-closure \
@@ -84,6 +92,13 @@ if [[ "$HARNESS_CONTEXT_CLOSURE_MODE" != off ]]; then
 		"$context_closure_bytes" "$context_closure_tokens" \
 		"${compiled_context_closure_file:--}" >> "$closure_events"
 	log_event "CONTEXT_CLOSURE_PREPARED task=$task_id mode=$HARNESS_CONTEXT_CLOSURE_MODE status=$context_closure_status condition=$context_closure_condition repair_action=$context_closure_repair_action repair_provider=$context_closure_repair_provider semantic_split=$context_closure_semantic_split reason=$context_closure_reason bytes=$context_closure_bytes estimated_tokens=$context_closure_tokens file=${compiled_context_closure_file:-none} log=$closure_build_log"
+elif (( zero_write_verification == 1 )); then
+	context_closure_status=NOT_REQUIRED
+	context_closure_reason=zero-write-verification
+	context_closure_condition=NOT_REQUIRED
+	context_closure_repair_action=NONE
+	context_closure_repair_provider=-
+	log_event "CONTEXT_CLOSURE_EXEMPT task=$task_id mode=$HARNESS_CONTEXT_CLOSURE_MODE reason=zero-write-verification mutation_authority=none"
 fi
 
 session="$("$HARNESS_BIN/harness-new-session" "$HARNESS_ENV_FILE" worker)"
@@ -604,7 +619,8 @@ fi
 # Admission above handles ordinary incomplete closures. Reaching this boundary
 # without the compiled capsule is a harness-integrity failure, not another
 # worker condition to retry.
-if (( luna_bounded_execution == 1 )) && [[ "$HARNESS_CONTEXT_CLOSURE_MODE" =~ ^(required|patch_only)$ ]] &&
+if (( zero_write_verification == 0 && luna_bounded_execution == 1 )) &&
+	[[ "$HARNESS_CONTEXT_CLOSURE_MODE" =~ ^(required|patch_only)$ ]] &&
 	{ [[ "$context_closure_status" != READY ]] || [[ -z "$compiled_context_closure_file" ]] ||
 		[[ ! -s "$compiled_context_closure_file" ]]; }; then
 	mark_project_integrity_anomaly CLOSURE_BYPASS "$task_id" \

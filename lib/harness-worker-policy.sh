@@ -69,8 +69,7 @@ harness_worker_select_execution_policy()
 
 harness_worker_context_admission_requires_repair()
 {
-	(( luna_bounded_execution == 1 )) &&
+	(( ${zero_write_verification:-0} == 0 && luna_bounded_execution == 1 )) &&
 		[[ "$HARNESS_CONTEXT_CLOSURE_MODE" =~ ^(required|patch_only)$ ]] &&
 		[[ "$context_closure_status" != READY ]]
 }
-

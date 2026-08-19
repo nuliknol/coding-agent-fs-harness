@@ -132,6 +132,28 @@ class ContextRequestTest(unittest.TestCase):
         )
         self.assertIn("int isolated_helper(void)", extension)
 
+    def test_path_qualified_symbol_definition_is_constrained_and_admitted(self):
+        result = self.resolve("SYMBOL_DEFINITION", "calc.c:caller")
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        extension = (self.root / "extension.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "Authorization-Relation: direct-semantic-neighbor-definition",
+            extension,
+        )
+        self.assertIn("Context-Request-Identifier: calc.c:caller", extension)
+        self.assertIn("`calc.c:3`", extension)
+        self.assertIn("int caller(void)", extension)
+
+    def test_path_qualified_symbol_outside_declared_boundary_is_rejected(self):
+        (self.repository / "other.c").write_text(
+            "int isolated_helper(void) { return 7; }\n", encoding="utf-8")
+        result = self.resolve("SYMBOL_DEFINITION", "other.c:isolated_helper")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn(
+            "relation=path-qualified-symbol-outside-assignment-boundary",
+            result.stdout,
+        )
+
     def test_exact_indexed_symbol_without_definition_uses_bounded_lexical_fallback(self):
         (self.repository / "backend.hip").write_text(
             'extern "C" int isolated_hip_helper(int value)\n'
