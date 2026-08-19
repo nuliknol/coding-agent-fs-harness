@@ -1485,6 +1485,7 @@ normalize_recovery_context_paths()
 {
 	local requested required allowed validation normalized normalized_allowed normalized_required entry symbol candidate tmp changed=0
 	local found duplicate exact_file stem directory matching_count replan_outcome prior_context_paths
+	local replan_trigger_task trigger_assignment prior_required_symbols
 	local cmake_root cmake_directory include_path qualified_path qualified_symbol
 	local -a entries=() kept=() symbols=() candidates=() source_directories=() exact_files=()
 	local -a normalized_allowed_entries=() direct_includes=() deduplicated=() qualified_symbols=() normalized_symbols=()
@@ -1496,6 +1497,17 @@ normalize_recovery_context_paths()
 	validation="$(metadata_value "$task_file" Focused-Validation)"
 	replan_outcome="$(metadata_value "$(task_root_replan_file "$root")" Trigger-Outcome)"
 	prior_context_paths="$(metadata_value "$(task_root_replan_file "$root")" Context-Paths)"
+	prior_required_symbols=""
+	if [[ "$replan_outcome" == MANAGER_REMEDIATION_CONTEXT_INCOMPLETE ]] &&
+		! [[ "$(metadata_value "$task_file" Leaf-Type)" == VERIFICATION_ONLY &&
+			"$(metadata_value "$task_file" Expected-Max-Implementation-Files)" == 0 &&
+			"$allowed" == - ]]; then
+		replan_trigger_task="$(metadata_value "$(task_root_replan_file "$root")" Triggered-By)"
+		trigger_assignment="$dir/archive/$(task_base "$replan_trigger_task").assignment.md"
+		if [[ -f "$trigger_assignment" ]]; then
+			prior_required_symbols="$(metadata_value "$trigger_assignment" Required-Symbols)"
+		fi
+	fi
 	[[ -n "$requested" && "$requested" != - ]] || return 0
 
 	# Generated validation workspaces are not repository evidence.  A manager
@@ -1624,7 +1636,13 @@ normalize_recovery_context_paths()
 	# token, add one deterministic tracked definition/usage path.  This is the
 	# same bounded candidate the old diagnostic returned to Luna, now performed
 	# without spending another model action.
-	IFS=',' read -r -a symbols <<< "$required"
+	# A context-incomplete continuation is append-only read authority. Preserve
+	# the triggering assignment's exact symbols before adding the candidate's
+	# new evidence names, just as the path normalizer already retains prior
+	# Context-Paths. Otherwise a manager can provide a genuine expansion but
+	# accidentally replace one old symbol, producing an impossible sequence of
+	# generic "must add context" rejections.
+	IFS=',' read -r -a symbols <<< "$prior_required_symbols,$required"
 	for symbol in "${symbols[@]}" "${qualified_symbols[@]}"; do
 		symbol="$(trim_surrounding_whitespace "$symbol")"
 		[[ -n "$symbol" && "$symbol" != - && "$symbol" != NONE ]] || continue
@@ -1638,6 +1656,10 @@ normalize_recovery_context_paths()
 		normalized_required=-
 	else
 		normalized_required="$(IFS=,; printf '%s' "${normalized_symbols[*]}")"
+	fi
+	if [[ -n "$prior_required_symbols" && "$normalized_required" != "$required" ]]; then
+		changed=1
+		log_event "CONTEXT_INCOMPLETE_REQUIRED_SYMBOLS_RETAINED root=$root task=$task_id prior=$(printf '%q' "$prior_required_symbols") requested=$(printf '%q' "$required") normalized=$(printf '%q' "$normalized_required")"
 	fi
 	symbols=("${normalized_symbols[@]}")
 	for symbol in "${symbols[@]}"; do

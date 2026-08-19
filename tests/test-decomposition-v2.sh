@@ -13,7 +13,7 @@ fi
 
 mkdir -p "$TEST_ROOT/repo/src/cmake" "$TEST_ROOT/repo/include" "$TEST_ROOT/manager-home" "$TEST_ROOT/worker-home"
 printf 'Implement one focused behavior.\n' > "$TEST_ROOT/repo/spec.md"
-printf 'int target_symbol(void) { return 0; }\n' > "$TEST_ROOT/repo/src/a.c"
+printf 'int target_symbol(void) { return 0; }\nint adjacent_symbol(void) { return target_symbol(); }\n' > "$TEST_ROOT/repo/src/a.c"
 printf 'int target_symbol(void);\n' > "$TEST_ROOT/repo/include/a.h"
 printf 'include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/registration.cmake)\nadd_custom_target(fixture-check)\n' > "$TEST_ROOT/repo/src/CMakeLists.txt"
 printf 'add_custom_target(registration-check)\n' > "$TEST_ROOT/repo/src/cmake/registration.cmake"
@@ -591,6 +591,40 @@ grep -Fqx 'Context-Paths: include/a.h,src/a.c' "$normalize_ready"
 grep -Fq 'RECOVERY_ABSENT_CONTEXT_PATH_REMOVED root=001 task=001-revision-01 path=src/missing_contract.c' \
 	"$normalize_project/logs/events.log"
 grep -Fq 'LUNA_CONTEXT_PATHS_NORMALIZED root=001 task=001-revision-01' \
+	"$normalize_project/logs/events.log"
+
+# A context-incomplete remediation extends read authority monotonically. If a
+# recovery draft names the new decisive symbol but omits symbols from the
+# triggering assignment, retain the prior set deterministically instead of
+# rejecting every otherwise-valid correction with a generic expansion error.
+mv "$normalize_ready" \
+	"$normalize_project/archive/decompnormalize-task-001-revision-01.assignment.md"
+cat > "$normalize_project/control/progress/decompnormalize-task-001.needs-replan.md" <<'MARKER'
+# Root Task Needs Replanning
+
+Task-Root: 001
+Triggered-By: 001-revision-01
+Trigger-Outcome: MANAGER_REMEDIATION_CONTEXT_INCOMPLETE
+Blocking-Fingerprint: sha256:context-symbol-retention
+Remediation-Scope: src/a.c
+Context-Paths: include/a.h,src/a.c
+MARKER
+sed \
+	-e 's/^Task-ID: 001$/Task-ID: 001-revision-02/' \
+	-e 's/^Goal-ID: n1.goal$/Goal-ID: n1.context.symbols/' \
+	-e 's#^Allowed-Scope: src$#Allowed-Scope: src/a.c#' \
+	-e 's#^Context-Paths: include/a.h,src$#Context-Paths: include/a.h,src/a.c#' \
+	-e 's/^Required-Symbols: target_symbol$/Required-Symbols: adjacent_symbol/' \
+	-e 's/^Make target_symbol return one\.$/Use adjacent_symbol context to complete target_symbol locally./' \
+	-e '/^Root-Criterion: n1.done$/a Manager-Remediation: 1\nBlocker-Class: LOCAL_CODE_PREREQUISITE\nRemediation-Scope: src/a.c\nReplan-Strategy-ID: normalize.context.symbols.2\nStrategy-Change: REPAIR_PREREQUISITE\nSupersedes-Task: 001-revision-01' \
+	"$TEST_ROOT/normalize-root-task.md" > "$TEST_ROOT/normalize-context-symbol-task.md"
+"$HARNESS_BIN/manager-publish-task" "$TEST_ROOT/normalize-harness.env" \
+	001-revision-02 "$TEST_ROOT/normalize-context-symbol-task.md" --manager-remediation >/dev/null
+normalize_symbol_ready="$normalize_project/tasks/decompnormalize-task-001-revision-02.ready.md"
+grep -Fqx 'Required-Symbols: target_symbol,adjacent_symbol' "$normalize_symbol_ready"
+grep -Fq 'CONTEXT_INCOMPLETE_REQUIRED_SYMBOLS_RETAINED root=001 task=001-revision-02' \
+	"$normalize_project/logs/events.log"
+grep -Fq 'CONTEXT_INCOMPLETE_REQUIRED_SYMBOL_EXPANDED root=001 task=001-revision-02' \
 	"$normalize_project/logs/events.log"
 
 # A single compiled graph cut is already the irreducible execution seam. It is
