@@ -19,6 +19,20 @@ def values(text: str) -> list[str]:
     return [part.strip() for part in text.split(",") if part.strip() not in {"", "-"}]
 
 
+def metadata(path: Path) -> dict[str, str]:
+    """Read the single-line assignment metadata used for task authority."""
+    result: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if ": " not in line:
+            continue
+        key, value = line.split(": ", 1)
+        # An assignment is validated by the publisher before it can be used
+        # here. Retaining the first value also prevents a later prose line
+        # from silently widening task authority.
+        result.setdefault(key, value)
+    return result
+
+
 def inside(path: str, scopes: list[str]) -> bool:
     return any(path == scope.rstrip("/") or path.startswith(scope.rstrip("/") + "/")
                for scope in scopes)
@@ -70,13 +84,22 @@ def live_braced_definition(repository: Path | None, repository_path: str,
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--plan", required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--plan")
+    source.add_argument("--assignment")
+    parser.add_argument("--node-id")
     parser.add_argument("--pointer", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--repository")
     parser.add_argument("--require-exact-luna", action="store_true")
+    parser.add_argument("--require-complete-source", action="store_true")
     args = parser.parse_args()
     repository = Path(args.repository).resolve() if args.repository else None
+
+    if args.assignment and not args.node_id:
+        parser.error("--assignment requires --node-id")
+    if args.plan and args.node_id:
+        parser.error("--node-id is valid only with --assignment")
 
     pointer = Path(args.pointer)
     database: Path | None = None
@@ -90,8 +113,18 @@ def main() -> int:
         if pointer_values.get("status") == "READY" and candidate.is_file():
             database = candidate
 
-    with Path(args.plan).open(encoding="utf-8", newline="") as stream:
-        plan_rows = list(csv.DictReader(stream, delimiter="\t"))
+    if args.plan:
+        with Path(args.plan).open(encoding="utf-8", newline="") as stream:
+            plan_rows = list(csv.DictReader(stream, delimiter="\t"))
+    else:
+        assignment = metadata(Path(args.assignment))
+        plan_rows = [{
+            "node_id": args.node_id,
+            "allowed_paths": assignment.get("Allowed-Scope", "-"),
+            "required_symbols": assignment.get("Required-Symbols", "-"),
+            "leaf_type": assignment.get("Leaf-Type", ""),
+            "worker_route": assignment.get("Worker-Route", ""),
+        }]
     output_rows: list[dict[str, str]] = []
     errors: list[str] = []
     connection = sqlite3.connect(str(database)) if database else None
@@ -148,6 +181,10 @@ def main() -> int:
                         f"node={node} resolves every required symbol to exact files "
                         f"{','.join(sorted(resolved_paths))}; replace broad allowed_paths "
                         f"{','.join(broad)} with exact source files")
+            if args.require_complete_source and source_changing and not complete:
+                errors.append(
+                    f"node={node} cannot compile exact Mutation-Regions because one or more "
+                    f"Required-Symbols are absent from the repository index")
     finally:
         if connection is not None:
             connection.close()

@@ -906,6 +906,7 @@ prepare_structural_acp_handoff()
 {
 	local response="$1" type kind identifier reason acp_thread request_path request_status
 	local sequence outcome handoff existing_count structural_deferred_count acp_request_id
+	local assigned_scope mutation_path
 	(( HARNESS_ACP_ENABLED == 1 )) || return 1
 	[[ -s "$response" && -f "$running" && -f "$lease" ]] || return 1
 	[[ "$(grep -Ec '^ACP-Request-Type:[[:space:]]*' "$response" || true)" == 1 ]] || return 1
@@ -948,7 +949,24 @@ prepare_structural_acp_handoff()
 		return 2
 	fi
 	case "$type" in
-		SCOPE) outcome=SCOPE_INCOMPLETE ;;
+		SCOPE)
+			# A line-level Mutation-Region request inside the assignment's existing
+			# Allowed-Scope is missing indexed evidence, not source authority. Treat
+			# it as a Context Closure repair so manager recovery can add the exact
+			# enclosing symbol without requesting a false scope expansion.
+			assigned_scope="$(metadata_value "$running" Allowed-Scope)"
+			if [[ "$kind" == MUTATION_REGION && "$identifier" =~ ^(.+):([1-9][0-9]*)$ ]]; then
+				mutation_path="${BASH_REMATCH[1]}"
+				if [[ "$mutation_path" != /* ]] && scope_is_within_root_authority "$mutation_path" "$assigned_scope"; then
+					outcome=CONTEXT_INCOMPLETE
+					log_event "ACP_MUTATION_REGION_CONTEXT_INCOMPLETE task=$task_id path=$(printf '%q' "$mutation_path") identifier=$(printf '%q' "$identifier")"
+				else
+					outcome=SCOPE_INCOMPLETE
+				fi
+			else
+				outcome=SCOPE_INCOMPLETE
+			fi
+			;;
 		PREREQUISITE) outcome=VALIDATION_PREREQUISITE ;;
 		SPLIT) outcome=TASK_TOO_BROAD ;;
 		CHALLENGE|CANCEL) outcome=HARD_BLOCKED ;;

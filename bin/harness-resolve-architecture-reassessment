@@ -44,6 +44,7 @@ fi
 resolution_action="$(metadata_value "$note_file" Resolution-Action)"
 harness_fix_commit="$(metadata_value "$note_file" Harness-Fix-Commit)"
 pending_replan_inferred=0
+mutation_region_reclassified=0
 # Releases before 5.18.3 checked the aggregate root budget before recording a
 # more specific manager-remediation circuit. Recover the typed continuation
 # from immutable rejected artifacts, but only during the explicit harness-bug
@@ -122,6 +123,43 @@ if [[ -n "$resolution_action" ]]; then
 				"$(kv_file_value "$efficiency_baseline" harness_fix_commit 2>/dev/null || true)" == "$harness_fix_commit" ]]; then
 				die "the same harness fix commit already rearmed this efficiency boundary: $harness_fix_commit"
 			fi
+			;;
+		RECLASSIFY_MUTATION_REGION_CONTEXT)
+			[[ "$category" == MANAGER_PUBLICATION_CONTRACT_EXHAUSTED &&
+				"$pending_replan_trigger" == MANAGER_REMEDIATION_SCOPE_EXHAUSTED ]] ||
+				die 'RECLASSIFY_MUTATION_REGION_CONTEXT is valid only for an exhausted manager-remediation scope transition'
+			[[ "$harness_fix_commit" =~ ^[0-9a-f]{7,64}$ ]] ||
+				die 'RECLASSIFY_MUTATION_REGION_CONTEXT requires Harness-Fix-Commit'
+			git -C "$HARNESS_HOME" cat-file -e "$harness_fix_commit^{commit}" 2>/dev/null ||
+				die "Harness-Fix-Commit is not installed in the harness repository: $harness_fix_commit"
+			git -C "$HARNESS_HOME" merge-base --is-ancestor "$harness_fix_commit" HEAD ||
+				die "Harness-Fix-Commit is not an ancestor of the deployed harness HEAD: $harness_fix_commit"
+			mutation_task="${pending_replan_task:-$trigger_task}"
+			mutation_assignment="$(project_dir)/archive/$(task_base "$mutation_task").assignment.md"
+			mutation_result="$(project_dir)/archive/$(task_base "$mutation_task").rejected-result.md"
+			[[ -f "$mutation_assignment" && -f "$mutation_result" ]] ||
+				die 'Mutation-Region reclassification requires archived assignment and rejected result evidence'
+			[[ "$(metadata_value "$mutation_result" ACP-Request-Type)" == SCOPE &&
+				"$(metadata_value "$mutation_result" ACP-Request-Kind)" == MUTATION_REGION ]] ||
+				die 'Mutation-Region reclassification requires an archived SCOPE/MUTATION_REGION ACP request'
+			mutation_identifier="$(metadata_value "$mutation_result" ACP-Request-Identifier)"
+			[[ "$mutation_identifier" =~ ^(.+):([1-9][0-9]*)$ ]] ||
+				die 'Mutation-Region reclassification requires a repository-relative path:line identifier'
+			mutation_path="${BASH_REMATCH[1]}"
+			[[ "$mutation_path" != /* &&
+				"$(metadata_value "$mutation_assignment" Manager-Remediation)" == 1 ]] ||
+				die 'Mutation-Region reclassification requires an in-scope manager-remediation assignment'
+			mutation_scope="$(metadata_value "$mutation_assignment" Allowed-Scope)"
+			scope_is_within_root_authority "$mutation_path" "$mutation_scope" ||
+				die 'Mutation-Region request lies outside the archived Allowed-Scope and cannot be reclassified as context'
+			pending_replan_trigger=MANAGER_REMEDIATION_CONTEXT_INCOMPLETE
+			pending_replan_task="$mutation_task"
+			pending_replan_blocker_class="$(metadata_value "$mutation_assignment" Blocker-Class)"
+			pending_replan_remediation_scope="$(metadata_value "$mutation_assignment" Remediation-Scope)"
+			pending_replan_context_paths="$(metadata_value "$mutation_assignment" Context-Paths)"
+			[[ -n "$pending_replan_remediation_scope" && -n "$pending_replan_context_paths" ]] ||
+				die 'Mutation-Region reclassification requires preserved remediation scope and Context-Paths'
+			mutation_region_reclassified=1
 			;;
 		*) die "unsupported architecture Resolution-Action: $resolution_action" ;;
 	esac
@@ -290,5 +328,5 @@ if [[ -n "$plan_item" && "$(project_plan_item_status "$plan_item")" == ACTIVE ]]
 	fi
 	replan_restored=1
 fi
-log_event "ARCHITECTURE_REASSESSMENT_RESOLVED root=$root resolution=$archive replan_restored=$replan_restored live_artifact=$root_has_live_artifact pending_inferred=$pending_replan_inferred additional_scope=$(printf '%q' "${effective_additional_scope:--}")"
+log_event "ARCHITECTURE_REASSESSMENT_RESOLVED root=$root resolution=$archive replan_restored=$replan_restored live_artifact=$root_has_live_artifact pending_inferred=$pending_replan_inferred mutation_region_reclassified=$mutation_region_reclassified additional_scope=$(printf '%q' "${effective_additional_scope:--}")"
 printf '%s\n' "$archive"

@@ -48,6 +48,24 @@ goal_publish_thread=""
 goal_publish_ready=0
 measured_recovery_route_override=0
 architecture_recovery_authority=0
+# The root assignment is the durable acceptance-time measurement contract.
+# Fleet calibration may improve for later roots, but it must never retroactively
+# invalidate a normal continuation of an already accepted root.
+frozen_root_measured_contract=0
+frozen_root_complexity_score=""
+frozen_root_behavioral=""
+frozen_root_failures=""
+frozen_root_ownership=""
+frozen_root_concurrency=""
+frozen_root_validations=""
+frozen_root_implementation_files=""
+frozen_root_actions=""
+frozen_root_declared_p95=""
+frozen_root_effective_p95=""
+frozen_root_complexity_class=""
+frozen_root_worker_route=""
+frozen_root_terra_exception=""
+frozen_root_architecture_decisions=""
 cleanup_publish()
 {
 	local status="$?"
@@ -198,6 +216,7 @@ normalize_measured_assignment_metadata()
 	local obligation_weight requested_route requested_class requested_leaf requested_architecture requested_validation requested_files requested_turns requested_exception luna_failures root_criterion_count
 	local required_symbols symbol_count calibration_rate residual_p95 verified_items
 	local recovery_decisions_resolved recovery_verified_child resource_recovery resource_local_authority decision requested_obligations obligation_count architecture_decisions
+	local root_plan_item root_leaf root_validation root_value
 	# Every task bound to a measured plan node uses the installed deterministic
 	# vector.  Revisions and recovery tasks must not ask a planning agent to
 	# reproduce these machine-owned fields by hand.
@@ -228,6 +247,69 @@ normalize_measured_assignment_metadata()
 	requested_files="$(metadata_value "$task_file" Expected-Max-Implementation-Files)"
 	requested_turns="$(metadata_value "$task_file" Expected-Max-Worker-Turns)"
 	architecture_decisions="$requested_architecture"
+	# A normal continuation preserves the immutable root's execution envelope
+	# when it is still performing the same leaf type and validation class. This
+	# avoids a moving fleet-wide calibration making a previously admitted task
+	# unpublishable. Explicit replan/remediation paths remain free to derive a
+	# new, narrower child vector below.
+	if [[ "$task_id" != "$root" && -f "$root_assignment" ]] &&
+		(( recovery_publish == 0 && manager_remediation == 0 )); then
+		root_plan_item="$(metadata_value "$root_assignment" Project-Plan-Item-ID)"
+		root_leaf="$(metadata_value "$root_assignment" Leaf-Type)"
+		root_validation="$(metadata_value "$root_assignment" Validation-Class)"
+		if [[ "$root_plan_item" == "$plan_item_id" && "$requested_leaf" == "$root_leaf" &&
+			"$requested_validation" == "$root_validation" ]]; then
+			for root_value in \
+				"$(metadata_value "$root_assignment" Complexity-Score)" \
+				"$(metadata_value "$root_assignment" Behavioral-Concerns)" \
+				"$(metadata_value "$root_assignment" Failure-Paths)" \
+				"$(metadata_value "$root_assignment" Ownership-Transitions)" \
+				"$(metadata_value "$root_assignment" Concurrency-Boundaries)" \
+				"$(metadata_value "$root_assignment" Validation-Surfaces)" \
+				"$(metadata_value "$root_assignment" Expected-Max-Implementation-Files)" \
+				"$(metadata_value "$root_assignment" Expected-Max-Agent-Actions)" \
+				"$(metadata_value "$root_assignment" Predicted-P95-Tokens)" \
+				"$(metadata_value "$root_assignment" Effective-P95-Tokens)"; do
+				[[ "$root_value" =~ ^[0-9]+$ ]] || die "immutable root measured contract is malformed for $root"
+			done
+			frozen_root_complexity_score="$(metadata_value "$root_assignment" Complexity-Score)"
+			frozen_root_behavioral="$(metadata_value "$root_assignment" Behavioral-Concerns)"
+			frozen_root_failures="$(metadata_value "$root_assignment" Failure-Paths)"
+			frozen_root_ownership="$(metadata_value "$root_assignment" Ownership-Transitions)"
+			frozen_root_concurrency="$(metadata_value "$root_assignment" Concurrency-Boundaries)"
+			frozen_root_validations="$(metadata_value "$root_assignment" Validation-Surfaces)"
+			frozen_root_implementation_files="$(metadata_value "$root_assignment" Expected-Max-Implementation-Files)"
+			frozen_root_actions="$(metadata_value "$root_assignment" Expected-Max-Agent-Actions)"
+			frozen_root_declared_p95="$(metadata_value "$root_assignment" Predicted-P95-Tokens)"
+			frozen_root_effective_p95="$(metadata_value "$root_assignment" Effective-P95-Tokens)"
+			frozen_root_complexity_class="$(metadata_value "$root_assignment" Complexity-Class)"
+			frozen_root_worker_route="$(metadata_value "$root_assignment" Worker-Route)"
+			frozen_root_terra_exception="$(metadata_value "$root_assignment" Terra-Exception)"
+			frozen_root_architecture_decisions="$(metadata_value "$root_assignment" Architecture-Decisions)"
+			[[ "$frozen_root_complexity_class" =~ ^(LOW|MEDIUM|HIGH)$ &&
+				"$frozen_root_worker_route" =~ ^(LUNA|TERRA)$ &&
+				-n "$frozen_root_terra_exception" && -n "$frozen_root_architecture_decisions" ]] ||
+				die "immutable root measured contract is malformed for $root"
+			complexity_score="$frozen_root_complexity_score"
+			behavioral="$frozen_root_behavioral"
+			failures="$frozen_root_failures"
+			ownership="$frozen_root_ownership"
+			concurrency="$frozen_root_concurrency"
+			validations="$frozen_root_validations"
+			implementation_files="$frozen_root_implementation_files"
+			actions="$frozen_root_actions"
+			declared_p95="$frozen_root_declared_p95"
+			effective_p95="$frozen_root_effective_p95"
+			complexity_class="$frozen_root_complexity_class"
+			worker_route="$frozen_root_worker_route"
+			terra_exception="$frozen_root_terra_exception"
+			architecture_decisions="$frozen_root_architecture_decisions"
+			planned_effective_p95="$effective_p95"
+			planned_worker_route="$worker_route"
+			frozen_root_measured_contract=1
+			log_event "ACTIVE_ROOT_MEASURED_CONTRACT_FROZEN root=$root task=$task_id plan_item=$plan_item_id p95=$effective_p95"
+		fi
+	fi
 	if (( recovery_publish == 1 && manager_remediation == 0 )) &&
 		[[ "$(metadata_value "$(task_root_replan_file "$root")" Trigger-Outcome)" == RESOURCE_PROGRESS_NEEDS_VERIFICATION &&
 		"$requested_leaf" == VERIFICATION_ONLY ]]; then
@@ -1490,9 +1572,10 @@ normalize_read_only_validation_labels
 normalize_recovery_context_paths()
 {
 	local requested required allowed validation normalized normalized_allowed normalized_required entry symbol candidate tmp changed=0
-	local found duplicate exact_file stem directory matching_count replan_outcome prior_context_paths
+	local found duplicate exact_file stem directory matching_count replan_outcome prior_context_paths already_admitted
 	local replan_trigger_task trigger_assignment trigger_result prior_required_symbols
 	local requested_writer_kind requested_writer_identifier writer_selector writer_path
+	local mutation_region_path mutation_region_line mutation_region_symbol mutation_region_resolution
 	local cmake_root cmake_directory include_path qualified_path qualified_symbol
 	local -a entries=() kept=() symbols=() candidates=() source_directories=() exact_files=()
 	local -a normalized_allowed_entries=() direct_includes=() deduplicated=() qualified_symbols=() normalized_symbols=()
@@ -1685,7 +1768,47 @@ normalize_recovery_context_paths()
 						log_event "CONTEXT_WRITER_WINDOW_EXPANDED root=$root task=$task_id trigger=$replan_trigger_task selector=$(printf '%q' "$writer_selector")"
 					fi
 					break
-				done
+					done
+			elif [[ "$requested_writer_kind" == MUTATION_REGION &&
+				"$requested_writer_identifier" =~ ^(.+):([1-9][0-9]*)$ ]]; then
+				mutation_region_path="${BASH_REMATCH[1]}"
+				mutation_region_line="${BASH_REMATCH[2]}"
+				# The worker may request a missing indexed subregion only when the
+				# file was already admitted as both read context and mutation scope.
+				# Resolve the enclosing definition deterministically; this is a
+				# context/mutation evidence expansion, never a scope grant.
+				if [[ "$mutation_region_path" != /* && -f "$REPOSITORY/$mutation_region_path" ]] &&
+					scope_is_within_root_authority "$mutation_region_path" "$allowed"; then
+					already_admitted=0
+					IFS=',' read -r -a entries <<< "$prior_context_paths"
+					for writer_path in "${entries[@]}"; do
+						writer_path="$(trim_surrounding_whitespace "${writer_path%%#*}")"
+						[[ "$writer_path" == "$mutation_region_path" ]] || continue
+						already_admitted=1
+						break
+					done
+					if (( already_admitted == 1 )); then
+						mutation_region_resolution="$(python3 "$HARNESS_HOME/tools/resolve_mutation_region.py" \
+							--pointer "$dir/control/repository-index.env" --repository "$REPOSITORY" \
+							--identifier "$mutation_region_path:$mutation_region_line")" ||
+							die "cannot resolve requested in-scope Mutation-Region: $mutation_region_path:$mutation_region_line"
+						IFS=$'\t' read -r writer_path mutation_region_symbol <<< "$mutation_region_resolution"
+						[[ "$writer_path" == "$mutation_region_path" &&
+							"$mutation_region_symbol" =~ ^[A-Za-z_][A-Za-z0-9_.\$~-]*$ ]] ||
+							die 'resolved Mutation-Region returned invalid repository evidence'
+						writer_selector="$writer_path#$mutation_region_symbol"
+						duplicate=0
+						for entry in "${kept[@]}"; do
+							[[ "$entry" != "$writer_selector" ]] || duplicate=1
+						done
+						if (( duplicate == 0 )); then
+							kept+=("$writer_selector")
+							qualified_symbols+=("$mutation_region_symbol")
+							changed=1
+							log_event "CONTEXT_MUTATION_REGION_EXPANDED root=$root task=$task_id trigger=$replan_trigger_task identifier=$(printf '%q' "$mutation_region_path:$mutation_region_line") selector=$(printf '%q' "$writer_selector")"
+						fi
+					fi
+				fi
 			fi
 		fi
 	fi
@@ -2174,7 +2297,21 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 				"Predicted-P95-Tokens:16:$leaf_predicted_p95"; do
 				IFS=: read -r metadata_field report_field actual_value <<< "$mapping"
 				if (( measured_recovery_route_override != 2 )); then
-					expected_value="$(awk -F '\t' -v node="$plan_item_id" -v field="$report_field" 'NR>1 && $1==node {print $field; exit}' "$(decomposition_complexity_report_file)")"
+					if (( frozen_root_measured_contract == 1 )); then
+						case "$metadata_field" in
+							Behavioral-Concerns) expected_value="$frozen_root_behavioral" ;;
+							Failure-Paths) expected_value="$frozen_root_failures" ;;
+							Ownership-Transitions) expected_value="$frozen_root_ownership" ;;
+							Concurrency-Boundaries) expected_value="$frozen_root_concurrency" ;;
+							Validation-Surfaces) expected_value="$frozen_root_validations" ;;
+							Expected-Max-Implementation-Files) expected_value="$frozen_root_implementation_files" ;;
+							Expected-Max-Agent-Actions) expected_value="$frozen_root_actions" ;;
+							Predicted-P95-Tokens) expected_value="$frozen_root_declared_p95" ;;
+							*) die "unknown frozen measured metadata field: $metadata_field" ;;
+						esac
+					else
+						expected_value="$(awk -F '\t' -v node="$plan_item_id" -v field="$report_field" 'NR>1 && $1==node {print $field; exit}' "$(decomposition_complexity_report_file)")"
+					fi
 					if [[ "$metadata_field" == Expected-Max-Implementation-Files && "$leaf_type" == VERIFICATION_ONLY ]]; then
 						expected_value=0
 					fi
@@ -2192,18 +2329,30 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 						expected_value="$HARNESS_MIN_SOURCE_CHANGE_AGENT_ACTIONS"
 					fi
 					[[ "$actual_value" == "$expected_value" ]] ||
-						die "$metadata_field must match the deterministic complexity report for $plan_item_id"
+						die "$metadata_field must match the deterministic measured contract for $plan_item_id"
 				fi
 			done
 			if (( measured_recovery_route_override == 0 && manager_remediation == 0 )); then
-				expected_value="$(project_plan_node_value "$plan_item_id" terra_exception)"
+				if (( frozen_root_measured_contract == 1 )); then
+					expected_value="$frozen_root_terra_exception"
+				else
+					expected_value="$(project_plan_node_value "$plan_item_id" terra_exception)"
+				fi
 				[[ "$leaf_terra_exception" == "$expected_value" ]] ||
 					die "Terra-Exception must match the immutable measured decomposition value for $plan_item_id"
 			fi
 			if (( measured_recovery_route_override != 2 )); then
-				expected_value="$(awk -F '\t' -v node="$plan_item_id" 'NR>1 && $1==node {print $4; exit}' "$(decomposition_complexity_report_file)")"
+				if (( frozen_root_measured_contract == 1 )); then
+					expected_value="$frozen_root_complexity_score"
+				else
+					expected_value="$(awk -F '\t' -v node="$plan_item_id" 'NR>1 && $1==node {print $4; exit}' "$(decomposition_complexity_report_file)")"
+				fi
 				[[ "$leaf_complexity_score" == "$expected_value" ]] || die 'Complexity-Score must match the deterministic complexity report'
-				expected_value="$(awk -F '\t' -v node="$plan_item_id" 'NR>1 && $1==node {print $17; exit}' "$(decomposition_complexity_report_file)")"
+				if (( frozen_root_measured_contract == 1 )); then
+					expected_value="$frozen_root_effective_p95"
+				else
+					expected_value="$(awk -F '\t' -v node="$plan_item_id" 'NR>1 && $1==node {print $17; exit}' "$(decomposition_complexity_report_file)")"
+				fi
 				[[ "$leaf_effective_p95" == "$expected_value" ]] || die 'Effective-P95-Tokens must match the deterministic complexity report'
 			fi
 		fi
@@ -2368,7 +2517,7 @@ if (( HARNESS_WORKER_GOAL_MODE == 1 )); then
 					[[ "$leaf_complexity" == "$planned_complexity" ]] || die 'leaf Complexity-Class does not match its DAG node'
 					[[ "$leaf_worker_route" == "$planned_route" ]] || die 'leaf Worker-Route does not match its DAG node'
 				fi
-			fi
+				fi
 		fi
 		architecture_validate_assignment_metadata "$task_file" "$plan_item_id"
 		luna_failures="$(root_luna_strategy_failure_count "$root")"

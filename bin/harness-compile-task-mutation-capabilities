@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/harness-common.sh"
+
+usage()
+{
+	printf 'Usage: %s ENV_FILE TASK_ID ASSIGNMENT_FILE OUTPUT\n' "${0##*/}" >&2
+	exit 2
+}
+
+[[ $# -eq 4 ]] || usage
+load_harness_env "$1"
+task_id="$2"
+assignment="$3"
+output="$4"
+ensure_project
+require_repository
+validate_task_id "$task_id"
+[[ -s "$assignment" ]] || die "task assignment is missing or empty: $assignment"
+root="$(task_root_id "$task_id")"
+plan_item="$(project_plan_item_for_root "$root" 2>/dev/null || true)"
+[[ -n "$plan_item" ]] || die "task root is not assigned to a project-plan item: $root"
+pointer="$(project_dir)/control/repository-index.env"
+[[ -f "$pointer" ]] || die 'repository index pointer is missing'
+mkdir -p "$(dirname "$output")"
+python3 "$HARNESS_HOME/tools/compile_mutation_capabilities.py" \
+	--assignment "$assignment" --node-id "$plan_item" --pointer "$pointer" \
+	--repository "$REPOSITORY" --output "$output" --require-complete-source
+chmod 600 "$output"
