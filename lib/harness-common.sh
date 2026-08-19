@@ -3268,7 +3268,7 @@ worker_task_processed_token_count()
 record_root_agent_tokens()
 {
 	local task_id="$1" role="$2" classification="$3" root thread input output current
-	local token_dir thread_key thread_state prior delta ledger tmp class estimated authoritative delta_known
+	local token_dir thread_key thread_state prior delta ledger tmp class estimated authoritative delta_known usage_available
 	[[ -f "$classification" ]] || return 0
 	root="$(task_root_id "$task_id")"
 	class="$(kv_file_value "$classification" classification 2>/dev/null || true)"
@@ -3287,6 +3287,12 @@ record_root_agent_tokens()
 	estimated="$(kv_file_value "$classification" estimated_processed_tokens 2>/dev/null || printf 0)"
 	authoritative="$(kv_file_value "$classification" invocation_processed_delta 2>/dev/null || printf 0)"
 	delta_known="$(kv_file_value "$classification" invocation_delta_known 2>/dev/null || printf 0)"
+	usage_available="$(kv_file_value "$classification" usage_available 2>/dev/null || printf 1)"
+	# A failed or interrupted resumed turn can legitimately contain a thread ID
+	# but no turn.completed usage object.  Zero is only the parser's fallback in
+	# that case, not an authoritative cumulative counter and therefore cannot be
+	# compared with the preceding thread total.
+	[[ "$usage_available" != 0 ]] || return 0
 	if [[ "$estimated" =~ ^[0-9]+$ && "$authoritative" =~ ^[0-9]+$ ]] &&
 		(( estimated >= HARNESS_TOKEN_ACCOUNTING_MISMATCH_MIN_TOKENS &&
 		authoritative >= HARNESS_TOKEN_ACCOUNTING_MISMATCH_MIN_TOKENS )) &&

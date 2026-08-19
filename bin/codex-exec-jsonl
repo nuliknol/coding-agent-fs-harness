@@ -564,9 +564,16 @@ usage_input="$(codex_usage_value_from_jsonl "$json_log" input_tokens)"
 usage_cached="$(codex_usage_value_from_jsonl "$json_log" cached_input_tokens)"
 usage_output="$(codex_usage_value_from_jsonl "$json_log" output_tokens)"
 usage_thread="$(codex_thread_id_from_jsonl "$json_log" 2>/dev/null || true)"
+usage_available=0
+if jq -e 'select(.type == "turn.completed" and
+	(.usage.input_tokens | type) == "number" and
+	(.usage.output_tokens | type) == "number")' "$json_log" >/dev/null 2>&1; then
+	usage_available=1
+fi
 invocation_processed_delta=0
 invocation_delta_known=0
-if [[ "$usage_input" =~ ^[0-9]+$ && "$usage_output" =~ ^[0-9]+$ ]]; then
+if (( usage_available == 1 )) &&
+	[[ "$usage_input" =~ ^[0-9]+$ && "$usage_output" =~ ^[0-9]+$ ]]; then
 	usage_processed=$((usage_input + usage_output))
 	if (( resume_requested == 0 )); then
 		invocation_processed_delta="$usage_processed"
@@ -652,9 +659,9 @@ if [[ -n "$git_head_before" ]] && git -C "$REPOSITORY" rev-parse HEAD >/dev/null
 	changed_file_count="$(git -C "$REPOSITORY" diff --name-only "$git_head_before"..HEAD 2>/dev/null | awk 'NF {n++} END {print n+0}')"
 	changed_line_count="$(git -C "$REPOSITORY" diff --numstat "$git_head_before"..HEAD 2>/dev/null | awk '$1~/^[0-9]+$/&&$2~/^[0-9]+$/{n+=$1+$2} END{print n+0}')"
 fi
-printf 'classification=%s\nprovider_code=%s\nhttp_status=%s\nexit_status=%s\nidle_timeout=%s\nstop_requested=%s\npartial_edits=%s\nworkspace_fingerprint_before=%s\nworkspace_fingerprint_after=%s\ngit_head_changed=%s\nchanged_file_count=%s\nchanged_line_count=%s\nresume_requested=%s\nrole=%s\nmodel=%s\nthread_id=%s\ninput_tokens=%s\ncached_input_tokens=%s\noutput_tokens=%s\ninvocation_processed_delta=%s\ninvocation_delta_known=%s\nitem_started_count=%s\nestimated_processed_tokens=%s\nmax_command_output_bytes=%s\ncommand_output_limit=%s\ninvocation_duration_seconds=%s\nresource_guard=%s\nagent_phase=%s\nitem_limit=%s\ndeclared_effective_p95=%s\nruntime_p95_floor=%s\nprompt_bytes=%s\ncontext_rounds=%s\nprocessed_token_limit=%s\nestimated_token_limit=%s\njsonl=%s\nstderr=%s\nlast_message=%s\n' \
+printf 'classification=%s\nprovider_code=%s\nhttp_status=%s\nexit_status=%s\nidle_timeout=%s\nstop_requested=%s\npartial_edits=%s\nworkspace_fingerprint_before=%s\nworkspace_fingerprint_after=%s\ngit_head_changed=%s\nchanged_file_count=%s\nchanged_line_count=%s\nresume_requested=%s\nrole=%s\nmodel=%s\nthread_id=%s\ninput_tokens=%s\ncached_input_tokens=%s\noutput_tokens=%s\nusage_available=%s\ninvocation_processed_delta=%s\ninvocation_delta_known=%s\nitem_started_count=%s\nestimated_processed_tokens=%s\nmax_command_output_bytes=%s\ncommand_output_limit=%s\ninvocation_duration_seconds=%s\nresource_guard=%s\nagent_phase=%s\nitem_limit=%s\ndeclared_effective_p95=%s\nruntime_p95_floor=%s\nprompt_bytes=%s\ncontext_rounds=%s\nprocessed_token_limit=%s\nestimated_token_limit=%s\njsonl=%s\nstderr=%s\nlast_message=%s\n' \
 	"$classification" "$error_code" "$http_status" "$status" "$idle_timed_out" "$stop_requested" "$git_state_changed" \
-	"${git_state_before:--}" "${git_state_after:--}" "$git_head_changed" "$changed_file_count" "$changed_line_count" "$resume_requested" "$role" "$model" "$usage_thread" "$usage_input" "$usage_cached" "$usage_output" \
+	"${git_state_before:--}" "${git_state_after:--}" "$git_head_changed" "$changed_file_count" "$changed_line_count" "$resume_requested" "$role" "$model" "$usage_thread" "$usage_input" "$usage_cached" "$usage_output" "$usage_available" \
 	"$invocation_processed_delta" "$invocation_delta_known" "$agent_item_count" "$agent_estimated_processed_tokens" \
 	"$agent_max_command_output_bytes" "$agent_command_output_limit" "$invocation_duration_seconds" \
 	"${resource_guard_kind:--}" "${resource_agent_phase:-ordinary}" "$resource_item_limit" "${resource_declared_effective_p95:--}" "$resource_runtime_p95_floor" "$resource_prompt_bytes" "$resource_context_rounds" "$resource_processed_token_limit" "$resource_estimated_token_limit" \

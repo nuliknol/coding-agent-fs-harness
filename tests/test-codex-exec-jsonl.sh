@@ -45,6 +45,7 @@ case "${MOCK_MODE:?}" in
  quota_code) printf '{"type":"turn.failed","error":{"code":"usage_limit_reached","message":"limit"}}\n'; exit 1 ;;
  quota_text) printf "You've hit your usage limit; limit resets in 2 hours.\n" >&2; exit 1 ;;
  rate_status) printf '{"type":"turn.failed","error":{"status":429,"message":"slow down"}}\n'; exit 1 ;;
+	transient_resume_no_usage) printf '{"type":"thread.started","thread_id":"resume-no-usage"}\n{"type":"turn.failed","error":{"status":429,"message":"slow down"}}\n'; exit 1 ;;
  network_stderr) printf 'stream disconnected: connection reset by peer\n' >&2; exit 1 ;;
  auth_code) printf '{"type":"turn.failed","error":{"code":"invalid_api_key","message":"bad credentials"}}\n'; exit 1 ;;
  success_warning) printf 'network error recovered\n' >&2; printf 'done\n' > "$last"; printf '{"type":"turn.completed"}\n' ;;
@@ -246,6 +247,20 @@ run_case quota_code provider_quota_exhausted
 run_case quota_text provider_quota_exhausted
 run_case rate_status provider_transient_error
 grep -q '^http_status=429$' "$TMP/rate_status.classification"
+# A failed resume has no authoritative cumulative usage. Its zero-valued parser
+# fallback must not be advertised as a known delta to project accounting.
+set +e
+MOCK_MODE=transient_resume_no_usage "$ROOT/bin/codex-exec-jsonl" "$TMP/env" worker gpt-5.5 \
+	"$prompt" "$TMP/transient-resume-no-usage.jsonl" \
+	"$TMP/transient-resume-no-usage.stderr" "$TMP/transient-resume-no-usage.last" \
+	resume resume-no-usage >/dev/null 2>&1
+transient_resume_status=$?
+set -e
+(( transient_resume_status != 0 ))
+grep -q '^classification=provider_transient_error$' \
+	"$TMP/transient-resume-no-usage.classification"
+grep -q '^usage_available=0$' "$TMP/transient-resume-no-usage.classification"
+grep -q '^invocation_delta_known=0$' "$TMP/transient-resume-no-usage.classification"
 run_case network_stderr provider_transient_error
 run_case auth_code terminal_authentication_error
 run_case success_warning success

@@ -48,6 +48,21 @@ assert_file "$(project_integrity_anomaly_file)"
 assert_contains "$(project_integrity_anomaly_file)" 'successful agent episode has missing or malformed authoritative token usage'
 rm -f "$(project_integrity_anomaly_file)"
 
+# Missing usage on a failed resumed invocation is unknown, not a cumulative
+# zero. Preserve the prior authoritative thread total without pausing the
+# project or charging a fabricated negative delta.
+thread_key="$(printf '%s' thread-no-usage | sha256sum | awk '{print $1}')"
+mkdir -p "$(project_dir)/control/agent-token-thread-state"
+printf 'thread_id=thread-no-usage\nprocessed_tokens=22767\n' > \
+	"$(project_dir)/control/agent-token-thread-state/$thread_key.env"
+classification="$tmp_root/transient-no-usage.classification"
+printf 'classification=provider_transient_error\nthread_id=thread-no-usage\ninput_tokens=0\noutput_tokens=0\nusage_available=0\ninvocation_processed_delta=0\ninvocation_delta_known=0\nestimated_processed_tokens=23085\n' > "$classification"
+record_root_agent_tokens root-revision-1 worker_luna "$classification"
+[[ ! -f "$(project_integrity_anomaly_file)" ]] ||
+	fail 'failed resume without usage created a project-integrity anomaly'
+assert_contains "$(project_dir)/control/agent-token-thread-state/$thread_key.env" \
+	'processed_tokens=22767'
+
 classification="$tmp_root/mismatch.classification"
 printf 'classification=success\nthread_id=thread-mismatch\ninput_tokens=100\noutput_tokens=0\ninvocation_processed_delta=99\ninvocation_delta_known=1\nestimated_processed_tokens=100\n' > "$classification"
 record_root_agent_tokens root-revision-1 worker_luna "$classification"
