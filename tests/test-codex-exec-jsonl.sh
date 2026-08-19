@@ -493,6 +493,28 @@ grep -Eq '^max_command_output_bytes=[3-9][0-9]+$' "$TMP/command-output.classific
 [[ -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-command-output-root.token-usage-anomaly.md" ]]
 rm -f "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-command-output-root.token-usage-anomaly.md"
 
+# A manager planning overflow is a stateless, retryable planning-turn failure.
+# codex-exec-jsonl still terminates and classifies the episode, but leaves the
+# root unpaused so manager-plan-next-task can make one fresh-context retry.
+printf 'TASK_ID=manager-plan-output-root\nTASK_ROOT=manager-plan-output-root\n' \
+	> "$TMP/manager-plan-output-prompt"
+cp "$TMP/env-command-output" "$TMP/env-manager-plan-output"
+printf 'export HARNESS_MAX_MANAGER_COMMAND_OUTPUT_BYTES="32"\n' \
+	>> "$TMP/env-manager-plan-output"
+set +e
+MOCK_MODE=command_output_heavy "$ROOT/bin/codex-exec-jsonl" "$TMP/env-manager-plan-output" \
+	manager_plan gpt-5.5 "$TMP/manager-plan-output-prompt" \
+	"$TMP/manager-plan-output.jsonl" "$TMP/manager-plan-output.stderr" \
+	"$TMP/manager-plan-output.last"
+manager_plan_output_status=$?
+set -e
+(( manager_plan_output_status != 0 ))
+grep -q '^classification=agent_command_output_budget_exceeded$' \
+	"$TMP/manager-plan-output.classification"
+[[ ! -e "$TMP/state/projects/jsonltest/control/progress/jsonltest-task-manager-plan-output-root.token-usage-anomaly.md" ]]
+grep -q 'AGENT_RESOURCE_CIRCUIT_BREAKER root=manager-plan-output-root.*role=manager_plan.*kind=COMMAND_OUTPUT_LIMIT' \
+	"$TMP/state/projects/jsonltest/logs/events.log"
+
 # The generated manager review capsule may be larger than a worker source
 # excerpt. Its separate limit prevents false anomalies without weakening the
 # worker/build-output guard above.

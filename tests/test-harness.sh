@@ -104,6 +104,15 @@ if [[ "$count" == 1 && ( "$key" == plan || "$key" == worker-002 ) ]]; then
 	exit 1
 fi
 
+# A stateless planning turn that emits an oversized command transcript is
+# discarded once and retried in fresh context. It must not pause the project.
+if [[ "$key" == plan && "$count" == 2 ]]; then
+	printf '{"type":"thread.started","thread_id":"mock-plan-output-overflow"}\n'
+	printf '{"type":"item.completed","item":{"id":"cmd-1","type":"command_execution","aggregated_output":"%070000d","exit_code":0,"status":"completed"}}\n' 0
+	sleep 5
+	exit 0
+fi
+
 # Exercise Oracle recovery from the exact model-service moderation wording that
 # previously left a completed project indefinitely pending. The first failure
 # must narrow the prompt; the second must switch to the configured fallback.
@@ -524,6 +533,8 @@ grep -q 'MANAGER_PROVIDER_WAIT task=001.*kind=transient' "$EVENTS"
 grep -q 'MANAGER_PROVIDER_RETRY_STARTED task=001.*kind=transient' "$EVENTS"
 grep -q 'MANAGER_PLAN_PROVIDER_WAIT kind=quota' "$EVENTS"
 grep -q 'MANAGER_PLAN_PROVIDER_RETRY_STARTED kind=quota' "$EVENTS"
+grep -q 'MANAGER_PLAN_COMMAND_OUTPUT_RETRY attempt=3 retry=1.*context=fresh' "$EVENTS"
+[[ ! -e "$TEST_ROOT/state/projects/testproj/control/progress/testproj-task-phase-2.token-usage-anomaly.md" ]]
 grep -q 'WORKER_PROVIDER_WAIT task=002.*kind=quota' "$EVENTS"
 grep -q 'WORKER_PROVIDER_RETRY_STARTED task=002.*kind=quota' "$EVENTS"
 grep -q 'MANAGER_REVIEW_LEFT_PENDING task=002' "$EVENTS"

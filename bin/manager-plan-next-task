@@ -253,6 +253,7 @@ provider_retries=0
 quota_waits=0
 fallback_stage=0
 uncommitted_success_retries=0
+command_output_retries=0
 current_model="$MANAGER_MODEL"
 while true; do
 	stamp="$(date -u '+%Y%m%dT%H%M%SZ')"
@@ -322,6 +323,35 @@ PROMPT
 		attempt=$((attempt + 1))
 		log_event "MANAGER_PLAN_PROVIDER_RETRY_STARTED kind=$retry_kind attempt=$attempt retry=$provider_retries"
 		continue
+	fi
+	if [[ "$classification" == agent_command_output_budget_exceeded ]]; then
+		classification_file="${json_log%.jsonl}.classification"
+		command_output_bytes="$(kv_file_value "$classification_file" max_command_output_bytes 2>/dev/null || printf 0)"
+		command_output_limit="$(kv_file_value "$classification_file" command_output_limit 2>/dev/null || printf "$HARNESS_MAX_MANAGER_COMMAND_OUTPUT_BYTES")"
+		invocation_processed_delta="$(kv_file_value "$classification_file" invocation_processed_delta 2>/dev/null || printf 0)"
+		estimated_processed_tokens="$(kv_file_value "$classification_file" estimated_processed_tokens 2>/dev/null || printf 0)"
+		[[ "$command_output_bytes" =~ ^[0-9]+$ ]] || command_output_bytes=0
+		[[ "$command_output_limit" =~ ^[0-9]+$ ]] || command_output_limit="$HARNESS_MAX_MANAGER_COMMAND_OUTPUT_BYTES"
+		[[ "$invocation_processed_delta" =~ ^[0-9]+$ ]] || invocation_processed_delta=0
+		[[ "$estimated_processed_tokens" =~ ^[0-9]+$ ]] || estimated_processed_tokens=0
+		if (( command_output_retries < 1 )); then
+			command_output_retries=$((command_output_retries + 1))
+			attempt=$((attempt + 1))
+			fresh_manager_context=1
+			log_event "MANAGER_PLAN_COMMAND_OUTPUT_RETRY attempt=$attempt retry=$command_output_retries bytes=$command_output_bytes limit=$command_output_limit context=fresh jsonl=$json_log"
+			trace_event MANAGER_PLAN_COMMAND_OUTPUT_RETRY "attempt=$attempt" "retry=$command_output_retries" "bytes=$command_output_bytes" "limit=$command_output_limit" "context=fresh"
+			cat >> "$prompt_file" <<PROMPT
+
+Recovery correction: the preceding planning turn was discarded because one shell action emitted $command_output_bytes bytes, exceeding the complete-action allowance of $command_output_limit bytes. Start in fresh context. Do not enumerate PROJECT_TMP_DIR, the progress directory, or any directory. Do not loop over files or combine content sources. Read only DEVELOPMENT_POLICY_FILE and PLAN_NODE_CONTEXT_FILE with one aggregate numeric line/byte cap, then write and publish exactly one assignment from that capsule.
+PROMPT
+			continue
+		fi
+		anomaly_task="${active_root_before:-$publish_task_id}"
+		anomaly_reason="manager planning exceeded the bounded command-output allowance twice ($command_output_bytes/$command_output_limit bytes on the second attempt)"
+		anomaly_marker="$(mark_root_token_usage_anomaly "$anomaly_task" "$anomaly_reason" \
+			"role=manager_plan model=$current_model jsonl=$json_log invocation_processed_delta=$invocation_processed_delta estimated_processed_tokens=$estimated_processed_tokens")"
+		log_event "MANAGER_PLAN_COMMAND_OUTPUT_ESCALATED attempt=$attempt retries=$command_output_retries bytes=$command_output_bytes limit=$command_output_limit marker=$anomaly_marker"
+		die "Codex manager planning exceeded its command-output allowance twice; see $json_log"
 	fi
 
 	if codex_model_requires_narrow_prompt "$current_model" && [[ "$classification" == model_refusal_or_blocked_content ]]; then

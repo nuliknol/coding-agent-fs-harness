@@ -8,6 +8,10 @@ grep -Fq 'MANAGER_PLAN_UNCOMMITTED_SUCCESS_RETRY' \
 	"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/bin/manager-plan-next-task"
 grep -Fq 'fresh_manager_context=1' \
 	"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/bin/manager-plan-next-task"
+grep -Fq 'MANAGER_PLAN_COMMAND_OUTPUT_RETRY' \
+	"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/bin/manager-plan-next-task"
+grep -Fq 'MANAGER_PLAN_COMMAND_OUTPUT_ESCALATED' \
+	"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/bin/manager-plan-next-task"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HARNESS_HOME="$(cd "$SCRIPT_DIR/.." && pwd)"
 HARNESS_BIN="$HARNESS_HOME/bin"

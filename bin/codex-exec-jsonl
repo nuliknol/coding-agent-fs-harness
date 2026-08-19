@@ -360,8 +360,18 @@ require_no_project_integrity_anomaly
 
 record_resource_guard()
 {
-	local alarm marker="-" anomaly_task
+	local alarm marker="-" anomaly_task defer_to_planner=0
+	# Planning turns do not own source edits and manager-plan-next-task already
+	# has a bounded fresh-context retry loop.  Let that caller discard one
+	# oversized planning transcript and retry it without turning a stateless
+	# model command mistake into a project-wide operator pause.  The caller
+	# escalates a repeated overflow through mark_root_token_usage_anomaly; every
+	# other role and resource guard retains the immediate durable interlock.
+	if [[ "$role" == manager_plan && "$resource_guard_kind" == COMMAND_OUTPUT_LIMIT ]]; then
+		defer_to_planner=1
+	fi
 	if [[ -n "$resource_task_root" && "$resource_task_root" != - ]] &&
+		(( defer_to_planner == 0 )) &&
 		{ [[ "$resource_guard_kind" =~ ^(TOKEN_LIMIT|ESTIMATED_TOKEN_LIMIT|COMMAND_OUTPUT_LIMIT)$ ]] ||
 			{ [[ "$role" =~ ^manager_(review|replan)$ ]] && [[ "$resource_guard_kind" == ITEM_LIMIT ]]; }; }; then
 		anomaly_task="$resource_task_id"
@@ -373,6 +383,7 @@ record_resource_guard()
 	# worker-invoke-task converts it into a preserved NEEDS_DECOMPOSITION handoff,
 	# so it is not a genuine human authority/secret/external-state dependency.
 	elif [[ -n "$resource_task_root" && "$resource_task_root" != - ]] &&
+		(( defer_to_planner == 0 )) &&
 		! { [[ "$role" =~ ^worker || "$role" == manager_remediation ]] &&
 			[[ "$resource_goal_mode" == 1 ]]; }; then
 		mkdir -p "$(project_dir)/control/progress"
