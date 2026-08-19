@@ -87,6 +87,22 @@ class ContextRequestTest(unittest.TestCase):
         self.assertIn("int caller(void)",
                       (self.root / "extension.md").read_text(encoding="utf-8"))
 
+    def test_required_symbol_caller_uses_bounded_lexical_fallback_without_call_edge(self):
+        connection = sqlite3.connect(self.database)
+        connection.execute("DELETE FROM call_edges")
+        connection.commit()
+        connection.close()
+
+        result = self.resolve("CALLER_CONTRACT", "add")
+        self.assertEqual(0, result.returncode, result.stderr + result.stdout)
+        extension = (self.root / "extension.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "Authorization-Relation: required-symbol-lexical-caller-inside-declared-read-boundary",
+            extension,
+        )
+        self.assertIn("int caller(void)", extension)
+        self.assertIn("declared-read-boundary-lexical-caller-fallback", extension)
+
     def test_exact_required_symbol_definition_is_admitted(self):
         result = self.resolve("SYMBOL_DEFINITION", "add")
         self.assertEqual(0, result.returncode, result.stderr + result.stdout)

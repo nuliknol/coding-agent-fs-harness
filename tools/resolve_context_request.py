@@ -313,6 +313,68 @@ def bounded_lexical_type_definitions(repository: Path, identifier: str,
     return recovered[:4]
 
 
+def bounded_lexical_caller_contracts(connection: sqlite3.Connection,
+                                     repository: Path, identifier: str,
+                                     requested_ids: list[str],
+                                     boundaries: set[str]
+                                     ) -> list[tuple[str, int, int, str]]:
+    """Recover callers omitted from the call graph inside declared files.
+
+    HIP and other partially indexed translation units can retain an exact
+    required-symbol definition while omitting its call edges.  In that case a
+    CALLER_CONTRACT request would otherwise reject evidence already covered by
+    the assignment's read boundary.  Search only exact declared C-family files,
+    exclude the requested symbol's own indexed definition, and prefer an
+    indexed enclosing definition for each lexical use.  A small line window is
+    the bounded fallback when the enclosing function is also absent from the
+    structural index.
+    """
+    token = re.compile(rf"(?<![A-Za-z0-9_]){re.escape(identifier)}(?![A-Za-z0-9_])")
+    suffixes = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".hip", ".cu"}
+    requested_regions = {
+        (row["repository_path"], row["start_line"], row["end_line"])
+        for row in definitions(connection, requested_ids)
+    }
+    recovered: list[tuple[str, int, int, str]] = []
+    seen: set[tuple[str, int, int]] = set()
+    for boundary in sorted(boundaries):
+        normalized = boundary.split("#", 1)[0].rstrip("/")
+        entry = safe_entry(repository, normalized)
+        if entry is None or not entry.is_file() or entry.suffix.lower() not in suffixes:
+            continue
+        lines = entry.read_text(encoding="utf-8", errors="replace").splitlines()
+        for line_number, line in enumerate(lines, start=1):
+            if token.search(line) is None:
+                continue
+            if any(path == normalized and start <= line_number <= end
+                   for path, start, end in requested_regions):
+                continue
+            enclosing = connection.execute(
+                "SELECT s.display_name,r.start_line,r.end_line FROM files f "
+                "JOIN source_regions r ON r.file_id=f.file_id "
+                "JOIN symbol_definitions d ON d.region_id=r.region_id "
+                "JOIN symbols s ON s.symbol_id=d.symbol_id "
+                "WHERE f.repository_path=? AND r.start_line<=? AND r.end_line>=? "
+                "ORDER BY (r.end_line-r.start_line),r.start_line LIMIT 1",
+                (normalized, line_number, line_number),
+            ).fetchone()
+            if enclosing is not None:
+                start, end = enclosing["start_line"], enclosing["end_line"]
+                symbol = enclosing["display_name"]
+            else:
+                start = max(1, line_number - 40)
+                end = min(len(lines), line_number + 80)
+                symbol = f"lexical-caller-of-{identifier}"
+            key = (normalized, start, end)
+            if key in seen:
+                continue
+            seen.add(key)
+            recovered.append((normalized, start, end, symbol))
+            if len(recovered) >= 4:
+                return recovered
+    return recovered
+
+
 def declared_validation_paths(repository: Path, command: str) -> set[str]:
     """Return exact existing repository paths named as validation arguments."""
     try:
@@ -521,6 +583,14 @@ def main() -> int:
             for row in definitions(connection, [item[0] for item in callers]):
                 records.append(("CALLER_CONTRACT", row["repository_path"], row["start_line"],
                                 row["end_line"], row["display_name"], row["provider"]))
+            if not records:
+                for path, start, end, symbol in bounded_lexical_caller_contracts(
+                        connection, repository, identifier, sorted(authorized),
+                        read_boundaries):
+                    records.append(("CALLER_CONTRACT", path, start, end, symbol,
+                                    "declared-read-boundary-lexical-caller-fallback"))
+                if records:
+                    relation = "required-symbol-lexical-caller-inside-declared-read-boundary"
     elif args.request_kind == "CALLEE_CONTRACT":
         # Workers name the missing callee whose contract they need, while the
         # assignment normally seeds the caller.  Admit that exact callee when
