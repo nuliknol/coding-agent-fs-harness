@@ -129,6 +129,17 @@ if [[ "$PROJECT" == goalresource ]]; then
 	printf '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":10}}\n'
 	exit 0
 fi
+if [[ "$PROJECT" == goalresourcesalvage ]]; then
+	result="$PROJECT_TMP_DIR/result.md"
+	printf '# Task Result\n\nTask-ID: %s\nStatus: COMPLETED\nGoal-ID: %s\nGoal-Outcome: COMPLETE\n\n## Summary\n\nThe bounded leaf completed before the resource monitor sampled it.\n\n## Modified files\n\nNone.\n\n## Implemented behavior\n\nThe assigned evidence was verified.\n\n## Validation performed\n\nFocused validation passed.\n\n## Deviations from assignment\n\nNone.\n\n## Remaining concerns\n\nNone.\n\n## Worker assessment\n\nThe terminal evidence is complete.\n' \
+		"$TASK_ID" "$GOAL_ID" > "$result"
+	[[ -z "$last_message_file" ]] || printf 'terminal result written\n' > "$last_message_file"
+	printf '{"type":"thread.started","thread_id":"goal-resource-salvage-thread"}\n'
+	printf '{"type":"item.started","item":{"id":"terminal-result","type":"file_change","changes":[{"path":"%s","kind":"add"}]}}\n' "$result"
+	printf '{"type":"item.completed","item":{"id":"terminal-result","type":"file_change","changes":[{"path":"%s","kind":"add"}]}}\n' "$result"
+	printf '{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":10}}\n'
+	exit 0
+fi
 count_file="$HARNESS_ROOT/goal-mock-count"
 count=0
 [[ ! -f "$count_file" ]] || count="$(cat "$count_file")"
@@ -371,6 +382,49 @@ grep -q '^semantic_relation=PREMISE_INVALIDATED$' "$replan_state"
 [[ "$(cat "$REPLAN_ROOT/state/goal-mock-count")" == 2 ]]
 [[ ! -e "$replan_project/control/progress/goalreplan-task-001.needs-human.md" ]]
 grep -q 'WORKER_GOAL_SEMANTIC_REPLAN task=001' "$replan_project/logs/events.log"
+
+# A resource monitor may sample immediately after Codex has completed the
+# isolated terminal receipt but before Codex invokes worker-complete-task. The
+# harness validates and accepts that receipt instead of discarding successful
+# work and leaving a project-wide token pause.
+SALVAGE_ROOT="$TEST_ROOT/goal-resource-salvage"
+mkdir -p "$SALVAGE_ROOT/repo" "$SALVAGE_ROOT/manager-home" "$SALVAGE_ROOT/worker-home"
+printf 'resource salvage specification\n' > "$SALVAGE_ROOT/repo/spec.md"
+git -C "$SALVAGE_ROOT/repo" init -q
+git -C "$SALVAGE_ROOT/repo" config user.name 'Harness Test'
+git -C "$SALVAGE_ROOT/repo" config user.email 'harness@example.invalid'
+git -C "$SALVAGE_ROOT/repo" add spec.md
+git -C "$SALVAGE_ROOT/repo" commit -qm baseline
+cat > "$SALVAGE_ROOT/harness.env" <<ENV
+export PROJECT="goalresourcesalvage"
+export REPOSITORY="$SALVAGE_ROOT/repo"
+export SPECIFICATION="\$REPOSITORY/spec.md"
+export HARNESS_HOME="$HARNESS_HOME"
+export HARNESS_BIN="\$HARNESS_HOME/bin"
+export HARNESS_ROOT="$SALVAGE_ROOT/state"
+export HARNESS_AGENT_MIN_INTERVAL_SECONDS="0"
+export MANAGER_CODEX_HOME="$SALVAGE_ROOT/manager-home"
+export MANAGER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export WORKER_CODEX_HOME="$SALVAGE_ROOT/worker-home"
+export WORKER_CODEX_BIN="$TEST_ROOT/mock-codex"
+export HARNESS_MAX_AGENT_PROCESSED_TOKENS_PER_INVOCATION="50"
+export HARNESS_MAX_WORKER_TASK_PROCESSED_TOKENS="500000"
+export HARNESS_SEMANTIC_CONTINUATION_REVIEW_ENABLED="1"
+ENV
+chmod 600 "$SALVAGE_ROOT/harness.env"
+"$HARNESS_BIN/harness-init" "$SALVAGE_ROOT/harness.env" >/dev/null
+printf 'P0\tResource terminal salvage\n' > "$SALVAGE_ROOT/plan.tsv"
+"$HARNESS_BIN/manager-init-project-plan" "$SALVAGE_ROOT/harness.env" "$SALVAGE_ROOT/plan.tsv" >/dev/null
+"$HARNESS_BIN/manager-publish-task" "$SALVAGE_ROOT/harness.env" 001 "$TEST_ROOT/task.md" P0 >/dev/null
+"$HARNESS_BIN/worker-invoke-task" "$SALVAGE_ROOT/harness.env" 001 >/dev/null
+salvage_project="$SALVAGE_ROOT/state/projects/goalresourcesalvage"
+salvage_result="$salvage_project/results/goalresourcesalvage-task-001.result.md"
+grep -Fqx 'Goal-Outcome: COMPLETE' "$salvage_result"
+[[ ! -e "$salvage_project/control/progress/goalresourcesalvage-task-001.token-usage-anomaly.md" ]]
+grep -q 'WORKER_GUARDED_TERMINAL_RESULT_RECOVERED task=001.*guard=TOKEN_LIMIT' \
+	"$salvage_project/logs/events.log"
+find "$salvage_project/archive/token-usage-anomalies" -maxdepth 1 -type f \
+	-name '*.superseded-by-acceptance.md' | grep -q .
 
 # An emergency per-invocation resource fuse preserves work and returns the
 # leaf to decomposition; it does not fabricate NEEDS_HUMAN.

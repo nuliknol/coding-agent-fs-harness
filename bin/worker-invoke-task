@@ -717,6 +717,38 @@ normalize_last_message_result()
 	fi
 }
 
+normalize_guarded_terminal_result()
+{
+	local candidate normalize_status anomaly_archive="-"
+	candidate="$PROJECT_TMP_DIR/result.md"
+	# The monitor can trip after Codex has durably completed the standard
+	# isolated result-file write but before Codex launches worker-complete-task.
+	# Preserve the resource alarm, but do not replace a complete, independently
+	# validated terminal receipt with a synthetic NEEDS_DECOMPOSITION result.
+	# Requiring the matching completed file_change event prevents stale scratch
+	# files or an interrupted write from being promoted.
+	(( goal_mode == 1 )) || return 1
+	[[ "${resource_guard:--}" != - && -s "$candidate" ]] || return 1
+	jq -e --arg path "$candidate" '
+		select(.type == "item.completed" and .item.type == "file_change") |
+		any(.item.changes[]?; .path == $path)
+	' "$json_log" >/dev/null 2>&1 || return 1
+	set +e
+	"$HARNESS_BIN/worker-complete-task" "$HARNESS_ENV_FILE" "$task_id" "$session" \
+		"$candidate" >/dev/null
+	normalize_status=$?
+	set -e
+	if (( normalize_status != 0 )); then
+		log_event "WORKER_GUARDED_TERMINAL_RESULT_REJECTED task=$task_id root=$task_root guard=$resource_guard candidate=$candidate status=$normalize_status"
+		return 1
+	fi
+	anomaly_archive="$(archive_superseded_root_token_usage_anomaly \
+		"$task_root" "$task_id" terminal-worker-result 2>/dev/null || printf '-')"
+	[[ -n "$anomaly_archive" ]] || anomaly_archive="-"
+	log_event "WORKER_GUARDED_TERMINAL_RESULT_RECOVERED task=$task_id root=$task_root guard=$resource_guard candidate=$candidate anomaly_archive=$anomaly_archive"
+	return 0
+}
+
 prepare_typed_context_expansion()
 {
 	local response="$1" kind identifier reason pointer generation_dir extension_dir extension_file
@@ -1383,6 +1415,14 @@ while true; do
 		cleanup_heartbeat
 		log_event "WORKER_PROJECT_INTEGRITY_STOP task=$task_id root=$task_root marker=$(project_integrity_anomaly_file)"
 		exit 78
+	fi
+	if normalize_guarded_terminal_result && completion_committed; then
+		cleanup_heartbeat
+		log_event "WORKER_INVOCATION_FINISHED task=$task_id session=$session status=$status result=guarded-terminal-recovered attempt=$attempt"
+		trace_event WORKER_RESULT_PUBLISHED "task_id=$task_id" "session=$session" \
+			"attempt=$attempt" "status=$status" "result=$result" "resource_guard=$resource_guard"
+		printf 'Worker completed task %s before the resource fuse and its validated terminal result was recovered.\n' "$task_id"
+		exit 0
 	fi
 	if (( episode_resource_anomaly == 1 )) && ! completion_committed; then
 		if (( goal_mode == 1 )) && publish_goal_decomposition_handoff \
