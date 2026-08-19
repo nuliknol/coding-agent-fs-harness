@@ -2439,8 +2439,14 @@ if (( recovery_publish == 1 )); then
 			retained_remediation_scope="$(metadata_value "$(task_root_replan_file "$root")" Remediation-Scope)"
 			prior_context_paths="$(metadata_value "$(task_root_replan_file "$root")" Context-Paths)"
 			requested_context_paths="$(single_metadata_value "$task_file" Context-Paths)"
+			context_trigger_task="$(metadata_value "$(task_root_replan_file "$root")" Triggered-By)"
+			context_trigger_assignment="$dir/archive/$(task_base "$context_trigger_task").assignment.md"
 			[[ -n "$retained_remediation_scope" && -n "$prior_context_paths" ]] ||
 				die 'context-incomplete remediation marker is missing retained scope or prior Context-Paths'
+			[[ -f "$context_trigger_assignment" ]] ||
+				die 'context-incomplete remediation triggering assignment is missing'
+			prior_required_symbols="$(metadata_value "$context_trigger_assignment" Required-Symbols)"
+			requested_required_symbols="$(single_metadata_value "$task_file" Required-Symbols)"
 			[[ "$(canonical_scope_path_set "$remediation_scope")" == \
 				"$(canonical_scope_path_set "$retained_remediation_scope")" ]] ||
 				die "context-incomplete remediation must preserve its exact Remediation-Scope: $retained_remediation_scope"
@@ -2451,9 +2457,18 @@ if (( recovery_publish == 1 )); then
 				scope_is_within_root_authority "$prior_context_paths" "$requested_context_paths" ||
 					die "context-incomplete remediation must retain every prior Context-Paths entry: $prior_context_paths"
 			fi
-			[[ "$(canonical_scope_path_set "$requested_context_paths")" != \
-				"$prior_context_path_set" ]] ||
-				die 'context-incomplete remediation must add at least one exact bounded Context-Paths entry'
+			context_expanded=0
+			if [[ "$(canonical_scope_path_set "$requested_context_paths")" != \
+				"$prior_context_path_set" ]]; then
+				context_expanded=1
+			elif [[ "$requested_required_symbols" != "$prior_required_symbols" ]] &&
+				metadata_identifier_list_is_subset "$prior_required_symbols" \
+					"$requested_required_symbols"; then
+				context_expanded=1
+				log_event "CONTEXT_INCOMPLETE_REQUIRED_SYMBOL_EXPANDED root=$root task=$task_id prior=$(printf '%q' "$prior_required_symbols") requested=$(printf '%q' "$requested_required_symbols")"
+			fi
+			(( context_expanded == 1 )) ||
+				die 'context-incomplete remediation must add an exact bounded Context-Paths entry or Required-Symbol'
 		fi
 	else
 		[[ -z "$(metadata_value "$task_file" Manager-Remediation)" ]] ||

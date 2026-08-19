@@ -35,6 +35,7 @@ grep -Fq 'typed Context Closure repair must retain the triggering manager-remedi
 grep -Fq 'normalize_recovery_context_paths' "$ROOT/bin/manager-publish-task"
 grep -Fq 'LUNA_CONTEXT_PATHS_NORMALIZED' "$ROOT/bin/manager-publish-task"
 grep -Fq 'QUALIFIED_CONTEXT_SYMBOL_NORMALIZED' "$ROOT/bin/manager-publish-task"
+grep -Fq 'CONTEXT_INCOMPLETE_REQUIRED_SYMBOL_EXPANDED' "$ROOT/bin/manager-publish-task"
 grep -Fq 'CONTEXT_CLOSURE_EXEMPT' "$ROOT/bin/worker-invoke-task"
 (
 	source "$ROOT/lib/harness-worker-policy.sh"
